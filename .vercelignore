@@ -1,13 +1,15 @@
 # Exclude unnecessary files from Vercel deployment
 # This reduces upload size and speeds up deployment
 
-# Data directories
-data/
-conversations/
-logs/
+# Data directories (root level only - use /data/ to be specific)
+/data/
+/conversations/
+/logs/
 *.db
 *.sqlite
 *.sqlite3
+# But keep dashboard/data/ Python modules
+!dashboard/data/
 
 # Python cache
 __pycache__/
