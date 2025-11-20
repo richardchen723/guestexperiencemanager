@@ -45,7 +45,12 @@ if [ -f ".env" ]; then
     echo ""
     
     echo "# Flask"
-    grep "^SECRET_KEY=" .env || echo "# SECRET_KEY=not set"
+    if grep -q "^SECRET_KEY=" .env; then
+        SECRET=$(grep "^SECRET_KEY=" .env | cut -d'=' -f2)
+        echo "SECRET_KEY=${SECRET:0:8}...${SECRET: -4} (masked - use actual value from .env)"
+    else
+        echo "# SECRET_KEY=not set (generate with: python3 -c \"import secrets; print(secrets.token_hex(32))\")"
+    fi
     echo "FLASK_DEBUG=False"
     echo "FLASK_HOST=0.0.0.0"
     echo "FLASK_PORT=5001"
