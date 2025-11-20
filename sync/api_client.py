@@ -36,7 +36,7 @@ class SSLAdapter(HTTPAdapter):
     Custom HTTPAdapter with improved SSL/TLS configuration for serverless environments.
     This helps handle SSL connection issues in Vercel and similar environments.
     """
-    def init_poolmanager(self, *args, **kwargs):
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
         # Configure SSL context with proper settings for serverless
         context = ssl.create_default_context()
         # Set check_hostname to True for security
@@ -51,16 +51,16 @@ class SSLAdapter(HTTPAdapter):
             # Python < 3.7 doesn't have TLSVersion enum, use default context
             pass
         
-        kwargs['ssl_context'] = context
+        pool_kwargs['ssl_context'] = context
         
         # In serverless, use minimal connection pooling to avoid stale connections
         if IS_VERCEL:
-            kwargs['maxsize'] = 1  # Minimal pool size - one connection at a time
-            kwargs['block'] = False  # Don't block on pool exhaustion
+            maxsize = 1  # Override maxsize - minimal pool size for serverless
+            block = False  # Don't block on pool exhaustion
             # Disable connection keep-alive in serverless to force fresh connections
-            kwargs['socket_options'] = []
+            pool_kwargs['socket_options'] = []
         
-        return super().init_poolmanager(*args, **kwargs)
+        return super().init_poolmanager(connections, maxsize, block=block, **pool_kwargs)
 
 
 class HostawayAPIClient:
