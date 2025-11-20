@@ -58,7 +58,7 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 
 ```
 VERCEL=1
-VERBOSE=False
+VERBOSE=True  # Set to True for debug deployment (enables detailed logging)
 MESSAGE_SYNC_PARALLEL_WORKERS=10
 ```
 

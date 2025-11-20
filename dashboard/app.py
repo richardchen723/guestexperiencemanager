@@ -38,7 +38,13 @@ def create_app():
         setup_logging(log_file=log_file)
     
     logger = logging.getLogger(__name__)
-    logger.info("Initializing Flask application with DEBUG logging enabled")
+    if is_vercel:
+        logger.info("=" * 80)
+        logger.info("Flask application starting in VERCEL DEBUG MODE")
+        logger.info("All logs will be sent to stdout for Vercel dashboard")
+        logger.info("=" * 80)
+    else:
+        logger.info("Initializing Flask application")
     
     # Allow insecure transport for localhost development (HTTP instead of HTTPS)
     # This is required for OAuth to work on localhost
