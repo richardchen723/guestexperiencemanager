@@ -8,6 +8,7 @@ import sys
 import os
 import json
 import logging
+import time
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional, Tuple, Any
 
@@ -212,6 +213,18 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                 # Fetch reservations (API defaults to sorted by updatedOn DESC - newest first)
                 reservations = client.get_reservations(limit=limit, offset=offset)
                 
+                # Handle API failure (returns None on error after retries)
+                if reservations is None:
+                    error_msg = f"Failed to fetch reservations at offset {offset} after retries"
+                    logger.error(error_msg)
+                    errors.append(error_msg)
+                    # If we've already fetched some reservations, process what we have
+                    if all_reservations:
+                        logger.warning(f"API error at offset {offset}, but we have {len(all_reservations)} reservations already. Processing those and stopping.")
+                        break
+                    # If this is the first page and it fails, raise an error
+                    raise Exception(f"Failed to fetch reservations from API: {error_msg}")
+                
                 if not reservations:
                     break
                 
@@ -270,6 +283,10 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                     break
                 
                 offset += limit
+                
+                # Small delay between paginated requests to avoid overwhelming the server
+                # This helps prevent SSL/connection errors from rapid requests
+                time.sleep(0.5)
                 
         except Exception as e:
             error_msg = f"Error fetching reservations from API: {str(e)}"
