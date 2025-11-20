@@ -9,8 +9,6 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from config import VERBOSE
-
 
 def setup_logging(log_file: Optional[str] = None) -> None:
     """
@@ -41,11 +39,12 @@ def setup_logging(log_file: Optional[str] = None) -> None:
             log_file = None
     
     # Determine log level: Always DEBUG in Vercel, or if VERBOSE is enabled
-    # Reload VERBOSE after potentially setting it above
-    from config import VERBOSE
+    # Import VERBOSE after potentially setting it above (need to reload config module)
     if is_vercel:
         log_level = logging.DEBUG  # Always DEBUG in Vercel for detailed diagnostics
     else:
+        # Import VERBOSE for local development
+        from config import VERBOSE
         log_level = logging.DEBUG if VERBOSE else logging.INFO
     
     # Configure root logger
