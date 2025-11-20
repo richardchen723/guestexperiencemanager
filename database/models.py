@@ -343,21 +343,41 @@ def get_engine(db_path_or_url: str):
     Returns:
         SQLAlchemy engine configured for the appropriate database type
     """
+    import os
+    from sqlalchemy.pool import NullPool
+    
     # Detect PostgreSQL connection string
     if db_path_or_url.startswith('postgresql://') or db_path_or_url.startswith('postgres://'):
-        # PostgreSQL connection
-        engine = create_engine(
-            db_path_or_url,
-            echo=False,
-            pool_pre_ping=True,  # Verify connections before using
-            pool_size=5,  # Number of connections to maintain
-            max_overflow=10,  # Additional connections beyond pool_size
-            pool_recycle=3600,  # Recycle connections after 1 hour
-            connect_args={
-                'connect_timeout': 10,  # Connection timeout in seconds
-                'application_name': 'hostaway-messages'
-            }
-        )
+        # Check if we're in a serverless environment (Vercel)
+        is_vercel = os.getenv("VERCEL", "0") == "1"
+        
+        if is_vercel:
+            # Serverless: Use NullPool to avoid connection pool exhaustion
+            # Each request gets a fresh connection that's closed immediately
+            engine = create_engine(
+                db_path_or_url,
+                echo=False,
+                poolclass=NullPool,  # No connection pooling in serverless
+                pool_pre_ping=True,  # Verify connections before using
+                connect_args={
+                    'connect_timeout': 10,  # Connection timeout in seconds
+                    'application_name': 'hostaway-messages'
+                }
+            )
+        else:
+            # Local/development: Use connection pooling
+            engine = create_engine(
+                db_path_or_url,
+                echo=False,
+                pool_pre_ping=True,  # Verify connections before using
+                pool_size=2,  # Smaller pool for local development
+                max_overflow=5,  # Additional connections beyond pool_size
+                pool_recycle=1800,  # Recycle connections after 30 minutes
+                connect_args={
+                    'connect_timeout': 10,  # Connection timeout in seconds
+                    'application_name': 'hostaway-messages'
+                }
+            )
         return engine
     
     # SQLite connection (backward compatibility)

@@ -57,21 +57,40 @@ def get_engine(db_path_or_url: str):
     Args:
         db_path_or_url: Database path (for SQLite) or connection URL (for PostgreSQL)
     """
+    import os
+    from sqlalchemy.pool import NullPool
+    
     # Detect PostgreSQL connection string
     if db_path_or_url.startswith('postgresql://') or db_path_or_url.startswith('postgres://'):
-        # PostgreSQL connection
-        engine = create_engine(
-            db_path_or_url,
-            echo=False,
-            pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=10,
-            pool_recycle=3600,
-            connect_args={
-                'connect_timeout': 10,
-                'application_name': 'hostaway-users'
-            }
-        )
+        # Check if we're in a serverless environment (Vercel)
+        is_vercel = os.getenv("VERCEL", "0") == "1"
+        
+        if is_vercel:
+            # Serverless: Use NullPool to avoid connection pool exhaustion
+            engine = create_engine(
+                db_path_or_url,
+                echo=False,
+                poolclass=NullPool,  # No connection pooling in serverless
+                pool_pre_ping=True,
+                connect_args={
+                    'connect_timeout': 10,
+                    'application_name': 'hostaway-users'
+                }
+            )
+        else:
+            # Local/development: Use connection pooling
+            engine = create_engine(
+                db_path_or_url,
+                echo=False,
+                pool_pre_ping=True,
+                pool_size=2,  # Smaller pool for local development
+                max_overflow=5,
+                pool_recycle=1800,  # Recycle connections after 30 minutes
+                connect_args={
+                    'connect_timeout': 10,
+                    'application_name': 'hostaway-users'
+                }
+            )
         return engine
     
     # SQLite connection (backward compatibility)
