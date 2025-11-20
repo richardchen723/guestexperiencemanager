@@ -35,8 +35,7 @@ def create_google_blueprint(app):
     google_bp = make_google_blueprint(
         client_id=config.GOOGLE_CLIENT_ID,
         client_secret=config.GOOGLE_CLIENT_SECRET,
-        scope=['openid', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile'],
-        authorized_url='/auth/google/callback'
+        scope=['openid', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile']
     )
     
     # Use Flask-Dance's signal to handle user creation after OAuth completes
