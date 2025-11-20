@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Hostaway Insights Dashboard{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tickets.css') }}">
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <div class="header-brand">
+                    <a href="/" class="header-logo">Hostaway Insights</a>
+                    <nav class="header-nav">
+                        <a href="/" {% if request.endpoint == 'index' or request.endpoint == 'api_listings' %}class="active"{% endif %}>Properties</a>
+                        <a href="{{ url_for('tickets.tickets_list') }}" {% if 'tickets' in request.endpoint %}class="active"{% endif %}>Tickets</a>
+                        <a href="{{ url_for('sync.sync_history_page') }}" {% if 'sync' in request.endpoint %}class="active"{% endif %}>Sync</a>
+                        {% if current_user and current_user.is_admin() %}
+                        <a href="{{ url_for('admin.users_page') }}" {% if 'admin' in request.endpoint %}class="active"{% endif %}>Admin</a>
+                        {% endif %}
+                    </nav>
+                </div>
+                <div class="header-actions">
+                    {% if current_user %}
+                    <div class="user-menu">
+                        <div class="user-menu-info">
+                            {% if current_user.picture_url %}
+                            <img src="{{ current_user.picture_url }}" alt="{{ current_user.name or current_user.email }}" class="user-menu-avatar">
+                            {% else %}
+                            <div class="avatar user-menu-avatar">
+                                {{ (current_user.name or current_user.email)[0].upper() }}
+                            </div>
+                            {% endif %}
+                            <span class="user-menu-name">{{ current_user.name or current_user.email }}</span>
+                        </div>
+                        <div class="user-menu-dropdown">
+                            <a href="{{ url_for('auth.logout') }}">Logout</a>
+                        </div>
+                    </div>
+                    {% else %}
+                    <a href="{{ url_for('auth.login') }}" class="btn btn-primary">Login</a>
+                    {% endif %}
+                </div>
+            </div>
+        </header>
+        
+        <main>
+            <div class="content-wrapper">
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+        
+        <footer>
+            <p>Powered by AI Analysis</p>
+        </footer>
+        
+        {% block modals %}{% endblock %}
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>
+

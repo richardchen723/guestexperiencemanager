@@ -1,0 +1,626 @@
+{% extends "base.html" %}
+
+{% block title %}{% if ticket %}Edit Ticket{% else %}Create Ticket{% endif %} - Hostaway Insights Dashboard{% endblock %}
+
+{% block content %}
+<div class="ticket-form-page">
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">{% if ticket %}Edit Ticket{% else %}Create New Ticket{% endif %}</h1>
+            <p class="page-description">{% if ticket %}Update ticket details and status{% else %}Create a new action item ticket from a property issue{% endif %}</p>
+        </div>
+    </div>
+    
+    <div class="card">
+        <form id="ticketForm" onsubmit="saveTicket(event)" class="ticket-form">
+            <div class="form-group">
+                <label for="listingSelect" class="form-label">Property *</label>
+                <select id="listingSelect" class="form-select" required onchange="loadIssues()">
+                    <option value="">Select a property</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="issueSelect" class="form-label">Issue *</label>
+                <div style="display: flex; gap: var(--space-3); align-items: flex-start;">
+                    <div style="flex: 1;">
+                        <select id="issueSelect" class="form-select" required>
+                            <option value="">Select an issue</option>
+                        </select>
+                        <input type="text" id="issueTitleInput" class="form-input" placeholder="Or enter issue title manually" style="display: none; margin-top: var(--space-2);">
+                    </div>
+                </div>
+                <button type="button" onclick="toggleIssueInput()" class="btn btn-link btn-sm" style="margin-top: var(--space-2);">Enter manually</button>
+            </div>
+            
+            <div class="form-group">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-2);">
+                    <label for="titleInput" class="form-label" style="margin: 0;">Ticket Title *</label>
+                    <button type="button" id="aiSuggestionsBtn" class="btn btn-secondary btn-sm">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-right: var(--space-1);">
+                            <path d="M8 2.66667V5.33333M8 2.66667C5.42267 2.66667 3.33333 4.756 3.33333 7.33333M8 2.66667L5.33333 0M8 10.6667V13.3333M8 13.3333C10.5773 13.3333 12.6667 11.244 12.6667 8.66667M8 13.3333L10.6667 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        Get AI Suggestions
+                    </button>
+                </div>
+                <input type="text" id="titleInput" class="form-input" required placeholder="Enter a specific, actionable title">
+            </div>
+            
+            <div class="form-group">
+                <label for="descriptionInput" class="form-label">Description</label>
+                <textarea id="descriptionInput" class="form-textarea" rows="5" placeholder="Enter detailed description of the action item"></textarea>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="statusSelect" class="form-label">Status</label>
+                    <select id="statusSelect" class="form-select">
+                        <option value="Open">Open</option>
+                        <option value="Assigned">Assigned</option>
+                        <option value="In Progress">In Progress</option>
+                        <option value="Blocked">Blocked</option>
+                        <option value="Resolved">Resolved</option>
+                        <option value="Closed">Closed</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="prioritySelect" class="form-label">Priority</label>
+                    <select id="prioritySelect" class="form-select">
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                        <option value="Critical">Critical</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="categorySelect" class="form-label">Category *</label>
+                    <select id="categorySelect" class="form-select" required>
+                        <option value="other">Other</option>
+                        <option value="cleaning">Cleaning</option>
+                        <option value="maintenance">Maintenance</option>
+                        <option value="online">Online</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="assignedSelect" class="form-label">Assign To</label>
+                    <select id="assignedSelect" class="form-select">
+                        <option value="">Unassigned</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="dueDateInput" class="form-label">Due Date</label>
+                    <input type="date" id="dueDateInput" class="form-input">
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">{% if ticket %}Update Ticket{% else %}Create Ticket{% endif %}</button>
+                <a href="{% if ticket %}/tickets/{{ ticket.ticket_id }}/page{% else %}/tickets/{% endif %}" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- AI Suggestions Modal - Placed outside content-wrapper to avoid container constraints -->
+<div id="suggestionsModal" class="modal-backdrop" style="display: none !important; z-index: 99999 !important;">
+    <div class="modal" style="display: block !important;">
+        <div class="modal-header">
+            <h3 class="modal-title">AI Suggestions</h3>
+            <button onclick="closeSuggestionsModal()" class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="suggestionsLoading" class="loading">
+                <div class="spinner"></div>
+                <span>Generating AI suggestions...</span>
+            </div>
+            <div id="suggestionsContent" style="display: none;">
+                <div class="form-group">
+                    <label for="suggestedTitle" class="form-label">Title</label>
+                    <input type="text" id="suggestedTitle" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label for="suggestedDescription" class="form-label">Description</label>
+                    <textarea id="suggestedDescription" class="form-textarea" rows="4"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="suggestedPriority" class="form-label">Priority</label>
+                        <select id="suggestedPriority" class="form-select">
+                            <option value="Low">Low</option>
+                            <option value="Medium">Medium</option>
+                            <option value="High">High</option>
+                            <option value="Critical">Critical</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="suggestedCategory" class="form-label">Category</label>
+                        <select id="suggestedCategory" class="form-select">
+                            <option value="other">Other</option>
+                            <option value="cleaning">Cleaning</option>
+                            <option value="maintenance">Maintenance</option>
+                            <option value="online">Online</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="suggestedDueDate" class="form-label">Due Date</label>
+                        <input type="date" id="suggestedDueDate" class="form-input">
+                    </div>
+                </div>
+            </div>
+            <div id="suggestionsError" class="alert alert-error" style="display: none;"></div>
+        </div>
+        <div class="modal-footer">
+            <button onclick="saveSuggestions()" class="btn btn-primary">Save Suggestions</button>
+            <button onclick="closeSuggestionsModal()" class="btn btn-secondary">Close</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let allListings = [];
+let allUsers = [];
+let allIssues = [];
+let currentListingId = null;
+let ticketId = {% if ticket %}{{ ticket.ticket_id }}{% else %}null{% endif %};
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadListings();
+    loadUsers();
+    
+    // Attach event listener to AI Suggestions button
+    const aiBtn = document.getElementById('aiSuggestionsBtn');
+    if (aiBtn) {
+        aiBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('AI Suggestions button clicked via event listener');
+            getAISuggestions(e);
+            return false;
+        });
+        console.log('✓ AI Suggestions button event listener attached');
+    } else {
+        console.error('❌ AI Suggestions button not found!');
+    }
+    
+    // Also add a test function to window for debugging
+    window.testShowModal = function() {
+        console.log('=== TEST: Forcing modal to show ===');
+        const modal = document.getElementById('suggestionsModal');
+        if (!modal) {
+            alert('Modal not found!');
+            return;
+        }
+        modal.removeAttribute('style');
+        modal.style.cssText = 'display: flex !important; position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important; z-index: 99999 !important; background: rgba(255, 0, 0, 0.8) !important; align-items: center !important; justify-content: center !important;';
+        alert('Modal should be visible now with red background. Check the page!');
+    };
+    
+    {% if ticket %}
+    // Edit mode - populate form
+    populateEditForm();
+    {% elif listing_id %}
+    // Pre-fill listing and issue
+    document.getElementById('listingSelect').value = {{ listing_id }};
+    loadIssues();
+    {% if issue_title %}
+    if ({{ issue_title|tojson }}) {
+        setTimeout(() => {
+            document.getElementById('issueSelect').value = {{ issue_title|tojson }};
+        }, 500);
+    }
+    {% endif %}
+    {% endif %}
+});
+
+function loadListings() {
+    fetch('/api/listings')
+        .then(response => response.json())
+        .then(listings => {
+            allListings = listings;
+            const select = document.getElementById('listingSelect');
+            listings.forEach(listing => {
+                const option = document.createElement('option');
+                option.value = listing.listing_id;
+                option.textContent = listing.name;
+                {% if ticket %}
+                if (listing.listing_id === {{ ticket.listing_id }}) {
+                    option.selected = true;
+                }
+                {% elif listing_id %}
+                if (listing.listing_id === {{ listing_id }}) {
+                    option.selected = true;
+                }
+                {% endif %}
+                select.appendChild(option);
+            });
+            {% if ticket or listing_id %}
+            loadIssues();
+            {% endif %}
+        })
+        .catch(error => console.error('Error loading listings:', error));
+}
+
+function loadUsers() {
+    fetch('/tickets/api/users')
+        .then(response => response.json())
+        .then(users => {
+            allUsers = users;
+            const select = document.getElementById('assignedSelect');
+            users.forEach(user => {
+                const option = document.createElement('option');
+                option.value = user.user_id;
+                option.textContent = user.name || user.email;
+                {% if ticket and ticket.assigned_user_id %}
+                if (user.user_id === {{ ticket.assigned_user_id }}) {
+                    option.selected = true;
+                }
+                {% endif %}
+                select.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading users:', error));
+}
+
+function loadIssues() {
+    const listingId = document.getElementById('listingSelect').value;
+    if (!listingId) {
+        document.getElementById('issueSelect').innerHTML = '<option value="">Select an issue</option>';
+        return;
+    }
+    
+    currentListingId = listingId;
+    
+    fetch(`/tickets/api/listings/${listingId}/issues`)
+        .then(response => response.json())
+        .then(data => {
+            allIssues = data.issues || [];
+            const select = document.getElementById('issueSelect');
+            select.innerHTML = '<option value="">Select an issue</option>';
+            
+            allIssues.forEach(issue => {
+                const option = document.createElement('option');
+                option.value = issue.title;
+                option.textContent = issue.title;
+                {% if ticket %}
+                if (issue.title === {{ ticket.issue_title|tojson }}) {
+                    option.selected = true;
+                }
+                {% elif issue_title %}
+                if (issue.title === {{ issue_title|tojson }}) {
+                    option.selected = true;
+                }
+                {% endif %}
+                select.appendChild(option);
+            });
+        })
+        .catch(error => {
+            console.error('Error loading issues:', error);
+            document.getElementById('issueSelect').innerHTML = '<option value="">Error loading issues</option>';
+        });
+}
+
+function toggleIssueInput() {
+    const select = document.getElementById('issueSelect');
+    const input = document.getElementById('issueTitleInput');
+    if (input.style.display === 'none') {
+        input.style.display = 'block';
+        select.style.display = 'none';
+    } else {
+        input.style.display = 'none';
+        select.style.display = 'block';
+    }
+}
+
+function getAISuggestions(event) {
+    try {
+        // Prevent any default behavior
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        
+        console.log('=== getAISuggestions called ===');
+        console.log('Event:', event);
+        
+        // First, show the modal immediately (before validation)
+        const modal = document.getElementById('suggestionsModal');
+        if (!modal) {
+            console.error('❌ Modal element not found in DOM');
+            alert('Error: Modal element not found. Please refresh the page.');
+            return false;
+        }
+        
+        console.log('✓ Modal element found');
+        console.log('Modal before:', {
+            display: window.getComputedStyle(modal).display,
+            visibility: window.getComputedStyle(modal).visibility,
+            zIndex: window.getComputedStyle(modal).zIndex,
+            position: window.getComputedStyle(modal).position,
+            inlineStyle: modal.getAttribute('style')
+        });
+        
+        // Show modal FIRST, before any validation - use multiple methods to ensure it shows
+        console.log('Showing modal immediately...');
+        
+        // Method 1: Remove style attribute completely
+        modal.removeAttribute('style');
+        
+        // Method 2: Set all styles with !important using cssText for atomic update
+        const modalStyles = [
+            'display: flex !important',
+            'position: fixed !important',
+            'top: 0 !important',
+            'left: 0 !important',
+            'right: 0 !important',
+            'bottom: 0 !important',
+            'z-index: 99999 !important',
+            'background: rgba(0, 0, 0, 0.5) !important',
+            'backdrop-filter: blur(4px) !important',
+            'align-items: center !important',
+            'justify-content: center !important',
+            'padding: 1rem !important',
+            'visibility: visible !important',
+            'opacity: 1 !important'
+        ].join('; ');
+        
+        modal.style.cssText = modalStyles;
+        
+        // Also ensure the inner .modal div is visible
+        const innerModal = modal.querySelector('.modal');
+        if (innerModal) {
+            innerModal.style.setProperty('display', 'block', 'important');
+            innerModal.style.setProperty('position', 'relative', 'important');
+            innerModal.style.setProperty('z-index', '100000', 'important');
+            console.log('✓ Inner modal styles set');
+        }
+        
+        // Force a reflow to ensure styles are applied
+        void modal.offsetHeight;
+        
+        // Verify the styles were applied
+        const computed = window.getComputedStyle(modal);
+        console.log('Modal after setting styles:', {
+            display: computed.display,
+            visibility: computed.visibility,
+            zIndex: computed.zIndex,
+            position: computed.position,
+            width: computed.width,
+            height: computed.height,
+            top: computed.top,
+            left: computed.left
+        });
+        
+        // Check if modal is actually visible
+        const rect = modal.getBoundingClientRect();
+        console.log('Modal bounding rect:', rect);
+        console.log('Modal visible?', rect.width > 0 && rect.height > 0);
+        
+        if (rect.width === 0 || rect.height === 0) {
+            console.error('❌ Modal has zero dimensions!');
+            alert('Modal is not visible. Check console for details.');
+        }
+        
+    } catch (error) {
+        console.error('❌ Error in getAISuggestions:', error);
+        alert('Error: ' + error.message);
+        return false;
+    }
+    
+    // Validate inputs
+    const listingId = document.getElementById('listingSelect').value;
+    const issueSelect = document.getElementById('issueSelect');
+    const issueInput = document.getElementById('issueTitleInput');
+    
+    let issueTitle = '';
+    let issueDetails = '';
+    
+    if (issueInput && issueInput.style.display !== 'none' && issueInput.value) {
+        issueTitle = issueInput.value;
+    } else if (issueSelect && issueSelect.value) {
+        issueTitle = issueSelect.value;
+        const issue = allIssues.find(i => i.title === issueTitle);
+        if (issue) {
+            issueDetails = issue.details || '';
+        }
+    }
+    
+    if (!listingId || !issueTitle) {
+        // Show error in modal instead of hiding it
+        const errorEl = document.getElementById('suggestionsError');
+        const loadingEl = document.getElementById('suggestionsLoading');
+        const contentEl = document.getElementById('suggestionsContent');
+        
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (contentEl) contentEl.style.display = 'none';
+        if (errorEl) {
+            errorEl.textContent = 'Please select a property and issue first';
+            errorEl.style.display = 'block';
+        }
+        return false;
+    }
+    
+    // Show loading state
+    const loadingEl = document.getElementById('suggestionsLoading');
+    const contentEl = document.getElementById('suggestionsContent');
+    const errorEl = document.getElementById('suggestionsError');
+    
+    if (loadingEl) {
+        loadingEl.style.display = 'flex';
+    }
+    if (contentEl) {
+        contentEl.style.display = 'none';
+    }
+    if (errorEl) {
+        errorEl.style.display = 'none';
+    }
+    
+    fetch('/tickets/api/tickets/suggest', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            listing_id: parseInt(listingId),
+            issue_title: issueTitle,
+            issue_details: issueDetails
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        const loading = document.getElementById('suggestionsLoading');
+        const content = document.getElementById('suggestionsContent');
+        const error = document.getElementById('suggestionsError');
+        
+        if (loading) loading.style.display = 'none';
+        
+        if (data.error) {
+            if (error) {
+                error.textContent = 'Error: ' + data.error;
+                error.style.display = 'block';
+            }
+            return;
+        }
+        
+        const titleInput = document.getElementById('suggestedTitle');
+        const descInput = document.getElementById('suggestedDescription');
+        const prioritySelect = document.getElementById('suggestedPriority');
+        const categorySelect = document.getElementById('suggestedCategory');
+        const dueDateInput = document.getElementById('suggestedDueDate');
+        
+        if (titleInput) titleInput.value = data.title || '';
+        if (descInput) descInput.value = data.description || '';
+        if (prioritySelect) prioritySelect.value = data.priority || 'Medium';
+        if (categorySelect) categorySelect.value = data.category || 'other';
+        if (dueDateInput) dueDateInput.value = data.due_date || '';
+        
+        if (content) content.style.display = 'block';
+    })
+    .catch(error => {
+        const loading = document.getElementById('suggestionsLoading');
+        const errorDiv = document.getElementById('suggestionsError');
+        
+        if (loading) loading.style.display = 'none';
+        if (errorDiv) {
+            errorDiv.textContent = 'Error generating suggestions: ' + error.message;
+            errorDiv.style.display = 'block';
+        }
+    });
+}
+
+function saveSuggestions() {
+    // Copy all suggested values (which may have been edited by the user) to the main form
+    document.getElementById('titleInput').value = document.getElementById('suggestedTitle').value;
+    document.getElementById('descriptionInput').value = document.getElementById('suggestedDescription').value;
+    document.getElementById('prioritySelect').value = document.getElementById('suggestedPriority').value;
+    document.getElementById('categorySelect').value = document.getElementById('suggestedCategory').value;
+    document.getElementById('dueDateInput').value = document.getElementById('suggestedDueDate').value;
+    closeSuggestionsModal();
+}
+
+function closeSuggestionsModal() {
+    const modal = document.getElementById('suggestionsModal');
+    if (modal) {
+        modal.style.setProperty('display', 'none', 'important');
+    }
+    // Reset form state
+    const content = document.getElementById('suggestionsContent');
+    const error = document.getElementById('suggestionsError');
+    const loading = document.getElementById('suggestionsLoading');
+    if (content) content.style.display = 'none';
+    if (error) error.style.display = 'none';
+    if (loading) loading.style.display = 'flex';
+}
+
+function populateEditForm() {
+    {% if ticket %}
+    document.getElementById('titleInput').value = {{ ticket.title|tojson }};
+    {% if ticket.description %}
+    document.getElementById('descriptionInput').value = {{ ticket.description|tojson }};
+    {% else %}
+    document.getElementById('descriptionInput').value = '';
+    {% endif %}
+    document.getElementById('statusSelect').value = {{ ticket.status|tojson }};
+    document.getElementById('prioritySelect').value = {{ ticket.priority|tojson }};
+    document.getElementById('categorySelect').value = {{ ticket.category|tojson if ticket.category else 'other'|tojson }};
+    {% if ticket.due_date %}
+    document.getElementById('dueDateInput').value = {{ ticket.due_date.strftime('%Y-%m-%d')|tojson }};
+    {% endif %}
+    {% endif %}
+}
+
+function saveTicket(event) {
+    event.preventDefault();
+    
+    const listingId = document.getElementById('listingSelect').value;
+    const issueSelect = document.getElementById('issueSelect');
+    const issueInput = document.getElementById('issueTitleInput');
+    const issueTitle = issueInput.style.display !== 'none' ? issueInput.value : issueSelect.value;
+        const title = document.getElementById('titleInput').value;
+        const description = document.getElementById('descriptionInput').value;
+        const status = document.getElementById('statusSelect').value;
+        const priority = document.getElementById('prioritySelect').value;
+        const category = document.getElementById('categorySelect').value;
+        const assignedId = document.getElementById('assignedSelect').value;
+        const dueDate = document.getElementById('dueDateInput').value;
+    
+    if (!listingId || !issueTitle || !title) {
+        alert('Please fill in all required fields');
+        return;
+    }
+    
+    const data = {
+        listing_id: parseInt(listingId),
+        issue_title: issueTitle,
+        title: title,
+        description: description,
+        status: status,
+        priority: priority,
+        category: category,
+        assigned_user_id: assignedId ? parseInt(assignedId) : null,
+        due_date: dueDate || null
+    };
+    
+    const url = ticketId ? `/tickets/api/tickets/${ticketId}` : '/tickets/api/tickets';
+    const method = ticketId ? 'PUT' : 'POST';
+    
+    fetch(url, {
+        method: method,
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.error) {
+            alert('Error: ' + result.error);
+        } else {
+            window.location.href = `/tickets/${result.ticket_id || ticketId}/page`;
+        }
+    })
+    .catch(error => {
+        console.error('Error saving ticket:', error);
+        alert('Error saving ticket');
+    });
+}
+
+// Close modal when clicking outside
+document.addEventListener('click', function(event) {
+    const modal = document.getElementById('suggestionsModal');
+    if (modal && event.target === modal) {
+        closeSuggestionsModal();
+    }
+});
+</script>
+</div>
+{% endblock %}

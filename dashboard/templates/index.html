@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}Properties - Hostaway Insights Dashboard{% endblock %}
+
+{% block content %}
+<div class="properties-page">
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Properties</h1>
+            <p class="page-description">Manage and analyze your property portfolio</p>
+        </div>
+    </div>
+    
+    <div class="search-section">
+        <div class="search-box">
+            <svg class="search-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M9 17C13.4183 17 17 13.4183 17 9C17 4.58172 13.4183 1 9 1C4.58172 1 1 4.58172 1 9C1 13.4183 4.58172 17 9 17Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M19 19L14.65 14.65" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <input type="text" id="searchInput" class="form-input search-input" placeholder="Search by property name or address..." onkeyup="filterListings()">
+        </div>
+    </div>
+    
+    <div id="loading" class="loading" style="display: none;">
+        <div class="spinner"></div>
+        <span>Loading properties...</span>
+    </div>
+    
+    <div id="listingsContainer" class="listings-grid grid grid-auto-fit">
+        <!-- Listings will be loaded here -->
+    </div>
+    
+    <div id="noResults" class="empty-state" style="display: none;">
+        <div class="empty-state-icon">🏠</div>
+        <h3 class="empty-state-title">No properties found</h3>
+        <p class="empty-state-description">No properties match your search criteria. Try adjusting your search terms.</p>
+    </div>
+</div>
+
+<script>
+// Load listings on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadListings();
+});
+
+function loadListings() {
+    const container = document.getElementById('listingsContainer');
+    const loading = document.getElementById('loading');
+    const noResults = document.getElementById('noResults');
+    
+    loading.style.display = 'block';
+    container.innerHTML = '';
+    
+    fetch('/api/listings')
+        .then(response => response.json())
+        .then(listings => {
+            loading.style.display = 'none';
+            
+            if (listings.length === 0) {
+                noResults.style.display = 'block';
+                return;
+            }
+            
+            listings.forEach(listing => {
+                const card = document.createElement('div');
+                card.className = 'listing-card';
+                card.setAttribute('data-name', listing.name.toLowerCase());
+                card.setAttribute('data-address', (listing.address || '').toLowerCase());
+                
+                // Get quality rating and create badge
+                const qualityRating = listing.quality_rating;
+                let ratingBadge;
+                if (qualityRating && (qualityRating === 'Good' || qualityRating === 'Fair' || qualityRating === 'Poor')) {
+                    const ratingClass = qualityRating.toLowerCase();
+                    ratingBadge = `<span class="quality-badge quality-badge-${ratingClass}">${qualityRating}</span>`;
+                } else {
+                    ratingBadge = `<span class="quality-badge quality-badge-not-rated">Not Rated</span>`;
+                }
+                
+                card.innerHTML = `
+                    <div class="listing-card-header">
+                        <div class="listing-card-title-section">
+                            <h3 class="listing-card-title">${escapeHtml(listing.name)}</h3>
+                            ${ratingBadge}
+                        </div>
+                    </div>
+                    <div class="listing-card-body">
+                        <div class="listing-card-location">
+                            <svg class="location-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M8 8.5C9.10457 8.5 10 7.60457 10 6.5C10 5.39543 9.10457 4.5 8 4.5C6.89543 4.5 6 5.39543 6 6.5C6 7.60457 6.89543 8.5 8 8.5Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M8 1C6.34315 1 5 2.34315 5 4C5 5.65685 8 11 8 11C8 11 11 5.65685 11 4C11 2.34315 9.65685 1 8 1Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            <div>
+                                <p class="listing-card-address">${escapeHtml(listing.address || 'No address')}</p>
+                                ${listing.city ? `<p class="listing-card-city">${escapeHtml(listing.city)}</p>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="listing-card-footer">
+                        <a href="/insights/${listing.listing_id}" class="btn btn-primary btn-block">View Details</a>
+                    </div>
+                `;
+                
+                container.appendChild(card);
+            });
+        })
+        .catch(error => {
+            loading.style.display = 'none';
+            container.innerHTML = `<div class="error">Error loading listings: ${error.message}</div>`;
+        });
+}
+
+function filterListings() {
+    const input = document.getElementById('searchInput');
+    const filter = input.value.toLowerCase();
+    const cards = document.querySelectorAll('.listing-card');
+    const noResults = document.getElementById('noResults');
+    
+    let visibleCount = 0;
+    
+    cards.forEach(card => {
+        const name = card.getAttribute('data-name');
+        const address = card.getAttribute('data-address');
+        const matches = name.includes(filter) || address.includes(filter);
+        
+        card.style.display = matches ? 'block' : 'none';
+        if (matches) visibleCount++;
+    });
+    
+    noResults.style.display = visibleCount === 0 && filter ? 'block' : 'none';
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}
+

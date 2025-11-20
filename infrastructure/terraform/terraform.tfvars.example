@@ -1,0 +1,17 @@
+# Copy this file to terraform.tfvars and fill in your values
+# DO NOT commit terraform.tfvars to git (it contains sensitive data)
+
+aws_region = "us-east-1"
+project_name = "hostaway-messages"
+environment = "prod"
+
+# Database password - use a strong password!
+# Generate with: python3 -c "import secrets; print(secrets.token_hex(16))"
+db_password = "your-secure-password-here"
+
+# Optional: Override defaults
+# db_instance_class = "db.t3.micro"  # Free tier eligible
+# db_allocated_storage = 20
+# db_max_allocated_storage = 100
+# enable_s3_versioning = false
+

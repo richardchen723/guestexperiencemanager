@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+
+{% block title %}Tickets - Hostaway Insights Dashboard{% endblock %}
+
+{% block content %}
+<div class="tickets-page">
+    <div class="tickets-header">
+        <h2>Tickets</h2>
+            <a href="/tickets/create" class="btn-primary">Create New Ticket</a>
+    </div>
+    
+    <div class="tickets-filters">
+        <div class="filter-group">
+            <label for="filterListing">Listing:</label>
+            <select id="filterListing">
+                <option value="">All Listings</option>
+            </select>
+        </div>
+        
+        <div class="filter-group">
+            <label for="filterAssigned">Assigned To:</label>
+            <select id="filterAssigned">
+                <option value="">All Users</option>
+            </select>
+        </div>
+        
+        <div class="filter-group">
+            <label for="filterStatus">Status:</label>
+            <select id="filterStatus">
+                <option value="">All Statuses</option>
+                <option value="Open">Open</option>
+                <option value="Assigned">Assigned</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Blocked">Blocked</option>
+                <option value="Resolved">Resolved</option>
+                <option value="Closed">Closed</option>
+            </select>
+        </div>
+        
+        <div class="filter-group">
+            <label for="filterPriority">Priority:</label>
+            <select id="filterPriority">
+                <option value="">All Priorities</option>
+                <option value="Low">Low</option>
+                <option value="Medium">Medium</option>
+                <option value="High">High</option>
+                <option value="Critical">Critical</option>
+            </select>
+        </div>
+        
+        <div class="filter-group">
+            <label for="filterCategory">Category:</label>
+            <select id="filterCategory">
+                <option value="">All Categories</option>
+                <option value="cleaning">Cleaning</option>
+                <option value="maintenance">Maintenance</option>
+                <option value="online">Online</option>
+                <option value="other">Other</option>
+            </select>
+        </div>
+        
+        <button onclick="applyFilters()" class="btn-secondary">Apply Filters</button>
+        <button onclick="clearFilters()" class="btn-secondary">Clear</button>
+    </div>
+    
+    <div id="loading" class="loading" style="display: none;">
+        Loading tickets...
+    </div>
+    
+    <div id="ticketsContainer" class="tickets-container">
+        <!-- Tickets will be loaded here -->
+    </div>
+    
+    <div id="noTickets" class="no-results" style="display: none;">
+        No tickets found.
+    </div>
+</div>
+
+<script>
+let allListings = [];
+let allUsers = [];
+
+// Load data on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadListings();
+    loadUsers();
+    loadTickets();
+});
+
+function loadListings() {
+    fetch('/api/listings')
+        .then(response => response.json())
+        .then(listings => {
+            allListings = listings;
+            const select = document.getElementById('filterListing');
+            listings.forEach(listing => {
+                const option = document.createElement('option');
+                option.value = listing.listing_id;
+                option.textContent = listing.name;
+                select.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading listings:', error));
+}
+
+function loadUsers() {
+    fetch('/tickets/api/users')
+        .then(response => response.json())
+        .then(users => {
+            allUsers = users;
+            const select = document.getElementById('filterAssigned');
+            users.forEach(user => {
+                const option = document.createElement('option');
+                option.value = user.user_id;
+                option.textContent = user.name || user.email;
+                select.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading users:', error));
+}
+
+function loadTickets() {
+    const loading = document.getElementById('loading');
+    const container = document.getElementById('ticketsContainer');
+    const noTickets = document.getElementById('noTickets');
+    
+    loading.style.display = 'block';
+    container.innerHTML = '';
+    
+    const params = new URLSearchParams();
+    const listingId = document.getElementById('filterListing').value;
+    const assignedId = document.getElementById('filterAssigned').value;
+    const status = document.getElementById('filterStatus').value;
+    const priority = document.getElementById('filterPriority').value;
+    const category = document.getElementById('filterCategory').value;
+    
+    if (listingId) params.append('listing_id', listingId);
+    if (assignedId) params.append('assigned_user_id', assignedId);
+    if (status) params.append('status', status);
+    if (priority) params.append('priority', priority);
+    if (category) params.append('category', category);
+    
+    fetch(`/tickets/api/tickets?${params.toString()}`)
+        .then(response => response.json())
+        .then(tickets => {
+            loading.style.display = 'none';
+            
+            if (tickets.length === 0) {
+                noTickets.style.display = 'block';
+                return;
+            }
+            
+            noTickets.style.display = 'none';
+            
+            tickets.forEach(ticket => {
+                const card = createTicketCard(ticket);
+                container.appendChild(card);
+            });
+        })
+        .catch(error => {
+            loading.style.display = 'none';
+            container.innerHTML = `<div class="error">Error loading tickets: ${error.message}</div>`;
+        });
+}
+
+function createTicketCard(ticket) {
+    const card = document.createElement('div');
+    card.className = 'ticket-card';
+    
+    const listing = allListings.find(l => l.listing_id === ticket.listing_id);
+    const listingName = listing ? listing.name : `Listing ${ticket.listing_id}`;
+    
+    const statusClass = ticket.status.toLowerCase().replace(' ', '-');
+    const priorityClass = ticket.priority.toLowerCase();
+    const categoryClass = ticket.category ? ticket.category.toLowerCase() : 'other';
+    
+    const dueDate = ticket.due_date ? new Date(ticket.due_date) : null;
+    const isOverdue = dueDate && dueDate < new Date() && ticket.status !== 'Resolved' && ticket.status !== 'Closed';
+    
+    const categoryDisplay = ticket.category ? ticket.category.charAt(0).toUpperCase() + ticket.category.slice(1) : 'Other';
+    
+    card.innerHTML = `
+        <div class="ticket-card-header">
+                    <h3><a href="/tickets/${ticket.ticket_id}/page">${escapeHtml(ticket.title)}</a></h3>
+            <div class="ticket-badges">
+                <span class="status-badge status-${statusClass}">${escapeHtml(ticket.status)}</span>
+                <span class="priority-badge priority-${priorityClass}">${escapeHtml(ticket.priority)}</span>
+                <span class="category-badge category-${categoryClass}">${escapeHtml(categoryDisplay)}</span>
+            </div>
+        </div>
+        <div class="ticket-card-body">
+            <p class="ticket-issue">Issue: ${escapeHtml(ticket.issue_title)}</p>
+            <p class="ticket-listing">Property: ${escapeHtml(listingName)}</p>
+            ${ticket.description ? `<p class="ticket-description">${escapeHtml(ticket.description.substring(0, 150))}${ticket.description.length > 150 ? '...' : ''}</p>` : ''}
+            <div class="ticket-meta">
+                ${ticket.assigned_user_name ? `<span class="ticket-assigned">Assigned to: ${escapeHtml(ticket.assigned_user_name)}</span>` : '<span class="ticket-assigned">Unassigned</span>'}
+                ${dueDate ? `<span class="ticket-due ${isOverdue ? 'overdue' : ''}">Due: ${formatDate(dueDate)}</span>` : ''}
+            </div>
+        </div>
+        <div class="ticket-card-footer">
+            <span class="ticket-created">Created ${formatDate(new Date(ticket.created_at))}</span>
+            <a href="/tickets/${ticket.ticket_id}/page" class="btn-secondary">View Details</a>
+        </div>
+    `;
+    
+    return card;
+}
+
+function applyFilters() {
+    loadTickets();
+}
+
+function clearFilters() {
+    document.getElementById('filterListing').value = '';
+    document.getElementById('filterAssigned').value = '';
+    document.getElementById('filterStatus').value = '';
+    document.getElementById('filterPriority').value = '';
+    document.getElementById('filterCategory').value = '';
+    loadTickets();
+}
+
+function formatDate(date) {
+    if (!date) return '';
+    return new Date(date).toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric' 
+    });
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

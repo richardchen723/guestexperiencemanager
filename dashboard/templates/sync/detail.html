@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}Sync Detail - Hostaway Insights Dashboard{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/sync.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="sync-detail-page">
+    <div class="page-header">
+        <div class="page-header-content">
+            <div>
+                <a href="{{ url_for('sync.sync_history_page') }}" class="back-link">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M10 12L6 8L10 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Back to Sync History
+                </a>
+                <h1 class="page-title">Sync Details</h1>
+                <p class="page-description">Detailed breakdown of sync run #{{ sync_run_id }}</p>
+            </div>
+        </div>
+    </div>
+    
+    <div id="loading" class="loading" style="display: flex;">
+        <div class="spinner"></div>
+        <span>Loading sync details...</span>
+    </div>
+    
+    <div id="syncDetailContent" style="display: none;">
+        <!-- Sync Metadata Card -->
+        <div class="sync-metadata card">
+            <div class="card-header">
+                <h2 class="card-title">
+                    <svg class="card-title-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M10 2L12.09 7.26L18 8.27L14 12.14L14.91 18.02L10 15.77L5.09 18.02L6 12.14L2 8.27L7.91 7.26L10 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Sync Information
+                </h2>
+            </div>
+            <div class="card-body">
+                <div class="metadata-grid">
+                    <div class="metadata-item">
+                        <div class="metadata-icon">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M10 2V8L14 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M10 8L6 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M2 10C2 14.4183 5.58172 18 10 18C14.4183 18 18 14.4183 18 10C18 5.58172 14.4183 2 10 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <div class="metadata-content">
+                            <span class="metadata-label">Sync Mode</span>
+                            <span id="syncMode" class="metadata-value">-</span>
+                        </div>
+                    </div>
+                    <div class="metadata-item">
+                        <div class="metadata-icon">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M16 6L7 15L3 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <div class="metadata-content">
+                            <span class="metadata-label">Status</span>
+                            <span id="syncStatus" class="metadata-value">-</span>
+                        </div>
+                    </div>
+                    <div class="metadata-item">
+                        <div class="metadata-icon">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M10 2V10L14 14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M2 10C2 14.4183 5.58172 18 10 18C14.4183 18 18 14.4183 18 10C18 5.58172 14.4183 2 10 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <div class="metadata-content">
+                            <span class="metadata-label">Started At</span>
+                            <span id="syncStartedAt" class="metadata-value">-</span>
+                        </div>
+                    </div>
+                    <div class="metadata-item">
+                        <div class="metadata-icon">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M16 6L7 15L3 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <div class="metadata-content">
+                            <span class="metadata-label">Completed At</span>
+                            <span id="syncCompletedAt" class="metadata-value">-</span>
+                        </div>
+                    </div>
+                    <div class="metadata-item">
+                        <div class="metadata-icon">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M10 2V10L14 14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M2 10C2 14.4183 5.58172 18 10 18C14.4183 18 18 14.4183 18 10C18 5.58172 14.4183 2 10 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <div class="metadata-content">
+                            <span class="metadata-label">Duration</span>
+                            <span id="syncDuration" class="metadata-value">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Sync Results Summary (shown after sync completes) -->
+        <div id="syncSummary" class="sync-summary card" style="display: none;">
+            <div class="card-header">
+                <h2 class="card-title">
+                    <svg class="card-title-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M9 2L11.09 7.26L17 8.27L13 12.14L13.91 18.02L9 15.77L4.09 18.02L5 12.14L1 8.27L6.91 7.26L9 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Sync Results Summary
+                </h2>
+            </div>
+            <div class="card-body">
+                <div class="summary-grid" id="summaryGrid">
+                    <!-- Summary data will be populated here -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- Progress Dashboard (shown when sync is running) -->
+        <div id="progressDashboard" class="sync-progress card" style="display: none;">
+            <div class="card-header">
+                <h2 class="card-title">
+                    <svg class="card-title-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M10 2V8L14 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M10 8L6 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M2 10C2 14.4183 5.58172 18 10 18C14.4183 18 18 14.4183 18 10C18 5.58172 14.4183 2 10 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Live Sync Progress
+                </h2>
+            </div>
+            <div class="card-body">
+                <div class="progress-info">
+                    <div class="progress-bar-container">
+                        <div id="detailProgressBar" class="progress-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="detailProgressPercentage">0%</span>
+                        <span id="detailProgressCount">0 / 0</span>
+                    </div>
+                </div>
+                <div class="progress-details">
+                    <div class="progress-phase">
+                        <svg class="progress-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M8 2V8L12 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M8 8L4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M2 8C2 11.3137 4.68629 14 8 14C11.3137 14 14 11.3137 14 8C14 4.68629 11.3137 2 8 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <strong>Current Phase:</strong> <span id="detailProgressPhase">Initializing...</span>
+                    </div>
+                    <div class="progress-current-item" id="currentItemContainer" style="display: none;">
+                        <svg class="progress-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M8 2L10.09 7.26L16 8.27L12 12.14L12.91 18.02L8 15.77L3.09 18.02L4 12.14L0 8.27L5.91 7.26L8 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <strong>Processing:</strong> <span id="detailCurrentItem">-</span>
+                    </div>
+                    <div class="progress-stats">
+                        <div class="stat-item">
+                            <div class="stat-icon stat-icon-success">
+                                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M16 6L7 15L3 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            <div class="stat-content">
+                                <span class="stat-label">Created</span>
+                                <span id="detailStatCreated" class="stat-value">0</span>
+                            </div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-icon stat-icon-info">
+                                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M10 2V10L14 14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M2 10C2 14.4183 5.58172 18 10 18C14.4183 18 18 14.4183 18 10C18 5.58172 14.4183 2 10 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            <div class="stat-content">
+                                <span class="stat-label">Updated</span>
+                                <span id="detailStatUpdated" class="stat-value">0</span>
+                            </div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-icon stat-icon-error">
+                                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M15 5L5 15M5 5L15 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            <div class="stat-content">
+                                <span class="stat-label">Errors</span>
+                                <span id="detailStatErrors" class="stat-value">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Listing Breakdown Card -->
+        <div class="sync-listings card">
+            <div class="card-header">
+                <h2 class="card-title">
+                    <svg class="card-title-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3 7L10 2L17 7V17C17 17.5523 16.5523 18 16 18H4C3.44772 18 3 17.5523 3 17V7Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M7 18V10H13V18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Per-Listing Breakdown
+                </h2>
+            </div>
+            <div class="card-body">
+                <div id="listingsTableContainer" class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Listing</th>
+                                <th>Address</th>
+                                <th class="text-right">Messages</th>
+                                <th class="text-right">Reviews</th>
+                                <th class="text-right">Reservations</th>
+                                <th class="text-right">Guests</th>
+                            </tr>
+                        </thead>
+                        <tbody id="listingsTableBody">
+                            <!-- Listing data will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+                <div id="noListingsMessage" class="empty-state" style="display: none;">
+                    <div class="empty-state-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M3 7L12 2L21 7V17C21 17.5523 20.5523 18 20 18H4C3.44772 18 3 17.5523 3 17V7Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M7 18V10H17V18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <h3 class="empty-state-title">Sync in Progress</h3>
+                    <p class="empty-state-description">Listing breakdown will appear when sync completes.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="errorMessage" class="alert alert-error" style="display: none;"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const syncRunId = {{ sync_run_id if sync_run_id else 'null' }};
+const jobId = {{ job_id|tojson if job_id else 'null' }};
+document.addEventListener('DOMContentLoaded', function() {
+    if (syncRunId) {
+        loadSyncDetail(syncRunId);
+    } else if (jobId) {
+        loadSyncDetailByJob(jobId);
+    } else {
+        document.getElementById('errorMessage').textContent = 'Invalid sync run or job ID';
+        document.getElementById('errorMessage').style.display = 'block';
+    }
+});
+</script>
+<script src="{{ url_for('static', filename='js/sync.js') }}"></script>
+{% endblock %}

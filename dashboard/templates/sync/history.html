@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block title %}Sync History - Hostaway Insights Dashboard{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/sync.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="sync-history-page">
+    <div class="page-header">
+        <div class="page-header-content">
+            <div>
+                <h1 class="page-title">Sync History</h1>
+                <p class="page-description">View sync history and trigger new syncs</p>
+            </div>
+            <div class="page-actions">
+                {% if current_user and current_user.is_admin() %}
+                <button id="triggerFullSyncBtn" class="btn btn-primary">
+                    <svg class="btn-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8 2V8L12 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M8 8L4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M2 8C2 11.3137 4.68629 14 8 14C11.3137 14 14 11.3137 14 8C14 4.68629 11.3137 2 8 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Run Full Sync
+                </button>
+                <button id="triggerIncrementalSyncBtn" class="btn btn-secondary">
+                    <svg class="btn-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8 2V8L12 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M8 8L4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M2 8C2 11.3137 4.68629 14 8 14C11.3137 14 14 11.3137 14 8C14 4.68629 11.3137 2 8 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Run Incremental Sync
+                </button>
+                {% else %}
+                <p class="text-muted">Only administrators can trigger syncs</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Quick Stats Summary -->
+    <div id="quickStats" class="quick-stats" style="display: none;">
+        <div class="stat-card">
+            <div class="stat-card-icon stat-card-icon-primary">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M10 2L12.09 7.26L18 8.27L14 12.14L14.91 18.02L10 15.77L5.09 18.02L6 12.14L2 8.27L7.91 7.26L10 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <div class="stat-card-content">
+                <div class="stat-card-value" id="totalSyncs">0</div>
+                <div class="stat-card-label">Total Syncs</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-card-icon stat-card-icon-success">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M16 6L7 15L3 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <div class="stat-card-content">
+                <div class="stat-card-value" id="successRate">0%</div>
+                <div class="stat-card-label">Success Rate</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-card-icon stat-card-icon-info">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M10 2V10L14 14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M2 10C2 14.4183 5.58172 18 10 18C14.4183 18 18 14.4183 18 10C18 5.58172 14.4183 2 10 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <div class="stat-card-content">
+                <div class="stat-card-value" id="lastSyncTime">-</div>
+                <div class="stat-card-label">Last Sync</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Filters -->
+    <div class="sync-filters">
+        <div class="filter-group">
+            <label class="filter-label">Filter by Status:</label>
+            <div class="filter-chips">
+                <button class="filter-chip active" data-filter="all">All</button>
+                <button class="filter-chip" data-filter="running">Running</button>
+                <button class="filter-chip" data-filter="completed">Completed</button>
+                <button class="filter-chip" data-filter="error">Error</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="loading" class="loading" style="display: none;">
+        <div class="spinner"></div>
+        <span>Loading sync history...</span>
+    </div>
+    
+    <div id="syncHistoryContainer" class="sync-history-list">
+        <!-- Sync history will be loaded here -->
+    </div>
+    
+    <!-- Auto-refresh indicator (hidden by default) -->
+    <div id="autoRefreshIndicator" class="auto-refresh-indicator" style="display: none;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 2V8L12 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M8 8L4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 8C2 11.3137 4.68629 14 8 14C11.3137 14 14 11.3137 14 8C14 4.68629 11.3137 2 8 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Auto-refreshing...
+    </div>
+    
+    <div id="noResults" class="empty-state" style="display: none;">
+        <div class="empty-state-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2V6M12 18V22M6 12H2M22 12H18M19.07 19.07L16.24 16.24M19.07 4.93L16.24 7.76M4.93 19.07L7.76 16.24M4.93 4.93L7.76 7.76" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </div>
+        <h3 class="empty-state-title">No sync history</h3>
+        <p class="empty-state-description">No sync operations have been performed yet. Click "Run Full Sync" to start.</p>
+    </div>
+</div>
+
+<!-- Progress Modal -->
+<div id="progressModal" class="modal-backdrop" style="display: none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 class="modal-title">Sync Progress</h3>
+            <button onclick="closeProgressModal()" class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="progressContent">
+                <div class="progress-info">
+                    <div class="progress-bar-container">
+                        <div id="progressBar" class="progress-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="progressPercentage">0%</span>
+                        <span id="progressCount">0 / 0</span>
+                    </div>
+                </div>
+                <div class="progress-details">
+                    <div class="progress-phase">
+                        <svg class="progress-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M8 2V8L12 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M8 8L4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M2 8C2 11.3137 4.68629 14 8 14C11.3137 14 14 11.3137 14 8C14 4.68629 11.3137 2 8 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <strong>Phase:</strong> <span id="progressPhase">-</span>
+                    </div>
+                    <div class="progress-stats">
+                        <div class="stat-item">
+                            <div class="stat-icon stat-icon-success">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M13 4L6 11L3 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            <div class="stat-content">
+                                <span class="stat-label">Created</span>
+                                <span id="statCreated" class="stat-value">0</span>
+                            </div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-icon stat-icon-info">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M8 2V8L12 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M8 8L4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M2 8C2 11.3137 4.68629 14 8 14C11.3137 14 14 11.3137 14 8C14 4.68629 11.3137 2 8 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            <div class="stat-content">
+                                <span class="stat-label">Updated</span>
+                                <span id="statUpdated" class="stat-value">0</span>
+                            </div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-icon stat-icon-error">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            <div class="stat-content">
+                                <span class="stat-label">Errors</span>
+                                <span id="statErrors" class="stat-value">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="progressError" class="alert alert-error" style="display: none;"></div>
+            <div id="progressComplete" class="alert alert-success" style="display: none;">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M16 6L7 15L3 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Sync completed successfully!
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button onclick="closeProgressModal()" class="btn btn-secondary" id="closeProgressBtn" style="display: none;">Close</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/sync.js') }}"></script>
+{% endblock %}

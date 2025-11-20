@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Pending Approval{% endblock %}
+
+{% block content %}
+<div class="pending-approval-page">
+    <div class="pending-message">
+        <h2>Account Pending Approval</h2>
+        <p>Your account has been created successfully, but it requires admin approval before you can access the dashboard.</p>
+        <p>You will be able to login once your admin approves your account.</p>
+        <p>Please contact an administrator if you have any questions.</p>
+        <div class="actions">
+            <a href="{{ url_for('auth.logout') }}" class="btn-secondary">Logout</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

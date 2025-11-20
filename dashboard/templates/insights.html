@@ -1,0 +1,583 @@
+{% extends "base.html" %}
+
+{% block title %}{{ listing.name }} - Insights{% endblock %}
+
+{% block content %}
+<div class="insights-page">
+    <!-- Hero Section -->
+    <div class="insights-hero">
+        <div class="insights-hero-content">
+            <div>
+                <h1 class="insights-hero-title">{{ listing.name }}</h1>
+                <p class="insights-hero-subtitle">
+                    <svg class="hero-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8 8.5C9.10457 8.5 10 7.60457 10 6.5C10 5.39543 9.10457 4.5 8 4.5C6.89543 4.5 6 5.39543 6 6.5C6 7.60457 6.89543 8.5 8 8.5Z" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M8 1C6.34315 1 5 2.34315 5 4C5 5.65685 8 11 8 11C8 11 11 5.65685 11 4C11 2.34315 9.65685 1 8 1Z" stroke="currentColor" stroke-width="1.5"/>
+                    </svg>
+                    {{ listing.address }}{% if listing.city %}, {{ listing.city }}{% endif %}
+                </p>
+            </div>
+            <div id="ratingBadge" class="insights-hero-rating">
+                <!-- Rating will be inserted here -->
+            </div>
+        </div>
+    </div>
+    
+    <div class="insights-container">
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <span>Analyzing data... This may take a moment.</span>
+        </div>
+        
+        <div id="insightsContent" style="display: none;">
+            <!-- Key Issues Section -->
+            <div class="insights-section">
+                <div class="section-header">
+                    <h2 class="section-title">Key Issues</h2>
+                    <p class="section-description">Critical issues identified from recent reviews and messages</p>
+                </div>
+                <ul id="issuesList" class="issues-list">
+                    <!-- Issues will be inserted here -->
+                </ul>
+            </div>
+            
+            <!-- Action Items Section -->
+            <div class="insights-section">
+                <div class="section-header">
+                    <h2 class="section-title">Recommended Actions</h2>
+                    <p class="section-description">Actionable steps to improve property quality</p>
+                </div>
+                <ul id="actionItemsList" class="action-items-list">
+                    <!-- Action items will be inserted here -->
+                </ul>
+            </div>
+            
+            <!-- Data Summary Section -->
+            <div class="insights-section">
+                <div class="section-header">
+                    <h2 class="section-title">Analysis Summary</h2>
+                    <p class="section-description">Data used for this analysis</p>
+                </div>
+                <div id="dataSummary" class="summary-cards">
+                    <!-- Summary will be inserted here -->
+                </div>
+            </div>
+            
+            <!-- Actions -->
+            <div class="insights-actions">
+                <button id="refreshBtn" class="btn btn-secondary" onclick="refreshInsights()">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8 2.66667V5.33333M8 2.66667C5.42267 2.66667 3.33333 4.756 3.33333 7.33333M8 2.66667L5.33333 0M8 10.6667V13.3333M8 13.3333C10.5773 13.3333 12.6667 11.244 12.6667 8.66667M8 13.3333L10.6667 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Refresh Analysis
+                </button>
+            </div>
+        </div>
+        
+        <div id="error" class="alert alert-error" style="display: none;">
+            <!-- Error message will be inserted here -->
+        </div>
+    </div>
+</div>
+
+<script>
+const listingId = {{ listing.listing_id }};
+let allTicketsForListing = []; // Store all tickets for this listing
+
+// Load insights on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Load tickets first, then insights
+    loadAllTickets().then(() => {
+        loadInsights(false);
+    });
+});
+
+function loadInsights(forceRefresh) {
+    const loading = document.getElementById('loading');
+    const content = document.getElementById('insightsContent');
+    const error = document.getElementById('error');
+    
+    loading.style.display = 'block';
+    content.style.display = 'none';
+    error.style.display = 'none';
+    
+    const url = `/api/insights/${listingId}${forceRefresh ? '?refresh=true' : ''}`;
+    
+    fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            loading.style.display = 'none';
+            
+            if (data.error) {
+                error.style.display = 'block';
+                error.textContent = `Error: ${data.error}`;
+                return;
+            }
+            
+            // Display quality rating in hero section
+            const ratingBadge = document.getElementById('ratingBadge');
+            const rating = data.quality_rating || 'Fair';
+            const ratingLower = rating.toLowerCase();
+            ratingBadge.className = `hero-rating-badge rating-${ratingLower}`;
+            ratingBadge.innerHTML = `
+                <span class="hero-rating-label">Quality</span>
+                <span class="hero-rating-value">${rating}</span>
+            `;
+            
+            // Display issues (support both old string format and new object format)
+            const issuesList = document.getElementById('issuesList');
+            issuesList.innerHTML = '';
+            
+            // Validate and process issues
+            if (!data.issues) {
+                issuesList.innerHTML = '<li class="no-items">No issues data available</li>';
+            } else if (!Array.isArray(data.issues)) {
+                console.error('Issues is not an array:', data.issues);
+                issuesList.innerHTML = '<li class="no-items">Invalid issues format</li>';
+            } else if (data.issues.length === 0) {
+                issuesList.innerHTML = '<li class="no-items">No major issues identified</li>';
+            } else {
+                data.issues.forEach((issue, index) => {
+                    try {
+                        const li = document.createElement('li');
+                        li.className = 'issue-item';
+                        
+                        let title = '';
+                        let details = null;
+                        
+                        // Safely determine issue type and extract content
+                        if (issue === null || issue === undefined) {
+                            title = 'Unknown issue';
+                        } else if (typeof issue === 'string') {
+                            // Old format: simple string
+                            title = issue;
+                        } else if (typeof issue === 'object' && !Array.isArray(issue)) {
+                            // New format: object with title and details
+                            if ('title' in issue && issue.title != null) {
+                                title = String(issue.title);
+                                if ('details' in issue && issue.details != null) {
+                                    const detailsStr = String(issue.details);
+                                    if (detailsStr.trim() && detailsStr !== title) {
+                                        details = detailsStr;
+                                    }
+                                }
+                            } else if ('details' in issue && issue.details != null) {
+                                title = String(issue.details);
+                            } else {
+                                // Object without expected properties - try to extract something
+                                const keys = Object.keys(issue);
+                                if (keys.length > 0) {
+                                    title = String(issue[keys[0]] || 'Issue');
+                                } else {
+                                    title = 'Issue';
+                                }
+                                console.warn('Issue object missing title/details at index', index, ':', issue);
+                            }
+                        } else {
+                            // Fallback: convert anything else to string
+                            title = String(issue);
+                        }
+                        
+                        // Ensure we have a valid title
+                        title = (title || 'Issue').trim();
+                        if (title === '') {
+                            title = 'Issue';
+                        }
+                        
+                        // Create and append title element
+                        const titleDiv = document.createElement('div');
+                        titleDiv.className = 'issue-title';
+                        titleDiv.textContent = title;
+                        li.appendChild(titleDiv);
+                        
+                        // Create and append details element if details exist
+                        if (details) {
+                            const detailsStr = String(details).trim();
+                            if (detailsStr && detailsStr !== title) {
+                                const detailsDiv = document.createElement('div');
+                                detailsDiv.className = 'issue-details';
+                                detailsDiv.textContent = detailsStr;
+                                li.appendChild(detailsDiv);
+                            }
+                        }
+                        
+                        // Add Create Ticket button
+                        const actionDiv = document.createElement('div');
+                        actionDiv.className = 'issue-actions';
+                        const createTicketBtn = document.createElement('button');
+                        createTicketBtn.className = 'btn-small btn-primary';
+                        createTicketBtn.textContent = 'Create Ticket';
+                        createTicketBtn.onclick = function() {
+                            const issueTitle = encodeURIComponent(title);
+                            const issueDetails = details ? encodeURIComponent(details) : '';
+                            window.location.href = `/tickets/create?listing_id=${listingId}&issue_title=${issueTitle}`;
+                        };
+                        actionDiv.appendChild(createTicketBtn);
+                        li.appendChild(actionDiv);
+                        
+                        // Add tickets section for this issue
+                        const ticketsDiv = document.createElement('div');
+                        ticketsDiv.className = 'issue-tickets';
+                        ticketsDiv.id = `tickets-${index}`;
+                        li.appendChild(ticketsDiv);
+                        
+                        // Match and display tickets for this issue using semantic matching
+                        // Use setTimeout to ensure tickets are loaded (in case of race condition)
+                        setTimeout(() => {
+                            matchAndDisplayTicketsForIssue(title, index);
+                        }, 100);
+                        
+                        issuesList.appendChild(li);
+                    } catch (e) {
+                        console.error('Error rendering issue at index', index, ':', e, issue);
+                        // Create a fallback list item
+                        const li = document.createElement('li');
+                        li.className = 'issue-item';
+                        const titleDiv = document.createElement('div');
+                        titleDiv.className = 'issue-title';
+                        titleDiv.textContent = 'Error displaying issue';
+                        li.appendChild(titleDiv);
+                        issuesList.appendChild(li);
+                    }
+                });
+            }
+            
+            // Display action items
+            const actionItemsList = document.getElementById('actionItemsList');
+            actionItemsList.innerHTML = '';
+            if (data.action_items && data.action_items.length > 0) {
+                data.action_items.forEach(item => {
+                    const li = document.createElement('li');
+                    li.className = 'action-item';
+                    li.innerHTML = `
+                        <svg class="action-item-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M10 18.3333C14.6024 18.3333 18.3333 14.6024 18.3333 10C18.3333 5.39763 14.6024 1.66667 10 1.66667C5.39763 1.66667 1.66667 5.39763 1.66667 10C1.66667 14.6024 5.39763 18.3333 10 18.3333Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M10 6.66667V10M10 13.3333H10.0083" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <span>${escapeHtml(item)}</span>
+                    `;
+                    actionItemsList.appendChild(li);
+                });
+            } else {
+                const li = document.createElement('li');
+                li.className = 'no-items';
+                li.textContent = 'No action items at this time';
+                actionItemsList.appendChild(li);
+            }
+            
+            // Display data summary as cards
+            const summary = document.getElementById('dataSummary');
+            summary.innerHTML = `
+                <div class="summary-card">
+                    <div class="summary-card-icon">📊</div>
+                    <div class="summary-card-content">
+                        <div class="summary-card-value">${data.total_reviews_analyzed || 0}</div>
+                        <div class="summary-card-label">Reviews Analyzed</div>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-card-icon">💬</div>
+                    <div class="summary-card-content">
+                        <div class="summary-card-value">${data.total_messages_analyzed || 0}</div>
+                        <div class="summary-card-label">Messages Analyzed</div>
+                    </div>
+                </div>
+                ${data.last_updated ? `
+                <div class="summary-card">
+                    <div class="summary-card-icon">🕒</div>
+                    <div class="summary-card-content">
+                        <div class="summary-card-value">${new Date(data.last_updated).toLocaleDateString()}</div>
+                        <div class="summary-card-label">Last Updated</div>
+                    </div>
+                </div>
+                ` : ''}
+                ${data.new_reviews_count > 0 || data.new_messages_count > 0 ? `
+                <div class="summary-card summary-card-new">
+                    <div class="summary-card-icon">✨</div>
+                    <div class="summary-card-content">
+                        <div class="summary-card-value">${data.new_reviews_count + data.new_messages_count}</div>
+                        <div class="summary-card-label">New Data Points</div>
+                    </div>
+                </div>
+                ` : ''}
+            `;
+            
+            content.style.display = 'block';
+            
+            // After displaying issues, re-match all tickets (in case tickets loaded after issues)
+            setTimeout(() => {
+                console.log('[INSIGHTS] Re-matching all tickets after issues are displayed');
+                const issuesList = document.getElementById('issuesList');
+                const issueItems = issuesList.querySelectorAll('.issue-item');
+                issueItems.forEach((item, index) => {
+                    const titleDiv = item.querySelector('.issue-title');
+                    if (titleDiv) {
+                        const issueTitle = titleDiv.textContent.trim();
+                        console.log(`[INSIGHTS] Re-matching tickets for issue "${issueTitle}" (index ${index})`);
+                        matchAndDisplayTicketsForIssue(issueTitle, index);
+                    }
+                });
+            }, 500);
+        })
+        .catch(error => {
+            loading.style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('error').textContent = `Error loading insights: ${error.message}`;
+        });
+}
+
+function refreshInsights() {
+    const btn = document.getElementById('refreshBtn');
+    btn.disabled = true;
+    btn.textContent = 'Refreshing...';
+    
+    // Reload tickets first, then insights
+    loadAllTickets().then(() => {
+        loadInsights(true);
+        
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = 'Refresh Analysis';
+        }, 2000);
+    });
+}
+
+/**
+ * Load all tickets for this listing (called once on page load)
+ * Returns a Promise that resolves when tickets are loaded
+ */
+function loadAllTickets() {
+    const params = new URLSearchParams();
+    params.append('listing_id', listingId);
+    
+    return fetch(`/tickets/api/tickets?${params.toString()}`)
+        .then(response => response.json())
+        .then(tickets => {
+            allTicketsForListing = tickets || [];
+            console.log('Loaded all tickets for listing:', allTicketsForListing.length);
+            return tickets;
+        })
+        .catch(error => {
+            console.error('Error loading tickets:', error);
+            allTicketsForListing = [];
+            return [];
+        });
+}
+
+/**
+ * Calculate semantic similarity between two strings
+ * Returns a score between 0 and 1, where 1 is a perfect match
+ */
+function semanticSimilarity(str1, str2) {
+    if (!str1 || !str2) return 0;
+    
+    // Normalize strings: lowercase, trim, remove extra spaces
+    const normalize = (s) => s.toLowerCase().trim().replace(/\s+/g, ' ');
+    const s1 = normalize(str1);
+    const s2 = normalize(str2);
+    
+    // Exact match
+    if (s1 === s2) return 1.0;
+    
+    // Tokenize into words
+    const words1 = s1.split(/\s+/).filter(w => w.length > 0);
+    const words2 = s2.split(/\s+/).filter(w => w.length > 0);
+    
+    if (words1.length === 0 || words2.length === 0) return 0;
+    
+    // Calculate word overlap
+    const set1 = new Set(words1);
+    const set2 = new Set(words2);
+    
+    // Count common words
+    let commonWords = 0;
+    set1.forEach(word => {
+        if (set2.has(word)) {
+            commonWords++;
+        }
+    });
+    
+    // Jaccard similarity (intersection over union)
+    const union = new Set([...words1, ...words2]);
+    const jaccard = commonWords / union.size;
+    
+    // Also check if one string contains the other (for partial matches)
+    let containsScore = 0;
+    if (s1.includes(s2) || s2.includes(s1)) {
+        const shorter = Math.min(s1.length, s2.length);
+        const longer = Math.max(s1.length, s2.length);
+        containsScore = shorter / longer;
+    }
+    
+    // Weighted combination: Jaccard (70%) + Contains (30%)
+    const similarity = (jaccard * 0.7) + (containsScore * 0.3);
+    
+    // Boost score if significant word overlap (at least 50% of words match)
+    const wordOverlapRatio = commonWords / Math.min(words1.length, words2.length);
+    if (wordOverlapRatio >= 0.5) {
+        return Math.max(similarity, wordOverlapRatio);
+    }
+    
+    return similarity;
+}
+
+/**
+ * Match tickets to an issue using semantic similarity
+ */
+function matchAndDisplayTicketsForIssue(issueTitle, issueIndex) {
+    const ticketsDiv = document.getElementById(`tickets-${issueIndex}`);
+    if (!ticketsDiv) {
+        console.warn(`Tickets div not found for issue index ${issueIndex}`);
+        return;
+    }
+    
+    console.log(`[MATCHING] Starting match for issue "${issueTitle}" (index ${issueIndex})`);
+    console.log(`[MATCHING] Total tickets available: ${allTicketsForListing.length}`);
+    
+    if (allTicketsForListing.length === 0) {
+        console.log(`[MATCHING] No tickets available yet for issue "${issueTitle}"`);
+        ticketsDiv.innerHTML = '';
+        return;
+    }
+    
+    // Debug: Log all ticket issue_titles
+    console.log(`[MATCHING] All ticket issue_titles:`, 
+        allTicketsForListing.map(t => ({ 
+            ticket_id: t.ticket_id, 
+            title: t.title, 
+            issue_title: t.issue_title 
+        }))
+    );
+    
+    // Find tickets that semantically match this issue
+    const matchedTickets = [];
+    const similarityThreshold = 0.3; // Minimum similarity score to consider a match
+    
+    allTicketsForListing.forEach(ticket => {
+        if (!ticket.issue_title) {
+            console.log(`[MATCHING] Ticket ${ticket.ticket_id} has no issue_title, skipping`);
+            return;
+        }
+        
+        // Calculate similarity between issue title and ticket's issue_title
+        const similarity = semanticSimilarity(issueTitle, ticket.issue_title);
+        
+        console.log(`[MATCHING] Comparing "${issueTitle}" with "${ticket.issue_title}": similarity = ${similarity.toFixed(3)}`);
+        
+        if (similarity >= similarityThreshold) {
+            matchedTickets.push({
+                ticket: ticket,
+                similarity: similarity
+            });
+            console.log(`[MATCHING] ✓ Match found! Ticket "${ticket.title}" (similarity: ${similarity.toFixed(3)})`);
+        } else {
+            console.log(`[MATCHING] ✗ No match (similarity ${similarity.toFixed(3)} < threshold ${similarityThreshold})`);
+        }
+    });
+    
+    // Sort by similarity (highest first)
+    matchedTickets.sort((a, b) => b.similarity - a.similarity);
+    
+    console.log(`[MATCHING] Final result: ${matchedTickets.length} tickets matched for issue "${issueTitle}":`, 
+        matchedTickets.map(m => ({ 
+            ticket_id: m.ticket.ticket_id,
+            title: m.ticket.title, 
+            issue_title: m.ticket.issue_title,
+            similarity: m.similarity.toFixed(3) 
+        }))
+    );
+    
+    // Display matched tickets
+    if (matchedTickets.length > 0) {
+        const ticketsList = document.createElement('ul');
+        ticketsList.className = 'issue-tickets-list';
+        
+        matchedTickets.forEach(({ ticket }) => {
+            const ticketItem = document.createElement('li');
+            ticketItem.className = 'issue-ticket-item';
+            
+            const ticketLink = document.createElement('a');
+            ticketLink.href = `/tickets/${ticket.ticket_id}/page`;
+            ticketLink.textContent = ticket.title;
+            ticketLink.className = 'issue-ticket-link';
+            
+            // Add status badge
+            const statusBadge = document.createElement('span');
+            statusBadge.className = `ticket-status-badge status-${ticket.status.toLowerCase().replace(' ', '-')}`;
+            statusBadge.textContent = ticket.status;
+            
+            ticketItem.appendChild(ticketLink);
+            ticketItem.appendChild(statusBadge);
+            ticketsList.appendChild(ticketItem);
+        });
+        
+        ticketsDiv.innerHTML = '';
+        const ticketsLabel = document.createElement('div');
+        ticketsLabel.className = 'issue-tickets-label';
+        ticketsLabel.textContent = `Tickets (${matchedTickets.length}):`;
+        ticketsDiv.appendChild(ticketsLabel);
+        ticketsDiv.appendChild(ticketsList);
+        
+        console.log(`[MATCHING] ✓ Displayed ${matchedTickets.length} tickets for issue "${issueTitle}"`);
+    } else {
+        ticketsDiv.innerHTML = '';
+        console.log(`[MATCHING] ✗ No tickets to display for issue "${issueTitle}"`);
+    }
+}
+
+/**
+ * Test function - can be called from console to manually test semantic matching
+ * Usage: testSemanticMatching("Outdoor Furniture Condition")
+ */
+function testSemanticMatching(issueTitle) {
+    console.log('=== TESTING SEMANTIC MATCHING ===');
+    console.log(`Issue Title: "${issueTitle}"`);
+    console.log(`Total Tickets: ${allTicketsForListing.length}`);
+    console.log('');
+    
+    if (allTicketsForListing.length === 0) {
+        console.log('No tickets available. Make sure tickets are loaded first.');
+        return;
+    }
+    
+    allTicketsForListing.forEach(ticket => {
+        if (!ticket.issue_title) {
+            console.log(`Ticket ${ticket.ticket_id} (${ticket.title}): NO ISSUE_TITLE`);
+            return;
+        }
+        
+        const similarity = semanticSimilarity(issueTitle, ticket.issue_title);
+        const match = similarity >= 0.3;
+        
+        console.log(`Ticket ${ticket.ticket_id}: "${ticket.title}"`);
+        console.log(`  Issue Title: "${ticket.issue_title}"`);
+        console.log(`  Similarity: ${similarity.toFixed(3)}`);
+        console.log(`  Match: ${match ? '✓ YES' : '✗ NO'}`);
+        console.log('');
+    });
+    
+    // Test with some variations
+    console.log('=== TESTING VARIATIONS ===');
+    const variations = [
+        'Outdoor Furniture Condition',
+        'outdoor furniture condition',
+        'Outdoor Furniture',
+        'Furniture Condition',
+        'Outdoor furniture',
+        'Furniture'
+    ];
+    
+    variations.forEach(variation => {
+        const similarity = semanticSimilarity(issueTitle, variation);
+        console.log(`"${issueTitle}" vs "${variation}": ${similarity.toFixed(3)}`);
+    });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}
+

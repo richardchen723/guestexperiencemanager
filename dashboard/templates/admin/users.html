@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block title %}User Management{% endblock %}
+
+{% block content %}
+<div class="admin-users-page">
+    <h2>User Management</h2>
+    
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Search users by email or name..." onkeyup="filterUsers()">
+    </div>
+    
+    <div id="loading" class="loading" style="display: none;">
+        Loading users...
+    </div>
+    
+    <div id="usersContainer">
+        <!-- Users will be loaded here -->
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadUsers();
+});
+
+function loadUsers() {
+    const container = document.getElementById('usersContainer');
+    const loading = document.getElementById('loading');
+    
+    loading.style.display = 'block';
+    container.innerHTML = '';
+    
+    fetch('/admin/api/users')
+        .then(response => response.json())
+        .then(users => {
+            loading.style.display = 'none';
+            
+            if (users.length === 0) {
+                container.innerHTML = '<p>No users found.</p>';
+                return;
+            }
+            
+            // Separate pending and approved users
+            const pendingUsers = users.filter(u => !u.is_approved);
+            const approvedUsers = users.filter(u => u.is_approved);
+            
+            let html = '';
+            
+            // Pending approvals section
+            if (pendingUsers.length > 0) {
+                html += '<div class="users-section"><h3>Pending Approvals</h3>';
+                html += renderUserList(pendingUsers);
+                html += '</div>';
+            }
+            
+            // All users section
+            html += '<div class="users-section"><h3>All Users</h3>';
+            html += renderUserList(users);
+            html += '</div>';
+            
+            container.innerHTML = html;
+        })
+        .catch(error => {
+            loading.style.display = 'none';
+            container.innerHTML = `<div class="error">Error loading users: ${error.message}</div>`;
+        });
+}
+
+function renderUserList(users) {
+    let html = '<div class="users-list">';
+    
+    users.forEach(user => {
+        const statusClass = user.is_approved ? 'approved' : 'pending';
+        const statusText = user.is_approved ? 'Approved' : 'Pending';
+        const roleBadge = user.is_owner ? '' : `<span class="role-badge role-${user.role}">${user.role}</span>`;
+        
+        html += `
+            <div class="user-card" data-email="${user.email.toLowerCase()}" data-name="${(user.name || '').toLowerCase()}">
+                <div class="user-header">
+                    ${user.picture_url ? `<img src="${user.picture_url}" alt="${user.name || user.email}" class="user-avatar">` : ''}
+                    <div class="user-info">
+                        <h4>${escapeHtml(user.name || 'No name')}</h4>
+                        <p class="user-email">${escapeHtml(user.email)}</p>
+                    </div>
+                    <div class="user-status">
+                        ${roleBadge}
+                        <span class="status-badge status-${statusClass}">${statusText}</span>
+                    </div>
+                </div>
+                <div class="user-details">
+                    <p><strong>Created:</strong> ${user.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}</p>
+                    ${user.approved_at ? `<p><strong>Approved:</strong> ${new Date(user.approved_at).toLocaleDateString()}</p>` : ''}
+                    ${user.last_login ? `<p><strong>Last Login:</strong> ${new Date(user.last_login).toLocaleDateString()}</p>` : ''}
+                </div>
+                <div class="user-actions">
+                    ${!user.is_approved ? `<button onclick="approveUser(${user.user_id})" class="btn-action btn-approve">Approve</button>` : ''}
+                    ${user.is_approved && !user.is_owner ? `<button onclick="revokeUser(${user.user_id})" class="btn-action btn-revoke">Revoke</button>` : ''}
+                    ${!user.is_owner ? `
+                        <select onchange="changeRole(${user.user_id}, this.value)" class="role-select">
+                            <option value="user" ${user.role === 'user' ? 'selected' : ''}>User</option>
+                            <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
+                        </select>
+                    ` : ''}
+                    ${!user.is_owner ? `<button onclick="deleteUser(${user.user_id})" class="btn-action btn-delete">Delete</button>` : ''}
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    return html;
+}
+
+function approveUser(userId) {
+    if (!confirm('Approve this user?')) return;
+    
+    fetch(`/admin/api/users/${userId}/approve`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                loadUsers();
+            } else {
+                alert('Error: ' + (data.error || 'Failed to approve user'));
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+        });
+}
+
+function revokeUser(userId) {
+    if (!confirm('Revoke access for this user?')) return;
+    
+    fetch(`/admin/api/users/${userId}/revoke`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                loadUsers();
+            } else {
+                alert('Error: ' + (data.error || 'Failed to revoke user'));
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+        });
+}
+
+function changeRole(userId, newRole) {
+    if (!confirm(`Change user role to ${newRole}?`)) {
+        loadUsers(); // Reload to reset select
+        return;
+    }
+    
+    fetch(`/admin/api/users/${userId}/role`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole })
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                loadUsers();
+            } else {
+                alert('Error: ' + (data.error || 'Failed to update role'));
+                loadUsers();
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+            loadUsers();
+        });
+}
+
+function deleteUser(userId) {
+    if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
+    
+    fetch(`/admin/api/users/${userId}`, { method: 'DELETE' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                loadUsers();
+            } else {
+                alert('Error: ' + (data.error || 'Failed to delete user'));
+            }
+        })
+        .catch(error => {
+            alert('Error: ' + error.message);
+        });
+}
+
+function filterUsers() {
+    const input = document.getElementById('searchInput');
+    const filter = input.value.toLowerCase();
+    const cards = document.querySelectorAll('.user-card');
+    
+    cards.forEach(card => {
+        const email = card.getAttribute('data-email');
+        const name = card.getAttribute('data-name');
+        const matches = email.includes(filter) || name.includes(filter);
+        card.style.display = matches ? 'block' : 'none';
+    });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}

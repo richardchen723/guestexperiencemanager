@@ -1,0 +1,3 @@
+"""
+Ticket management module.
+"""

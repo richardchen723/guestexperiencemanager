@@ -1,0 +1,290 @@
+/* ============================================
+   Layout System
+   ============================================ */
+
+/* ============================================
+   Container & Grid
+   ============================================ */
+
+.container {
+    max-width: var(--container-max-width);
+    margin: 0 auto;
+    padding: 0 var(--container-padding);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.content-wrapper {
+    max-width: var(--container-max-width);
+    margin: 0 auto;
+    padding: var(--space-6) var(--container-padding);
+    width: 100%;
+}
+
+/* ============================================
+   Header
+   ============================================ */
+
+header {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sticky);
+    background: var(--white);
+    border-bottom: 1px solid var(--border-light);
+    box-shadow: var(--elevation-1);
+    height: var(--header-height);
+    display: flex;
+    align-items: center;
+}
+
+.header-content {
+    max-width: var(--container-max-width);
+    margin: 0 auto;
+    padding: 0 var(--container-padding);
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+}
+
+.header-logo {
+    font-size: var(--text-2xl);
+    font-weight: var(--font-bold);
+    color: var(--primary-color);
+    text-decoration: none;
+    letter-spacing: var(--tracking-tight);
+}
+
+.header-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin-left: var(--space-8);
+}
+
+.header-nav a {
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--text-sm);
+    font-weight: var(--font-medium);
+    color: var(--text-secondary);
+    text-decoration: none;
+    border-radius: var(--radius);
+    transition: all var(--transition-base);
+    position: relative;
+}
+
+.header-nav a:hover {
+    color: var(--primary-color);
+    background: var(--primary-50);
+}
+
+.header-nav a.active {
+    color: var(--primary-color);
+    background: var(--primary-50);
+}
+
+.header-nav a.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: var(--space-4);
+    right: var(--space-4);
+    height: 2px;
+    background: var(--primary-color);
+    border-radius: var(--radius-full);
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+}
+
+/* ============================================
+   User Menu
+   ============================================ */
+
+.user-menu {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.user-menu-info {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background var(--transition-base);
+}
+
+.user-menu-info:hover {
+    background: var(--bg-hover);
+}
+
+.user-menu-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-full);
+    object-fit: cover;
+}
+
+.user-menu-name {
+    font-size: var(--text-sm);
+    font-weight: var(--font-medium);
+    color: var(--text-primary);
+}
+
+.user-menu-dropdown {
+    position: absolute;
+    top: calc(100% + var(--space-2));
+    right: 0;
+    background: var(--white);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--elevation-4);
+    min-width: 200px;
+    padding: var(--space-2);
+    z-index: var(--z-dropdown);
+    display: none;
+}
+
+.user-menu:hover .user-menu-dropdown {
+    display: block;
+}
+
+.user-menu-dropdown a {
+    display: block;
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+    text-decoration: none;
+    border-radius: var(--radius);
+    transition: background var(--transition-base);
+}
+
+.user-menu-dropdown a:hover {
+    background: var(--bg-hover);
+}
+
+/* ============================================
+   Main Content
+   ============================================ */
+
+main {
+    flex: 1;
+    background: var(--bg-primary);
+}
+
+.page-header {
+    margin-bottom: var(--space-8);
+    padding-bottom: var(--space-6);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.page-title {
+    font-size: var(--text-4xl);
+    font-weight: var(--font-bold);
+    color: var(--text-primary);
+    margin-bottom: var(--space-2);
+}
+
+.page-description {
+    font-size: var(--text-base);
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.page-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-6);
+}
+
+/* ============================================
+   Footer
+   ============================================ */
+
+footer {
+    background: var(--white);
+    border-top: 1px solid var(--border-light);
+    padding: var(--space-6) var(--container-padding);
+    margin-top: auto;
+    text-align: center;
+    color: var(--text-tertiary);
+    font-size: var(--text-sm);
+}
+
+/* ============================================
+   Grid System
+   ============================================ */
+
+.grid {
+    display: grid;
+    gap: var(--space-6);
+}
+
+.grid-cols-1 { grid-template-columns: repeat(1, 1fr); }
+.grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-cols-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+.grid-auto-fit {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.grid-auto-fill {
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+
+/* ============================================
+   Responsive Breakpoints
+   ============================================ */
+
+@media (max-width: 1024px) {
+    .grid-cols-4 { grid-template-columns: repeat(3, 1fr); }
+    .grid-cols-3 { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 768px) {
+    .header-nav {
+        display: none;
+    }
+    
+    .grid-cols-3,
+    .grid-cols-4 {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .content-wrapper {
+        padding: var(--space-4) var(--space-4);
+    }
+}
+
+@media (max-width: 640px) {
+    .grid-cols-2,
+    .grid-cols-3,
+    .grid-cols-4 {
+        grid-template-columns: 1fr;
+    }
+    
+    .header-content {
+        padding: 0 var(--space-4);
+    }
+    
+    .page-title {
+        font-size: var(--text-3xl);
+    }
+}
+
