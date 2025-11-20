@@ -10,15 +10,45 @@ from pathlib import Path
 
 
 def get_database_path():
-    """Get the path to the SQLite database file"""
-    # Create data directory if it doesn't exist
-    data_dir = Path("data")
-    data_dir.mkdir(exist_ok=True)
+    """Get the path to the database (SQLite file path or PostgreSQL URL)"""
+    import os
     
-    db_dir = data_dir / "database"
-    db_dir.mkdir(exist_ok=True)
+    # Check if we're in Vercel or using PostgreSQL
+    is_vercel = os.getenv("VERCEL", "0") == "1"
+    database_url = os.getenv("DATABASE_URL")
     
-    return str(db_dir / "hostaway.db")
+    # If in Vercel or DATABASE_URL is set, use PostgreSQL (no directory creation needed)
+    if is_vercel or database_url:
+        if not database_url:
+            raise ValueError(
+                "DATABASE_URL environment variable is required in Vercel. "
+                "Set it in Vercel Dashboard → Settings → Environment Variables."
+            )
+        return database_url
+    
+    # Local development with SQLite: create directories if needed
+    # Only create directories if not using PostgreSQL
+    if not database_url or not (database_url.startswith('postgresql://') or database_url.startswith('postgres://')):
+        try:
+            data_dir = Path("data")
+            data_dir.mkdir(exist_ok=True)
+            
+            db_dir = data_dir / "database"
+            db_dir.mkdir(exist_ok=True)
+            
+            return str(db_dir / "hostaway.db")
+        except (OSError, PermissionError) as e:
+            # If directory creation fails (e.g., read-only filesystem), 
+            # check if DATABASE_URL is set as fallback
+            if database_url:
+                return database_url
+            raise ValueError(
+                f"Cannot create SQLite database directory: {e}. "
+                "In Vercel/production, use PostgreSQL (set DATABASE_URL environment variable)."
+            ) from e
+    
+    # If we have a PostgreSQL URL, return it directly
+    return database_url
 
 
 def create_schema(db_path: str):

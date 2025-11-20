@@ -412,7 +412,21 @@ def init_models(db_path_or_url: str):
     # Only create directory for SQLite (file-based)
     if not (db_path_or_url.startswith('postgresql://') or db_path_or_url.startswith('postgres://')):
         # Ensure database directory exists for SQLite
-        os.makedirs(os.path.dirname(db_path_or_url), exist_ok=True)
+        # Skip in Vercel (read-only filesystem)
+        is_vercel = os.getenv("VERCEL", "0") == "1"
+        if not is_vercel:
+            try:
+                os.makedirs(os.path.dirname(db_path_or_url), exist_ok=True)
+            except (OSError, PermissionError) as e:
+                # If directory creation fails (e.g., read-only filesystem),
+                # check if we should be using PostgreSQL instead
+                database_url = os.getenv("DATABASE_URL")
+                if database_url:
+                    raise ValueError(
+                        f"Cannot create SQLite database directory: {e}. "
+                        "Use PostgreSQL instead (set DATABASE_URL environment variable)."
+                    ) from e
+                raise
     
     engine = get_engine(db_path_or_url)
     
