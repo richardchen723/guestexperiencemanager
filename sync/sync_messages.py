@@ -40,9 +40,19 @@ class MessageOrganizer:
             base_dir: Base directory for local filesystem storage (default: "conversations")
             use_s3: Whether to use S3 storage. If None, auto-detects from AWS_S3_BUCKET_NAME env var
         """
+        # Check if we're in Vercel (read-only filesystem)
+        is_vercel = os.getenv("VERCEL", "0") == "1"
+        
         # Auto-detect S3 usage if not explicitly set
         if use_s3 is None:
             use_s3 = bool(os.getenv("AWS_S3_BUCKET_NAME"))
+        
+        # In Vercel, S3 is required (filesystem is read-only)
+        if is_vercel and not use_s3:
+            raise ValueError(
+                "S3 storage is required in Vercel (filesystem is read-only). "
+                "Set AWS_S3_BUCKET_NAME environment variable in Vercel Dashboard → Settings → Environment Variables."
+            )
         
         self.use_s3 = use_s3
         
@@ -54,19 +64,40 @@ class MessageOrganizer:
                 self.s3_storage = S3Storage(prefix=prefix)
                 logger.debug("MessageOrganizer initialized with S3 storage")
             except Exception as e:
+                # In Vercel, S3 failure is fatal (no filesystem fallback)
+                if is_vercel:
+                    raise ValueError(
+                        f"Failed to initialize S3 storage in Vercel: {e}. "
+                        "S3 is required in Vercel. Check AWS credentials and bucket configuration."
+                    ) from e
+                # Local: fall back to filesystem
                 logger.warning(f"Failed to initialize S3 storage, falling back to local filesystem: {e}")
                 self.use_s3 = False
                 self.base_dir = base_dir
                 self.ensure_base_directory()
         else:
-            # Use local filesystem
+            # Use local filesystem (only in non-Vercel environments)
+            if is_vercel:
+                raise ValueError(
+                    "Cannot use local filesystem in Vercel (read-only). "
+                    "Set AWS_S3_BUCKET_NAME environment variable to use S3 storage."
+                )
             self.base_dir = base_dir
             self.ensure_base_directory()
     
     def ensure_base_directory(self):
         """Create base conversations directory (only for local filesystem)"""
         if not self.use_s3:
-            os.makedirs(self.base_dir, exist_ok=True)
+            # Skip directory creation in Vercel (read-only filesystem)
+            is_vercel = os.getenv("VERCEL", "0") == "1"
+            if not is_vercel:
+                try:
+                    os.makedirs(self.base_dir, exist_ok=True)
+                except (OSError, PermissionError) as e:
+                    raise ValueError(
+                        f"Cannot create conversations directory: {e}. "
+                        "In Vercel/production, use S3 storage (set AWS_S3_BUCKET_NAME environment variable)."
+                    ) from e
     
     def sanitize_filename(self, name: str) -> str:
         """Sanitize filename by removing/replacing invalid characters"""
@@ -156,7 +187,15 @@ class MessageOrganizer:
                 logger.error(f"Failed to save conversation to S3: {e}", exc_info=True)
                 raise
         else:
-            # Save to local filesystem
+            # Save to local filesystem (only in non-Vercel environments)
+            # Check if we're in Vercel (should not reach here if S3 is properly configured)
+            is_vercel = os.getenv("VERCEL", "0") == "1"
+            if is_vercel:
+                raise ValueError(
+                    "Cannot save to local filesystem in Vercel (read-only). "
+                    "S3 storage is required. Set AWS_S3_BUCKET_NAME environment variable."
+                )
+            
             # Sanitize names for filesystem
             safe_listing_name = self.sanitize_filename(listing_name)
             safe_guest_name = self.sanitize_filename(guest_name)
@@ -164,14 +203,26 @@ class MessageOrganizer:
             
             # Create listing directory
             listing_dir = os.path.join(self.base_dir, safe_listing_name)
-            os.makedirs(listing_dir, exist_ok=True)
+            try:
+                os.makedirs(listing_dir, exist_ok=True)
+            except (OSError, PermissionError) as e:
+                raise ValueError(
+                    f"Cannot create listing directory: {e}. "
+                    "In Vercel/production, use S3 storage (set AWS_S3_BUCKET_NAME environment variable)."
+                ) from e
             
             # Create filename
             filename = f"{safe_guest_name}_{formatted_date}_conversation.txt"
             filepath = os.path.join(listing_dir, filename)
             
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(full_text)
+            try:
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(full_text)
+            except (OSError, PermissionError) as e:
+                raise ValueError(
+                    f"Cannot write conversation file: {e}. "
+                    "In Vercel/production, use S3 storage (set AWS_S3_BUCKET_NAME environment variable)."
+                ) from e
             
             return filepath
 
