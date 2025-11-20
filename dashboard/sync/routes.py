@@ -74,10 +74,46 @@ def run_sync_async(job_id: str, sync_mode: str):
         
         logger.info(f"Sync completed for job {job_id}, sync_run_id={sync_run_id}, results: {results}")
         
+        # Check if sync had any errors
+        has_errors = False
+        error_messages = []
+        
+        # Check for top-level error
+        if 'error' in results:
+            has_errors = True
+            error_messages.append(f"Sync error: {results['error']}")
+        
+        # Check each sync type for errors
+        sync_types = ['listings', 'reservations', 'guests', 'messages', 'reviews']
+        for sync_type in sync_types:
+            if sync_type in results:
+                sync_result = results[sync_type]
+                # Check if it's a dict with error status
+                if isinstance(sync_result, dict):
+                    if sync_result.get('status') == 'error':
+                        has_errors = True
+                        error_msg = sync_result.get('error', f'{sync_type} sync failed')
+                        error_messages.append(f"{sync_type}: {error_msg}")
+                    # Also check for errors list
+                    elif sync_result.get('errors'):
+                        errors = sync_result.get('errors', [])
+                        if errors:
+                            has_errors = True
+                            error_messages.append(f"{sync_type}: {len(errors)} error(s) - {errors[0] if errors else 'Unknown error'}")
+        
         # Store results (sync_run_id is already set above)
         job_manager.set_results(job_id, results)
-        job_manager.update_job_status(job_id, 'completed')
-        logger.info(f"Job {job_id} marked as completed")
+        
+        # Set status based on whether there were errors
+        if has_errors:
+            error_summary = '; '.join(error_messages[:3])  # Limit to first 3 errors
+            if len(error_messages) > 3:
+                error_summary += f" (and {len(error_messages) - 3} more)"
+            job_manager.update_job_status(job_id, 'error', error=error_summary)
+            logger.warning(f"Job {job_id} completed with errors: {error_summary}")
+        else:
+            job_manager.update_job_status(job_id, 'completed')
+            logger.info(f"Job {job_id} marked as completed successfully")
         
     except Exception as e:
         import traceback
