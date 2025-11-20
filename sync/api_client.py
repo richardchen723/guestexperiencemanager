@@ -4,11 +4,16 @@ Shared Hostaway API client for sync operations.
 Handles OAuth 2.0 authentication and API requests with rate limiting.
 """
 
+import os
 import time
 import logging
 import requests
 from datetime import datetime
 from typing import List, Dict, Optional, Any
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from urllib3.poolmanager import PoolManager
+import ssl
 
 from config import HOSTAWAY_API_KEY, HOSTAWAY_ACCOUNT_ID, HOSTAWAY_BASE_URL, VERBOSE
 
@@ -22,6 +27,41 @@ DEFAULT_TOKEN_EXPIRATION = 3600  # seconds
 MAX_RETRIES = 3  # Maximum number of retries for network errors
 RETRY_DELAY_BASE = 2  # Base delay in seconds for exponential backoff
 
+# Detect if running in serverless environment (Vercel)
+IS_VERCEL = os.getenv("VERCEL", "0") == "1"
+
+
+class SSLAdapter(HTTPAdapter):
+    """
+    Custom HTTPAdapter with improved SSL/TLS configuration for serverless environments.
+    This helps handle SSL connection issues in Vercel and similar environments.
+    """
+    def init_poolmanager(self, *args, **kwargs):
+        # Configure SSL context with proper settings for serverless
+        context = ssl.create_default_context()
+        # Set check_hostname to True for security
+        context.check_hostname = True
+        context.verify_mode = ssl.CERT_REQUIRED
+        
+        # Try to set TLS version constraints if available (Python 3.7+)
+        try:
+            context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+            context.maximum_version = ssl.TLSVersion.MAXIMUM_SUPPORTED
+        except AttributeError:
+            # Python < 3.7 doesn't have TLSVersion enum, use default context
+            pass
+        
+        kwargs['ssl_context'] = context
+        
+        # In serverless, use minimal connection pooling to avoid stale connections
+        if IS_VERCEL:
+            kwargs['maxsize'] = 1  # Minimal pool size - one connection at a time
+            kwargs['block'] = False  # Don't block on pool exhaustion
+            # Disable connection keep-alive in serverless to force fresh connections
+            kwargs['socket_options'] = []
+        
+        return super().init_poolmanager(*args, **kwargs)
+
 
 class HostawayAPIClient:
     """API client for Hostaway with OAuth 2.0 authentication and rate limiting."""
@@ -33,6 +73,38 @@ class HostawayAPIClient:
         self.base_url = HOSTAWAY_BASE_URL
         self.access_token: Optional[str] = None
         self.token_expires_at: Optional[float] = None
+        
+        # Configure session timeout - slightly longer for serverless
+        self.timeout = 45 if IS_VERCEL else 30
+        
+        # Create initial session
+        self._recreate_session()
+    
+    def _recreate_session(self):
+        """Create or recreate the requests session with proper SSL configuration."""
+        # Close existing session if it exists
+        if hasattr(self, 'session'):
+            try:
+                self.session.close()
+            except Exception:
+                pass
+        
+        # Create a new session with custom SSL adapter and retry strategy
+        self.session = requests.Session()
+        
+        # Configure retry strategy
+        retry_strategy = Retry(
+            total=0,  # Disable urllib3 retries - we handle retries ourselves
+            backoff_factor=0,
+            status_forcelist=[],
+            allowed_methods=[],
+            raise_on_status=False
+        )
+        
+        # Mount custom adapter with SSL configuration
+        adapter = SSLAdapter(max_retries=retry_strategy)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
     
     def get_access_token(self) -> Optional[str]:
         """
@@ -63,7 +135,7 @@ class HostawayAPIClient:
         }
         
         try:
-            response = requests.post(url, headers=headers, data=data, timeout=30)
+            response = self.session.post(url, headers=headers, data=data, timeout=self.timeout)
             response.raise_for_status()
             token_data = response.json()
             self.access_token = token_data.get('access_token')
@@ -132,14 +204,14 @@ class HostawayAPIClient:
             return None
         
         try:
-            response = requests.get(url, headers=headers, params=params, timeout=30)
+            response = self.session.get(url, headers=headers, params=params, timeout=self.timeout)
             
             # Handle rate limiting with retry
             if response.status_code == 429:
                 if VERBOSE:
                     logger.warning(f"Rate limit exceeded for {endpoint}, waiting {RATE_LIMIT_RETRY_DELAY}s...")
                 time.sleep(RATE_LIMIT_RETRY_DELAY)
-                response = requests.get(url, headers=headers, params=params, timeout=30)
+                response = self.session.get(url, headers=headers, params=params, timeout=self.timeout)
             
             response.raise_for_status()
             return response.json()
@@ -155,15 +227,34 @@ class HostawayAPIClient:
             return None
             
         except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
-            # Retry on SSL/connection errors (common with network issues)
+            # Retry on SSL/connection errors (common with network issues, especially in serverless)
+            # In serverless environments, connections can be terminated unexpectedly
             if retry_count < MAX_RETRIES:
                 wait_time = RETRY_DELAY_BASE * (2 ** retry_count)  # Exponential backoff
                 error_type = "SSL error" if isinstance(e, requests.exceptions.SSLError) else "Connection error"
-                logger.warning(f"{error_type} making request to {endpoint}: {e}. Retrying in {wait_time}s (attempt {retry_count + 1}/{MAX_RETRIES})...")
+                logger.warning(
+                    f"{error_type} making request to {endpoint}: {e}. Retrying in {wait_time}s (attempt {retry_count + 1}/{MAX_RETRIES})...",
+                    extra={'endpoint': endpoint, 'retry_count': retry_count, 'is_vercel': IS_VERCEL}
+                )
+                
+                # For SSL errors in serverless, wait a bit longer and close the session to force new connection
+                if IS_VERCEL and isinstance(e, requests.exceptions.SSLError):
+                    # Close the session to clear any stale connections
+                    self.session.close()
+                    # Recreate session with fresh SSL context
+                    self._recreate_session()
+                    # Add extra delay for SSL errors in serverless
+                    wait_time += 1
+                
                 time.sleep(wait_time)
                 return self._make_request(endpoint, params, retry_count + 1)
+            
             error_type = "SSL error" if isinstance(e, requests.exceptions.SSLError) else "Connection error"
-            logger.error(f"{error_type} making request to {endpoint} after {MAX_RETRIES} retries: {e}")
+            logger.error(
+                f"{error_type} making request to {endpoint} after {MAX_RETRIES} retries: {e}",
+                exc_info=True,
+                extra={'endpoint': endpoint, 'params': params, 'retry_count': retry_count, 'is_vercel': IS_VERCEL}
+            )
             return None
             
         except requests.exceptions.HTTPError as e:
