@@ -90,10 +90,26 @@ def get_engine(db_path_or_url: str):
 def init_user_database():
     """Initialize the user database and create tables."""
     db_path_or_url = config.USERS_DATABASE_PATH
+    
+    if not db_path_or_url:
+        raise ValueError(
+            "USERS_DATABASE_PATH is not set. "
+            "In Vercel, set USERS_DATABASE_URL environment variable. "
+            "Locally, it will fall back to SQLite if not set."
+        )
+    
     # Only create directory for SQLite (file-based)
     if not (db_path_or_url.startswith('postgresql://') or db_path_or_url.startswith('postgres://')):
-        db_dir = Path(db_path_or_url).parent
-        db_dir.mkdir(parents=True, exist_ok=True)
+        # SQLite: create directory if it doesn't exist
+        try:
+            db_dir = Path(db_path_or_url).parent
+            db_dir.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError) as e:
+            # In read-only filesystem (like Vercel), this will fail
+            raise ValueError(
+                f"Cannot create SQLite database directory: {e}. "
+                "In Vercel/production, use PostgreSQL (set USERS_DATABASE_URL environment variable)."
+            ) from e
     
     engine = get_engine(db_path_or_url)
     try:

@@ -25,10 +25,26 @@ if not OPENAI_API_KEY:
 # Database paths/URLs
 # Supports both SQLite (file path) and PostgreSQL (connection URL)
 # For PostgreSQL: postgresql://user:password@host:port/database
-# Falls back to SQLite file paths if environment variables not set
-MAIN_DATABASE_PATH = os.getenv("DATABASE_URL") or str(PROJECT_ROOT / "data" / "database" / "hostaway.db")
-CACHE_DATABASE_PATH = os.getenv("CACHE_DATABASE_URL") or str(PROJECT_ROOT / "dashboard" / "data" / "ai_cache.db")
-USERS_DATABASE_PATH = os.getenv("USERS_DATABASE_URL") or str(PROJECT_ROOT / "dashboard" / "data" / "users.db")
+# In Vercel/production, PostgreSQL URLs are required (filesystem is read-only)
+IS_VERCEL = os.getenv("VERCEL", "0") == "1"
+
+# In Vercel, require PostgreSQL connection strings
+if IS_VERCEL:
+    MAIN_DATABASE_PATH = os.getenv("DATABASE_URL")
+    CACHE_DATABASE_PATH = os.getenv("CACHE_DATABASE_URL")
+    USERS_DATABASE_PATH = os.getenv("USERS_DATABASE_URL")
+    
+    if not MAIN_DATABASE_PATH:
+        raise ValueError("DATABASE_URL environment variable is required in Vercel. Set it in Vercel Dashboard → Settings → Environment Variables.")
+    if not CACHE_DATABASE_PATH:
+        raise ValueError("CACHE_DATABASE_URL environment variable is required in Vercel. Set it in Vercel Dashboard → Settings → Environment Variables.")
+    if not USERS_DATABASE_PATH:
+        raise ValueError("USERS_DATABASE_URL environment variable is required in Vercel. Set it in Vercel Dashboard → Settings → Environment Variables.")
+else:
+    # Local development: fall back to SQLite if not set
+    MAIN_DATABASE_PATH = os.getenv("DATABASE_URL") or str(PROJECT_ROOT / "data" / "database" / "hostaway.db")
+    CACHE_DATABASE_PATH = os.getenv("CACHE_DATABASE_URL") or str(PROJECT_ROOT / "dashboard" / "data" / "ai_cache.db")
+    USERS_DATABASE_PATH = os.getenv("USERS_DATABASE_URL") or str(PROJECT_ROOT / "dashboard" / "data" / "users.db")
 CONVERSATIONS_DIR = str(PROJECT_ROOT / "conversations")
 
 # Analysis time windows
