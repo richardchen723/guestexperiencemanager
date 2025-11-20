@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 RATE_LIMIT_RETRY_DELAY = 10  # seconds
 TOKEN_EXPIRATION_BUFFER = 60  # seconds
 DEFAULT_TOKEN_EXPIRATION = 3600  # seconds
+MAX_RETRIES = 3  # Maximum number of retries for network errors
+RETRY_DELAY_BASE = 2  # Base delay in seconds for exponential backoff
 
 
 class HostawayAPIClient:
@@ -102,13 +104,14 @@ class HostawayAPIClient:
             "Accept": "application/json"
         }
     
-    def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
+    def _make_request(self, endpoint: str, params: Optional[Dict] = None, retry_count: int = 0) -> Optional[Dict]:
         """
-        Make API request with error handling and rate limiting.
+        Make API request with error handling, rate limiting, and retry logic.
         
         Args:
             endpoint: API endpoint path (without base URL)
             params: Optional query parameters
+            retry_count: Current retry attempt (for recursive retries)
             
         Returns:
             Response JSON data, or None on error.
@@ -134,15 +137,42 @@ class HostawayAPIClient:
             return response.json()
             
         except requests.exceptions.Timeout:
-            logger.error(f"Timeout making request to {endpoint}")
+            # Retry on timeout
+            if retry_count < MAX_RETRIES:
+                wait_time = RETRY_DELAY_BASE * (2 ** retry_count)  # Exponential backoff
+                logger.warning(f"Timeout making request to {endpoint}, retrying in {wait_time}s (attempt {retry_count + 1}/{MAX_RETRIES})...")
+                time.sleep(wait_time)
+                return self._make_request(endpoint, params, retry_count + 1)
+            logger.error(f"Timeout making request to {endpoint} after {MAX_RETRIES} retries")
             return None
+            
+        except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
+            # Retry on SSL/connection errors (common with network issues)
+            if retry_count < MAX_RETRIES:
+                wait_time = RETRY_DELAY_BASE * (2 ** retry_count)  # Exponential backoff
+                error_type = "SSL error" if isinstance(e, requests.exceptions.SSLError) else "Connection error"
+                logger.warning(f"{error_type} making request to {endpoint}: {e}. Retrying in {wait_time}s (attempt {retry_count + 1}/{MAX_RETRIES})...")
+                time.sleep(wait_time)
+                return self._make_request(endpoint, params, retry_count + 1)
+            error_type = "SSL error" if isinstance(e, requests.exceptions.SSLError) else "Connection error"
+            logger.error(f"{error_type} making request to {endpoint} after {MAX_RETRIES} retries: {e}")
+            return None
+            
         except requests.exceptions.HTTPError as e:
+            # Don't retry on HTTP errors (4xx, 5xx) except 429 (already handled above)
             logger.error(f"HTTP error for {endpoint}: {e}")
             if hasattr(e, 'response') and e.response is not None:
                 logger.debug(f"Response: {e.response.text[:200]}")
             return None
+            
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error making request to {endpoint}: {e}")
+            # Retry on other request exceptions (network issues, etc.)
+            if retry_count < MAX_RETRIES:
+                wait_time = RETRY_DELAY_BASE * (2 ** retry_count)  # Exponential backoff
+                logger.warning(f"Request error for {endpoint}: {e}. Retrying in {wait_time}s (attempt {retry_count + 1}/{MAX_RETRIES})...")
+                time.sleep(wait_time)
+                return self._make_request(endpoint, params, retry_count + 1)
+            logger.error(f"Error making request to {endpoint} after {MAX_RETRIES} retries: {e}")
             return None
     
     def get_listings(self, limit: Optional[int] = None, 
