@@ -1381,9 +1381,16 @@ def sync_messages_from_files(full_sync: bool = True, progress_tracker: Optional[
         }
         
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         session.rollback()
         error_msg = f"Fatal error in sync_messages: {str(e)}"
-        logger.error(error_msg)
+        logger.error(
+            f"Fatal error in sync_messages: {str(e)}",
+            exc_info=True,
+            extra={'full_sync': full_sync, 'sync_run_id': sync_run_id}
+        )
+        logger.debug(f"Full traceback for fatal message sync error:\n{error_details}")
         
         # Log error
         sync_log = SyncLog(

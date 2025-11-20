@@ -289,7 +289,15 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                 time.sleep(0.5)
                 
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
             error_msg = f"Error fetching reservations from API: {str(e)}"
+            logger.error(
+                f"Error fetching reservations from API: {str(e)}",
+                exc_info=True,
+                extra={'offset': offset, 'limit': limit, 'full_sync': full_sync, 'sync_run_id': sync_run_id}
+            )
+            logger.debug(f"Full traceback for reservation fetch error:\n{error_details}")
             if VERBOSE:
                 print(f"\n    {error_msg}")
             progress.complete_phase()
@@ -508,16 +516,33 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                         session.commit()
                         batch_count = 0
                     except Exception as e:
+                        import traceback
+                        error_details = traceback.format_exc()
                         session.rollback()
                         error_msg = f"Error committing batch: {str(e)}"
                         errors.append(error_msg)
+                        logger.error(
+                            f"Error committing reservation batch: {str(e)}",
+                            exc_info=True,
+                            extra={'batch_size': len(batch), 'sync_run_id': sync_run_id}
+                        )
+                        logger.debug(f"Full traceback for batch commit error:\n{error_details}")
                         if VERBOSE:
                             print(f"\n  {error_msg}")
                 
             except Exception as e:
-                error_msg = f"Error syncing reservation {reservation_data.get('id')}: {str(e)}"
+                import traceback
+                error_details = traceback.format_exc()
+                reservation_id = reservation_data.get('id')
+                error_msg = f"Error syncing reservation {reservation_id}: {str(e)}"
                 errors.append(error_msg)
                 progress.increment(error=True)
+                logger.error(
+                    f"Error syncing reservation {reservation_id}: {str(e)}",
+                    exc_info=True,
+                    extra={'reservation_id': reservation_id, 'sync_run_id': sync_run_id}
+                )
+                logger.debug(f"Full traceback for reservation {reservation_id}:\n{error_details}")
                 if VERBOSE:
                     print(f"\n  {error_msg}")
                 continue
@@ -577,9 +602,16 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
         }
         
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         session.rollback()
         error_msg = f"Fatal error in sync_reservations: {str(e)}"
-        logger.error(error_msg)
+        logger.error(
+            f"Fatal error in sync_reservations: {str(e)}",
+            exc_info=True,
+            extra={'full_sync': full_sync, 'listing_id': listing_id, 'sync_run_id': sync_run_id}
+        )
+        logger.debug(f"Full traceback for fatal reservation sync error:\n{error_details}")
         
         # Log error
         sync_log = SyncLog(

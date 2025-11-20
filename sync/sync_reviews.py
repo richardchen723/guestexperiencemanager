@@ -685,11 +685,19 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                         batch_created_review_ids = []  # Reset tracking list
                 
             except Exception as e:
-                error_msg = f"Error syncing review {review_data.get('id')}: {str(e)}"
+                import traceback
+                error_details = traceback.format_exc()
+                review_id = review_data.get('id')
+                error_msg = f"Error syncing review {review_id}: {str(e)}"
                 errors.append(error_msg)
                 progress.increment(error=True)
                 session.rollback()  # Rollback on error
-                logger.warning(error_msg)
+                logger.error(
+                    f"Error syncing review {review_id}: {str(e)}",
+                    exc_info=True,
+                    extra={'review_id': review_id, 'sync_run_id': sync_run_id}
+                )
+                logger.debug(f"Full traceback for review {review_id}:\n{error_details}")
                 continue
         
         # Complete progress tracking
@@ -772,8 +780,12 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
             )
             session.add(sync_log)
             session.commit()
-        except Exception:
-            pass  # If we can't log, at least we tried
+        except Exception as log_error:
+            # If we can't create SyncLog, at least log the error
+            logger.error(
+                f"Failed to create error SyncLog entry: {str(log_error)}. Original error: {error_msg}",
+                exc_info=True
+            )
         
         return {
             'status': 'error',

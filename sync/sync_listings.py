@@ -254,17 +254,32 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
                         session.commit()
                         batch_count = 0
                     except Exception as e:
+                        import traceback
+                        error_details = traceback.format_exc()
                         session.rollback()
                         error_msg = f"Error committing batch: {str(e)}"
                         errors.append(error_msg)
-                        logger.warning(error_msg)
+                        logger.error(
+                            f"Error committing listing batch: {str(e)}",
+                            exc_info=True,
+                            extra={'batch_size': len(batch), 'sync_run_id': sync_run_id}
+                        )
+                        logger.debug(f"Full traceback for batch commit error:\n{error_details}")
                 
             except Exception as e:
-                error_msg = f"Error syncing listing {listing_data.get('id')}: {str(e)}"
+                import traceback
+                error_details = traceback.format_exc()
+                listing_id = listing_data.get('id')
+                error_msg = f"Error syncing listing {listing_id}: {str(e)}"
                 errors.append(error_msg)
                 progress.increment(error=True)
                 session.rollback()  # Rollback on error
-                logger.warning(error_msg)
+                logger.error(
+                    f"Error syncing listing {listing_id}: {str(e)}",
+                    exc_info=True,
+                    extra={'listing_id': listing_id, 'sync_run_id': sync_run_id}
+                )
+                logger.debug(f"Full traceback for listing {listing_id}:\n{error_details}")
                 continue
         
         # Complete progress tracking
@@ -340,8 +355,12 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
             )
             session.add(sync_log)
             session.commit()
-        except Exception:
-            pass  # If we can't log, at least we tried
+        except Exception as log_error:
+            # If we can't create SyncLog, at least log the error
+            logger.error(
+                f"Failed to create error SyncLog entry: {str(log_error)}. Original error: {error_msg}",
+                exc_info=True
+            )
         
         return {
             'status': 'error',

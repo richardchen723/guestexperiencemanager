@@ -80,11 +80,19 @@ class HostawayAPIClient:
             
             return self.access_token
             
-        except requests.exceptions.Timeout:
-            logger.error("Timeout getting access token")
+        except requests.exceptions.Timeout as e:
+            logger.error(
+                "Timeout getting access token",
+                exc_info=True,
+                extra={'account_id': self.account_id, 'base_url': self.base_url}
+            )
             return None
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error getting access token: {e}")
+            logger.error(
+                f"Error getting access token: {e}",
+                exc_info=True,
+                extra={'account_id': self.account_id, 'base_url': self.base_url}
+            )
             return None
     
     def get_headers(self) -> Dict[str, str]:
@@ -160,7 +168,11 @@ class HostawayAPIClient:
             
         except requests.exceptions.HTTPError as e:
             # Don't retry on HTTP errors (4xx, 5xx) except 429 (already handled above)
-            logger.error(f"HTTP error for {endpoint}: {e}")
+            logger.error(
+                f"HTTP error for {endpoint}: {e}",
+                exc_info=True,
+                extra={'endpoint': endpoint, 'params': params, 'status_code': e.response.status_code if hasattr(e, 'response') and e.response else None}
+            )
             if hasattr(e, 'response') and e.response is not None:
                 logger.debug(f"Response: {e.response.text[:200]}")
             return None
@@ -172,7 +184,11 @@ class HostawayAPIClient:
                 logger.warning(f"Request error for {endpoint}: {e}. Retrying in {wait_time}s (attempt {retry_count + 1}/{MAX_RETRIES})...")
                 time.sleep(wait_time)
                 return self._make_request(endpoint, params, retry_count + 1)
-            logger.error(f"Error making request to {endpoint} after {MAX_RETRIES} retries: {e}")
+            logger.error(
+                f"Error making request to {endpoint} after {MAX_RETRIES} retries: {e}",
+                exc_info=True,
+                extra={'endpoint': endpoint, 'params': params, 'retry_count': retry_count, 'max_retries': MAX_RETRIES}
+            )
             return None
     
     def get_listings(self, limit: Optional[int] = None, 
