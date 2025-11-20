@@ -124,8 +124,12 @@ def create_app():
     return app
 
 
+# Create app instance for Vercel serverless function
+# Vercel expects 'app' to be available at module level
+app = create_app()
+
+# For local development
 if __name__ == '__main__':
-    app = create_app()
     logger = logging.getLogger(__name__)
     logger.info(f"Starting Insights Dashboard on http://{config.FLASK_HOST}:{config.FLASK_PORT}")
     logger.info("Press Ctrl+C to stop")

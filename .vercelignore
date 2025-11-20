@@ -1,0 +1,64 @@
+# Exclude unnecessary files from Vercel deployment
+# This reduces upload size and speeds up deployment
+
+# Data directories
+data/
+conversations/
+logs/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Documentation (not needed in deployment)
+*.md
+docs/
+
+# Infrastructure (not needed in deployment)
+infrastructure/
+scripts/
+
+# Test files
+test_*.py
+*_test.py
+tests/
+
+# Environment files (use Vercel env vars instead)
+.env
+.env.local
+.env.*.local
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Other
+.DS_Store
+*.log
+vercel_deploy.log
+
