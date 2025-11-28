@@ -117,7 +117,9 @@ def init_user_database():
     if not database_url:
         # SQLite: Ensure database directory exists
         db_dir = Path(db_path).parent
-        db_dir.mkdir(parents=True, exist_ok=True)
+        # Skip directory creation on Vercel (read-only filesystem)
+        if not os.getenv("VERCEL"):
+            db_dir.mkdir(parents=True, exist_ok=True)
     
     engine = get_engine(db_path)
     

@@ -83,7 +83,9 @@ def get_engine():
         # SQLite connection (fallback)
         db_path = config.CACHE_DATABASE_PATH
         db_dir = Path(db_path).parent
-        db_dir.mkdir(parents=True, exist_ok=True)
+        # Skip directory creation on Vercel (read-only filesystem)
+        if not os.getenv("VERCEL"):
+            db_dir.mkdir(parents=True, exist_ok=True)
         
         engine = create_engine(
             f'sqlite:///{db_path}',

@@ -11,12 +11,21 @@ from pathlib import Path
 
 def get_database_path():
     """Get the path to the SQLite database file"""
-    # Create data directory if it doesn't exist
-    data_dir = Path("data")
-    data_dir.mkdir(exist_ok=True)
+    # Skip directory creation on Vercel (read-only filesystem) or when using PostgreSQL
+    is_vercel = os.getenv("VERCEL") == "1"
+    has_postgres = bool(os.getenv("DATABASE_URL"))
     
-    db_dir = data_dir / "database"
-    db_dir.mkdir(exist_ok=True)
+    # Only create directories if not on Vercel and not using PostgreSQL
+    if not is_vercel and not has_postgres:
+        # Create data directory if it doesn't exist
+        data_dir = Path("data")
+        data_dir.mkdir(exist_ok=True)
+        
+        db_dir = data_dir / "database"
+        db_dir.mkdir(exist_ok=True)
+    else:
+        # On Vercel or with PostgreSQL, use a default path (won't be used if PostgreSQL is set)
+        db_dir = Path("data") / "database"
     
     return str(db_dir / "hostaway.db")
 
