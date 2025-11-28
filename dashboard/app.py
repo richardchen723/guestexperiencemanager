@@ -26,15 +26,23 @@ from dashboard.auth.session import get_current_user
 
 def create_app():
     """Create and configure the Flask application."""
+    # Detect Vercel environment
+    is_vercel = os.getenv("VERCEL") == "1"
+    
     # Setup logging with DEBUG level for detailed diagnostics
-    log_file = os.path.join(project_root, 'logs', 'dashboard.log')
+    # On Vercel, skip file logging (read-only filesystem)
+    log_file = None if is_vercel else os.path.join(project_root, 'logs', 'dashboard.log')
     setup_logging(log_file=log_file)
     logger = logging.getLogger(__name__)
     logger.info("Initializing Flask application with DEBUG logging enabled")
     
-    # Allow insecure transport for localhost development (HTTP instead of HTTPS)
-    # This is required for OAuth to work on localhost
-    os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+    # Allow insecure transport ONLY for localhost development (HTTP instead of HTTPS)
+    # On Vercel (production), HTTPS is required - don't set this
+    if not is_vercel:
+        os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+    else:
+        # Ensure secure transport in production
+        os.environ.pop('OAUTHLIB_INSECURE_TRANSPORT', None)
     
     # Get absolute paths for templates and static files
     dashboard_dir = os.path.dirname(os.path.abspath(__file__))
