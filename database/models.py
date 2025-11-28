@@ -364,31 +364,37 @@ def get_engine(db_path: str):
         
         if is_vercel:
             # Serverless: No connection pooling (each request gets fresh connection)
-            pool_class = NullPool
-            pool_size = None
-            max_overflow = None
+            # NullPool doesn't support pool_size, max_overflow, or pool_timeout
+            engine = create_engine(
+                database_url,
+                echo=False,
+                poolclass=NullPool,
+                pool_pre_ping=True,
+                connect_args={
+                    "connect_timeout": 15,
+                    "keepalives": 1,
+                    "keepalives_idle": 30,
+                    "keepalives_interval": 10,
+                    "keepalives_count": 5
+                }
+            )
         else:
             # Local: Use connection pooling
-            pool_class = None
-            pool_size = 5
-            max_overflow = 2
-        
-        engine = create_engine(
-            database_url,
-            echo=False,
-            poolclass=pool_class,
-            pool_size=pool_size,
-            max_overflow=max_overflow,
-            pool_timeout=30 if not is_vercel else None,
-            pool_pre_ping=True,
-            connect_args={
-                "connect_timeout": 15,
-                "keepalives": 1,
-                "keepalives_idle": 30,
-                "keepalives_interval": 10,
-                "keepalives_count": 5
-            }
-        )
+            engine = create_engine(
+                database_url,
+                echo=False,
+                pool_size=5,
+                max_overflow=2,
+                pool_timeout=30,
+                pool_pre_ping=True,
+                connect_args={
+                    "connect_timeout": 15,
+                    "keepalives": 1,
+                    "keepalives_idle": 30,
+                    "keepalives_interval": 10,
+                    "keepalives_count": 5
+                }
+            )
         return engine
     else:
         # SQLite connection (fallback)
