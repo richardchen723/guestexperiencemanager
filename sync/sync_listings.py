@@ -60,7 +60,11 @@ def parse_timestamp(ts_str: Optional[str]) -> Optional[datetime]:
 
 def sync_listing_photos(session, listing_id: int, photos_data: List[Dict]) -> None:
     """
-    Sync photos for a listing.
+    Sync photos for a listing using upsert pattern (idempotent).
+    
+    This function is idempotent - safe to run multiple times.
+    It updates existing photos by URL and creates new ones, only deleting photos
+    that are no longer in the API response.
     
     Args:
         session: Database session.
@@ -70,32 +74,67 @@ def sync_listing_photos(session, listing_id: int, photos_data: List[Dict]) -> No
     if not STORE_PHOTO_METADATA or not photos_data:
         return
     
-    # Delete existing photos for this listing
-    try:
-        session.query(ListingPhoto).filter(
-            ListingPhoto.listing_id == listing_id
-        ).delete()
-    except Exception as e:
-        logger.warning(f"Error deleting existing photos for listing {listing_id}: {e}")
-        return
+    # Pre-load existing photos for this listing (keyed by photo_url for deduplication)
+    existing_photos = session.query(ListingPhoto).filter(
+        ListingPhoto.listing_id == listing_id
+    ).all()
+    existing_photos_by_url = {photo.photo_url: photo for photo in existing_photos if photo.photo_url}
     
-    # Add new photos
+    # Track which photos we've processed from API
+    processed_photo_urls = set()
+    
+    # Upsert photos: update existing or create new
     for idx, photo_data in enumerate(photos_data):
         try:
-            photo = ListingPhoto(
-                listing_id=listing_id,
-                photo_url=photo_data.get('url', ''),
-                thumbnail_url=photo_data.get('thumbnailUrl', ''),
-                photo_type=photo_data.get('type', ''),
-                display_order=photo_data.get('displayOrder', idx),
-                caption=photo_data.get('caption', ''),
-                width=photo_data.get('width'),
-                height=photo_data.get('height'),
-                last_synced_at=datetime.utcnow()
-            )
-            session.add(photo)
+            photo_url = photo_data.get('url', '')
+            if not photo_url:
+                continue
+            
+            processed_photo_urls.add(photo_url)
+            
+            # Check if photo already exists by URL
+            existing_photo = existing_photos_by_url.get(photo_url)
+            
+            if existing_photo:
+                # Update existing photo
+                existing_photo.thumbnail_url = photo_data.get('thumbnailUrl', '') or existing_photo.thumbnail_url
+                existing_photo.photo_type = photo_data.get('type', '') or existing_photo.photo_type
+                existing_photo.display_order = photo_data.get('displayOrder', idx)
+                existing_photo.caption = photo_data.get('caption', '') or existing_photo.caption
+                existing_photo.width = photo_data.get('width') or existing_photo.width
+                existing_photo.height = photo_data.get('height') or existing_photo.height
+                existing_photo.last_synced_at = datetime.utcnow()
+            else:
+                # Create new photo
+                photo = ListingPhoto(
+                    listing_id=listing_id,
+                    photo_url=photo_url,
+                    thumbnail_url=photo_data.get('thumbnailUrl', ''),
+                    photo_type=photo_data.get('type', ''),
+                    display_order=photo_data.get('displayOrder', idx),
+                    caption=photo_data.get('caption', ''),
+                    width=photo_data.get('width'),
+                    height=photo_data.get('height'),
+                    last_synced_at=datetime.utcnow()
+                )
+                session.add(photo)
+                # Add to lookup map for future reference in this batch
+                existing_photos_by_url[photo_url] = photo
         except Exception as e:
-            logger.warning(f"Error adding photo {idx} for listing {listing_id}: {e}")
+            logger.warning(f"Error upserting photo {idx} for listing {listing_id}: {e}")
+            continue
+    
+    # Delete photos that are no longer in API response (idempotent cleanup)
+    photos_to_delete = [
+        photo for photo_url, photo in existing_photos_by_url.items()
+        if photo_url not in processed_photo_urls
+    ]
+    
+    for photo in photos_to_delete:
+        try:
+            session.delete(photo)
+        except Exception as e:
+            logger.warning(f"Error deleting photo {photo.photo_id} for listing {listing_id}: {e}")
             continue
 
 
@@ -254,32 +293,17 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
                         session.commit()
                         batch_count = 0
                     except Exception as e:
-                        import traceback
-                        error_details = traceback.format_exc()
                         session.rollback()
                         error_msg = f"Error committing batch: {str(e)}"
                         errors.append(error_msg)
-                        logger.error(
-                            f"Error committing listing batch: {str(e)}",
-                            exc_info=True,
-                            extra={'batch_size': len(batch), 'sync_run_id': sync_run_id}
-                        )
-                        logger.debug(f"Full traceback for batch commit error:\n{error_details}")
+                        logger.warning(error_msg)
                 
             except Exception as e:
-                import traceback
-                error_details = traceback.format_exc()
-                listing_id = listing_data.get('id')
-                error_msg = f"Error syncing listing {listing_id}: {str(e)}"
+                error_msg = f"Error syncing listing {listing_data.get('id')}: {str(e)}"
                 errors.append(error_msg)
                 progress.increment(error=True)
                 session.rollback()  # Rollback on error
-                logger.error(
-                    f"Error syncing listing {listing_id}: {str(e)}",
-                    exc_info=True,
-                    extra={'listing_id': listing_id, 'sync_run_id': sync_run_id}
-                )
-                logger.debug(f"Full traceback for listing {listing_id}:\n{error_details}")
+                logger.warning(error_msg)
                 continue
         
         # Complete progress tracking
@@ -355,12 +379,8 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
             )
             session.add(sync_log)
             session.commit()
-        except Exception as log_error:
-            # If we can't create SyncLog, at least log the error
-            logger.error(
-                f"Failed to create error SyncLog entry: {str(log_error)}. Original error: {error_msg}",
-                exc_info=True
-            )
+        except Exception:
+            pass  # If we can't log, at least we tried
         
         return {
             'status': 'error',

@@ -18,7 +18,7 @@ sys.path.insert(0, project_root)
 # Configure logger
 logger = logging.getLogger(__name__)
 
-from database.models import SyncLog, Listing, get_session, init_models
+from database.models import SyncLog, Listing, get_session
 from database.schema import get_database_path
 from sync.sync_manager import full_sync, incremental_sync
 from dashboard.sync.job_manager import get_job_manager
@@ -74,46 +74,10 @@ def run_sync_async(job_id: str, sync_mode: str):
         
         logger.info(f"Sync completed for job {job_id}, sync_run_id={sync_run_id}, results: {results}")
         
-        # Check if sync had any errors
-        has_errors = False
-        error_messages = []
-        
-        # Check for top-level error
-        if 'error' in results:
-            has_errors = True
-            error_messages.append(f"Sync error: {results['error']}")
-        
-        # Check each sync type for errors
-        sync_types = ['listings', 'reservations', 'guests', 'messages', 'reviews']
-        for sync_type in sync_types:
-            if sync_type in results:
-                sync_result = results[sync_type]
-                # Check if it's a dict with error status
-                if isinstance(sync_result, dict):
-                    if sync_result.get('status') == 'error':
-                        has_errors = True
-                        error_msg = sync_result.get('error', f'{sync_type} sync failed')
-                        error_messages.append(f"{sync_type}: {error_msg}")
-                    # Also check for errors list
-                    elif sync_result.get('errors'):
-                        errors = sync_result.get('errors', [])
-                        if errors:
-                            has_errors = True
-                            error_messages.append(f"{sync_type}: {len(errors)} error(s) - {errors[0] if errors else 'Unknown error'}")
-        
         # Store results (sync_run_id is already set above)
         job_manager.set_results(job_id, results)
-        
-        # Set status based on whether there were errors
-        if has_errors:
-            error_summary = '; '.join(error_messages[:3])  # Limit to first 3 errors
-            if len(error_messages) > 3:
-                error_summary += f" (and {len(error_messages) - 3} more)"
-            job_manager.update_job_status(job_id, 'error', error=error_summary)
-            logger.warning(f"Job {job_id} completed with errors: {error_summary}")
-        else:
-            job_manager.update_job_status(job_id, 'completed')
-            logger.info(f"Job {job_id} marked as completed successfully")
+        job_manager.update_job_status(job_id, 'completed')
+        logger.info(f"Job {job_id} marked as completed")
         
     except Exception as e:
         import traceback
@@ -141,18 +105,15 @@ def api_sync_history():
     db_path = get_database_path()
     job_manager = get_job_manager()
     
-    # Initialize database to ensure tables exist
-    try:
-        init_models(db_path)
-    except Exception as e:
-        return jsonify({'error': f'Database initialization failed: {str(e)}'}), 500
-    
+    # Note: Database tables should already be initialized at app startup
+    # No need to call init_models() on every request - it's expensive
     session = get_session(db_path)
     
     try:
-        # Get all sync logs - include both with and without sync_run_id
+        # Get recent sync logs with pagination (limit to 500 most recent to improve performance)
+        # Include both with and without sync_run_id
         # Logs without sync_run_id are from older syncs or command-line runs
-        all_logs = session.query(SyncLog).order_by(SyncLog.started_at.desc()).all()
+        all_logs = session.query(SyncLog).order_by(SyncLog.started_at.desc()).limit(500).all()
         
         # Get active jobs from job manager (get fresh copy to catch any updates)
         active_jobs = job_manager.get_all_active_jobs()
@@ -258,9 +219,10 @@ def api_sync_history():
                 'sync_run_id': run_id,
                 'sync_mode': determined_sync_mode,
                 'started_at': earliest_started.isoformat() if earliest_started else None,
-                'completed_at': None,
+                'completed_at': None,  # Will be set below
                 'status': 'running' if is_running else 'completed',
-                'sync_types': []
+                'sync_types': [],
+                '_latest_completed_at': None  # Temporary: keep as datetime for comparison
             }
             
             # If running, add job_id for progress tracking
@@ -269,10 +231,10 @@ def api_sync_history():
             
             # Process all logs for this run
             for log in run_logs:
-                # Update completed_at if this is the latest
+                # Update completed_at if this is the latest (keep as datetime for now)
                 if log.completed_at:
-                    if not sync_runs[run_id]['completed_at'] or log.completed_at > datetime.fromisoformat(sync_runs[run_id]['completed_at']):
-                        sync_runs[run_id]['completed_at'] = log.completed_at.isoformat()
+                    if not sync_runs[run_id]['_latest_completed_at'] or log.completed_at > sync_runs[run_id]['_latest_completed_at']:
+                        sync_runs[run_id]['_latest_completed_at'] = log.completed_at
                 
                 # Add sync type info
                 sync_runs[run_id]['sync_types'].append({
@@ -282,6 +244,11 @@ def api_sync_history():
                     'records_updated': log.records_updated,
                     'status': log.status
                 })
+            
+            # Convert completed_at to ISO string now (once, not in loop)
+            if sync_runs[run_id]['_latest_completed_at']:
+                sync_runs[run_id]['completed_at'] = sync_runs[run_id]['_latest_completed_at'].isoformat()
+            del sync_runs[run_id]['_latest_completed_at']  # Remove temporary field
         
         # Determine overall status for each sync_run - a sync is only completed when ALL sync types have completed
         # Do this after collecting all logs to be more efficient
@@ -298,7 +265,8 @@ def api_sync_history():
                     sync_run['job_id'] = sync_run_id_to_jobs[run_id][0]
             else:
                 # Check all logs for this sync_run_id to see if all are completed
-                run_logs = [l for l in all_logs if l.sync_run_id == run_id]
+                # Use logs_by_run_id which we already built (more efficient than filtering all_logs)
+                run_logs = logs_by_run_id.get(run_id, [])
                 
                 if run_logs:
                     all_completed = all(
@@ -321,6 +289,16 @@ def api_sync_history():
         
         # Add active jobs that don't have sync_run_id yet AND don't have any database logs
         # (jobs that just started before any sync logs were written)
+        # Optimize: Create a lookup map of log start times to sync_run_ids for O(1) lookup
+        log_start_times = {}
+        for log in all_logs:
+            if log.started_at and log.sync_run_id:
+                # Round to nearest 10 seconds for matching (within 10 second window)
+                rounded_time = int(log.started_at.timestamp() / 10) * 10
+                if rounded_time not in log_start_times:
+                    log_start_times[rounded_time] = []
+                log_start_times[rounded_time].append((log.sync_run_id, log.started_at))
+        
         for job_id, job in jobs_without_sync_run_id.items():
             # Only add if this job hasn't been added via database logs
             # We check by comparing started_at times - if a log exists with similar start time, skip
@@ -335,16 +313,23 @@ def api_sync_history():
                 
                 # Check if there's a log with similar start time (within 10 seconds)
                 has_matching_log = False
-                for log in all_logs:
-                    if log.started_at:
-                        time_diff = abs((log.started_at - job_start).total_seconds()) if isinstance(job_start, datetime) else 999
-                        if time_diff < 10:
-                            has_matching_log = True
-                            # Also mark this sync_run as running if it's not already
-                            if log.sync_run_id in sync_runs:
-                                sync_runs[log.sync_run_id]['status'] = 'running'
-                                sync_runs[log.sync_run_id]['job_id'] = job_id
-                            break
+                if isinstance(job_start, datetime):
+                    # Use optimized lookup instead of scanning all_logs
+                    rounded_time = int(job_start.timestamp() / 10) * 10
+                    # Check rounded time and adjacent buckets (±10 seconds)
+                    for check_time in [rounded_time - 10, rounded_time, rounded_time + 10]:
+                        if check_time in log_start_times:
+                            for sync_run_id, log_start in log_start_times[check_time]:
+                                time_diff = abs((log_start - job_start).total_seconds())
+                                if time_diff < 10:
+                                    has_matching_log = True
+                                    # Also mark this sync_run as running if it's not already
+                                    if sync_run_id in sync_runs:
+                                        sync_runs[sync_run_id]['status'] = 'running'
+                                        sync_runs[sync_run_id]['job_id'] = job_id
+                                    break
+                            if has_matching_log:
+                                break
                 
                 if not has_matching_log:
                     # This is a job that just started, hasn't generated sync_run_id yet
@@ -371,6 +356,120 @@ def api_sync_history():
         result.sort(key=lambda x: x['started_at'] or '', reverse=True)
         
         return jsonify(result)
+        
+    finally:
+        session.close()
+
+
+@sync_bp.route('/api/running-status')
+@approved_required
+def api_running_status():
+    """
+    Get only running sync status - lightweight endpoint for polling.
+    
+    Returns minimal data for syncs that are currently running.
+    This is much faster than loading full history since it only queries
+    logs for active sync_run_ids.
+    """
+    db_path = get_database_path()
+    job_manager = get_job_manager()
+    session = get_session(db_path)
+    
+    try:
+        # Get active jobs from job manager
+        active_jobs = job_manager.get_all_active_jobs()
+        
+        # Extract sync_run_ids from active jobs
+        active_sync_run_ids = {job.get('sync_run_id') for job in active_jobs.values() if job.get('sync_run_id')}
+        
+        # Also get jobs without sync_run_id yet (just started)
+        jobs_without_sync_run_id = {job_id: job for job_id, job in active_jobs.items() if job.get('sync_run_id') is None}
+        running_syncs = []
+        
+        # Process syncs with sync_run_id
+        if active_sync_run_ids:
+            # Query only logs for running syncs (much faster than querying all 500)
+            running_logs = session.query(SyncLog).filter(
+                SyncLog.sync_run_id.in_(active_sync_run_ids)
+            ).order_by(SyncLog.started_at.desc()).all()
+            
+            # Group by sync_run_id
+            logs_by_run_id = {}
+            for log in running_logs:
+                run_id = log.sync_run_id
+                if run_id not in logs_by_run_id:
+                    logs_by_run_id[run_id] = []
+                logs_by_run_id[run_id].append(log)
+            
+            # Create sync run objects
+            jobs_by_sync_run_id = {job.get('sync_run_id'): job for job in active_jobs.values() if job.get('sync_run_id')}
+            
+            for run_id, run_logs in logs_by_run_id.items():
+                # Determine sync_mode from logs
+                sync_mode_counts = {}
+                for log in run_logs:
+                    if log.sync_mode:
+                        sync_mode_counts[log.sync_mode] = sync_mode_counts.get(log.sync_mode, 0) + 1
+                
+                determined_sync_mode = 'incremental' if 'incremental' in sync_mode_counts else (
+                    max(sync_mode_counts.items(), key=lambda x: x[1])[0] if sync_mode_counts else 'full'
+                )
+                
+                # Get earliest started_at
+                earliest_started = min((log.started_at for log in run_logs if log.started_at), default=None)
+                
+                # Get latest completed_at
+                latest_completed = max((log.completed_at for log in run_logs if log.completed_at), default=None)
+                
+                sync_run = {
+                    'sync_run_id': run_id,
+                    'sync_mode': determined_sync_mode,
+                    'started_at': earliest_started.isoformat() if earliest_started else None,
+                    'completed_at': latest_completed.isoformat() if latest_completed else None,
+                    'status': 'running',
+                    'sync_types': []
+                }
+                
+                # Add job_id if available
+                if run_id in jobs_by_sync_run_id:
+                    sync_run['job_id'] = jobs_by_sync_run_id[run_id].get('job_id')
+                
+                # Add sync type info
+                for log in run_logs:
+                    sync_run['sync_types'].append({
+                        'type': log.sync_type,
+                        'records_processed': log.records_processed,
+                        'records_created': log.records_created,
+                        'records_updated': log.records_updated,
+                        'status': log.status
+                    })
+                
+                running_syncs.append(sync_run)
+        
+        # Add jobs without sync_run_id yet (just started, no logs yet)
+        for job_id, job in jobs_without_sync_run_id.items():
+            job_start = job.get('started_at')
+            if isinstance(job_start, str):
+                try:
+                    job_start = datetime.fromisoformat(job_start.replace('Z', '+00:00'))
+                except (ValueError, AttributeError):
+                    # Keep as string if parsing fails
+                    pass
+            
+            running_syncs.append({
+                'sync_run_id': None,
+                'job_id': job_id,
+                'sync_mode': job.get('sync_mode', 'full'),
+                'started_at': job_start.isoformat() if isinstance(job_start, datetime) else str(job_start),
+                'completed_at': None,
+                'status': 'running',
+                'sync_types': []
+            })
+        
+        # Sort by started_at (newest first)
+        running_syncs.sort(key=lambda x: x['started_at'] or '', reverse=True)
+        
+        return jsonify(running_syncs)
         
     finally:
         session.close()
@@ -447,12 +546,8 @@ def api_sync_detail(sync_run_id):
     db_path = get_database_path()
     job_manager = get_job_manager()
     
-    # Initialize database to ensure tables exist
-    try:
-        init_models(db_path)
-    except Exception as e:
-        return jsonify({'error': f'Database initialization failed: {str(e)}'}), 500
-    
+    # Note: Database tables should already be initialized at app startup
+    # No need to call init_models() on every request - it's expensive
     session = get_session(db_path)
     
     try:

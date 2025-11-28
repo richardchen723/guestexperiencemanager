@@ -16,7 +16,35 @@ import dashboard.config as config
 
 def ensure_owner_exists():
     """Ensure the owner account exists, create if it doesn't."""
-    # Initialize databases
+    # For PostgreSQL, create all schemas first before creating any tables
+    # This prevents foreign key reference errors when tables reference each other
+    import os
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        from dashboard.auth.models import get_engine
+        from dashboard.ai.cache import get_engine as get_cache_engine
+        import sqlalchemy
+        
+        # Create all schemas first (tickets uses same DB as users, just different schema)
+        # Use the same engine for users and tickets since they share the same database
+        users_engine = get_engine(config.USERS_DATABASE_PATH)
+        cache_engine = get_cache_engine()
+        
+        schemas_to_create = [
+            (users_engine, 'users'),
+            (users_engine, 'tickets'),  # Same DB, different schema
+            (cache_engine, 'cache'),
+        ]
+        
+        for engine, schema_name in schemas_to_create:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(sqlalchemy.text(f"CREATE SCHEMA IF NOT EXISTS {schema_name}"))
+            except Exception as e:
+                # Schema might already exist, or might be SQLite (ignore)
+                pass
+    
+    # Initialize databases (now schemas exist)
     init_user_database()
     init_ticket_database()  # Initialize ticket tables
     

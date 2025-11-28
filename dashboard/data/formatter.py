@@ -3,7 +3,15 @@
 Format review and message data for AI analysis.
 """
 
+import sys
+import os
 from typing import List, Dict
+
+# Add parent directories to path
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
+
+import dashboard.config as config
 
 
 def format_reviews_for_ai(reviews: List[Dict]) -> str:
@@ -106,9 +114,9 @@ def format_data_for_ai(reviews: List[Dict], messages: List[Dict]) -> str:
     review_text = format_reviews_for_ai(reviews)
     message_text = format_messages_for_ai(messages)
     
-    return f"""GUEST REVIEWS (Last 6 months):
+    return f"""GUEST REVIEWS (Last {config.REVIEW_MONTHS} months):
 {review_text}
 
-GUEST MESSAGES (Last 2 months):
+GUEST MESSAGES (Last {config.MESSAGE_MONTHS} months):
 {message_text}"""
 

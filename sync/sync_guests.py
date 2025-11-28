@@ -259,16 +259,9 @@ def deduplicate_guests(progress_tracker: Optional[Any] = None, sync_run_id: Opti
         }
         
     except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
         session.rollback()
         error_msg = f"Error in deduplicate_guests: {str(e)}"
-        logger.error(
-            f"Error in deduplicate_guests: {str(e)}",
-            exc_info=True,
-            extra={'sync_run_id': sync_run_id}
-        )
-        logger.debug(f"Full traceback for guest deduplication error:\n{error_details}")
+        logger.error(error_msg)
         return {
             'status': 'error',
             'error': error_msg

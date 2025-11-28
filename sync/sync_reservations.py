@@ -8,7 +8,6 @@ import sys
 import os
 import json
 import logging
-import time
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional, Tuple, Any
 
@@ -19,7 +18,7 @@ from sync.api_client import HostawayAPIClient
 from sync.progress_tracker import get_progress_tracker
 from database.models import Reservation, Guest, Listing, SyncLog, Base, get_session, init_models
 from database.schema import get_database_path
-from config import DATABASE_PATH, VERBOSE
+from config import DATABASE_PATH, VERBOSE, BATCH_SIZE
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -58,7 +57,7 @@ def parse_date(date_str: str) -> Optional[date]:
         return None
 
 
-def get_or_create_guest(session, reservation_data: Dict, guest_lookup: Dict) -> Tuple[Optional[int], bool]:
+def get_or_create_guest(session, reservation_data: Dict, guest_lookup: Dict, pending_guest_flush: Optional[List] = None) -> Tuple[Optional[int], bool]:
     """Get or create guest from reservation data using lookup maps.
     Returns: (guest_id, was_created)
     
@@ -66,6 +65,7 @@ def get_or_create_guest(session, reservation_data: Dict, guest_lookup: Dict) -> 
         session: Database session.
         reservation_data: Reservation data dictionary.
         guest_lookup: Dictionary with 'by_external_id' and 'by_email' lookup maps.
+        pending_guest_flush: Optional list to collect new guests for batch flushing.
     """
     guest_external_id = reservation_data.get('guestExternalAccountId')
     guest_email = reservation_data.get('guestEmail')
@@ -125,16 +125,28 @@ def get_or_create_guest(session, reservation_data: Dict, guest_lookup: Dict) -> 
             last_synced_at=datetime.utcnow()
         )
         session.add(guest)
-        session.flush()  # Get the guest_id
+        
+        # OPTIMIZATION 4: Batch guest flushing - collect and flush in batches
+        if pending_guest_flush is not None:
+            # Add to pending list for batch flush
+            pending_guest_flush.append(guest)
+            # Note: guest_id will be None until flush, caller must flush before using
+        else:
+            # Fallback: immediate flush if pending_guest_flush not provided
+            session.flush()
+        
         was_created = True
         
-        # Update lookup maps
-        if guest.guest_external_account_id:
-            guest_lookup['by_external_id'][guest.guest_external_account_id] = guest
-        if guest.email:
-            guest_lookup['by_email'][guest.email.lower()] = guest
+        # Update lookup maps (will be done after flush if batching)
+        if pending_guest_flush is None:
+            # Immediate update if not batching
+            if guest.guest_external_account_id:
+                guest_lookup['by_external_id'][guest.guest_external_account_id] = guest
+            if guest.email:
+                guest_lookup['by_email'][guest.email.lower()] = guest
     
-    return guest.guest_id, was_created
+    # Return guest_id (may be None if batching and not flushed yet)
+    return guest.guest_id if guest else None, was_created
 
 
 def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_tracker: Optional[Any] = None, sync_run_id: Optional[int] = None) -> Dict:
@@ -213,18 +225,6 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                 # Fetch reservations (API defaults to sorted by updatedOn DESC - newest first)
                 reservations = client.get_reservations(limit=limit, offset=offset)
                 
-                # Handle API failure (returns None on error after retries)
-                if reservations is None:
-                    error_msg = f"Failed to fetch reservations at offset {offset} after retries"
-                    logger.error(error_msg)
-                    errors.append(error_msg)
-                    # If we've already fetched some reservations, process what we have
-                    if all_reservations:
-                        logger.warning(f"API error at offset {offset}, but we have {len(all_reservations)} reservations already. Processing those and stopping.")
-                        break
-                    # If this is the first page and it fails, raise an error
-                    raise Exception(f"Failed to fetch reservations from API: {error_msg}")
-                
                 if not reservations:
                     break
                 
@@ -284,20 +284,8 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                 
                 offset += limit
                 
-                # Small delay between paginated requests to avoid overwhelming the server
-                # This helps prevent SSL/connection errors from rapid requests
-                time.sleep(0.5)
-                
         except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
             error_msg = f"Error fetching reservations from API: {str(e)}"
-            logger.error(
-                f"Error fetching reservations from API: {str(e)}",
-                exc_info=True,
-                extra={'offset': offset, 'limit': limit, 'full_sync': full_sync, 'sync_run_id': sync_run_id}
-            )
-            logger.debug(f"Full traceback for reservation fetch error:\n{error_details}")
             if VERBOSE:
                 print(f"\n    {error_msg}")
             progress.complete_phase()
@@ -395,6 +383,11 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
         # Track per-listing statistics
         listing_stats = {}  # {listing_id: {reservations: count, guests: count}}
         
+        # OPTIMIZATION 4: Batch guest creation - collect new guests and flush in batches
+        # This reduces database flushes from 1-per-new-guest to 1-per-batch
+        pending_guest_flush = []  # List of (guest_object, reservation_data) tuples
+        GUEST_FLUSH_BATCH_SIZE = 20  # Flush guests every 20 new guests
+        
         # Commit in batches to avoid database locking
         batch_count = 0
         
@@ -408,15 +401,116 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                 guest_name = reservation_data.get('guestName', f'Reservation {reservation_id}')
                 progress.update_item(f"Reservation: {guest_name}")
                 
-                # Get or create guest using lookup maps
-                guest_id, guest_was_created = get_or_create_guest(session, reservation_data, guest_lookup)
+                # Check if reservation exists using lookup map (before processing)
+                existing_reservation = existing_reservation_map.get(reservation_id)
+                
+                # OPTIMIZATION 1: Early exit for unchanged reservations
+                # Check updated_on/latest_activity_on first to avoid unnecessary processing
+                if existing_reservation:
+                    api_updated_on = parse_timestamp(reservation_data.get('updatedOn'))
+                    api_latest_activity = parse_timestamp(reservation_data.get('latestActivityOn'))
+                    
+                    # If both timestamps exist and haven't changed, likely no changes
+                    if api_updated_on and existing_reservation.updated_on:
+                        if api_updated_on <= existing_reservation.updated_on:
+                            # Check latest_activity_on as fallback
+                            if not api_latest_activity or (existing_reservation.latest_activity_on and 
+                                                          api_latest_activity <= existing_reservation.latest_activity_on):
+                                # Timestamps suggest no changes - but we still need to update last_synced_at
+                                existing_reservation.last_synced_at = datetime.utcnow()
+                                # Track statistics even for unchanged reservations
+                                listing_id = reservation_data.get('listingMapId')
+                                if listing_id:
+                                    if listing_id not in listing_stats:
+                                        listing_stats[listing_id] = {'reservations': 0, 'guests': set()}
+                                    listing_stats[listing_id]['reservations'] += 1
+                                progress.increment()
+                                
+                                # Still count towards batch commit (last_synced_at was updated)
+                                batch_count += 1
+                                if batch_count >= BATCH_SIZE:
+                                    try:
+                                        session.commit()
+                                        batch_count = 0
+                                    except Exception as e:
+                                        session.rollback()
+                                        error_msg = f"Error committing batch: {str(e)}"
+                                        errors.append(error_msg)
+                                        if VERBOSE:
+                                            print(f"\n  {error_msg}")
+                                        batch_count = 0
+                                
+                                continue
+                
+                # OPTIMIZATION 4: Batch guest creation - flush pending guests if batch is full
+                # Must flush before we need guest_id for reservation_dict
+                if len(pending_guest_flush) >= GUEST_FLUSH_BATCH_SIZE:
+                    try:
+                        session.flush()  # Flush all pending guests at once
+                        # Update lookup maps for all flushed guests
+                        for guest in pending_guest_flush:
+                            if guest.guest_external_account_id:
+                                guest_lookup['by_external_id'][guest.guest_external_account_id] = guest
+                            if guest.email:
+                                guest_lookup['by_email'][guest.email.lower()] = guest
+                        pending_guest_flush.clear()
+                    except Exception as e:
+                        logger.error(f"Error flushing guest batch: {e}", exc_info=True)
+                        # On error, flush individually as fallback
+                        for guest in pending_guest_flush:
+                            try:
+                                session.flush()
+                                if guest.guest_external_account_id:
+                                    guest_lookup['by_external_id'][guest.guest_external_account_id] = guest
+                                if guest.email:
+                                    guest_lookup['by_email'][guest.email.lower()] = guest
+                            except Exception:
+                                pass
+                        pending_guest_flush.clear()
+                
+                # Get or create guest using lookup maps (only if we need to process reservation)
+                guest_id, guest_was_created = get_or_create_guest(session, reservation_data, guest_lookup, pending_guest_flush)
                 if guest_was_created:
                     guests_created += 1
                 
-                # Check if reservation exists using lookup map
-                existing_reservation = existing_reservation_map.get(reservation_id)
+                # If guest was just created and is in pending batch, flush now to get guest_id
+                # This ensures guest_id is available for reservation_dict
+                if guest_id is None and guest_was_created and pending_guest_flush:
+                    # Flush to get guest_id for this reservation
+                    try:
+                        session.flush()
+                        # Update lookup maps for all pending guests
+                        for guest in pending_guest_flush:
+                            if guest.guest_external_account_id:
+                                guest_lookup['by_external_id'][guest.guest_external_account_id] = guest
+                            if guest.email:
+                                guest_lookup['by_email'][guest.email.lower()] = guest
+                        # Get guest_id from the guest object (after flush, guest_id should be available)
+                        # The guest we just created should be the last one in the pending list
+                        if pending_guest_flush:
+                            # Get from the last guest in pending list (should be the one we just added)
+                            guest_id = pending_guest_flush[-1].guest_id
+                            # Also try lookup map as fallback
+                            if guest_id is None:
+                                guest_external_id = reservation_data.get('guestExternalAccountId')
+                                guest_email = reservation_data.get('guestEmail')
+                                if guest_external_id and str(guest_external_id) in guest_lookup['by_external_id']:
+                                    guest_id = guest_lookup['by_external_id'][str(guest_external_id)].guest_id
+                                elif guest_email and guest_email.lower() in guest_lookup['by_email']:
+                                    guest_id = guest_lookup['by_email'][guest_email.lower()].guest_id
+                        pending_guest_flush.clear()
+                    except Exception as e:
+                        logger.error(f"Error flushing guest for reservation {reservation_id}: {e}", exc_info=True)
+                        # Fallback: try to get guest_id from pending list (may be None if flush failed)
+                        if pending_guest_flush:
+                            # Try to get from the last guest (the one we just added)
+                            try:
+                                guest_id = pending_guest_flush[-1].guest_id
+                            except:
+                                pass
                 
-                # Prepare reservation data
+                # OPTIMIZATION 2: Lazy dictionary creation - only create when needed
+                # Prepare reservation data (only if we're creating/updating)
                 reservation_dict = {
                     'reservation_id': reservation_id,
                     'listing_id': reservation_data.get('listingMapId'),
@@ -472,25 +566,59 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                 listing_id = reservation_dict.get('listing_id')
                 
                 if existing_reservation:
-                    # Check if any fields actually changed (excluding last_synced_at)
+                    # OPTIMIZATION 3: Optimize field comparison - check key fields first
+                    # Key fields that change frequently (check these first for early exit)
+                    key_fields = ['updated_on', 'latest_activity_on', 'status', 'payment_status', 
+                                 'total_price', 'remaining_balance', 'is_paid', 'arrival_date', 
+                                 'departure_date']
+                    
                     has_changes = False
-                    for key, value in reservation_dict.items():
-                        if key == 'last_synced_at':
-                            # Always update this, but don't count as a change
-                            setattr(existing_reservation, key, value)
+                    # First pass: check key fields only
+                    for key in key_fields:
+                        if key not in reservation_dict:
                             continue
-                        
+                        value = reservation_dict[key]
                         current_value = getattr(existing_reservation, key, None)
                         if current_value != value:
-                            setattr(existing_reservation, key, value)
                             has_changes = True
+                            break
                     
+                    # If key fields changed, do full comparison and update
                     if has_changes:
+                        # Full field-by-field comparison and update
+                        for key, value in reservation_dict.items():
+                            if key == 'last_synced_at':
+                                # Always update this, but don't count as a change
+                                setattr(existing_reservation, key, value)
+                                continue
+                            
+                            current_value = getattr(existing_reservation, key, None)
+                            if current_value != value:
+                                setattr(existing_reservation, key, value)
                         records_updated += 1
                         progress.increment(updated=True)
                     else:
-                        # No changes, just increment progress
-                        progress.increment()
+                        # Key fields unchanged - still check if any other fields changed
+                        # (in case non-key fields changed but timestamps didn't update)
+                        for key, value in reservation_dict.items():
+                            if key == 'last_synced_at' or key in key_fields:
+                                # Already checked or always update
+                                if key == 'last_synced_at':
+                                    setattr(existing_reservation, key, value)
+                                continue
+                            
+                            current_value = getattr(existing_reservation, key, None)
+                            if current_value != value:
+                                setattr(existing_reservation, key, value)
+                                has_changes = True
+                        
+                        if has_changes:
+                            records_updated += 1
+                            progress.increment(updated=True)
+                        else:
+                            # No changes at all, just update last_synced_at
+                            existing_reservation.last_synced_at = datetime.utcnow()
+                            progress.increment()
                 else:
                     # Create new reservation
                     reservation = Reservation(**reservation_dict)
@@ -511,47 +639,63 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                 
                 # Commit in batches to avoid database locking
                 batch_count += 1
-                if batch_count >= 50:  # Batch size
+                if batch_count >= BATCH_SIZE:
                     try:
                         session.commit()
                         batch_count = 0
                     except Exception as e:
-                        import traceback
-                        error_details = traceback.format_exc()
                         session.rollback()
                         error_msg = f"Error committing batch: {str(e)}"
                         errors.append(error_msg)
-                        logger.error(
-                            f"Error committing reservation batch: {str(e)}",
-                            exc_info=True,
-                            extra={'batch_size': len(batch), 'sync_run_id': sync_run_id}
-                        )
-                        logger.debug(f"Full traceback for batch commit error:\n{error_details}")
                         if VERBOSE:
                             print(f"\n  {error_msg}")
                 
             except Exception as e:
-                import traceback
-                error_details = traceback.format_exc()
-                reservation_id = reservation_data.get('id')
-                error_msg = f"Error syncing reservation {reservation_id}: {str(e)}"
+                error_msg = f"Error syncing reservation {reservation_data.get('id')}: {str(e)}"
                 errors.append(error_msg)
                 progress.increment(error=True)
-                logger.error(
-                    f"Error syncing reservation {reservation_id}: {str(e)}",
-                    exc_info=True,
-                    extra={'reservation_id': reservation_id, 'sync_run_id': sync_run_id}
-                )
-                logger.debug(f"Full traceback for reservation {reservation_id}:\n{error_details}")
                 if VERBOSE:
                     print(f"\n  {error_msg}")
                 continue
         
+        # OPTIMIZATION 4: Flush any remaining pending guests before final commit
+        if pending_guest_flush:
+            try:
+                session.flush()  # Flush all remaining pending guests
+                # Update lookup maps for all flushed guests
+                for guest in pending_guest_flush:
+                    if guest.guest_external_account_id:
+                        guest_lookup['by_external_id'][guest.guest_external_account_id] = guest
+                    if guest.email:
+                        guest_lookup['by_email'][guest.email.lower()] = guest
+                pending_guest_flush.clear()
+            except Exception as e:
+                logger.error(f"Error flushing final guest batch: {e}", exc_info=True)
+                # On error, try to flush individually
+                for guest in pending_guest_flush:
+                    try:
+                        session.flush()
+                        if guest.guest_external_account_id:
+                            guest_lookup['by_external_id'][guest.guest_external_account_id] = guest
+                        if guest.email:
+                            guest_lookup['by_email'][guest.email.lower()] = guest
+                    except Exception:
+                        pass
+                pending_guest_flush.clear()
+        
         # Complete progress tracking
         progress.complete_phase()
         
-        # Commit all changes
-        session.commit()
+        # Commit any remaining reservations in the final batch
+        if batch_count > 0:
+            try:
+                session.commit()
+            except Exception as e:
+                session.rollback()
+                error_msg = f"Error committing final batch: {str(e)}"
+                errors.append(error_msg)
+                if VERBOSE:
+                    print(f"\n  {error_msg}")
         
         # Convert sets to counts for JSON serialization
         listing_stats_serializable = {}
@@ -602,16 +746,9 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
         }
         
     except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
         session.rollback()
         error_msg = f"Fatal error in sync_reservations: {str(e)}"
-        logger.error(
-            f"Fatal error in sync_reservations: {str(e)}",
-            exc_info=True,
-            extra={'full_sync': full_sync, 'listing_id': listing_id, 'sync_run_id': sync_run_id}
-        )
-        logger.debug(f"Full traceback for fatal reservation sync error:\n{error_details}")
+        logger.error(error_msg)
         
         # Log error
         sync_log = SyncLog(

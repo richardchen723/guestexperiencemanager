@@ -1,0 +1,47 @@
+# AWS Configuration
+aws_region  = "us-east-1"
+environment = "production"
+
+# RDS Configuration
+# NOTE: Free Tier accounts can only use micro instances (db.t4g.micro, db.t3.micro, or db.t2.micro)
+# After upgrading your AWS account, change to db.t4g.medium or larger for better performance
+db_instance_class              = "db.t4g.micro"   # Free Tier compatible (~$0/month for 12 months, then ~$15/month, 1GB RAM, 2 vCPU)
+db_allocated_storage           = 20              # GB, minimal storage
+db_max_allocated_storage       = 100             # GB, auto-scales if needed
+db_multi_az                   = false           # Single-AZ saves ~50% cost
+db_backup_retention            = 1               # days (1 for free tier accounts, increase to 7+ after free tier expires)
+db_auto_minor_version_upgrade = true            # Free automatic updates
+db_performance_insights        = false           # Disable to save ~$7/month
+db_engine_version              = "15.4"          # PostgreSQL version
+db_name                        = "hostaway"
+db_username                    = "hostaway_admin"
+
+# S3 Configuration
+s3_bucket_name          = "your-company-hostaway-storage"  # Change to your unique bucket name
+s3_lifecycle_enabled    = true                             # Enable cost optimization
+s3_intelligent_tiering  = true                             # Automatic cost optimization
+
+# Network Configuration
+# Leave empty to use default VPC, or specify:
+# vpc_id     = "vpc-xxxxxxxxx"
+# subnet_ids = ["subnet-xxxxxxxxx", "subnet-yyyyyyyyy"]
+
+# Security Configuration
+# Add CIDR blocks if you need to access RDS from specific IPs
+# allowed_cidr_blocks = ["1.2.3.4/32"]
+
+# Cost Notes (Free Tier):
+# - RDS db.t4g.micro: FREE for 12 months, then ~$15/month (single-AZ, ARM-based)
+# - RDS Storage (20GB): FREE for 20GB in first 12 months, then ~$2/month
+# - RDS Backups: FREE for 20GB in first 12 months, then ~$0.50/month (1 day retention)
+# - S3: 5GB free for 12 months, then varies by usage
+# - Total estimated: FREE for first 12 months, then ~$17-20/month
+#
+# Cost Notes (After Upgrading Account - Recommended for Production):
+# - RDS db.t4g.medium: ~$50/month (4GB RAM, 2 vCPU, better performance)
+# - RDS Storage (20GB): ~$2/month
+# - RDS Backups: ~$1/month (7 days retention)
+# - S3: Varies by usage, lifecycle policies reduce costs significantly
+# - Total estimated: ~$53-60/month for small internal application with good performance
+
+

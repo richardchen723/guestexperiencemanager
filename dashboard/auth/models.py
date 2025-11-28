@@ -7,6 +7,7 @@ import sys
 import os
 from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, text
+import sqlalchemy
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from pathlib import Path
@@ -22,6 +23,9 @@ Base = declarative_base()
 class User(Base):
     """User model for authentication and authorization."""
     __tablename__ = 'users'
+    __table_args__ = (
+        {'schema': 'users'} if os.getenv("DATABASE_URL") else {},
+    )
     
     user_id = Column(Integer, primary_key=True, autoincrement=True)
     email = Column(String, unique=True, nullable=False, index=True)
@@ -32,7 +36,9 @@ class User(Base):
     google_id = Column(String, unique=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     approved_at = Column(DateTime)
-    approved_by = Column(Integer, ForeignKey('users.user_id'), nullable=True)
+    # Self-referential foreign key - adjust schema prefix for PostgreSQL
+    _users_schema = 'users.' if os.getenv("DATABASE_URL") else ''
+    approved_by = Column(Integer, ForeignKey(f'{_users_schema}users.user_id'), nullable=True)
     last_login = Column(DateTime)
     
     # Relationship to approver
@@ -50,95 +56,88 @@ class User(Base):
         return self.role == 'owner'
 
 
-def get_engine(db_path_or_url: str):
+def get_engine(db_path: str):
     """
-    Create SQLAlchemy engine - supports both SQLite and PostgreSQL.
-    
-    Args:
-        db_path_or_url: Database path (for SQLite) or connection URL (for PostgreSQL)
+    Create SQLAlchemy engine for user database.
+    Supports PostgreSQL (via DATABASE_URL) with SQLite fallback.
     """
     import os
-    from sqlalchemy.pool import NullPool
     
-    # Detect PostgreSQL connection string
-    if db_path_or_url.startswith('postgresql://') or db_path_or_url.startswith('postgres://'):
-        # Check if we're in a serverless environment (Vercel)
-        is_vercel = os.getenv("VERCEL", "0") == "1"
-        
-        if is_vercel:
-            # Serverless: Use NullPool to avoid connection pool exhaustion
-            engine = create_engine(
-                db_path_or_url,
-                echo=False,
-                poolclass=NullPool,  # No connection pooling in serverless
-                pool_pre_ping=True,
-                connect_args={
-                    'connect_timeout': 10,
-                    'application_name': 'hostaway-users'
-                }
-            )
+    # Check for PostgreSQL connection string
+    database_url = os.getenv("DATABASE_URL")
+    
+    if database_url:
+        # PostgreSQL connection - use 'users' schema
+        # Modify connection string to include schema search path
+        if '?' in database_url:
+            database_url += "&options=-csearch_path%3Dusers,public"
         else:
-            # Local/development: Use connection pooling
-            engine = create_engine(
-                db_path_or_url,
-                echo=False,
-                pool_pre_ping=True,
-                pool_size=2,  # Smaller pool for local development
-                max_overflow=5,
-                pool_recycle=1800,  # Recycle connections after 30 minutes
-                connect_args={
-                    'connect_timeout': 10,
-                    'application_name': 'hostaway-users'
-                }
-            )
+            database_url += "?options=-csearch_path%3Dusers,public"
+        
+        engine = create_engine(
+            database_url,
+            echo=False,
+            pool_size=5,
+            max_overflow=2,
+            pool_timeout=30,
+            pool_pre_ping=True,
+            connect_args={
+                "connect_timeout": 15,  # Increased from 10 to handle slower connections
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 5
+            }
+        )
         return engine
-    
-    # SQLite connection (backward compatibility)
-    engine = create_engine(
-        f'sqlite:///{db_path_or_url}',
-        echo=False,
-        connect_args={
-            'check_same_thread': False,
-            'timeout': 30.0
-        },
-        pool_pre_ping=True
-    )
-    return engine
+    else:
+        # SQLite connection (fallback)
+        engine = create_engine(
+            f'sqlite:///{db_path}',
+            echo=False,
+            connect_args={
+                'check_same_thread': False,
+                'timeout': 30.0
+            },
+            pool_pre_ping=True
+        )
+        return engine
 
 
 def init_user_database():
-    """Initialize the user database and create tables."""
-    db_path_or_url = config.USERS_DATABASE_PATH
+    """
+    Initialize the user database and create tables.
+    Supports PostgreSQL (creates schema) and SQLite.
+    """
+    import os
     
-    if not db_path_or_url:
-        raise ValueError(
-            "USERS_DATABASE_PATH is not set. "
-            "In Vercel, set USERS_DATABASE_URL environment variable. "
-            "Locally, it will fall back to SQLite if not set."
-        )
+    db_path = config.USERS_DATABASE_PATH
+    database_url = os.getenv("DATABASE_URL")
     
-    # Only create directory for SQLite (file-based)
-    if not (db_path_or_url.startswith('postgresql://') or db_path_or_url.startswith('postgres://')):
-        # SQLite: create directory if it doesn't exist
-        try:
-            db_dir = Path(db_path_or_url).parent
-            db_dir.mkdir(parents=True, exist_ok=True)
-        except (OSError, PermissionError) as e:
-            # In read-only filesystem (like Vercel), this will fail
-            raise ValueError(
-                f"Cannot create SQLite database directory: {e}. "
-                "In Vercel/production, use PostgreSQL (set USERS_DATABASE_URL environment variable)."
-            ) from e
+    if not database_url:
+        # SQLite: Ensure database directory exists
+        db_dir = Path(db_path).parent
+        db_dir.mkdir(parents=True, exist_ok=True)
     
-    engine = get_engine(db_path_or_url)
+    engine = get_engine(db_path)
+    
+    # For PostgreSQL, create schema if it doesn't exist
+    if database_url:
+        with engine.begin() as conn:
+            conn.execute(sqlalchemy.text("CREATE SCHEMA IF NOT EXISTS users"))
+    
     try:
         Base.metadata.create_all(engine)
     except Exception as e:
-        import time
-        time.sleep(0.5)
-        try:
-            Base.metadata.create_all(engine)
-        except Exception:
+        if not database_url:
+            # SQLite: retry after short wait
+            import time
+            time.sleep(0.5)
+            try:
+                Base.metadata.create_all(engine)
+            except Exception:
+                raise e
+        else:
             raise e
     return engine
 

@@ -65,13 +65,40 @@ python3 -m sync.sync_manager
 
 Edit `config.py` or set environment variables:
 
+### Required
 - `HOSTAWAY_ACCOUNT_ID`: Your Hostaway account ID
 - `HOSTAWAY_API_KEY`: Your Hostaway API key
-- `DATABASE_PATH`: Path to SQLite database (default: `data/database/hostaway.db`)
+
+### Database (PostgreSQL or SQLite)
+- `DATABASE_URL`: PostgreSQL connection string (optional, format: `postgresql://user:password@host:port/database`)
+- `DATABASE_PATH`: Path to SQLite database (default: `data/database/hostaway.db`, used if `DATABASE_URL` not set)
+
+### AWS S3 Storage (Optional)
+- `AWS_S3_BUCKET_NAME`: S3 bucket name for file storage (optional, falls back to local filesystem if not set)
+- `AWS_S3_REGION`: AWS region for S3 bucket (default: `us-east-1`)
+- `AWS_ACCESS_KEY_ID`: AWS access key (optional, uses IAM role in production)
+- `AWS_SECRET_ACCESS_KEY`: AWS secret key (optional, uses IAM role in production)
+
+### Sync Configuration
 - `STORE_PHOTO_METADATA`: Store photo URLs/metadata (default: `True`)
 - `SYNC_FULL_ON_START`: Perform full sync on first run (default: `True`)
 - `SYNC_INCREMENTAL_DAILY`: Enable daily incremental sync (default: `True`)
 - `SYNC_INTERVAL_HOURS`: Hours between incremental syncs (default: `24`)
+
+### Storage Modes
+
+The application supports two storage modes:
+
+1. **Local Mode** (default): Uses SQLite database and local filesystem
+   - No `DATABASE_URL` or `AWS_S3_BUCKET_NAME` set
+   - Suitable for local development and testing
+
+2. **AWS Mode** (production): Uses PostgreSQL (RDS) and S3 storage
+   - Set `DATABASE_URL` for PostgreSQL connection
+   - Set `AWS_S3_BUCKET_NAME` for S3 file storage
+   - See `DEPLOYMENT.md` for AWS infrastructure setup
+
+### Additional Configuration
 - `VERBOSE`: Show detailed progress (default: `True`)
 
 ## Project Structure

@@ -13,9 +13,7 @@ from pathlib import Path
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
-from database.models import get_session, Review, MessageMetadata, Conversation
-from database.schema import get_database_path
-from sqlalchemy import or_, and_
+from database.models import get_session, Review, MessageMetadata
 import logging
 import dashboard.config as config
 
@@ -40,10 +38,6 @@ def get_recent_reviews(listing_id: int, months: int = 6) -> List[Dict]:
     
     session = get_session(config.MAIN_DATABASE_PATH)
     try:
-        # Try to filter by review_date first, but also include reviews with NULL dates
-        # that have been synced recently (using inserted_on or last_synced_at as fallback)
-        from sqlalchemy import or_
-        
         # Filter by review_date if available, otherwise use inserted_on (when review was created in Hostaway)
         # Do NOT use last_synced_at as it gets updated on every sync and would include all reviews
         
@@ -145,18 +139,34 @@ def get_recent_messages(listing_id: int, months: int = 2) -> List[Dict]:
         for msg in messages:
             # Defensive check: ensure message belongs to the requested listing
             if msg.listing_id != listing_id:
-                logger.warning(
+                # Only log at debug level to reduce noise
+                logger.debug(
                     f"Message {msg.message_id} has listing_id {msg.listing_id}, "
                     f"but was requested for listing {listing_id}. Skipping."
                 )
                 continue
             
-            # Read full message content from file if available
+            # Use content_preview first (faster, already in database)
+            # Only read full file if content_preview is missing or too short
             content = msg.content_preview or ""
-            if msg.message_file_path:
-                full_content = read_message_content(msg.message_file_path)
-                if full_content:
-                    content = full_content
+            
+            # Only read full file if:
+            # 1. content_preview is missing/empty, OR
+            # 2. content_preview is very short (< 50 chars) suggesting it might be truncated
+            should_read_file = (
+                msg.message_file_path and 
+                (not content or len(content) < 50)
+            )
+            
+            if should_read_file:
+                try:
+                    full_content = read_message_content(msg.message_file_path)
+                    if full_content:
+                        content = full_content
+                except Exception as e:
+                    # Log at debug level to reduce noise - file read errors are not critical
+                    logger.debug(f"Could not read message file {msg.message_file_path}: {e}")
+                    # Continue with content_preview if available
             
             result.append({
                 'message_id': msg.message_id,
@@ -177,18 +187,18 @@ def get_recent_messages(listing_id: int, months: int = 2) -> List[Dict]:
 def read_message_content(file_path: str) -> Optional[str]:
     """
     Read message content from conversation file.
-    Supports both local filesystem and S3 storage.
+    Supports both S3 storage and local filesystem.
     
     Args:
         file_path: Path to the conversation file (local path or S3 key)
-    
+        
     Returns:
         Message content as string, or None if file not found
     """
     if not file_path:
         return None
     
-    # Check if this is an S3 key (starts with "conversations/" or "s3://")
+    # Check if this is an S3 key
     # S3 keys from our storage will be like "conversations/Listing Name/Guest_2025-11-15_conversation.txt"
     is_s3_key = (
         file_path.startswith('conversations/') or 
@@ -197,7 +207,7 @@ def read_message_content(file_path: str) -> Optional[str]:
     )
     
     # Also check if S3 is configured and file doesn't exist locally
-    use_s3 = bool(os.getenv("AWS_S3_BUCKET_NAME"))
+    use_s3 = config.USE_S3_STORAGE
     if use_s3 and not is_s3_key:
         # Check if local file exists
         if os.path.isabs(file_path):
@@ -216,12 +226,11 @@ def read_message_content(file_path: str) -> Optional[str]:
             s3_storage = S3Storage()
             # Remove s3:// prefix if present
             s3_key = file_path.replace('s3://', '').split('/', 1)[-1] if 's3://' in file_path else file_path
-            content = s3_storage.read_conversation(s3_key)
+            content = s3_storage.read_file(s3_key)
             return content
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error reading message file from S3 {file_path}: {e}", exc_info=True)
+            # Log at debug level to reduce noise - file read errors are not critical for analysis
+            logger.debug(f"Error reading message file from S3 {file_path}: {e}")
             return None
     
     # Read from local filesystem
@@ -236,9 +245,8 @@ def read_message_content(file_path: str) -> Optional[str]:
             with open(full_path, 'r', encoding='utf-8') as f:
                 return f.read()
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Error reading message file {file_path}: {e}", exc_info=True)
+        # Log at debug level to reduce noise - file read errors are not critical for analysis
+        logger.debug(f"Error reading message file {file_path}: {e}")
     
     return None
 

@@ -1,152 +1,127 @@
 #!/usr/bin/env python3
 """
 Cache AI analysis results and track processed reviews/messages.
-Supports both SQLite and PostgreSQL.
+Supports both PostgreSQL and SQLite.
 """
 
 import json
 import os
-import logging
 from datetime import datetime
 from typing import Set, Optional, Dict, List
 from pathlib import Path
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, text, UniqueConstraint
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool
+import sqlalchemy
 
 import dashboard.config as config
-
-# Configure logging
-logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
 
 class ProcessedData(Base):
-    """Model for tracking processed reviews and messages."""
+    """Track individual processed items."""
     __tablename__ = 'processed_data'
+    __table_args__ = (
+        {'schema': 'cache'} if os.getenv("DATABASE_URL") else {},
+    )
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     listing_id = Column(Integer, nullable=False, index=True)
     data_type = Column(String, nullable=False, index=True)
     data_id = Column(Integer, nullable=False)
     analyzed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    
-    __table_args__ = (
-        UniqueConstraint('listing_id', 'data_type', 'data_id', name='uq_processed_data'),
-    )
 
 
 class ListingInsights(Base):
-    """Model for storing AI-generated insights per listing."""
+    """Store overall insights per listing."""
     __tablename__ = 'listing_insights'
+    __table_args__ = (
+        {'schema': 'cache'} if os.getenv("DATABASE_URL") else {},
+    )
     
     listing_id = Column(Integer, primary_key=True)
     quality_rating = Column(String)
-    issues_json = Column(String)  # JSON string
-    action_items_json = Column(String)  # JSON string
+    issues_json = Column(Text)
+    action_items_json = Column(Text)
     last_updated = Column(DateTime, default=datetime.utcnow, nullable=False)
     total_reviews_analyzed = Column(Integer, default=0)
     total_messages_analyzed = Column(Integer, default=0)
 
 
-def get_engine(db_path_or_url: str):
-    """
-    Create SQLAlchemy engine - supports both SQLite and PostgreSQL.
+def get_engine():
+    """Create SQLAlchemy engine for cache database."""
+    import os
     
-    Args:
-        db_path_or_url: Database path (for SQLite) or connection URL (for PostgreSQL)
-    """
-    # Detect PostgreSQL connection string
-    if db_path_or_url.startswith('postgresql://') or db_path_or_url.startswith('postgres://'):
-        # Check if we're in a serverless environment (Vercel)
-        is_vercel = os.getenv("VERCEL", "0") == "1"
-        
-        if is_vercel:
-            # Serverless: Use NullPool to avoid connection pool exhaustion
-            engine = create_engine(
-                db_path_or_url,
-                echo=False,
-                poolclass=NullPool,  # No connection pooling in serverless
-                pool_pre_ping=True,
-                connect_args={
-                    'connect_timeout': 10,
-                    'application_name': 'hostaway-ai-cache'
-                }
-            )
+    # Check for PostgreSQL connection string
+    database_url = os.getenv("DATABASE_URL")
+    
+    if database_url:
+        # PostgreSQL connection - use 'cache' schema
+        if '?' in database_url:
+            database_url += "&options=-csearch_path%3Dcache,public"
         else:
-            # Local/development: Use connection pooling
-            engine = create_engine(
-                db_path_or_url,
-                echo=False,
-                pool_pre_ping=True,
-                pool_size=2,  # Smaller pool for local development
-                max_overflow=5,
-                pool_recycle=1800,  # Recycle connections after 30 minutes
-                connect_args={
-                    'connect_timeout': 10,
-                    'application_name': 'hostaway-ai-cache'
-                }
-            )
+            database_url += "?options=-csearch_path%3Dcache,public"
+        
+        engine = create_engine(
+            database_url,
+            echo=False,
+            pool_size=5,
+            max_overflow=2,
+            pool_timeout=30,
+            pool_pre_ping=True,
+            connect_args={
+                "connect_timeout": 15,  # Increased from 10 to handle slower connections
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 5
+            }
+        )
         return engine
-    
-    # SQLite connection (backward compatibility)
-    engine = create_engine(
-        f'sqlite:///{db_path_or_url}',
-        echo=False,
-        connect_args={
-            'check_same_thread': False,
-            'timeout': 30.0
-        },
-        pool_pre_ping=True
-    )
-    return engine
+    else:
+        # SQLite connection (fallback)
+        db_path = config.CACHE_DATABASE_PATH
+        db_dir = Path(db_path).parent
+        db_dir.mkdir(parents=True, exist_ok=True)
+        
+        engine = create_engine(
+            f'sqlite:///{db_path}',
+            echo=False,
+            connect_args={
+                'check_same_thread': False,
+                'timeout': 30.0
+            },
+            pool_pre_ping=True
+        )
+        return engine
 
 
 def init_cache_db():
     """Initialize the cache database with required tables."""
-    db_path_or_url = config.CACHE_DATABASE_PATH
+    import os
     
-    if not db_path_or_url:
-        raise ValueError(
-            "CACHE_DATABASE_PATH is not set. "
-            "In Vercel, set CACHE_DATABASE_URL environment variable. "
-            "Locally, it will fall back to SQLite if not set."
-        )
+    engine = get_engine()
+    database_url = os.getenv("DATABASE_URL")
     
-    # Only create directory for SQLite (file-based)
-    if not (db_path_or_url.startswith('postgresql://') or db_path_or_url.startswith('postgres://')):
-        # SQLite: create directory if it doesn't exist
-        try:
-            db_dir = Path(db_path_or_url).parent
-            db_dir.mkdir(parents=True, exist_ok=True)
-        except (OSError, PermissionError) as e:
-            # In read-only filesystem (like Vercel), this will fail
-            raise ValueError(
-                f"Cannot create SQLite database directory: {e}. "
-                "In Vercel/production, use PostgreSQL (set CACHE_DATABASE_URL environment variable)."
-            ) from e
+    # For PostgreSQL, create schema if it doesn't exist
+    if database_url:
+        with engine.begin() as conn:
+            conn.execute(sqlalchemy.text("CREATE SCHEMA IF NOT EXISTS cache"))
     
-    engine = get_engine(db_path_or_url)
     try:
         Base.metadata.create_all(engine)
     except Exception as e:
-        import time
-        time.sleep(0.5)
-        try:
-            Base.metadata.create_all(engine)
-        except Exception:
+        if not database_url:
+            # SQLite: retry after short wait
+            import time
+            time.sleep(0.5)
+            try:
+                Base.metadata.create_all(engine)
+            except Exception:
+                raise e
+        else:
             raise e
-    return engine
-
-
-def get_session():
-    """Get a database session for cache operations."""
-    engine = get_engine(config.CACHE_DATABASE_PATH)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    return session
 
 
 def get_processed_reviews(listing_id: int) -> Set[int]:
@@ -160,7 +135,10 @@ def get_processed_reviews(listing_id: int) -> Set[int]:
         Set of review IDs
     """
     init_cache_db()
-    session = get_session()
+    engine = get_engine()
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
     try:
         results = session.query(ProcessedData.data_id).filter(
             ProcessedData.listing_id == listing_id,
@@ -182,7 +160,10 @@ def get_processed_messages(listing_id: int) -> Set[int]:
         Set of message IDs
     """
     init_cache_db()
-    session = get_session()
+    engine = get_engine()
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
     try:
         results = session.query(ProcessedData.data_id).filter(
             ProcessedData.listing_id == listing_id,
@@ -205,44 +186,25 @@ def mark_reviews_processed(listing_id: int, review_ids: List[int]):
         return
     
     init_cache_db()
-    session = get_session()
+    engine = get_engine()
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
     try:
         for review_id in review_ids:
-            # Use PostgreSQL-compatible upsert
-            db_path_or_url = config.CACHE_DATABASE_PATH
-            is_postgresql = db_path_or_url.startswith('postgresql://') or db_path_or_url.startswith('postgres://')
-            
-            if is_postgresql:
-                # PostgreSQL: Use ON CONFLICT DO NOTHING
-                session.execute(
-                    text("""
-                        INSERT INTO processed_data (listing_id, data_type, data_id, analyzed_at)
-                        VALUES (:listing_id, 'review', :data_id, :analyzed_at)
-                        ON CONFLICT (listing_id, data_type, data_id) DO NOTHING
-                    """),
-                    {
-                        'listing_id': listing_id,
-                        'data_id': review_id,
-                        'analyzed_at': datetime.utcnow()
-                    }
-                )
-            else:
-                # SQLite: Use INSERT OR IGNORE
-                existing = session.query(ProcessedData).filter(
-                    ProcessedData.listing_id == listing_id,
-                    ProcessedData.data_type == 'review',
-                    ProcessedData.data_id == review_id
-                ).first()
-                if not existing:
-                    processed = ProcessedData(
-                        listing_id=listing_id,
-                        data_type='review',
-                        data_id=review_id,
-                        analyzed_at=datetime.utcnow()
-                    )
-                    session.add(processed)
+            # Use merge to handle duplicates (PostgreSQL) or insert (SQLite)
+            processed = ProcessedData(
+                listing_id=listing_id,
+                data_type='review',
+                data_id=review_id,
+                analyzed_at=datetime.utcnow()
+            )
+            session.merge(processed)  # Works for both PostgreSQL and SQLite
         
         session.commit()
+    except Exception as e:
+        session.rollback()
+        raise e
     finally:
         session.close()
 
@@ -259,44 +221,24 @@ def mark_messages_processed(listing_id: int, message_ids: List[int]):
         return
     
     init_cache_db()
-    session = get_session()
+    engine = get_engine()
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
     try:
         for message_id in message_ids:
-            # Use PostgreSQL-compatible upsert
-            db_path_or_url = config.CACHE_DATABASE_PATH
-            is_postgresql = db_path_or_url.startswith('postgresql://') or db_path_or_url.startswith('postgres://')
-            
-            if is_postgresql:
-                # PostgreSQL: Use ON CONFLICT DO NOTHING
-                session.execute(
-                    text("""
-                        INSERT INTO processed_data (listing_id, data_type, data_id, analyzed_at)
-                        VALUES (:listing_id, 'message', :data_id, :analyzed_at)
-                        ON CONFLICT (listing_id, data_type, data_id) DO NOTHING
-                    """),
-                    {
-                        'listing_id': listing_id,
-                        'data_id': message_id,
-                        'analyzed_at': datetime.utcnow()
-                    }
-                )
-            else:
-                # SQLite: Use INSERT OR IGNORE
-                existing = session.query(ProcessedData).filter(
-                    ProcessedData.listing_id == listing_id,
-                    ProcessedData.data_type == 'message',
-                    ProcessedData.data_id == message_id
-                ).first()
-                if not existing:
-                    processed = ProcessedData(
-                        listing_id=listing_id,
-                        data_type='message',
-                        data_id=message_id,
-                        analyzed_at=datetime.utcnow()
-                    )
-                    session.add(processed)
+            processed = ProcessedData(
+                listing_id=listing_id,
+                data_type='message',
+                data_id=message_id,
+                analyzed_at=datetime.utcnow()
+            )
+            session.merge(processed)
         
         session.commit()
+    except Exception as e:
+        session.rollback()
+        raise e
     finally:
         session.close()
 
@@ -312,7 +254,10 @@ def get_cached_insights(listing_id: int) -> Optional[Dict]:
         Dictionary with insights or None if not cached
     """
     init_cache_db()
-    session = get_session()
+    engine = get_engine()
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
     try:
         insight = session.query(ListingInsights).filter(
             ListingInsights.listing_id == listing_id
@@ -325,10 +270,56 @@ def get_cached_insights(listing_id: int) -> Optional[Dict]:
             'quality_rating': insight.quality_rating,
             'issues': json.loads(insight.issues_json) if insight.issues_json else [],
             'action_items': json.loads(insight.action_items_json) if insight.action_items_json else [],
-            'last_updated': insight.last_updated,
+            'last_updated': insight.last_updated.isoformat() if insight.last_updated else None,
             'total_reviews_analyzed': insight.total_reviews_analyzed,
             'total_messages_analyzed': insight.total_messages_analyzed
         }
+    except Exception as e:
+        # Gracefully return None on error to prevent breaking the listings page
+        return None
+    finally:
+        session.close()
+
+
+def get_cached_insights_batch(listing_ids: List[int]) -> Dict[int, Dict]:
+    """
+    Batch load cached insights for multiple listings in a single query.
+    This fixes the N+1 query problem when loading listings.
+    
+    Args:
+        listing_ids: List of listing IDs
+        
+    Returns:
+        Dictionary mapping listing_id to insights dict
+    """
+    if not listing_ids:
+        return {}
+    
+    init_cache_db()
+    engine = get_engine()
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
+    try:
+        insights = session.query(ListingInsights).filter(
+            ListingInsights.listing_id.in_(listing_ids)
+        ).all()
+        
+        result = {}
+        for insight in insights:
+            result[insight.listing_id] = {
+                'quality_rating': insight.quality_rating,
+                'issues': json.loads(insight.issues_json) if insight.issues_json else [],
+                'action_items': json.loads(insight.action_items_json) if insight.action_items_json else [],
+                'last_updated': insight.last_updated.isoformat() if insight.last_updated else None,
+                'total_reviews_analyzed': insight.total_reviews_analyzed,
+                'total_messages_analyzed': insight.total_messages_analyzed
+            }
+        
+        return result
+    except Exception as e:
+        # Gracefully return empty dict on error to prevent breaking the listings page
+        return {}
     finally:
         session.close()
 
@@ -344,53 +335,25 @@ def update_listing_insights(listing_id: int, insights: Dict, review_count: int, 
         message_count: Total number of messages analyzed
     """
     init_cache_db()
-    session = get_session()
+    engine = get_engine()
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
     try:
-        # Use PostgreSQL-compatible upsert
-        db_path_or_url = config.CACHE_DATABASE_PATH
-        is_postgresql = db_path_or_url.startswith('postgresql://') or db_path_or_url.startswith('postgres://')
-        
-        if is_postgresql:
-            # PostgreSQL: Use ON CONFLICT UPDATE
-            session.execute(
-                text("""
-                    INSERT INTO listing_insights
-                    (listing_id, quality_rating, issues_json, action_items_json, 
-                     last_updated, total_reviews_analyzed, total_messages_analyzed)
-                    VALUES (:listing_id, :quality_rating, :issues_json, :action_items_json, 
-                            :last_updated, :review_count, :message_count)
-                    ON CONFLICT (listing_id) DO UPDATE SET
-                        quality_rating = EXCLUDED.quality_rating,
-                        issues_json = EXCLUDED.issues_json,
-                        action_items_json = EXCLUDED.action_items_json,
-                        last_updated = EXCLUDED.last_updated,
-                        total_reviews_analyzed = EXCLUDED.total_reviews_analyzed,
-                        total_messages_analyzed = EXCLUDED.total_messages_analyzed
-                """),
-                {
-                    'listing_id': listing_id,
-                    'quality_rating': insights.get('quality_rating'),
-                    'issues_json': json.dumps(insights.get('issues', [])),
-                    'action_items_json': json.dumps(insights.get('action_items', [])),
-                    'last_updated': datetime.utcnow(),
-                    'review_count': review_count,
-                    'message_count': message_count
-                }
-            )
-        else:
-            # SQLite: Use INSERT OR REPLACE
-            insight = ListingInsights(
-                listing_id=listing_id,
-                quality_rating=insights.get('quality_rating'),
-                issues_json=json.dumps(insights.get('issues', [])),
-                action_items_json=json.dumps(insights.get('action_items', [])),
-                last_updated=datetime.utcnow(),
-                total_reviews_analyzed=review_count,
-                total_messages_analyzed=message_count
-            )
-            session.merge(insight)  # merge handles both insert and update
-        
+        insight = ListingInsights(
+            listing_id=listing_id,
+            quality_rating=insights.get('quality_rating'),
+            issues_json=json.dumps(insights.get('issues', [])),
+            action_items_json=json.dumps(insights.get('action_items', [])),
+            last_updated=datetime.utcnow(),
+            total_reviews_analyzed=review_count,
+            total_messages_analyzed=message_count
+        )
+        session.merge(insight)
         session.commit()
+    except Exception as e:
+        session.rollback()
+        raise e
     finally:
         session.close()
 
@@ -403,7 +366,10 @@ def clear_listing_cache(listing_id: int):
         listing_id: The listing ID
     """
     init_cache_db()
-    session = get_session()
+    engine = get_engine()
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
     try:
         session.query(ProcessedData).filter(
             ProcessedData.listing_id == listing_id
@@ -412,5 +378,8 @@ def clear_listing_cache(listing_id: int):
             ListingInsights.listing_id == listing_id
         ).delete()
         session.commit()
+    except Exception as e:
+        session.rollback()
+        raise e
     finally:
         session.close()

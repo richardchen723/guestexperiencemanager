@@ -4,16 +4,11 @@ Shared Hostaway API client for sync operations.
 Handles OAuth 2.0 authentication and API requests with rate limiting.
 """
 
-import os
 import time
 import logging
 import requests
 from datetime import datetime
 from typing import List, Dict, Optional, Any
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from urllib3.poolmanager import PoolManager
-import ssl
 
 from config import HOSTAWAY_API_KEY, HOSTAWAY_ACCOUNT_ID, HOSTAWAY_BASE_URL, VERBOSE
 
@@ -24,43 +19,6 @@ logger = logging.getLogger(__name__)
 RATE_LIMIT_RETRY_DELAY = 10  # seconds
 TOKEN_EXPIRATION_BUFFER = 60  # seconds
 DEFAULT_TOKEN_EXPIRATION = 3600  # seconds
-MAX_RETRIES = 3  # Maximum number of retries for network errors
-RETRY_DELAY_BASE = 2  # Base delay in seconds for exponential backoff
-
-# Detect if running in serverless environment (Vercel)
-IS_VERCEL = os.getenv("VERCEL", "0") == "1"
-
-
-class SSLAdapter(HTTPAdapter):
-    """
-    Custom HTTPAdapter with improved SSL/TLS configuration for serverless environments.
-    This helps handle SSL connection issues in Vercel and similar environments.
-    """
-    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
-        # Configure SSL context with proper settings for serverless
-        context = ssl.create_default_context()
-        # Set check_hostname to True for security
-        context.check_hostname = True
-        context.verify_mode = ssl.CERT_REQUIRED
-        
-        # Try to set TLS version constraints if available (Python 3.7+)
-        try:
-            context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
-            context.maximum_version = ssl.TLSVersion.MAXIMUM_SUPPORTED
-        except AttributeError:
-            # Python < 3.7 doesn't have TLSVersion enum, use default context
-            pass
-        
-        pool_kwargs['ssl_context'] = context
-        
-        # In serverless, use minimal connection pooling to avoid stale connections
-        if IS_VERCEL:
-            maxsize = 1  # Override maxsize - minimal pool size for serverless
-            block = False  # Don't block on pool exhaustion
-            # Disable connection keep-alive in serverless to force fresh connections
-            pool_kwargs['socket_options'] = []
-        
-        return super().init_poolmanager(connections, maxsize, block=block, **pool_kwargs)
 
 
 class HostawayAPIClient:
@@ -68,43 +26,19 @@ class HostawayAPIClient:
     
     def __init__(self):
         """Initialize the API client with credentials."""
+        # Validate credentials when client is instantiated (lazy validation)
+        if not HOSTAWAY_ACCOUNT_ID or not HOSTAWAY_API_KEY:
+            raise ValueError(
+                "HOSTAWAY_ACCOUNT_ID and HOSTAWAY_API_KEY environment variables are required. "
+                "Please set them in .env file or export them. "
+                "Get your credentials from: https://dashboard.hostaway.com/settings/api"
+            )
+        
         self.account_id = HOSTAWAY_ACCOUNT_ID
         self.api_key = HOSTAWAY_API_KEY
         self.base_url = HOSTAWAY_BASE_URL
         self.access_token: Optional[str] = None
         self.token_expires_at: Optional[float] = None
-        
-        # Configure session timeout - slightly longer for serverless
-        self.timeout = 45 if IS_VERCEL else 30
-        
-        # Create initial session
-        self._recreate_session()
-    
-    def _recreate_session(self):
-        """Create or recreate the requests session with proper SSL configuration."""
-        # Close existing session if it exists
-        if hasattr(self, 'session'):
-            try:
-                self.session.close()
-            except Exception:
-                pass
-        
-        # Create a new session with custom SSL adapter and retry strategy
-        self.session = requests.Session()
-        
-        # Configure retry strategy
-        retry_strategy = Retry(
-            total=0,  # Disable urllib3 retries - we handle retries ourselves
-            backoff_factor=0,
-            status_forcelist=[],
-            allowed_methods=[],
-            raise_on_status=False
-        )
-        
-        # Mount custom adapter with SSL configuration
-        adapter = SSLAdapter(max_retries=retry_strategy)
-        self.session.mount("https://", adapter)
-        self.session.mount("http://", adapter)
     
     def get_access_token(self) -> Optional[str]:
         """
@@ -135,7 +69,7 @@ class HostawayAPIClient:
         }
         
         try:
-            response = self.session.post(url, headers=headers, data=data, timeout=self.timeout)
+            response = requests.post(url, headers=headers, data=data, timeout=30)
             response.raise_for_status()
             token_data = response.json()
             self.access_token = token_data.get('access_token')
@@ -152,19 +86,11 @@ class HostawayAPIClient:
             
             return self.access_token
             
-        except requests.exceptions.Timeout as e:
-            logger.error(
-                "Timeout getting access token",
-                exc_info=True,
-                extra={'account_id': self.account_id, 'base_url': self.base_url}
-            )
+        except requests.exceptions.Timeout:
+            logger.error("Timeout getting access token")
             return None
         except requests.exceptions.RequestException as e:
-            logger.error(
-                f"Error getting access token: {e}",
-                exc_info=True,
-                extra={'account_id': self.account_id, 'base_url': self.base_url}
-            )
+            logger.error(f"Error getting access token: {e}")
             return None
     
     def get_headers(self) -> Dict[str, str]:
@@ -184,14 +110,13 @@ class HostawayAPIClient:
             "Accept": "application/json"
         }
     
-    def _make_request(self, endpoint: str, params: Optional[Dict] = None, retry_count: int = 0) -> Optional[Dict]:
+    def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
         """
-        Make API request with error handling, rate limiting, and retry logic.
+        Make API request with error handling and rate limiting.
         
         Args:
             endpoint: API endpoint path (without base URL)
             params: Optional query parameters
-            retry_count: Current retry attempt (for recursive retries)
             
         Returns:
             Response JSON data, or None on error.
@@ -204,82 +129,28 @@ class HostawayAPIClient:
             return None
         
         try:
-            response = self.session.get(url, headers=headers, params=params, timeout=self.timeout)
+            response = requests.get(url, headers=headers, params=params, timeout=30)
             
             # Handle rate limiting with retry
             if response.status_code == 429:
                 if VERBOSE:
                     logger.warning(f"Rate limit exceeded for {endpoint}, waiting {RATE_LIMIT_RETRY_DELAY}s...")
                 time.sleep(RATE_LIMIT_RETRY_DELAY)
-                response = self.session.get(url, headers=headers, params=params, timeout=self.timeout)
+                response = requests.get(url, headers=headers, params=params, timeout=30)
             
             response.raise_for_status()
             return response.json()
             
         except requests.exceptions.Timeout:
-            # Retry on timeout
-            if retry_count < MAX_RETRIES:
-                wait_time = RETRY_DELAY_BASE * (2 ** retry_count)  # Exponential backoff
-                logger.warning(f"Timeout making request to {endpoint}, retrying in {wait_time}s (attempt {retry_count + 1}/{MAX_RETRIES})...")
-                time.sleep(wait_time)
-                return self._make_request(endpoint, params, retry_count + 1)
-            logger.error(f"Timeout making request to {endpoint} after {MAX_RETRIES} retries")
+            logger.error(f"Timeout making request to {endpoint}")
             return None
-            
-        except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
-            # Retry on SSL/connection errors (common with network issues, especially in serverless)
-            # In serverless environments, connections can be terminated unexpectedly
-            if retry_count < MAX_RETRIES:
-                wait_time = RETRY_DELAY_BASE * (2 ** retry_count)  # Exponential backoff
-                error_type = "SSL error" if isinstance(e, requests.exceptions.SSLError) else "Connection error"
-                logger.warning(
-                    f"{error_type} making request to {endpoint}: {e}. Retrying in {wait_time}s (attempt {retry_count + 1}/{MAX_RETRIES})...",
-                    extra={'endpoint': endpoint, 'retry_count': retry_count, 'is_vercel': IS_VERCEL}
-                )
-                
-                # For SSL errors in serverless, wait a bit longer and close the session to force new connection
-                if IS_VERCEL and isinstance(e, requests.exceptions.SSLError):
-                    # Close the session to clear any stale connections
-                    self.session.close()
-                    # Recreate session with fresh SSL context
-                    self._recreate_session()
-                    # Add extra delay for SSL errors in serverless
-                    wait_time += 1
-                
-                time.sleep(wait_time)
-                return self._make_request(endpoint, params, retry_count + 1)
-            
-            error_type = "SSL error" if isinstance(e, requests.exceptions.SSLError) else "Connection error"
-            logger.error(
-                f"{error_type} making request to {endpoint} after {MAX_RETRIES} retries: {e}",
-                exc_info=True,
-                extra={'endpoint': endpoint, 'params': params, 'retry_count': retry_count, 'is_vercel': IS_VERCEL}
-            )
-            return None
-            
         except requests.exceptions.HTTPError as e:
-            # Don't retry on HTTP errors (4xx, 5xx) except 429 (already handled above)
-            logger.error(
-                f"HTTP error for {endpoint}: {e}",
-                exc_info=True,
-                extra={'endpoint': endpoint, 'params': params, 'status_code': e.response.status_code if hasattr(e, 'response') and e.response else None}
-            )
+            logger.error(f"HTTP error for {endpoint}: {e}")
             if hasattr(e, 'response') and e.response is not None:
                 logger.debug(f"Response: {e.response.text[:200]}")
             return None
-            
         except requests.exceptions.RequestException as e:
-            # Retry on other request exceptions (network issues, etc.)
-            if retry_count < MAX_RETRIES:
-                wait_time = RETRY_DELAY_BASE * (2 ** retry_count)  # Exponential backoff
-                logger.warning(f"Request error for {endpoint}: {e}. Retrying in {wait_time}s (attempt {retry_count + 1}/{MAX_RETRIES})...")
-                time.sleep(wait_time)
-                return self._make_request(endpoint, params, retry_count + 1)
-            logger.error(
-                f"Error making request to {endpoint} after {MAX_RETRIES} retries: {e}",
-                exc_info=True,
-                extra={'endpoint': endpoint, 'params': params, 'retry_count': retry_count, 'max_retries': MAX_RETRIES}
-            )
+            logger.error(f"Error making request to {endpoint}: {e}")
             return None
     
     def get_listings(self, limit: Optional[int] = None, 
@@ -464,7 +335,9 @@ class HostawayAPIClient:
                     reservation_id: Optional[int] = None,
                     limit: Optional[int] = None,
                     offset: Optional[int] = None,
-                    status: Optional[str] = None) -> List[Dict]:
+                    status: Optional[str] = None,
+                    sortBy: Optional[str] = None,
+                    order: Optional[str] = None) -> List[Dict]:
         """
         Get reviews with optional filters.
         
@@ -474,6 +347,8 @@ class HostawayAPIClient:
             limit: Maximum number of reviews to return
             offset: Number of reviews to skip
             status: Filter by review status (e.g., 'Published')
+            sortBy: Sort field (e.g., 'departureDate', 'arrivalDate')
+            order: Sort order ('asc' or 'desc')
             
         Returns:
             List of review dictionaries with sub-ratings.
@@ -489,6 +364,10 @@ class HostawayAPIClient:
             params['offset'] = offset
         if status:
             params['status'] = status
+        if sortBy:
+            params['sortBy'] = sortBy
+        if order:
+            params['order'] = order
         
         data = self._make_request("reviews", params)
         if data and 'result' in data:

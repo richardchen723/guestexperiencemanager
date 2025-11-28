@@ -64,3 +64,13 @@ data/exports/
 *.tmp
 *.bak
 *.cache
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Environment backups
+.env.backup
+.env.*.backup

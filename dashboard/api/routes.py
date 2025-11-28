@@ -37,16 +37,19 @@ def register_routes(app):
     @approved_required
     def api_listings():
         """Get all listings as JSON with quality ratings."""
-        from dashboard.ai.cache import get_cached_insights
+        from dashboard.ai.cache import get_cached_insights_batch
         
         session = get_session(config.MAIN_DATABASE_PATH)
         try:
             listings = session.query(Listing).order_by(Listing.name).all()
-            result = []
             
+            # Batch load all insights in one query (fixes N+1 problem)
+            listing_ids = [l.listing_id for l in listings]
+            insights_map = get_cached_insights_batch(listing_ids)
+            
+            result = []
             for l in listings:
-                # Get cached insights to retrieve quality rating
-                insights = get_cached_insights(l.listing_id)
+                insights = insights_map.get(l.listing_id)
                 quality_rating = insights.get('quality_rating') if insights else None
                 
                 result.append({

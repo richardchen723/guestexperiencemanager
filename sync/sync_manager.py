@@ -129,96 +129,39 @@ def full_sync(progress_tracker: Optional[Any] = None, sync_run_id: Optional[int]
     logger.info(f"Starting full sync (sync_run_id={sync_run_id})")
     results = {}
     
-    sync_errors = []  # Track errors from individual sync steps
-    
     try:
         # 1. Sync listings
         if use_terminal:
             print("[1/5] Syncing listings...")
-        try:
-            results['listings'] = sync_listings(full_sync=True, progress_tracker=progress, sync_run_id=sync_run_id)
-            # Check for errors in result
-            if isinstance(results['listings'], dict) and results['listings'].get('status') == 'error':
-                error_msg = results['listings'].get('error', 'Unknown error')
-                logger.error(f"Listings sync failed: {error_msg}")
-                sync_errors.append(f"Listings: {error_msg}")
-        except Exception as e:
-            logger.error(f"Error syncing listings: {e}", exc_info=True)
-            results['listings'] = {'status': 'error', 'error': str(e)}
-            sync_errors.append(f"Listings: {str(e)}")
-        
+        results['listings'] = sync_listings(full_sync=True, progress_tracker=progress, sync_run_id=sync_run_id)
         if use_terminal:
             print()  # Blank line between phases
         
         # 2. Sync reservations (also extracts guests)
         if use_terminal:
             print("[2/5] Syncing reservations...")
-        try:
-            results['reservations'] = sync_reservations(full_sync=True, progress_tracker=progress, sync_run_id=sync_run_id)
-            # Check for errors in result
-            if isinstance(results['reservations'], dict) and results['reservations'].get('status') == 'error':
-                error_msg = results['reservations'].get('error', 'Unknown error')
-                logger.error(f"Reservations sync failed: {error_msg}")
-                sync_errors.append(f"Reservations: {error_msg}")
-        except Exception as e:
-            logger.error(f"Error syncing reservations: {e}", exc_info=True)
-            results['reservations'] = {'status': 'error', 'error': str(e)}
-            sync_errors.append(f"Reservations: {str(e)}")
-        
+        results['reservations'] = sync_reservations(full_sync=True, progress_tracker=progress, sync_run_id=sync_run_id)
         if use_terminal:
             print()  # Blank line between phases
         
         # 3. Deduplicate guests
         if use_terminal:
             print("[3/5] Deduplicating guests...")
-        try:
-            results['guests'] = deduplicate_guests(progress_tracker=progress, sync_run_id=sync_run_id)
-            # Check for errors in result
-            if isinstance(results['guests'], dict) and results['guests'].get('status') == 'error':
-                error_msg = results['guests'].get('error', 'Unknown error')
-                logger.error(f"Guest deduplication failed: {error_msg}")
-                sync_errors.append(f"Guests: {error_msg}")
-        except Exception as e:
-            logger.error(f"Error deduplicating guests: {e}", exc_info=True)
-            results['guests'] = {'status': 'error', 'error': str(e)}
-            sync_errors.append(f"Guests: {str(e)}")
-        
+        results['guests'] = deduplicate_guests(progress_tracker=progress, sync_run_id=sync_run_id)
         if use_terminal:
             print()  # Blank line between phases
         
         # 4. Sync messages from API
         if use_terminal:
             print("[4/5] Syncing messages from API...")
-        try:
-            results['messages'] = sync_messages_from_api(full_sync=True, progress_tracker=progress, sync_run_id=sync_run_id)
-            # Check for errors in result
-            if isinstance(results['messages'], dict) and results['messages'].get('status') == 'error':
-                error_msg = results['messages'].get('error', 'Unknown error')
-                logger.error(f"Messages sync failed: {error_msg}")
-                sync_errors.append(f"Messages: {error_msg}")
-        except Exception as e:
-            logger.error(f"Error syncing messages: {e}", exc_info=True)
-            results['messages'] = {'status': 'error', 'error': str(e)}
-            sync_errors.append(f"Messages: {str(e)}")
-        
+        results['messages'] = sync_messages_from_api(full_sync=True, progress_tracker=progress, sync_run_id=sync_run_id)
         if use_terminal:
             print()  # Blank line between phases
         
         # 5. Sync reviews
         if use_terminal:
             print("[5/5] Syncing reviews...")
-        try:
-            results['reviews'] = sync_reviews(full_sync=True, progress_tracker=progress, sync_run_id=sync_run_id)
-            # Check for errors in result
-            if isinstance(results['reviews'], dict) and results['reviews'].get('status') == 'error':
-                error_msg = results['reviews'].get('error', 'Unknown error')
-                logger.error(f"Reviews sync failed: {error_msg}")
-                sync_errors.append(f"Reviews: {error_msg}")
-        except Exception as e:
-            logger.error(f"Error syncing reviews: {e}", exc_info=True)
-            results['reviews'] = {'status': 'error', 'error': str(e)}
-            sync_errors.append(f"Reviews: {str(e)}")
-        
+        results['reviews'] = sync_reviews(full_sync=True, progress_tracker=progress, sync_run_id=sync_run_id)
         if use_terminal:
             print()  # Blank line between phases
         
@@ -226,14 +169,7 @@ def full_sync(progress_tracker: Optional[Any] = None, sync_run_id: Optional[int]
         if use_terminal:
             progress.print_summary(results)
         
-        # If there were any errors, add them to results
-        if sync_errors:
-            error_summary = '; '.join(sync_errors)
-            results['error'] = error_summary
-            logger.warning(f"Full sync completed with errors (sync_run_id={sync_run_id}): {error_summary}")
-        else:
-            logger.info(f"Full sync completed successfully (sync_run_id={sync_run_id})")
-        
+        logger.info(f"Full sync completed successfully (sync_run_id={sync_run_id})")
         results['sync_run_id'] = sync_run_id
         return results
         
@@ -241,7 +177,6 @@ def full_sync(progress_tracker: Optional[Any] = None, sync_run_id: Optional[int]
         logger.error(f"Fatal error during full sync: {e}", exc_info=True)
         results['error'] = str(e)
         results['sync_run_id'] = sync_run_id
-        # Don't re-raise - return results with error so caller can see what succeeded
         return results
 
 
@@ -285,8 +220,6 @@ def incremental_sync(progress_tracker: Optional[Any] = None, sync_run_id: Option
     logger.info(f"Starting incremental sync (sync_run_id={sync_run_id})")
     results = {}
     
-    sync_errors = []  # Track errors from individual sync steps
-    
     try:
         # Check what needs syncing
         # If force=True, always sync (bypasses time check for manual triggers)
@@ -295,21 +228,10 @@ def incremental_sync(progress_tracker: Optional[Any] = None, sync_run_id: Option
         sync_messages_flag = force or should_sync('messages')
         sync_reviews_flag = force or should_sync('reviews')
         
-        # 1. Sync listings
         if sync_listings_flag:
             if use_terminal:
                 print("[1] Syncing listings...")
-            try:
-                results['listings'] = sync_listings(full_sync=False, progress_tracker=progress, sync_run_id=sync_run_id)
-                # Check for errors in result
-                if isinstance(results['listings'], dict) and results['listings'].get('status') == 'error':
-                    error_msg = results['listings'].get('error', 'Unknown error')
-                    logger.error(f"Listings sync failed: {error_msg}")
-                    sync_errors.append(f"Listings: {error_msg}")
-            except Exception as e:
-                logger.error(f"Error syncing listings: {e}", exc_info=True)
-                results['listings'] = {'status': 'error', 'error': str(e)}
-                sync_errors.append(f"Listings: {str(e)}")
+            results['listings'] = sync_listings(full_sync=False, progress_tracker=progress, sync_run_id=sync_run_id)
             if use_terminal:
                 print()
         else:
@@ -317,21 +239,10 @@ def incremental_sync(progress_tracker: Optional[Any] = None, sync_run_id: Option
                 print("[1] Skipping listings (synced recently)")
             results['listings'] = {'status': 'skipped'}
         
-        # 2. Sync reservations
         if sync_reservations_flag:
             if use_terminal:
                 print("[2] Syncing reservations...")
-            try:
-                results['reservations'] = sync_reservations(full_sync=False, progress_tracker=progress, sync_run_id=sync_run_id)
-                # Check for errors in result
-                if isinstance(results['reservations'], dict) and results['reservations'].get('status') == 'error':
-                    error_msg = results['reservations'].get('error', 'Unknown error')
-                    logger.error(f"Reservations sync failed: {error_msg}")
-                    sync_errors.append(f"Reservations: {error_msg}")
-            except Exception as e:
-                logger.error(f"Error syncing reservations: {e}", exc_info=True)
-                results['reservations'] = {'status': 'error', 'error': str(e)}
-                sync_errors.append(f"Reservations: {str(e)}")
+            results['reservations'] = sync_reservations(full_sync=False, progress_tracker=progress, sync_run_id=sync_run_id)
             if use_terminal:
                 print()
         else:
@@ -339,41 +250,20 @@ def incremental_sync(progress_tracker: Optional[Any] = None, sync_run_id: Option
                 print("[2] Skipping reservations (synced recently)")
             results['reservations'] = {'status': 'skipped'}
         
-        # 3. Deduplicate guests (always run after reservations if reservations were synced)
+        # Always deduplicate guests after reservations
         if sync_reservations_flag:
             if use_terminal:
                 print("[3] Deduplicating guests...")
-            try:
-                results['guests'] = deduplicate_guests(progress_tracker=progress, sync_run_id=sync_run_id)
-                # Check for errors in result
-                if isinstance(results['guests'], dict) and results['guests'].get('status') == 'error':
-                    error_msg = results['guests'].get('error', 'Unknown error')
-                    logger.error(f"Guest deduplication failed: {error_msg}")
-                    sync_errors.append(f"Guests: {error_msg}")
-            except Exception as e:
-                logger.error(f"Error deduplicating guests: {e}", exc_info=True)
-                results['guests'] = {'status': 'error', 'error': str(e)}
-                sync_errors.append(f"Guests: {str(e)}")
+            results['guests'] = deduplicate_guests(progress_tracker=progress, sync_run_id=sync_run_id)
             if use_terminal:
                 print()
         else:
             results['guests'] = {'status': 'skipped'}
         
-        # 4. Sync messages
         if sync_messages_flag:
             if use_terminal:
                 print("[4] Syncing messages from API...")
-            try:
-                results['messages'] = sync_messages_from_api(full_sync=False, progress_tracker=progress, sync_run_id=sync_run_id)
-                # Check for errors in result
-                if isinstance(results['messages'], dict) and results['messages'].get('status') == 'error':
-                    error_msg = results['messages'].get('error', 'Unknown error')
-                    logger.error(f"Messages sync failed: {error_msg}")
-                    sync_errors.append(f"Messages: {error_msg}")
-            except Exception as e:
-                logger.error(f"Error syncing messages: {e}", exc_info=True)
-                results['messages'] = {'status': 'error', 'error': str(e)}
-                sync_errors.append(f"Messages: {str(e)}")
+            results['messages'] = sync_messages_from_api(full_sync=False, progress_tracker=progress, sync_run_id=sync_run_id)
             if use_terminal:
                 print()
         else:
@@ -381,21 +271,10 @@ def incremental_sync(progress_tracker: Optional[Any] = None, sync_run_id: Option
                 print("[4] Skipping messages (synced recently)")
             results['messages'] = {'status': 'skipped'}
         
-        # 5. Sync reviews
         if sync_reviews_flag:
             if use_terminal:
                 print("[5] Syncing reviews...")
-            try:
-                results['reviews'] = sync_reviews(full_sync=False, progress_tracker=progress, sync_run_id=sync_run_id)
-                # Check for errors in result
-                if isinstance(results['reviews'], dict) and results['reviews'].get('status') == 'error':
-                    error_msg = results['reviews'].get('error', 'Unknown error')
-                    logger.error(f"Reviews sync failed: {error_msg}")
-                    sync_errors.append(f"Reviews: {error_msg}")
-            except Exception as e:
-                logger.error(f"Error syncing reviews: {e}", exc_info=True)
-                results['reviews'] = {'status': 'error', 'error': str(e)}
-                sync_errors.append(f"Reviews: {str(e)}")
+            results['reviews'] = sync_reviews(full_sync=False, progress_tracker=progress, sync_run_id=sync_run_id)
             if use_terminal:
                 print()
         else:
@@ -407,14 +286,7 @@ def incremental_sync(progress_tracker: Optional[Any] = None, sync_run_id: Option
         if use_terminal:
             progress.print_summary(results)
         
-        # If there were any errors, add them to results
-        if sync_errors:
-            error_summary = '; '.join(sync_errors)
-            results['error'] = error_summary
-            logger.warning(f"Incremental sync completed with errors (sync_run_id={sync_run_id}): {error_summary}")
-        else:
-            logger.info(f"Incremental sync completed successfully (sync_run_id={sync_run_id})")
-        
+        logger.info(f"Incremental sync completed (sync_run_id={sync_run_id})")
         results['sync_run_id'] = sync_run_id
         return results
         
@@ -422,11 +294,6 @@ def incremental_sync(progress_tracker: Optional[Any] = None, sync_run_id: Option
         logger.error(f"Fatal error during incremental sync: {e}", exc_info=True)
         results['error'] = str(e)
         results['sync_run_id'] = sync_run_id
-        # Make sure all expected sync types are in results, even if they failed
-        expected_types = ['listings', 'reservations', 'guests', 'messages', 'reviews']
-        for sync_type in expected_types:
-            if sync_type not in results:
-                results[sync_type] = {'status': 'error', 'error': f'Fatal error prevented {sync_type} sync: {str(e)}'}
         return results
 
 

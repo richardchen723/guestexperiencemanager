@@ -26,25 +26,11 @@ from dashboard.auth.session import get_current_user
 
 def create_app():
     """Create and configure the Flask application."""
-    # Detect Vercel environment
-    is_vercel = os.environ.get('VERCEL', '0') == '1'
-    
-    # Setup logging - use stdout in Vercel (no file system), file logging locally
-    if is_vercel:
-        # Vercel/serverless environments have read-only filesystems, so avoid file logging
-        setup_logging(log_file=None)
-    else:
-        log_file = os.path.join(project_root, 'logs', 'dashboard.log')
-        setup_logging(log_file=log_file)
-    
+    # Setup logging with DEBUG level for detailed diagnostics
+    log_file = os.path.join(project_root, 'logs', 'dashboard.log')
+    setup_logging(log_file=log_file)
     logger = logging.getLogger(__name__)
-    if is_vercel:
-        logger.info("=" * 80)
-        logger.info("Flask application starting in VERCEL DEBUG MODE")
-        logger.info("All logs will be sent to stdout for Vercel dashboard")
-        logger.info("=" * 80)
-    else:
-        logger.info("Initializing Flask application")
+    logger.info("Initializing Flask application with DEBUG logging enabled")
     
     # Allow insecure transport for localhost development (HTTP instead of HTTPS)
     # This is required for OAuth to work on localhost
@@ -130,12 +116,8 @@ def create_app():
     return app
 
 
-# Create app instance for Vercel serverless function
-# Vercel expects 'app' to be available at module level
-app = create_app()
-
-# For local development
 if __name__ == '__main__':
+    app = create_app()
     logger = logging.getLogger(__name__)
     logger.info(f"Starting Insights Dashboard on http://{config.FLASK_HOST}:{config.FLASK_PORT}")
     logger.info("Press Ctrl+C to stop")

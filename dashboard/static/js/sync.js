@@ -1,8 +1,10 @@
 // Sync Dashboard JavaScript
 
 let currentPollInterval = null;
+let runningSyncPollInterval = null;
 let currentFilter = 'all';
 let allSyncRuns = [];
+let cachedSyncHistory = [];  // Cache completed syncs (they won't change)
 
 // Format number with commas
 function formatNumber(num) {
@@ -78,7 +80,7 @@ function updateQuickStats(syncRuns) {
     document.getElementById('lastSyncTime').textContent = lastSync ? formatRelativeTime(lastSync.started_at) : '-';
 }
 
-// Load sync history
+// Load sync history (full load - only called once on page load or manual refresh)
 function loadSyncHistory() {
     const container = document.getElementById('syncHistoryContainer');
     const loading = document.getElementById('loading');
@@ -96,18 +98,148 @@ function loadSyncHistory() {
             if (!data || data.length === 0) {
                 noResults.style.display = 'block';
                 document.getElementById('quickStats').style.display = 'none';
+                cachedSyncHistory = [];
+                allSyncRuns = [];
                 return;
             }
             
+            // Cache all syncs
+            cachedSyncHistory = data;
+            
+            // Separate running vs completed
+            const running = data.filter(r => r.status === 'running');
+            
+            // Update display
             allSyncRuns = data;
             updateQuickStats(data);
             applyFilter();
+            
+            // Start polling only if there are running syncs
+            if (running.length > 0) {
+                startRunningSyncPolling();
+            } else {
+                stopRunningSyncPolling();
+            }
         })
         .catch(error => {
             loading.style.display = 'none';
             console.error('Error loading sync history:', error);
             container.innerHTML = '<div class="alert alert-error">Error loading sync history</div>';
         });
+}
+
+// Poll only running syncs (lightweight endpoint)
+function pollRunningSyncs() {
+    fetch('/sync/api/running-status')
+        .then(response => response.json())
+        .then(runningSyncs => {
+            if (runningSyncs.length === 0) {
+                // No running syncs - stop polling and mark any previously running syncs as completed
+                stopRunningSyncPolling();
+                updateCompletedSyncs();
+                return;
+            }
+            
+            // Merge running syncs with cached history
+            mergeRunningSyncs(runningSyncs);
+            // Always apply filter to ensure UI is updated
+            applyFilter();
+        })
+        .catch(error => {
+            console.error('Error polling running syncs:', error);
+            // Don't stop polling on error - might be temporary
+        });
+}
+
+// Helper function to match syncs by sync_run_id or job_id
+function matchSync(sync1, sync2) {
+    if (sync1.sync_run_id && sync2.sync_run_id) {
+        return sync1.sync_run_id === sync2.sync_run_id;
+    }
+    if (sync1.job_id && sync2.job_id) {
+        return sync1.job_id === sync2.job_id;
+    }
+    return false;
+}
+
+// Merge running sync updates with cached history
+function mergeRunningSyncs(runningSyncs) {
+    // Build sets of running sync identifiers for efficient lookup
+    const runningSyncRunIds = new Set(
+        runningSyncs
+            .map(s => s.sync_run_id)
+            .filter(id => id !== null && id !== undefined)
+    );
+    const runningJobIds = new Set(
+        runningSyncs
+            .map(s => s.job_id)
+            .filter(id => id !== null && id !== undefined)
+    );
+    
+    // Update or add running syncs
+    runningSyncs.forEach(runningSync => {
+        const index = cachedSyncHistory.findIndex(s => matchSync(runningSync, s));
+        
+        if (index >= 0) {
+            // Update existing sync in cache
+            cachedSyncHistory[index] = runningSync;
+        } else {
+            // New running sync - add to cache (at the beginning since it's newest)
+            cachedSyncHistory.unshift(runningSync);
+        }
+    });
+    
+    // Mark previously running syncs as completed if they're no longer in runningSyncs
+    cachedSyncHistory.forEach(sync => {
+        if (sync.status === 'running') {
+            const hasRunId = sync.sync_run_id && runningSyncRunIds.has(sync.sync_run_id);
+            const hasJobId = sync.job_id && runningJobIds.has(sync.job_id);
+            if (!hasRunId && !hasJobId) {
+                sync.status = 'completed';
+            }
+        }
+    });
+    
+    // Always update allSyncRuns and stats to ensure UI is in sync
+    allSyncRuns = [...cachedSyncHistory];
+    updateQuickStats(allSyncRuns);
+}
+
+// Mark previously running syncs as completed (when polling stops)
+function updateCompletedSyncs() {
+    let updated = false;
+    cachedSyncHistory.forEach(sync => {
+        if (sync.status === 'running') {
+            sync.status = 'completed';
+            updated = true;
+        }
+    });
+    
+    if (updated) {
+        allSyncRuns = [...cachedSyncHistory];
+        updateQuickStats(allSyncRuns);
+        applyFilter();
+    }
+}
+
+// Start polling for running syncs
+function startRunningSyncPolling() {
+    if (runningSyncPollInterval) {
+        // Already polling, but poll immediately to catch new syncs
+        pollRunningSyncs();
+        return;
+    }
+    // Poll immediately, then every 5 seconds
+    pollRunningSyncs();
+    runningSyncPollInterval = setInterval(pollRunningSyncs, 5000);
+}
+
+// Stop polling for running syncs
+function stopRunningSyncPolling() {
+    if (runningSyncPollInterval) {
+        clearInterval(runningSyncPollInterval);
+        runningSyncPollInterval = null;
+    }
 }
 
 // Apply filter
@@ -189,7 +321,6 @@ function createSyncRunCard(syncRun) {
     const recordsCreated = syncRun.records_created || 0;
     const recordsUpdated = syncRun.records_updated || 0;
     const errors = syncRun.errors || 0;
-    const syncTypes = syncRun.sync_types ? syncRun.sync_types.length : 0;
     
     card.innerHTML = `
         <div class="sync-run-header">
@@ -229,14 +360,35 @@ function createSyncRunCard(syncRun) {
     return card;
 }
 
-// Trigger full sync
-function triggerFullSync() {
-    const btn = document.getElementById('triggerFullSyncBtn');
+// Helper function to handle sync trigger response
+function handleSyncTriggerResponse(data, btn, originalHTML) {
+    if (data.job_id) {
+        showProgressModal(data.job_id);
+        pollSyncProgress(data.job_id);
+        // Start polling for running syncs in history
+        startRunningSyncPolling();
+    } else {
+        alert('Error starting sync: ' + (data.error || 'Unknown error'));
+    }
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+}
+
+// Helper function to handle sync trigger error
+function handleSyncTriggerError(error, btn, originalHTML) {
+    console.error('Error triggering sync:', error);
+    alert('Error starting sync: ' + error.message);
+    btn.disabled = false;
+    btn.innerHTML = originalHTML;
+}
+
+// Helper function to make sync API request
+function triggerSync(endpoint, btn) {
     const originalHTML = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<svg class="btn-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 2V8L12 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 8L4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 8C2 11.3137 4.68629 14 8 14C11.3137 14 14 11.3137 14 8C14 4.68629 11.3137 2 8 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Starting...';
     
-    fetch('/sync/api/full', {
+    fetch(endpoint, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -253,22 +405,19 @@ function triggerFullSync() {
             }
             return response.json();
         })
-        .then(data => {
-            if (data.job_id) {
-                showProgressModal(data.job_id);
-                pollSyncProgress(data.job_id);
-            } else {
-                alert('Error starting sync: ' + (data.error || 'Unknown error'));
-            }
-            btn.disabled = false;
-            btn.innerHTML = originalHTML;
-        })
-        .catch(error => {
-            console.error('Error triggering full sync:', error);
-            alert('Error starting sync: ' + error.message);
-            btn.disabled = false;
-            btn.innerHTML = originalHTML;
-        });
+        .then(data => handleSyncTriggerResponse(data, btn, originalHTML))
+        .catch(error => handleSyncTriggerError(error, btn, originalHTML));
+}
+
+// Trigger full sync
+function triggerFullSync() {
+    const btn = document.getElementById('triggerFullSyncBtn');
+    if (!btn) {
+        console.error('Full sync button not found');
+        alert('Error: Full sync button not found');
+        return;
+    }
+    triggerSync('/sync/api/full', btn);
 }
 
 // Trigger incremental sync
@@ -279,44 +428,7 @@ function triggerIncrementalSync() {
         alert('Error: Incremental sync button not found');
         return;
     }
-    
-    const originalHTML = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<svg class="btn-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 2V8L12 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 8L4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 8C2 11.3137 4.68629 14 8 14C11.3137 14 14 11.3137 14 8C14 4.68629 11.3137 2 8 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Starting...';
-    
-    fetch('/sync/api/incremental', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        }
-    })
-        .then(response => {
-            if (!response.ok) {
-                return response.json().then(err => {
-                    if (response.status === 403) {
-                        throw new Error('Admin access required to trigger syncs');
-                    }
-                    throw new Error(err.error || `HTTP ${response.status}`);
-                });
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.job_id) {
-                showProgressModal(data.job_id);
-                pollSyncProgress(data.job_id);
-            } else {
-                alert('Error starting sync: ' + (data.error || 'Unknown error'));
-            }
-            btn.disabled = false;
-            btn.innerHTML = originalHTML;
-        })
-        .catch(error => {
-            console.error('Error triggering incremental sync:', error);
-            alert('Error starting sync: ' + error.message);
-            btn.disabled = false;
-            btn.innerHTML = originalHTML;
-        });
+    triggerSync('/sync/api/incremental', btn);
 }
 
 // Show progress modal
@@ -387,7 +499,7 @@ function pollSyncProgress(jobId) {
                 console.error('Error polling sync progress:', error);
                 stopPolling();
             });
-    }, 1500);
+    }, 10000); // Poll every 10 seconds
 }
 
 // Stop polling
@@ -578,7 +690,7 @@ function pollSyncProgressForDetail(jobId) {
                 console.error('Error polling sync progress:', error);
                 stopDetailPolling();
             });
-    }, 1500);
+    }, 10000); // Poll every 10 seconds
 }
 
 function stopDetailPolling() {
@@ -624,7 +736,7 @@ function pollSyncDetailForUpdates(syncRunId) {
                 console.error('Error polling sync detail:', error);
                 stopDetailPolling();
             });
-    }, 2000);
+    }, 10000); // Poll every 10 seconds
 }
 
 // Update progress display on detail page
@@ -865,7 +977,7 @@ document.addEventListener('DOMContentLoaded', function() {
             incrementalSyncBtn.onclick = triggerIncrementalSync;
         }
         
-        // Auto-refresh history every 5 seconds
-        setInterval(loadSyncHistory, 5000);
+        // No auto-refresh - we use smart polling for running syncs only
+        // Full history is loaded once and cached
     }
 });

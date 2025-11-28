@@ -9,6 +9,7 @@ from sqlalchemy.orm import relationship, sessionmaker
 import sqlalchemy
 from datetime import datetime
 import json
+import os
 
 Base = declarative_base()
 
@@ -296,9 +297,12 @@ class ReviewSubRating(Base):
 class SyncLog(Base):
     """Sync log model - tracks all sync operations"""
     __tablename__ = 'sync_logs'
+    __table_args__ = (
+        {'schema': 'public'} if os.getenv("DATABASE_URL") else {},
+    )
     
     sync_id = Column(Integer, primary_key=True, autoincrement=True)
-    sync_run_id = Column(Integer, nullable=True)  # Groups multiple sync_types from same sync run
+    sync_run_id = Column(Integer, nullable=True, index=True)  # Groups multiple sync_types from same sync run - indexed for performance
     sync_type = Column(String, nullable=False)
     sync_mode = Column(String, nullable=True)  # 'full' or 'incremental'
     status = Column(String, nullable=False)
@@ -331,87 +335,76 @@ class SyncLog(Base):
 
 
 # Database connection utilities
-def get_engine(db_path_or_url: str):
+def get_engine(db_path: str):
     """
-    Create SQLAlchemy engine - supports both SQLite and PostgreSQL.
+    Create SQLAlchemy engine with support for PostgreSQL and SQLite.
+    
+    Checks for DATABASE_URL environment variable first (PostgreSQL).
+    Falls back to SQLite if DATABASE_URL is not set.
     
     Args:
-        db_path_or_url: Database path (for SQLite) or connection URL (for PostgreSQL)
-            - SQLite: "data/database/hostaway.db" or relative/absolute path
-            - PostgreSQL: "postgresql://user:password@host:port/database"
-    
+        db_path: Path to SQLite database (used only if DATABASE_URL not set)
+        
     Returns:
-        SQLAlchemy engine configured for the appropriate database type
+        SQLAlchemy engine
     """
     import os
-    from sqlalchemy.pool import NullPool
     
-    # Detect PostgreSQL connection string
-    if db_path_or_url.startswith('postgresql://') or db_path_or_url.startswith('postgres://'):
-        # Check if we're in a serverless environment (Vercel)
-        is_vercel = os.getenv("VERCEL", "0") == "1"
-        
-        if is_vercel:
-            # Serverless: Use NullPool to avoid connection pool exhaustion
-            # Each request gets a fresh connection that's closed immediately
-            engine = create_engine(
-                db_path_or_url,
-                echo=False,
-                poolclass=NullPool,  # No connection pooling in serverless
-                pool_pre_ping=True,  # Verify connections before using
-                connect_args={
-                    'connect_timeout': 10,  # Connection timeout in seconds
-                    'application_name': 'hostaway-messages'
-                }
-            )
-        else:
-            # Local/development: Use connection pooling
-            engine = create_engine(
-                db_path_or_url,
-                echo=False,
-                pool_pre_ping=True,  # Verify connections before using
-                pool_size=2,  # Smaller pool for local development
-                max_overflow=5,  # Additional connections beyond pool_size
-                pool_recycle=1800,  # Recycle connections after 30 minutes
-                connect_args={
-                    'connect_timeout': 10,  # Connection timeout in seconds
-                    'application_name': 'hostaway-messages'
-                }
-            )
+    # Check for PostgreSQL connection string
+    database_url = os.getenv("DATABASE_URL")
+    
+    if database_url:
+        # PostgreSQL connection
+        # Connection string format: postgresql://user:password@host:port/database
+        engine = create_engine(
+            database_url,
+            echo=False,
+            pool_size=5,           # Small pool for 10-20 users
+            max_overflow=2,        # Minimal overflow
+            pool_timeout=30,       # Prevent hanging connections
+            pool_pre_ping=True,     # Verify connections before using
+            connect_args={
+                "connect_timeout": 15,  # Increased from 10 to handle slower connections
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 5
+            }
+        )
         return engine
-    
-    # SQLite connection (backward compatibility)
-    # Use connect_args to set WAL mode and other pragmas at connection time
-    # This avoids the need to execute PRAGMA separately which can cause locking issues
-    engine = create_engine(
-        f'sqlite:///{db_path_or_url}',
-        echo=False,
-        connect_args={
-            'check_same_thread': False,
-            'timeout': 30.0  # 30 second timeout for database operations
-        },
-        pool_pre_ping=True  # Verify connections before using
-    )
-    
-    # Try to enable WAL mode, but don't fail if database is locked
-    # WAL mode will be set on first connection if possible
-    try:
-        with engine.connect() as conn:
-            result = conn.execute(sqlalchemy.text("PRAGMA journal_mode"))
-            current_mode = result.scalar()
-            if current_mode != 'wal':
-                try:
-                    conn.execute(sqlalchemy.text("PRAGMA journal_mode=WAL"))
-                    conn.commit()
-                except Exception:
-                    # If WAL mode can't be set, continue with default mode
-                    pass
-    except Exception:
-        # If we can't connect to set WAL mode, continue anyway
-        # The database might be locked by another process
-        pass
-    
-    return engine
+    else:
+        # SQLite connection (fallback)
+        # Use connect_args to set WAL mode and other pragmas at connection time
+        # This avoids the need to execute PRAGMA separately which can cause locking issues
+        engine = create_engine(
+            f'sqlite:///{db_path}',
+            echo=False,
+            connect_args={
+                'check_same_thread': False,
+                'timeout': 30.0  # 30 second timeout for database operations
+            },
+            pool_pre_ping=True  # Verify connections before using
+        )
+        
+        # Try to enable WAL mode, but don't fail if database is locked
+        # WAL mode will be set on first connection if possible
+        try:
+            with engine.connect() as conn:
+                result = conn.execute(sqlalchemy.text("PRAGMA journal_mode"))
+                current_mode = result.scalar()
+                if current_mode != 'wal':
+                    try:
+                        conn.execute(sqlalchemy.text("PRAGMA journal_mode=WAL"))
+                        conn.commit()
+                    except Exception:
+                        # If WAL mode can't be set, continue with default mode
+                        pass
+        except Exception:
+            # If we can't connect to set WAL mode, continue anyway
+            # The database might be locked by another process
+            pass
+        
+        return engine
 
 
 def get_session(db_path: str):
@@ -421,86 +414,83 @@ def get_session(db_path: str):
     return Session()
 
 
-def init_models(db_path_or_url: str):
+def init_models(db_path: str):
     """
     Initialize database with all models.
-    
-    Args:
-        db_path_or_url: Database path (for SQLite) or connection URL (for PostgreSQL)
+    Supports both PostgreSQL and SQLite.
     """
     import os
-    # Only create directory for SQLite (file-based)
-    if not (db_path_or_url.startswith('postgresql://') or db_path_or_url.startswith('postgres://')):
-        # Ensure database directory exists for SQLite
-        # Skip in Vercel (read-only filesystem)
-        is_vercel = os.getenv("VERCEL", "0") == "1"
-        if not is_vercel:
-            try:
-                os.makedirs(os.path.dirname(db_path_or_url), exist_ok=True)
-            except (OSError, PermissionError) as e:
-                # If directory creation fails (e.g., read-only filesystem),
-                # check if we should be using PostgreSQL instead
-                database_url = os.getenv("DATABASE_URL")
-                if database_url:
-                    raise ValueError(
-                        f"Cannot create SQLite database directory: {e}. "
-                        "Use PostgreSQL instead (set DATABASE_URL environment variable)."
-                    ) from e
-                raise
     
-    engine = get_engine(db_path_or_url)
+    # Check if using PostgreSQL
+    database_url = os.getenv("DATABASE_URL")
+    
+    if not database_url:
+        # SQLite: Ensure database directory exists
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    
+    engine = get_engine(db_path)
     
     # Create tables if they don't exist
     try:
         Base.metadata.create_all(engine)
     except Exception as e:
         # If database is locked (SQLite), try again after a short wait
-        import time
-        time.sleep(0.5)
-        try:
-            Base.metadata.create_all(engine)
-        except Exception:
-            # If still locked, raise the original error
+        if not database_url:
+            import time
+            time.sleep(0.5)
+            try:
+                Base.metadata.create_all(engine)
+            except Exception:
+                # If still locked, raise the original error
+                raise e
+        else:
+            # For PostgreSQL, just raise the error
             raise e
     
-    # Migrate sync_logs table if needed (add new columns)
-    _migrate_sync_logs_table(engine)
+    # Create indexes for PostgreSQL (SQLite indexes are created in schema.py)
+    if database_url:
+        # Create index on sync_run_id if it doesn't exist (for PostgreSQL)
+        # Note: The index is also defined in the model column, but we ensure it exists here
+        with engine.begin() as conn:
+            # Check if index exists
+            if 'postgresql' in database_url.lower():
+                # PostgreSQL - check in public schema
+                result = conn.execute(sqlalchemy.text("""
+                    SELECT 1 FROM pg_indexes 
+                    WHERE schemaname = 'public' AND tablename = 'sync_logs' AND indexname = 'idx_sync_logs_run_id'
+                """))
+                if not result.fetchone():
+                    try:
+                        conn.execute(sqlalchemy.text("CREATE INDEX idx_sync_logs_run_id ON public.sync_logs(sync_run_id)"))
+                    except Exception:
+                        # Index might already exist or table might not exist yet, ignore
+                        pass
+            # For other databases, indexes should be created via schema.py or migrations
     
-    # Migrate reviews table if needed (add status column)
-    _migrate_reviews_table(engine)
+    # SQLite-specific migrations (skip for PostgreSQL)
+    if not database_url:
+        # Migrate sync_logs table if needed (add new columns)
+        _migrate_sync_logs_table(engine)
+        
+        # Migrate reviews table if needed (add status column)
+        _migrate_reviews_table(engine)
     
     return engine
 
 
 def _migrate_sync_logs_table(engine):
     """Add new columns to sync_logs table if they don't exist"""
-    # Detect database type from engine URL
-    db_url = str(engine.url)
-    is_postgresql = db_url.startswith('postgresql://') or db_url.startswith('postgres://')
-    
     with engine.connect() as conn:
         # Check if sync_logs table exists
-        if is_postgresql:
-            result = conn.execute(sqlalchemy.text(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'sync_logs'"
-            ))
-        else:
-            result = conn.execute(sqlalchemy.text(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='sync_logs'"
-            ))
-        
+        result = conn.execute(sqlalchemy.text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='sync_logs'"
+        ))
         if not result.fetchone():
             return  # Table doesn't exist, create_all will handle it
         
         # Get existing columns
-        if is_postgresql:
-            result = conn.execute(sqlalchemy.text(
-                "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sync_logs'"
-            ))
-            existing_columns = {row[0] for row in result.fetchall()}
-        else:
-            result = conn.execute(sqlalchemy.text("PRAGMA table_info(sync_logs)"))
-            existing_columns = {row[1] for row in result.fetchall()}
+        result = conn.execute(sqlalchemy.text("PRAGMA table_info(sync_logs)"))
+        existing_columns = {row[1] for row in result.fetchall()}
         
         # Add missing columns
         if 'sync_run_id' not in existing_columns:
@@ -531,35 +521,17 @@ def _migrate_sync_logs_table(engine):
 
 def _migrate_reviews_table(engine):
     """Add status column to reviews table if it doesn't exist"""
-    # Detect database type from engine URL
-    db_url = str(engine.url)
-    is_postgresql = db_url.startswith('postgresql://') or db_url.startswith('postgres://')
-    
     with engine.connect() as conn:
         # Check if reviews table exists
-        if is_postgresql:
-            result = conn.execute(sqlalchemy.text(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'reviews'"
-            ))
-            if not result.fetchone():
-                return  # Table doesn't exist, create_all will handle it
-            
-            # Get existing columns
-            result = conn.execute(sqlalchemy.text(
-                "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'reviews'"
-            ))
-            existing_columns = {row[0] for row in result.fetchall()}
-        else:
-            # SQLite
-            result = conn.execute(sqlalchemy.text(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='reviews'"
-            ))
-            if not result.fetchone():
-                return  # Table doesn't exist, create_all will handle it
-            
-            # Get existing columns
-            result = conn.execute(sqlalchemy.text("PRAGMA table_info(reviews)"))
-            existing_columns = {row[1] for row in result.fetchall()}
+        result = conn.execute(sqlalchemy.text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='reviews'"
+        ))
+        if not result.fetchone():
+            return  # Table doesn't exist, create_all will handle it
+        
+        # Get existing columns
+        result = conn.execute(sqlalchemy.text("PRAGMA table_info(reviews)"))
+        existing_columns = {row[1] for row in result.fetchall()}
         
         # Add status column if missing
         if 'status' not in existing_columns:

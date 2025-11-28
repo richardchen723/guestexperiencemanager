@@ -22,37 +22,29 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY environment variable is required. Please set it in .env file or export it.")
 
-# Database paths/URLs
-# Supports both SQLite (file path) and PostgreSQL (connection URL)
-# For PostgreSQL: postgresql://user:password@host:port/database
-# In Vercel/production, PostgreSQL URLs are required (filesystem is read-only)
-IS_VERCEL = os.getenv("VERCEL", "0") == "1"
+# Database Configuration
+# Supports both PostgreSQL (via DATABASE_URL) and SQLite (fallback)
+DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL connection string (shared for all databases)
 
-# In Vercel, require PostgreSQL connection strings
-if IS_VERCEL:
-    MAIN_DATABASE_PATH = os.getenv("DATABASE_URL")
-    CACHE_DATABASE_PATH = os.getenv("CACHE_DATABASE_URL")
-    USERS_DATABASE_PATH = os.getenv("USERS_DATABASE_URL")
-    
-    if not MAIN_DATABASE_PATH:
-        raise ValueError("DATABASE_URL environment variable is required in Vercel. Set it in Vercel Dashboard → Settings → Environment Variables.")
-    if not CACHE_DATABASE_PATH:
-        raise ValueError("CACHE_DATABASE_URL environment variable is required in Vercel. Set it in Vercel Dashboard → Settings → Environment Variables.")
-    if not USERS_DATABASE_PATH:
-        raise ValueError("USERS_DATABASE_URL environment variable is required in Vercel. Set it in Vercel Dashboard → Settings → Environment Variables.")
-else:
-    # Local development: fall back to SQLite if not set
-    MAIN_DATABASE_PATH = os.getenv("DATABASE_URL") or str(PROJECT_ROOT / "data" / "database" / "hostaway.db")
-    CACHE_DATABASE_PATH = os.getenv("CACHE_DATABASE_URL") or str(PROJECT_ROOT / "dashboard" / "data" / "ai_cache.db")
-    USERS_DATABASE_PATH = os.getenv("USERS_DATABASE_URL") or str(PROJECT_ROOT / "dashboard" / "data" / "users.db")
+# Database paths (relative to project root) - used only for SQLite fallback
+MAIN_DATABASE_PATH = str(PROJECT_ROOT / "data" / "database" / "hostaway.db")
+CACHE_DATABASE_PATH = str(PROJECT_ROOT / "dashboard" / "data" / "ai_cache.db")
+USERS_DATABASE_PATH = str(PROJECT_ROOT / "dashboard" / "data" / "users.db")
 CONVERSATIONS_DIR = str(PROJECT_ROOT / "conversations")
 
+# AWS S3 Storage Configuration
+AWS_S3_BUCKET_NAME = os.getenv("AWS_S3_BUCKET_NAME")
+AWS_S3_REGION = os.getenv("AWS_S3_REGION", "us-east-1")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")  # Optional, for local testing
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")  # Optional, for local testing
+USE_S3_STORAGE = bool(AWS_S3_BUCKET_NAME)  # Enable S3 if bucket name is set
+
 # Analysis time windows
-REVIEW_MONTHS = 6  # Analyze reviews from last 6 months
+REVIEW_MONTHS = 3  # Analyze reviews from last 3 months
 MESSAGE_MONTHS = 2  # Analyze messages from last 2 months
 
 # OpenAI Model
-OPENAI_MODEL = "gpt-3.5-turbo"  # Use cheaper model for cost optimization
+OPENAI_MODEL = "gpt-4o-mini"  # Cost-effective model with 128K token context window
 
 # Flask Configuration
 FLASK_HOST = os.getenv("FLASK_HOST", "127.0.0.1")

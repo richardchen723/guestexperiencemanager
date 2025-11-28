@@ -23,81 +23,31 @@ from sync.api_client import HostawayAPIClient
 from sync.progress_tracker import get_progress_tracker
 from database.models import Conversation, MessageMetadata, Reservation, Listing, Guest, SyncLog, get_session, init_models
 from database.schema import get_database_path
-from config import VERBOSE, MESSAGE_SYNC_PARALLEL_WORKERS
+from config import VERBOSE, MESSAGE_SYNC_PARALLEL_WORKERS, USE_S3_STORAGE, BATCH_SIZE
+import config
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
 
 
 class MessageOrganizer:
-    """Organizes messages into folder structure (supports both local filesystem and S3)"""
+    """Organizes messages into folder structure with S3 support"""
     
-    def __init__(self, base_dir: str = "conversations", use_s3: Optional[bool] = None):
-        """
-        Initialize MessageOrganizer.
-        
-        Args:
-            base_dir: Base directory for local filesystem storage (default: "conversations")
-            use_s3: Whether to use S3 storage. If None, auto-detects from AWS_S3_BUCKET_NAME env var
-        """
-        # Check if we're in Vercel (read-only filesystem)
-        is_vercel = os.getenv("VERCEL", "0") == "1"
-        
-        # Auto-detect S3 usage if not explicitly set
-        if use_s3 is None:
-            use_s3 = bool(os.getenv("AWS_S3_BUCKET_NAME"))
-        
-        # In Vercel, S3 is required (filesystem is read-only)
-        if is_vercel and not use_s3:
-            raise ValueError(
-                "S3 storage is required in Vercel (filesystem is read-only). "
-                "Set AWS_S3_BUCKET_NAME environment variable in Vercel Dashboard → Settings → Environment Variables."
-            )
-        
-        self.use_s3 = use_s3
+    def __init__(self, base_dir: str = "conversations"):
+        self.base_dir = base_dir
+        self.use_s3 = config.USE_S3_STORAGE
         
         if self.use_s3:
-            # Initialize S3 storage
-            try:
-                from utils.s3_storage import S3Storage
-                prefix = os.getenv("CONVERSATIONS_S3_PREFIX", "conversations/")
-                self.s3_storage = S3Storage(prefix=prefix)
-                logger.debug("MessageOrganizer initialized with S3 storage")
-            except Exception as e:
-                # In Vercel, S3 failure is fatal (no filesystem fallback)
-                if is_vercel:
-                    raise ValueError(
-                        f"Failed to initialize S3 storage in Vercel: {e}. "
-                        "S3 is required in Vercel. Check AWS credentials and bucket configuration."
-                    ) from e
-                # Local: fall back to filesystem
-                logger.warning(f"Failed to initialize S3 storage, falling back to local filesystem: {e}")
-                self.use_s3 = False
-                self.base_dir = base_dir
-                self.ensure_base_directory()
+            from utils.s3_storage import S3Storage
+            self.s3_storage = S3Storage()
         else:
-            # Use local filesystem (only in non-Vercel environments)
-            if is_vercel:
-                raise ValueError(
-                    "Cannot use local filesystem in Vercel (read-only). "
-                    "Set AWS_S3_BUCKET_NAME environment variable to use S3 storage."
-                )
-            self.base_dir = base_dir
+            self.s3_storage = None
             self.ensure_base_directory()
     
     def ensure_base_directory(self):
-        """Create base conversations directory (only for local filesystem)"""
+        """Create base conversations directory (for local storage only)"""
         if not self.use_s3:
-            # Skip directory creation in Vercel (read-only filesystem)
-            is_vercel = os.getenv("VERCEL", "0") == "1"
-            if not is_vercel:
-                try:
-                    os.makedirs(self.base_dir, exist_ok=True)
-                except (OSError, PermissionError) as e:
-                    raise ValueError(
-                        f"Cannot create conversations directory: {e}. "
-                        "In Vercel/production, use S3 storage (set AWS_S3_BUCKET_NAME environment variable)."
-                    ) from e
+            os.makedirs(self.base_dir, exist_ok=True)
     
     def sanitize_filename(self, name: str) -> str:
         """Sanitize filename by removing/replacing invalid characters"""
@@ -124,18 +74,20 @@ class MessageOrganizer:
     
     def save_conversation(self, listing_name: str, guest_name: str, 
                          checkin_date: str, messages: List[Dict]) -> str:
-        """
-        Save conversation to conversational text format.
+        """Save conversation to conversational text format"""
+        # Sanitize names for filesystem
+        safe_listing_name = self.sanitize_filename(listing_name)
+        safe_guest_name = self.sanitize_filename(guest_name)
+        formatted_date = self.format_checkin_date(checkin_date)
         
-        Args:
-            listing_name: Name of the listing
-            guest_name: Name of the guest
-            checkin_date: Check-in date string
-            messages: List of message dictionaries
+        # Create listing directory
+        listing_dir = os.path.join(self.base_dir, safe_listing_name)
+        os.makedirs(listing_dir, exist_ok=True)
         
-        Returns:
-            File path (local) or S3 key (S3 storage)
-        """
+        # Create filename
+        filename = f"{safe_guest_name}_{formatted_date}_conversation.txt"
+        filepath = os.path.join(listing_dir, filename)
+        
         # Sort messages by timestamp
         sorted_messages = sorted(messages, key=lambda x: x.get('createdAt', ''))
         
@@ -173,58 +125,25 @@ class MessageOrganizer:
             conversational_text.append(f"{sender}: {content}")
             conversational_text.append("")  # Empty line between messages
         
-        # Join all lines
+        # Join all lines and write to file
         full_text = '\n'.join(conversational_text)
         
-        if self.use_s3:
+        if self.use_s3 and self.s3_storage:
             # Save to S3
-            try:
-                s3_key = self.s3_storage.save_conversation(
-                    listing_name, guest_name, checkin_date, messages
-                )
+            s3_key = f"conversations/{safe_listing_name}/{filename}"
+            if self.s3_storage.write_file(s3_key, full_text):
                 return s3_key
-            except Exception as e:
-                logger.error(f"Failed to save conversation to S3: {e}", exc_info=True)
-                raise
-        else:
-            # Save to local filesystem (only in non-Vercel environments)
-            # Check if we're in Vercel (should not reach here if S3 is properly configured)
-            is_vercel = os.getenv("VERCEL", "0") == "1"
-            if is_vercel:
-                raise ValueError(
-                    "Cannot save to local filesystem in Vercel (read-only). "
-                    "S3 storage is required. Set AWS_S3_BUCKET_NAME environment variable."
-                )
-            
-            # Sanitize names for filesystem
-            safe_listing_name = self.sanitize_filename(listing_name)
-            safe_guest_name = self.sanitize_filename(guest_name)
-            formatted_date = self.format_checkin_date(checkin_date)
-            
-            # Create listing directory
-            listing_dir = os.path.join(self.base_dir, safe_listing_name)
-            try:
-                os.makedirs(listing_dir, exist_ok=True)
-            except (OSError, PermissionError) as e:
-                raise ValueError(
-                    f"Cannot create listing directory: {e}. "
-                    "In Vercel/production, use S3 storage (set AWS_S3_BUCKET_NAME environment variable)."
-                ) from e
-            
-            # Create filename
-            filename = f"{safe_guest_name}_{formatted_date}_conversation.txt"
-            filepath = os.path.join(listing_dir, filename)
-            
-            try:
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write(full_text)
-            except (OSError, PermissionError) as e:
-                raise ValueError(
-                    f"Cannot write conversation file: {e}. "
-                    "In Vercel/production, use S3 storage (set AWS_S3_BUCKET_NAME environment variable)."
-                ) from e
-            
-            return filepath
+            else:
+                # Fallback to local if S3 write fails
+                logger.warning(f"Failed to write to S3, falling back to local storage: {s3_key}")
+                self.use_s3 = False
+                self.ensure_base_directory()
+        
+        # Local filesystem storage (fallback or primary)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(full_text)
+        
+        return filepath
 
 
 def parse_timestamp(ts_str: str) -> Optional[datetime]:
@@ -614,7 +533,7 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
             if VERBOSE:
                 print("Full sync: Fetching all conversations from API...")
             
-            conversations_to_process = client.get_all_conversations(limit=100)
+            conversations_to_process = client.get_all_conversations(limit=500)
             
             if VERBOSE:
                 print(f"Full sync: Fetched {len(conversations_to_process)} total conversations from API")
@@ -642,7 +561,7 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
                     print("No previous message sync found. Performing full sync.")
                 
                 progress.update_item("Fetching all conversations from API...")
-                conversations_to_process = client.get_all_conversations(limit=100)
+                conversations_to_process = client.get_all_conversations(limit=500)
                 
                 if VERBOSE:
                     print(f"Full sync: Fetched {len(conversations_to_process)} total conversations from API")
@@ -694,8 +613,13 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
         
         # Pre-load existing messages for fast duplicate checking
         # Create a set of (conversation_id, created_at) tuples for O(1) lookup
-        existing_messages = session.query(MessageMetadata.conversation_id, MessageMetadata.created_at).all()
+        # Also track message_id if available for more reliable deduplication
+        existing_messages = session.query(MessageMetadata).all()
         existing_message_set = {(msg.conversation_id, msg.created_at) for msg in existing_messages if msg.created_at is not None}
+        existing_message_ids = {msg.message_id for msg in existing_messages if msg.message_id is not None}
+        
+        # Track message_ids added in current batch (not yet committed) to prevent duplicates within batch
+        pending_message_ids = set()
         
         # Pre-load existing conversations for fast lookup
         existing_conversations = session.query(Conversation).all()
@@ -717,6 +641,10 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
         # Track optimization stats
         conversations_skipped = 0
         conversations_processed = 0
+        
+        # Batch processing: collect conversations and commit in batches
+        batch_count = 0
+        conversations_in_batch = 0
         
         # Process each conversation
         for conv_data in conversations_to_process:
@@ -823,13 +751,46 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
                     if VERBOSE and len(messages_to_process) < len(all_api_messages):
                         print(f"  Filtered to {len(messages_to_process)} new messages (from {len(all_api_messages)} total) in conversation {conversation_id}")
                 
+                # CRITICAL: Get or create conversation record FIRST before processing messages
+                # This ensures the conversation exists in the database before we add messages with foreign keys
+                conversation = session.query(Conversation).filter(
+                    Conversation.conversation_id == conversation_id
+                ).first()
+                
+                if not conversation:
+                    # Create conversation record first (before messages)
+                    conversation = Conversation(
+                        conversation_id=conversation_id,
+                        reservation_id=reservation_id if reservation else None,
+                        listing_id=listing.listing_id if listing else listing_id,
+                        guest_id=reservation.guest_id if reservation and reservation.guest_id else guest_id,
+                        message_count=0,  # Will be updated after messages are processed
+                        first_message_at=None,  # Will be updated after messages are processed
+                        last_message_at=None,  # Will be updated after messages are processed
+                        last_synced_at=datetime.utcnow()
+                    )
+                    session.add(conversation)
+                    # Flush conversation immediately to ensure it exists before adding messages
+                    # This prevents foreign key constraint violations
+                    try:
+                        session.flush()
+                    except Exception as flush_error:
+                        logger.error(f"Error flushing conversation {conversation_id}: {flush_error}", exc_info=True)
+                        session.rollback()
+                        errors.append(f"Error creating conversation {conversation_id}: {str(flush_error)}")
+                        progress.increment(error=True)
+                        continue
+                
                 # Track new messages for this conversation
                 new_messages_count = 0
                 all_api_messages_dict = {}  # {(conversation_id, created_at): full_message_data}
                 
                 # Process each message from API
                 for msg in messages_to_process:
+                    # IDEMPOTENCY CHECK: Use message_id from API if available, otherwise fall back to (conversation_id, created_at)
+                    message_id = msg.get('id') or msg.get('messageId')
                     msg_date = msg.get('date', '')
+                    
                     if not msg_date:
                         continue
                     
@@ -839,10 +800,16 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
                             print(f"  Could not parse timestamp: {msg_date}")
                         continue
                     
-                    # IDEMPOTENCY CHECK: Check if message already exists
-                    message_key = (conversation_id, created_at)
-                    if message_key in existing_message_set:
-                        continue
+                    # IDEMPOTENCY CHECK: Prefer message_id if available, otherwise use (conversation_id, created_at)
+                    if message_id:
+                        # Check if message with this ID already exists in DB or pending in current batch
+                        if message_id in existing_message_ids or message_id in pending_message_ids:
+                            continue
+                    else:
+                        # Fallback: Check by (conversation_id, created_at) tuple
+                        message_key = (conversation_id, created_at)
+                        if message_key in existing_message_set:
+                            continue
                     
                     # Determine sender
                     is_incoming = msg.get('isIncoming', False)
@@ -862,6 +829,7 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
                     # Create message metadata record
                     sender_type = 'guest' if is_incoming else 'host'
                     message_meta = MessageMetadata(
+                        message_id=message_id if message_id else None,  # Use API message_id if available
                         conversation_id=conversation_id,
                         reservation_id=reservation_id if reservation else None,
                         listing_id=listing.listing_id if listing else listing_id,
@@ -879,8 +847,14 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
                     records_created += 1
                     new_messages_count += 1
                     
-                    # Track in memory set for duplicate checking
+                    # Track in memory set for duplicate checking (always use tuple for consistency)
+                    message_key = (conversation_id, created_at)
                     existing_message_set.add(message_key)
+                    
+                    # If message_id was provided, also track it for future lookups
+                    if message_id:
+                        existing_message_ids.add(message_id)
+                        pending_message_ids.add(message_id)  # Track in pending set for batch deduplication
                     
                     # Store full message data for file generation
                     all_api_messages_dict[message_key] = {
@@ -923,54 +897,25 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
                             'created_at': created_at
                         }
                 
-                # Get or create conversation record
-                conversation = session.query(Conversation).filter(
-                    Conversation.conversation_id == conversation_id
-                ).first()
-                
+                # Update conversation metadata after processing messages
                 # Get all messages for this conversation (from database) for file
-                all_db_messages = session.query(MessageMetadata).filter(
-                    MessageMetadata.conversation_id == conversation_id
-                ).order_by(MessageMetadata.created_at).all()
+                # Use no_autoflush to prevent auto-flush during query (which could cause duplicate key errors)
+                with session.no_autoflush:
+                    all_db_messages = session.query(MessageMetadata).filter(
+                        MessageMetadata.conversation_id == conversation_id
+                    ).order_by(MessageMetadata.created_at).all()
                 
-                if not conversation:
-                    first_msg = all_db_messages[0] if all_db_messages else None
-                    last_msg = all_db_messages[-1] if all_db_messages else None
-                    conversation = Conversation(
-                        conversation_id=conversation_id,
-                        reservation_id=reservation_id if reservation else None,
-                        listing_id=listing.listing_id if listing else listing_id,
-                        guest_id=reservation.guest_id if reservation and reservation.guest_id else guest_id,
-                        message_count=len(all_db_messages),
-                        first_message_at=first_msg.created_at if first_msg and first_msg.created_at else None,
-                        last_message_at=last_msg.created_at if last_msg and last_msg.created_at else None,
-                        last_synced_at=datetime.utcnow()
-                    )
-                    session.add(conversation)
-                else:
-                    conversation.message_count = len(all_db_messages)
-                    if all_db_messages:
-                        conversation.first_message_at = all_db_messages[0].created_at if all_db_messages[0].created_at else conversation.first_message_at
-                        conversation.last_message_at = all_db_messages[-1].created_at if all_db_messages[-1].created_at else conversation.last_message_at
-                    conversation.last_synced_at = datetime.utcnow()
+                # Update conversation with latest message counts and timestamps
+                conversation.message_count = len(all_db_messages)
+                if all_db_messages:
+                    conversation.first_message_at = all_db_messages[0].created_at if all_db_messages[0].created_at else conversation.first_message_at
+                    conversation.last_message_at = all_db_messages[-1].created_at if all_db_messages[-1].created_at else conversation.last_message_at
+                conversation.last_synced_at = datetime.utcnow()
                 
-                # Flush to database - catch any constraint violations
-                logger.debug(f"Flushing conversation {conversation_id} to database (created={new_messages_count} messages)")
-                try:
-                    session.flush()
-                    logger.debug(f"Successfully flushed conversation {conversation_id} to database")
-                except Exception as db_error:
-                    # Database error (constraint violation, lock, etc.)
-                    error_details = traceback.format_exc()
-                    error_msg = f"Database error flushing conversation {conversation_id}: {str(db_error)}"
-                    errors.append(error_msg)
-                    progress.increment(error=True)
-                    logger.error(f"Database error for conversation {conversation_id}: {str(db_error)}", exc_info=True)
-                    logger.debug(f"Full traceback for conversation {conversation_id}:\n{error_details}")
-                    session.rollback()  # Rollback this conversation's changes
-                    if VERBOSE:
-                        print(f"\n  {error_msg}")
-                    continue
+                # Note: We don't flush here anymore - we'll commit in batches
+                # This allows for better performance by batching multiple conversations together
+                conversations_in_batch += 1
+                logger.debug(f"Added conversation {conversation_id} to batch (created={new_messages_count} messages)")
                 
                 # Prepare all messages for file - use API messages (full content)
                 all_messages_for_file = []
@@ -1040,6 +985,37 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
                         listing_stats[final_listing_id]['messages'] += new_messages_count
                 
                 progress.increment(item_name=f"Conversation {conversation_id}")
+                
+                # Commit in batches for better performance
+                if conversations_in_batch >= BATCH_SIZE:
+                    batch_count += 1
+                    try:
+                        session.commit()
+                        logger.debug(f"Committed batch {batch_count} ({conversations_in_batch} conversations)")
+                        if VERBOSE and batch_count % 10 == 0:
+                            print(f"  Committed batch {batch_count} ({conversations_in_batch} conversations)...")
+                        conversations_in_batch = 0
+                        # Clear pending message_ids after successful commit (they're now in existing_message_ids)
+                        pending_message_ids.clear()
+                    except Exception as db_error:
+                        # Database error (constraint violation, lock, etc.)
+                        error_details = traceback.format_exc()
+                        error_msg = f"Database error committing batch {batch_count}: {str(db_error)}"
+                        errors.append(error_msg)
+                        logger.error(f"Database error committing batch {batch_count}: {str(db_error)}", exc_info=True)
+                        logger.debug(f"Full traceback for batch {batch_count}:\n{error_details}")
+                        session.rollback()  # Rollback this batch's changes
+                        if VERBOSE:
+                            print(f"\n  {error_msg}")
+                        conversations_in_batch = 0
+                        # Re-fetch existing data after rollback to keep lookups accurate
+                        existing_messages = session.query(MessageMetadata).all()
+                        existing_message_set = {(msg.conversation_id, msg.created_at) for msg in existing_messages if msg.created_at is not None}
+                        existing_message_ids = {msg.message_id for msg in existing_messages if msg.message_id is not None}
+                        # Clear pending message_ids after rollback (they weren't committed)
+                        pending_message_ids.clear()
+                        existing_conversations = session.query(Conversation).all()
+                        conversation_map = {c.conversation_id: c for c in existing_conversations}
             
             except Exception as e:
                 # Capture full exception details for debugging
@@ -1066,8 +1042,22 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
                     print(f"  Full traceback:\n{error_details}")
                 continue
         
+        # Commit any remaining conversations in the final batch
+        if conversations_in_batch > 0:
+            batch_count += 1
+            try:
+                session.commit()
+                logger.debug(f"Committed final batch {batch_count} ({conversations_in_batch} conversations)")
+            except Exception as db_error:
+                error_details = traceback.format_exc()
+                error_msg = f"Database error committing final batch {batch_count}: {str(db_error)}"
+                errors.append(error_msg)
+                logger.error(f"Database error committing final batch {batch_count}: {str(db_error)}", exc_info=True)
+                session.rollback()
+                if VERBOSE:
+                    print(f"\n  {error_msg}")
+        
         progress.complete_phase()
-        session.commit()
         
         # Log sync operation
         end_time = datetime.utcnow()
@@ -1381,16 +1371,9 @@ def sync_messages_from_files(full_sync: bool = True, progress_tracker: Optional[
         }
         
     except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
         session.rollback()
         error_msg = f"Fatal error in sync_messages: {str(e)}"
-        logger.error(
-            f"Fatal error in sync_messages: {str(e)}",
-            exc_info=True,
-            extra={'full_sync': full_sync, 'sync_run_id': sync_run_id}
-        )
-        logger.debug(f"Full traceback for fatal message sync error:\n{error_details}")
+        logger.error(error_msg)
         
         # Log error
         sync_log = SyncLog(

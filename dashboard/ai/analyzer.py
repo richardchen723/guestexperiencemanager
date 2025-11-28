@@ -234,8 +234,8 @@ def get_insights(listing_id: int, force_refresh: bool = False) -> Dict:
         total_reviews_analyzed, total_messages_analyzed, last_updated
     """
     # Get current data from database (always fresh)
-    all_reviews = get_recent_reviews(listing_id, months=6)
-    all_messages = get_recent_messages(listing_id, months=2)
+    all_reviews = get_recent_reviews(listing_id, months=config.REVIEW_MONTHS)
+    all_messages = get_recent_messages(listing_id, months=config.MESSAGE_MONTHS)
     
     current_review_ids = {r['review_id'] for r in all_reviews}
     current_message_ids = {m['message_id'] for m in all_messages}

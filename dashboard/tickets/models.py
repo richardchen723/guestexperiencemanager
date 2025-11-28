@@ -8,6 +8,7 @@ import os
 from datetime import datetime, date
 from typing import Optional, List
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Date
+import sqlalchemy
 from sqlalchemy.orm import relationship
 from pathlib import Path
 
@@ -29,18 +30,23 @@ TICKET_CATEGORIES = ['cleaning', 'maintenance', 'online', 'other']
 class Ticket(Base):
     """Ticket model for action items tied to listing issues."""
     __tablename__ = 'tickets'
+    __table_args__ = (
+        {'schema': 'tickets'} if os.getenv("DATABASE_URL") else {},
+    )
     
     ticket_id = Column(Integer, primary_key=True, autoincrement=True)
     listing_id = Column(Integer, nullable=False, index=True)  # References main database listings
     issue_title = Column(String, nullable=False)  # The issue title this ticket addresses
     title = Column(String, nullable=False)
     description = Column(Text)
-    assigned_user_id = Column(Integer, ForeignKey('users.user_id'), nullable=True, index=True)
+    # Foreign key reference - adjust schema prefix for PostgreSQL
+    _users_fk_schema = 'users.' if os.getenv("DATABASE_URL") else ''
+    assigned_user_id = Column(Integer, ForeignKey(f'{_users_fk_schema}users.user_id'), nullable=True, index=True)
     status = Column(String, nullable=False, default='Open', index=True)
     priority = Column(String, default='Low')
     category = Column(String, nullable=False, default='other', index=True)
     due_date = Column(Date, nullable=True)
-    created_by = Column(Integer, ForeignKey('users.user_id'), nullable=False)
+    created_by = Column(Integer, ForeignKey(f'{_users_fk_schema}users.user_id'), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
@@ -83,10 +89,16 @@ class Ticket(Base):
 class TicketComment(Base):
     """Comment model for ticket discussions."""
     __tablename__ = 'ticket_comments'
+    __table_args__ = (
+        {'schema': 'tickets'} if os.getenv("DATABASE_URL") else {},
+    )
     
     comment_id = Column(Integer, primary_key=True, autoincrement=True)
-    ticket_id = Column(Integer, ForeignKey('tickets.ticket_id', ondelete='CASCADE'), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
+    # Foreign key references - adjust schema prefix for PostgreSQL
+    _tickets_fk_schema = 'tickets.' if os.getenv("DATABASE_URL") else ''
+    _users_fk_schema = 'users.' if os.getenv("DATABASE_URL") else ''
+    ticket_id = Column(Integer, ForeignKey(f'{_tickets_fk_schema}tickets.ticket_id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey(f'{_users_fk_schema}users.user_id'), nullable=False)
     comment_text = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
@@ -114,43 +126,46 @@ class TicketComment(Base):
 
 
 def init_ticket_database():
-    """Initialize the ticket tables in the user database."""
+    """
+    Initialize the ticket tables in the user database.
+    Supports PostgreSQL (creates schema) and SQLite.
+    """
+    import os
+    
     # Tickets use the same database as users
-    db_path_or_url = config.USERS_DATABASE_PATH
+    db_path = config.USERS_DATABASE_PATH
+    database_url = os.getenv("DATABASE_URL")
     
-    if not db_path_or_url:
-        raise ValueError(
-            "USERS_DATABASE_PATH is not set. "
-            "In Vercel, set USERS_DATABASE_URL environment variable. "
-            "Locally, it will fall back to SQLite if not set."
-        )
+    if not database_url:
+        # SQLite: Ensure database directory exists
+        db_dir = Path(db_path).parent
+        db_dir.mkdir(parents=True, exist_ok=True)
     
-    # Only create directory for SQLite (file-based)
-    if not (db_path_or_url.startswith('postgresql://') or db_path_or_url.startswith('postgres://')):
-        # SQLite: create directory if it doesn't exist
-        try:
-            db_dir = Path(db_path_or_url).parent
-            db_dir.mkdir(parents=True, exist_ok=True)
-        except (OSError, PermissionError) as e:
-            # In read-only filesystem (like Vercel), this will fail
-            raise ValueError(
-                f"Cannot create SQLite database directory: {e}. "
-                "In Vercel/production, use PostgreSQL (set USERS_DATABASE_URL environment variable)."
-            ) from e
+    engine = get_engine(db_path)
     
-    engine = get_engine(db_path_or_url)
+    # For PostgreSQL, create schema if it doesn't exist
+    if database_url:
+        with engine.begin() as conn:
+            conn.execute(sqlalchemy.text("CREATE SCHEMA IF NOT EXISTS tickets"))
+    
     try:
         Base.metadata.create_all(engine)
     except Exception as e:
-        import time
-        time.sleep(0.5)
-        try:
-            Base.metadata.create_all(engine)
-        except Exception:
+        if not database_url:
+            # SQLite: retry after short wait
+            import time
+            time.sleep(0.5)
+            try:
+                Base.metadata.create_all(engine)
+            except Exception:
+                raise e
+        else:
             raise e
     
-    # Migrate tickets table if needed (add category column)
-    _migrate_tickets_table(engine)
+    # SQLite-specific migrations (skip for PostgreSQL)
+    if not database_url:
+        # Migrate tickets table if needed (add category column)
+        _migrate_tickets_table(engine)
     
     return engine
 
@@ -158,33 +173,17 @@ def init_ticket_database():
 def _migrate_tickets_table(engine):
     """Add category column to tickets table if it doesn't exist and set default for existing records"""
     import sqlalchemy
-    # Detect database type from engine URL
-    db_url = str(engine.url)
-    is_postgresql = db_url.startswith('postgresql://') or db_url.startswith('postgres://')
-    
     with engine.connect() as conn:
         # Check if tickets table exists
-        if is_postgresql:
-            result = conn.execute(sqlalchemy.text(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'tickets'"
-            ))
-        else:
-            result = conn.execute(sqlalchemy.text(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='tickets'"
-            ))
-        
+        result = conn.execute(sqlalchemy.text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='tickets'"
+        ))
         if not result.fetchone():
             return  # Table doesn't exist, create_all will handle it
         
         # Get existing columns
-        if is_postgresql:
-            result = conn.execute(sqlalchemy.text(
-                "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tickets'"
-            ))
-            existing_columns = {row[0] for row in result.fetchall()}
-        else:
-            result = conn.execute(sqlalchemy.text("PRAGMA table_info(tickets)"))
-            existing_columns = {row[1] for row in result.fetchall()}
+        result = conn.execute(sqlalchemy.text("PRAGMA table_info(tickets)"))
+        existing_columns = {row[1] for row in result.fetchall()}
         
         # Add category column if missing
         if 'category' not in existing_columns:

@@ -9,7 +9,7 @@ import sys
 import os
 import json
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional, Set, Any
 
 # Add parent directory to path
@@ -306,6 +306,25 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
     try:
         client = HostawayAPIClient()
         
+        # Calculate cutoff time for incremental sync
+        cutoff_time = None
+        cutoff_date = None
+        if not full_sync:
+            from sync.sync_manager import get_last_sync_time
+            last_sync_time = get_last_sync_time('reviews')
+            if last_sync_time:
+                # Calculate cutoff: t1 - 20 days
+                cutoff_time = last_sync_time - timedelta(days=20)
+                # Convert to date for comparison with departureDate
+                cutoff_date = cutoff_time.date()
+                if VERBOSE:
+                    logger.info(f"Incremental review sync: Filtering reviews with departureDate >= {cutoff_date} (cutoff = {last_sync_time.date()} - 20 days)")
+            else:
+                # No previous sync - treat as full sync
+                if VERBOSE:
+                    logger.info("No previous review sync found. Performing full sync.")
+                full_sync = True
+        
         # Pre-load all lookups into memory for fast access
         if VERBOSE:
             logger.info("Building lookup maps...")
@@ -331,22 +350,65 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
         all_reviews: List[Dict] = []
         errors: List[str] = []
         listing_stats = {}  # {listing_id: {reviews: count}}
+        reviews_skipped_cutoff = 0  # Track reviews skipped due to cutoff
         
         # Fetch reviews for each listing (or try to fetch all at once)
         # Start with unknown total (0), will update dynamically as we fetch reviews
-        progress.start_phase("Fetching Reviews", 0)
+        phase_name = "Fetching Reviews (Incremental)" if not full_sync and cutoff_date else "Fetching Reviews"
+        progress.start_phase(phase_name, 0)
         
         # Try to fetch all reviews at once first (if API supports it)
         bulk_fetch_succeeded = False
         try:
             offset = 0
             while True:
-                reviews = client.get_reviews(limit=PAGINATION_LIMIT, offset=offset, status='Published')
+                # For incremental sync, use sorting by departureDate DESC
+                if not full_sync and cutoff_date:
+                    reviews = client.get_reviews(
+                        limit=PAGINATION_LIMIT, 
+                        offset=offset, 
+                        status='Published',
+                        sortBy='departureDate',
+                        order='desc'
+                    )
+                else:
+                    reviews = client.get_reviews(limit=PAGINATION_LIMIT, offset=offset, status='Published')
                 if not reviews:
                     break
                 
-                # Track reviews before adding this batch
-                reviews_before = len(all_reviews)
+                # For incremental sync, filter by cutoff date and stop if we hit reviews below cutoff
+                if not full_sync and cutoff_date:
+                    filtered_reviews = []
+                    should_stop = False
+                    for review in reviews:
+                        departure_date_str = review.get('departureDate')
+                        if departure_date_str:
+                            departure_date = parse_date(departure_date_str)
+                            if departure_date:
+                                if departure_date >= cutoff_date:
+                                    filtered_reviews.append(review)
+                                else:
+                                    # Since reviews are sorted DESC by departureDate,
+                                    # once we hit a review below cutoff, all subsequent reviews will also be below cutoff
+                                    should_stop = True
+                                    reviews_skipped_cutoff += 1
+                                    break
+                            else:
+                                # Can't parse date - skip this review in incremental sync
+                                reviews_skipped_cutoff += 1
+                                continue
+                        else:
+                            # No departureDate - skip this review in incremental sync
+                            reviews_skipped_cutoff += 1
+                            continue
+                    
+                    reviews = filtered_reviews
+                    if should_stop:
+                        # We've hit reviews below cutoff, stop fetching
+                        if VERBOSE:
+                            logger.info(f"Reached cutoff date {cutoff_date}. Stopping fetch. Skipped {reviews_skipped_cutoff} reviews below cutoff.")
+                        break
+                
                 all_reviews.extend(reviews)
                 reviews_after = len(all_reviews)
                 
@@ -380,21 +442,65 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                         offset = 0
                         listing_reviews = []
                         while True:
-                            reviews = client.get_reviews(
-                                listing_id=listing.listing_id,
-                                limit=PAGINATION_LIMIT,
-                                offset=offset,
-                                status='Published'
-                            )
+                            # For incremental sync, use sorting by departureDate DESC
+                            if not full_sync and cutoff_date:
+                                reviews = client.get_reviews(
+                                    listing_id=listing.listing_id,
+                                    limit=PAGINATION_LIMIT,
+                                    offset=offset,
+                                    status='Published',
+                                    sortBy='departureDate',
+                                    order='desc'
+                                )
+                            else:
+                                reviews = client.get_reviews(
+                                    listing_id=listing.listing_id,
+                                    limit=PAGINATION_LIMIT,
+                                    offset=offset,
+                                    status='Published'
+                                )
                             if not reviews:
                                 break
+                            
+                            # For incremental sync, filter by cutoff date and stop if we hit reviews below cutoff
+                            if not full_sync and cutoff_date:
+                                filtered_reviews = []
+                                should_stop = False
+                                for review in reviews:
+                                    departure_date_str = review.get('departureDate')
+                                    if departure_date_str:
+                                        departure_date = parse_date(departure_date_str)
+                                        if departure_date:
+                                            if departure_date >= cutoff_date:
+                                                filtered_reviews.append(review)
+                                            else:
+                                                # Since reviews are sorted DESC by departureDate,
+                                                # once we hit a review below cutoff, all subsequent reviews will also be below cutoff
+                                                should_stop = True
+                                                reviews_skipped_cutoff += 1
+                                                break
+                                        else:
+                                            # Can't parse date - skip this review in incremental sync
+                                            reviews_skipped_cutoff += 1
+                                            continue
+                                    else:
+                                        # No departureDate - skip this review in incremental sync
+                                        reviews_skipped_cutoff += 1
+                                        continue
+                                
+                                reviews = filtered_reviews
+                                if should_stop:
+                                    # We've hit reviews below cutoff, stop fetching for this listing
+                                    if VERBOSE:
+                                        logger.info(f"Reached cutoff date {cutoff_date} for listing {listing.listing_id}. Stopping fetch.")
+                                    break
+                            
                             listing_reviews.extend(reviews)
                             if len(reviews) < PAGINATION_LIMIT:
                                 break
                             offset += PAGINATION_LIMIT
                         
                         # Add reviews to total and update progress
-                        reviews_before = len(all_reviews)
                         all_reviews.extend(listing_reviews)
                         reviews_after = len(all_reviews)
                         
@@ -417,7 +523,10 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
         progress.complete_phase()
         
         if VERBOSE:
-            logger.info(f"Found {len(all_reviews)} reviews before deduplication")
+            if not full_sync and cutoff_date:
+                logger.info(f"Found {len(all_reviews)} reviews before deduplication (cutoff: {cutoff_date}, skipped {reviews_skipped_cutoff} reviews below cutoff)")
+            else:
+                logger.info(f"Found {len(all_reviews)} reviews before deduplication")
         
         # DEDUPLICATE: Remove duplicate reviews by review_id
         # The API might return the same review multiple times (e.g., for different listings)
@@ -685,19 +794,11 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                         batch_created_review_ids = []  # Reset tracking list
                 
             except Exception as e:
-                import traceback
-                error_details = traceback.format_exc()
-                review_id = review_data.get('id')
-                error_msg = f"Error syncing review {review_id}: {str(e)}"
+                error_msg = f"Error syncing review {review_data.get('id')}: {str(e)}"
                 errors.append(error_msg)
                 progress.increment(error=True)
                 session.rollback()  # Rollback on error
-                logger.error(
-                    f"Error syncing review {review_id}: {str(e)}",
-                    exc_info=True,
-                    extra={'review_id': review_id, 'sync_run_id': sync_run_id}
-                )
-                logger.debug(f"Full traceback for review {review_id}:\n{error_details}")
+                logger.warning(error_msg)
                 continue
         
         # Complete progress tracking
@@ -744,11 +845,15 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
         session.commit()
         
         if VERBOSE:
-            logger.info(
-                f"Sync complete: {len(all_reviews)} processed, "
+            sync_mode = "incremental" if not full_sync and cutoff_date else "full"
+            log_msg = (
+                f"Sync complete ({sync_mode}): {len(all_reviews)} processed, "
                 f"{records_created} created, {records_updated} updated, "
                 f"{len(errors)} errors, {duration:.2f}s"
             )
+            if not full_sync and cutoff_date:
+                log_msg += f", {reviews_skipped_cutoff} reviews skipped (below cutoff {cutoff_date})"
+            logger.info(log_msg)
         
         return {
             'status': 'success' if not errors else 'partial',
@@ -780,12 +885,8 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
             )
             session.add(sync_log)
             session.commit()
-        except Exception as log_error:
-            # If we can't create SyncLog, at least log the error
-            logger.error(
-                f"Failed to create error SyncLog entry: {str(log_error)}. Original error: {error_msg}",
-                exc_info=True
-            )
+        except Exception:
+            pass  # If we can't log, at least we tried
         
         return {
             'status': 'error',

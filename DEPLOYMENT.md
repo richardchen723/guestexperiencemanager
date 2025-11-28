@@ -9,6 +9,8 @@ This guide covers deploying the Hostaway Messages Dashboard to production.
 - Access to Hostaway API credentials
 - OpenAI API key (for AI features)
 - Google OAuth credentials (optional, for user authentication)
+- AWS account with credentials configured (for RDS PostgreSQL and S3 storage)
+- Terraform >= 1.0 (for infrastructure setup)
 
 ## Environment Setup
 
@@ -44,6 +46,11 @@ This guide covers deploying the Hostaway Messages Dashboard to production.
    - `FLASK_DEBUG=False` - **MUST be False in production**
    - `FLASK_HOST` - Set to `0.0.0.0` for external access, or `127.0.0.1` for local only
    - `FLASK_PORT` - Port number (default: 5001)
+   - `DATABASE_URL` - PostgreSQL connection string (optional, falls back to SQLite if not set)
+   - `AWS_S3_BUCKET_NAME` - S3 bucket name for file storage (optional, falls back to local if not set)
+   - `AWS_S3_REGION` - AWS region for S3 bucket (default: us-east-1)
+   - `AWS_ACCESS_KEY_ID` - AWS access key (optional, uses IAM role in production)
+   - `AWS_SECRET_ACCESS_KEY` - AWS secret key (optional, uses IAM role in production)
 
 ## Security Checklist
 
@@ -55,13 +62,102 @@ This guide covers deploying the Hostaway Messages Dashboard to production.
 - [ ] Log files are in `.gitignore`
 - [ ] Google OAuth redirect URI matches your deployment URL
 
+## AWS Infrastructure Setup
+
+### Option 1: Using Terraform (Recommended)
+
+1. **Navigate to terraform directory:**
+   ```bash
+   cd terraform
+   ```
+
+2. **Copy and configure variables:**
+   ```bash
+   cp terraform.tfvars.example terraform.tfvars
+   # Edit terraform.tfvars with your configuration
+   ```
+
+3. **Initialize Terraform:**
+   ```bash
+   terraform init
+   ```
+
+4. **Review the plan:**
+   ```bash
+   terraform plan
+   ```
+
+5. **Apply the configuration:**
+   ```bash
+   terraform apply
+   ```
+
+6. **Get database credentials:**
+   ```bash
+   # Get secret ARN
+   terraform output database_secret_arn
+   
+   # Retrieve credentials
+   aws secretsmanager get-secret-value --secret-id <secret-arn> --query SecretString --output text | jq
+   ```
+
+7. **Construct DATABASE_URL:**
+   ```
+   postgresql://<username>:<password>@<rds_endpoint>:<rds_port>/<database_name>
+   ```
+
+8. **Get S3 bucket name:**
+   ```bash
+   terraform output s3_bucket_name
+   ```
+
+See `terraform/README.md` for detailed instructions and cost optimization notes.
+
+### Option 2: Manual AWS Setup
+
+If not using Terraform, manually create:
+- RDS PostgreSQL instance (db.t3.micro recommended for cost)
+- S3 bucket with lifecycle policies
+- IAM roles/policies for application access
+
 ## Database Initialization
 
-The database will be automatically created on first run. Ensure the database directory exists:
+### PostgreSQL (Production)
+
+If `DATABASE_URL` is set, the application will use PostgreSQL. The database and tables will be automatically created on first run.
+
+### SQLite (Local Development)
+
+If `DATABASE_URL` is not set, the application falls back to SQLite. Ensure the database directory exists:
 
 ```bash
 mkdir -p data/database
 ```
+
+## Database Migration
+
+To migrate existing SQLite data to PostgreSQL:
+
+1. **Run migration script (dry-run first):**
+   ```bash
+   python3 scripts/migrate_to_postgresql.py \
+     --sqlite-db data/database/hostaway.db \
+     --postgres-url postgresql://user:password@host:port/database \
+     --dry-run
+   ```
+
+2. **Execute migration:**
+   ```bash
+   python3 scripts/migrate_to_postgresql.py \
+     --sqlite-db data/database/hostaway.db \
+     --postgres-url postgresql://user:password@host:port/database
+   ```
+
+The script will:
+- Create all tables in PostgreSQL
+- Migrate data from SQLite to PostgreSQL
+- Preserve all relationships and foreign keys
+- Show progress and summary statistics
 
 ## Running the Application
 
@@ -167,18 +263,32 @@ Regularly backup:
 ### Application won't start
 - Check all environment variables are set
 - Verify `SECRET_KEY` is set in production
-- Check database directory permissions
+- Check database directory permissions (for SQLite)
 - Review logs in `logs/dashboard.log`
+
+### Database connection issues
+- **PostgreSQL**: Verify `DATABASE_URL` is correct and database is accessible
+- **SQLite**: Check database file permissions and ensure directory exists
+- Check network connectivity to RDS (security groups, VPC configuration)
+- Verify database credentials from AWS Secrets Manager
+
+### S3 storage issues
+- Verify `AWS_S3_BUCKET_NAME` is set correctly
+- Check AWS credentials (access key/secret or IAM role)
+- Verify S3 bucket exists and is accessible
+- Check IAM permissions for S3 access
+- Review S3 bucket policies and CORS configuration
 
 ### OAuth not working
 - Verify `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set
 - Check redirect URI matches Google Cloud Console configuration
 - Ensure `FLASK_HOST` and `FLASK_PORT` match your deployment URL
 
-### Database errors
-- Check database file permissions
-- Ensure database directory exists
-- Verify SQLite is installed
+### Migration issues
+- Run migration with `--dry-run` first to identify issues
+- Ensure PostgreSQL database exists and is accessible
+- Check that all required tables can be created
+- Verify foreign key constraints are satisfied
 
 ## Performance Tuning
 

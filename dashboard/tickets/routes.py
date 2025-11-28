@@ -26,12 +26,6 @@ import dashboard.config as config
 
 tickets_bp = Blueprint('tickets', __name__, url_prefix='/tickets')
 
-# Test route for modal debugging
-@tickets_bp.route('/test-modal')
-def test_modal():
-    """Test route for modal debugging"""
-    return render_template('test_modal.html')
-
 # Constants
 TICKET_STATUSES = ['Open', 'Assigned', 'In Progress', 'Blocked', 'Resolved', 'Closed']
 TICKET_PRIORITIES = ['Low', 'Medium', 'High', 'Critical']
