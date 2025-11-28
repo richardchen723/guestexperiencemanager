@@ -10,22 +10,30 @@ from pathlib import Path
 
 
 def get_database_path():
-    """Get the path to the SQLite database file"""
-    # Skip directory creation on Vercel (read-only filesystem) or when using PostgreSQL
-    is_vercel = os.getenv("VERCEL") == "1"
-    has_postgres = bool(os.getenv("DATABASE_URL"))
+    """
+    Get the path to the SQLite database file.
     
-    # Only create directories if not on Vercel and not using PostgreSQL
-    if not is_vercel and not has_postgres:
-        # Create data directory if it doesn't exist
-        data_dir = Path("data")
-        data_dir.mkdir(exist_ok=True)
-        
-        db_dir = data_dir / "database"
-        db_dir.mkdir(exist_ok=True)
-    else:
-        # On Vercel or with PostgreSQL, use a default path (won't be used if PostgreSQL is set)
-        db_dir = Path("data") / "database"
+    If DATABASE_URL is set (PostgreSQL), returns a dummy path since
+    the actual database path is not used with PostgreSQL.
+    Only creates directories when using SQLite (local development).
+    """
+    # If using PostgreSQL, return a dummy path (not used, but needed for API compatibility)
+    if os.getenv("DATABASE_URL"):
+        return "postgresql://dummy"  # Not actually used when DATABASE_URL is set
+    
+    # Only create directories for SQLite (local development)
+    # Skip on Vercel which has read-only filesystem
+    if os.getenv("VERCEL"):
+        # On Vercel, we should be using PostgreSQL, but if somehow we get here,
+        # return a dummy path to avoid filesystem errors
+        return "sqlite:///dummy.db"
+    
+    # Create data directory if it doesn't exist (SQLite only)
+    data_dir = Path("data")
+    data_dir.mkdir(exist_ok=True)
+    
+    db_dir = data_dir / "database"
+    db_dir.mkdir(exist_ok=True)
     
     return str(db_dir / "hostaway.db")
 
