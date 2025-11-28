@@ -6,6 +6,7 @@ SQLAlchemy ORM models for Hostaway data system.
 from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy.pool import NullPool
 import sqlalchemy
 from datetime import datetime
 import json
@@ -356,15 +357,32 @@ def get_engine(db_path: str):
     if database_url:
         # PostgreSQL connection
         # Connection string format: postgresql://user:password@host:port/database
+        
+        # For serverless (Vercel), use NullPool to avoid connection exhaustion
+        # For local development, use connection pooling
+        is_vercel = os.getenv("VERCEL") == "1"
+        
+        if is_vercel:
+            # Serverless: No connection pooling (each request gets fresh connection)
+            pool_class = NullPool
+            pool_size = None
+            max_overflow = None
+        else:
+            # Local: Use connection pooling
+            pool_class = None
+            pool_size = 5
+            max_overflow = 2
+        
         engine = create_engine(
             database_url,
             echo=False,
-            pool_size=5,           # Small pool for 10-20 users
-            max_overflow=2,        # Minimal overflow
-            pool_timeout=30,       # Prevent hanging connections
-            pool_pre_ping=True,     # Verify connections before using
+            poolclass=pool_class,
+            pool_size=pool_size,
+            max_overflow=max_overflow,
+            pool_timeout=30 if not is_vercel else None,
+            pool_pre_ping=True,
             connect_args={
-                "connect_timeout": 15,  # Increased from 10 to handle slower connections
+                "connect_timeout": 15,
                 "keepalives": 1,
                 "keepalives_idle": 30,
                 "keepalives_interval": 10,

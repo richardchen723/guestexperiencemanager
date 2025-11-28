@@ -74,15 +74,30 @@ def get_engine(db_path: str):
         else:
             database_url += "?options=-csearch_path%3Dusers,public"
         
+        # For serverless (Vercel), use NullPool to avoid connection exhaustion
+        # For local development, use connection pooling
+        is_vercel = os.getenv("VERCEL") == "1"
+        
+        if is_vercel:
+            from sqlalchemy.pool import NullPool
+            pool_class = NullPool
+            pool_size = None
+            max_overflow = None
+        else:
+            pool_class = None
+            pool_size = 5
+            max_overflow = 2
+        
         engine = create_engine(
             database_url,
             echo=False,
-            pool_size=5,
-            max_overflow=2,
-            pool_timeout=30,
+            poolclass=pool_class,
+            pool_size=pool_size,
+            max_overflow=max_overflow,
+            pool_timeout=30 if not is_vercel else None,
             pool_pre_ping=True,
             connect_args={
-                "connect_timeout": 15,  # Increased from 10 to handle slower connections
+                "connect_timeout": 15,
                 "keepalives": 1,
                 "keepalives_idle": 30,
                 "keepalives_interval": 10,
