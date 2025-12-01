@@ -151,10 +151,9 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
         Dictionary with sync results including status, counts, errors, and listing_stats.
     """
     start_time = datetime.utcnow()
-    db_path = get_database_path()
-    
+    # For PostgreSQL, get_database_path() returns None - that's OK, functions use DATABASE_URL
     # Initialize database
-    init_models(db_path)
+    init_models(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
     session = get_session(db_path)
     
     try:

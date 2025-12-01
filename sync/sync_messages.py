@@ -491,9 +491,9 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
         Dictionary with sync results including listing_stats.
     """
     start_time = datetime.utcnow()
-    db_path = get_database_path()
-    init_models(db_path)
-    session = get_session(db_path)
+    # For PostgreSQL, get_database_path() returns None - that's OK, functions use DATABASE_URL
+    init_models(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
+    session = get_session(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
     
     logger.debug(f"Message sync initialized: db_path={db_path}, sync_run_id={sync_run_id}")
     
@@ -1206,10 +1206,9 @@ def sync_messages_from_files(full_sync: bool = True, progress_tracker: Optional[
         Dictionary with sync results including listing_stats.
     """
     start_time = datetime.utcnow()
-    db_path = get_database_path()
-    
-    init_models(db_path)
-    session = get_session(db_path)
+    # For PostgreSQL, get_database_path() returns None - that's OK, functions use DATABASE_URL
+    init_models(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
+    session = get_session(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
     
     try:
         client = HostawayAPIClient()

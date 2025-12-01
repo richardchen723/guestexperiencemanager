@@ -163,10 +163,9 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
         Dictionary with sync results including listing_stats.
     """
     start_time = datetime.utcnow()
-    db_path = get_database_path()
-    
+    # For PostgreSQL, get_database_path() returns None - that's OK, functions use DATABASE_URL
     # Initialize database
-    init_models(db_path)
+    init_models(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
     session = get_session(db_path)
     
     try:

@@ -36,10 +36,9 @@ def deduplicate_guests(progress_tracker: Optional[Any] = None, sync_run_id: Opti
         Dictionary with sync results.
     """
     start_time = datetime.utcnow()
-    db_path = get_database_path()
-    
-    init_models(db_path)
-    session = get_session(db_path)
+    # For PostgreSQL, get_database_path() returns None - that's OK, functions use DATABASE_URL
+    init_models(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
+    session = get_session(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
     
     try:
         # Use provided progress tracker or default

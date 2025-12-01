@@ -42,8 +42,8 @@ def get_last_sync_time(sync_type: str) -> Optional[datetime]:
     Returns:
         Last sync datetime or None if never synced.
     """
-    db_path = get_database_path()
-    session = get_session(db_path)
+    # For PostgreSQL, get_database_path() returns None - that's OK, functions use DATABASE_URL
+    session = get_session(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
     
     try:
         last_sync = session.query(SyncLog).filter(
@@ -102,8 +102,8 @@ def full_sync(progress_tracker: Optional[Any] = None, sync_run_id: Optional[int]
     """
     # Generate sync_run_id if not provided
     if sync_run_id is None:
-        db_path = get_database_path()
-        session = get_session(db_path)
+        # For PostgreSQL, get_database_path() returns None - that's OK, functions use DATABASE_URL
+        session = get_session(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
         try:
             # Get the highest sync_run_id and increment
             max_run = session.query(SyncLog.sync_run_id).filter(
@@ -195,8 +195,8 @@ def incremental_sync(progress_tracker: Optional[Any] = None, sync_run_id: Option
     """
     # Generate sync_run_id if not provided
     if sync_run_id is None:
-        db_path = get_database_path()
-        session = get_session(db_path)
+        # For PostgreSQL, get_database_path() returns None - that's OK, functions use DATABASE_URL
+        session = get_session(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
         try:
             # Get the highest sync_run_id and increment
             max_run = session.query(SyncLog.sync_run_id).filter(
@@ -308,9 +308,9 @@ def sync(force_full: bool = False) -> Dict:
         Dictionary with sync results.
     """
     # Initialize database
-    db_path = get_database_path()
+    # For PostgreSQL, get_database_path() returns None - that's OK, functions use DATABASE_URL
     try:
-        init_models(db_path)
+        init_models(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}", exc_info=True)
         return {'status': 'error', 'error': f"Database initialization failed: {e}"}
