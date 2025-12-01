@@ -1,0 +1,34 @@
+# Log rotation configuration for Hostaway Messages
+# Place this file in /etc/logrotate.d/hostaway
+# Logs will be rotated daily, kept for 30 days, and compressed
+
+/opt/hostaway-messages/logs/*.log {
+    daily
+    missingok
+    rotate 30
+    compress
+    delaycompress
+    notifempty
+    create 0640 hostaway hostaway
+    sharedscripts
+    postrotate
+        # Reload systemd to reopen log files
+        systemctl reload hostaway-dashboard > /dev/null 2>&1 || true
+    endscript
+}
+
+# Gunicorn logs
+/opt/hostaway-messages/logs/gunicorn-*.log {
+    daily
+    missingok
+    rotate 30
+    compress
+    delaycompress
+    notifempty
+    create 0640 hostaway hostaway
+    sharedscripts
+    postrotate
+        systemctl reload hostaway-dashboard > /dev/null 2>&1 || true
+    endscript
+}
+

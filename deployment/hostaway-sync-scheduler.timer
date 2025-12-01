@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Hostaway Messages Sync Daily
+Requires=hostaway-sync-scheduler.service
+
+[Timer]
+# Run daily at 2:00 AM
+OnCalendar=daily
+OnCalendar=02:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

@@ -1,0 +1,31 @@
+[Unit]
+Description=Hostaway Messages Sync Scheduler
+After=network.target postgresql.service hostaway-dashboard.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=hostaway
+Group=hostaway
+WorkingDirectory=/opt/hostaway-messages/app
+Environment="PATH=/opt/hostaway-messages/venv/bin"
+EnvironmentFile=/opt/hostaway-messages/.env
+
+# Run incremental sync daily at 2 AM
+# Note: Syncs can also be triggered via web UI, so this service is optional
+ExecStart=/opt/hostaway-messages/venv/bin/python3 -m sync.sync_manager --incremental
+
+# Restart configuration
+Restart=on-failure
+RestartSec=3600  # Wait 1 hour before retrying on failure
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/hostaway-messages/conversations /opt/hostaway-messages/logs
+
+[Install]
+WantedBy=multi-user.target
+
