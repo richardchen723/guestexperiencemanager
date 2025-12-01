@@ -166,7 +166,7 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
     # For PostgreSQL, get_database_path() returns None - that's OK, functions use DATABASE_URL
     # Initialize database
     init_models(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
-    session = get_session(db_path)
+    session = get_session(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
     
     try:
         client = HostawayAPIClient()
