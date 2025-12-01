@@ -492,6 +492,7 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
     """
     start_time = datetime.utcnow()
     # For PostgreSQL, get_database_path() returns None - that's OK, functions use DATABASE_URL
+    db_path = None  # PostgreSQL uses DATABASE_URL from environment, not a file path
     init_models(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
     session = get_session(None)  # None is OK for PostgreSQL, function uses DATABASE_URL from environment
     

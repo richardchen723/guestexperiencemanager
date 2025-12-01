@@ -873,16 +873,32 @@ function renderSyncSummary(summary) {
         if (!data) return; // Skip if no data for this type
         
         const summaryCard = document.createElement('div');
-        summaryCard.className = 'summary-card';
+        // Add error class if this sync type has errors or failed
+        const hasErrors = (data.errors || 0) > 0;
+        const hasFailed = data.status === 'error';
+        if (hasErrors || hasFailed) {
+            summaryCard.className = 'summary-card summary-card-error';
+        } else {
+            summaryCard.className = 'summary-card';
+        }
         
         const created = data.created || 0;
         const updated = data.updated || 0;
         const errors = data.errors || 0;
         const processed = data.processed || 0;
         
+        // Show status indicator in header if failed
+        let statusBadge = '';
+        if (hasFailed) {
+            statusBadge = '<span class="summary-status-badge summary-status-badge-error">Failed</span>';
+        } else if (hasErrors) {
+            statusBadge = '<span class="summary-status-badge summary-status-badge-warning">Errors</span>';
+        }
+        
         summaryCard.innerHTML = `
             <div class="summary-card-header">
                 <h3 class="summary-card-title">${syncTypeLabels[syncType] || syncType}</h3>
+                ${statusBadge}
             </div>
             <div class="summary-card-body">
                 <div class="summary-stat">

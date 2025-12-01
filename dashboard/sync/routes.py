@@ -228,7 +228,7 @@ def api_sync_history():
                 'sync_mode': determined_sync_mode,
                 'started_at': earliest_started.isoformat() if earliest_started else None,
                 'completed_at': None,  # Will be set below
-                'status': 'running' if is_running else 'completed',
+                'status': 'running',  # Default to 'running', let proper logic determine final status
                 'sync_types': [],
                 '_latest_completed_at': None  # Temporary: keep as datetime for comparison
             }
@@ -762,7 +762,7 @@ def api_sync_detail(sync_run_id):
             })
         
         # Aggregate summary by sync_type (listings, reservations, messages, reviews, guests)
-        summary_by_type = {}  # {sync_type: {created, updated, errors, processed}}
+        summary_by_type = {}  # {sync_type: {created, updated, errors, processed, status}}
         for log in logs:
             sync_type = log.sync_type
             if sync_type not in summary_by_type:
@@ -770,7 +770,8 @@ def api_sync_detail(sync_run_id):
                     'created': 0,
                     'updated': 0,
                     'errors': 0,
-                    'processed': 0
+                    'processed': 0,
+                    'status': 'success'  # Default to success, will be updated if error found
                 }
             
             summary_by_type[sync_type]['created'] += log.records_created or 0
@@ -780,6 +781,13 @@ def api_sync_detail(sync_run_id):
             # Count errors
             error_list = log.get_errors_list()
             summary_by_type[sync_type]['errors'] += len(error_list) if error_list else 0
+            
+            # Update status if this log has an error status
+            if log.status == 'error':
+                summary_by_type[sync_type]['status'] = 'error'
+            elif log.status == 'partial' and summary_by_type[sync_type]['status'] != 'error':
+                # Partial means some errors but not fatal - only set if not already error
+                summary_by_type[sync_type]['status'] = 'partial'
         
         # Get sync run metadata
         first_log = logs[0]
