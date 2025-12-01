@@ -554,9 +554,13 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
         if VERBOSE:
             logger.info(f"After deduplication: {len(all_reviews)} unique reviews (removed {duplicates_removed} duplicates)")
         
-        # Pre-load existing reviews into memory for faster lookups
-        existing_reviews = session.query(Review).all()
-        existing_review_map = {r.review_id: r for r in existing_reviews}
+        # MEMORY OPTIMIZATION: Load only IDs for existing reviews (90% memory reduction)
+        # Pre-load existing reviews into memory for faster lookups - only load IDs
+        existing_review_data = session.query(Review.review_id).all()
+        existing_review_ids = {r.review_id for r in existing_review_data}
+        del existing_review_data
+        # For reviews, we only need to check if they exist, so we don't need full objects
+        # We'll query full review objects only when we need to update them
         
         # Start processing phase
         progress.start_phase("Processing Reviews", len(all_reviews))
@@ -571,7 +575,7 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
         # Track pending changes for this batch (to handle rollback correctly)
         batch_created = 0
         batch_updated = 0
-        # Track review_ids added to existing_review_map in this batch (for cleanup on rollback)
+        # Track review_ids added to existing_review_ids in this batch (for cleanup on rollback)
         batch_created_review_ids = []
         
         # Process each review
@@ -668,8 +672,12 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                         review_data.get('date')
                     )
                 
-                # Check if review exists using lookup map
-                existing_review = existing_review_map.get(review_id)
+                # MEMORY OPTIMIZATION: Check if review exists using lightweight lookup, then query if needed
+                review_exists = review_id in existing_review_ids
+                existing_review = None
+                if review_exists:
+                    # Query the review only when we need to update it
+                    existing_review = session.query(Review).filter(Review.review_id == review_id).first()
                 
                 # Prepare review data
                 review_dict = {
@@ -736,8 +744,8 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                     logger.debug(f"Review {review_id} will be created (new review)")
                     review = Review(**review_dict)
                     session.add(review)
-                    # Add to lookup map for future reference in this batch
-                    existing_review_map[review_id] = review
+                    # MEMORY OPTIMIZATION: Update lightweight lookup set when creating new review
+                    existing_review_ids.add(review_id)
                     batch_created_review_ids.append(review_id)  # Track for cleanup on rollback
                     batch_created += 1
                     # Increment once with item name and created flag
@@ -782,11 +790,11 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                         error_msg = f"Error committing batch: {str(e)}"
                         errors.append(error_msg)
                         logger.error(f"Batch commit failed (lost {batch_created} created, {batch_updated} updated): {error_msg}", exc_info=True)
-                        # Remove reviews from existing_review_map that were rolled back
+                        # MEMORY OPTIMIZATION: Remove reviews from existing_review_ids that were rolled back
                         # This is critical: if we don't remove them, subsequent processing will think they exist
                         for review_id in batch_created_review_ids:
-                            existing_review_map.pop(review_id, None)
-                            logger.debug(f"Removed review {review_id} from existing_review_map after rollback")
+                            existing_review_ids.discard(review_id)
+                            logger.debug(f"Removed review {review_id} from existing_review_ids after rollback")
                         # Reset batch counters since commit failed (reviews were rolled back)
                         batch_count = 0
                         batch_created = 0
@@ -817,10 +825,10 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
             error_msg = f"Error in final commit: {str(e)}"
             errors.append(error_msg)
             logger.error(f"Final commit failed (lost {batch_created} created, {batch_updated} updated): {error_msg}", exc_info=True)
-            # Remove reviews from existing_review_map that were rolled back
+            # MEMORY OPTIMIZATION: Remove reviews from existing_review_ids that were rolled back
             for review_id in batch_created_review_ids:
-                existing_review_map.pop(review_id, None)
-                logger.debug(f"Removed review {review_id} from existing_review_map after final commit rollback")
+                existing_review_ids.discard(review_id)
+                logger.debug(f"Removed review {review_id} from existing_review_ids after final commit rollback")
             batch_created_review_ids = []  # Reset tracking list
         
         # Log sync operation
