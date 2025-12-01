@@ -59,71 +59,44 @@ class User(Base):
 def get_engine(db_path: str):
     """
     Create SQLAlchemy engine for user database.
-    Supports PostgreSQL (via DATABASE_URL) with SQLite fallback.
+    PostgreSQL is required - no SQLite fallback.
+    
+    Args:
+        db_path: Ignored for PostgreSQL (kept for interface compatibility)
     """
     import os
     
-    # Check for PostgreSQL connection string
     database_url = os.getenv("DATABASE_URL")
-    
-    if database_url:
-        # PostgreSQL connection - use 'users' schema
-        # Modify connection string to include schema search path
-        if '?' in database_url:
-            database_url += "&options=-csearch_path%3Dusers,public"
-        else:
-            database_url += "?options=-csearch_path%3Dusers,public"
-        
-        # For serverless (Vercel), use NullPool to avoid connection exhaustion
-        # For local development, use connection pooling
-        is_vercel = os.getenv("VERCEL") == "1"
-        
-        if is_vercel:
-            from sqlalchemy.pool import NullPool
-            # NullPool doesn't support pool_size, max_overflow, or pool_timeout
-            engine = create_engine(
-                database_url,
-                echo=False,
-                poolclass=NullPool,
-                pool_pre_ping=True,
-                connect_args={
-                    "connect_timeout": 15,
-                    "keepalives": 1,
-                    "keepalives_idle": 30,
-                    "keepalives_interval": 10,
-                    "keepalives_count": 5
-                }
-            )
-        else:
-            # Local development: use connection pooling
-            engine = create_engine(
-                database_url,
-                echo=False,
-                pool_size=5,
-                max_overflow=2,
-                pool_timeout=30,
-                pool_pre_ping=True,
-                connect_args={
-                    "connect_timeout": 15,
-                    "keepalives": 1,
-                    "keepalives_idle": 30,
-                    "keepalives_interval": 10,
-                    "keepalives_count": 5
-                }
-            )
-        return engine
-    else:
-        # SQLite connection (fallback)
-        engine = create_engine(
-            f'sqlite:///{db_path}',
-            echo=False,
-            connect_args={
-                'check_same_thread': False,
-                'timeout': 30.0
-            },
-            pool_pre_ping=True
+    if not database_url:
+        raise ValueError(
+            "DATABASE_URL environment variable is required. "
+            "PostgreSQL is required for this application. "
+            "Example: postgresql://user@localhost:5432/hostaway_dev"
         )
-        return engine
+    
+    # PostgreSQL connection - use 'users' schema
+    # Modify connection string to include schema search path
+    if '?' in database_url:
+        database_url += "&options=-csearch_path%3Dusers,public"
+    else:
+        database_url += "?options=-csearch_path%3Dusers,public"
+    
+    engine = create_engine(
+        database_url,
+        echo=False,
+        pool_size=5,
+        max_overflow=2,
+        pool_timeout=30,
+        pool_pre_ping=True,
+        connect_args={
+            "connect_timeout": 15,  # Increased from 10 to handle slower connections
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5
+        }
+    )
+    return engine
 
 
 def init_user_database():
@@ -229,6 +202,9 @@ def approve_user(user_id: int, approved_by_user_id: int):
     try:
         user = session.query(User).filter(User.user_id == user_id).first()
         if user:
+            # Owner accounts are always approved, cannot be modified
+            if user.role == 'owner':
+                return user
             user.is_approved = True
             user.approved_at = datetime.utcnow()
             user.approved_by = approved_by_user_id
@@ -248,6 +224,9 @@ def revoke_user(user_id: int):
     try:
         user = session.query(User).filter(User.user_id == user_id).first()
         if user:
+            # Owner accounts cannot be revoked
+            if user.role == 'owner':
+                raise ValueError("Cannot revoke owner account")
             user.is_approved = False
             user.approved_at = None
             user.approved_by = None
@@ -267,6 +246,12 @@ def update_user_role(user_id: int, new_role: str):
     try:
         user = session.query(User).filter(User.user_id == user_id).first()
         if user:
+            # Owner role cannot be changed
+            if user.role == 'owner':
+                raise ValueError("Cannot change owner role")
+            # Only owner email can have owner role (enforced at OAuth level)
+            if new_role == 'owner':
+                raise ValueError("Cannot assign owner role")
             user.role = new_role
             session.commit()
             return user

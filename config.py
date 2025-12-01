@@ -19,10 +19,17 @@ HOSTAWAY_API_KEY = os.getenv("HOSTAWAY_API_KEY")
 HOSTAWAY_BASE_URL = os.getenv("HOSTAWAY_BASE_URL", "https://api.hostaway.com/v1")
 
 # Database Configuration
-# Supports both SQLite (file path) and PostgreSQL (connection URL)
-# For PostgreSQL: postgresql://user:password@host:port/database
-DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL connection string
-DATABASE_PATH = os.getenv("DATABASE_PATH", "data/database/hostaway.db")  # SQLite fallback
+# PostgreSQL is required (no SQLite fallback in production)
+# For local dev: postgresql://user@localhost:5432/hostaway_dev
+# For production: postgresql://user@localhost:5432/hostaway_prod
+DATABASE_URL = os.getenv("DATABASE_URL")  # Required - PostgreSQL connection string
+if not DATABASE_URL:
+    raise ValueError(
+        "DATABASE_URL environment variable is required. "
+        "PostgreSQL is required for this application. "
+        "Example: postgresql://user@localhost:5432/hostaway_dev"
+    )
+DATABASE_PATH = os.getenv("DATABASE_PATH", "data/database/hostaway.db")  # Kept for backward compatibility, not used
 
 # Photo Storage Configuration
 # Note: We store photo URLs and metadata only, not download images
@@ -44,9 +51,11 @@ MESSAGE_SYNC_PARALLEL_WORKERS = int(os.getenv("MESSAGE_SYNC_PARALLEL_WORKERS", "
 # Batch size for database commits (number of conversations to process before committing)
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "50"))
 
-# AWS S3 Storage Configuration
-AWS_S3_BUCKET_NAME = os.getenv("AWS_S3_BUCKET_NAME")
-AWS_S3_REGION = os.getenv("AWS_S3_REGION", "us-east-1")
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")  # Optional, for local testing
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")  # Optional, for local testing
-USE_S3_STORAGE = bool(AWS_S3_BUCKET_NAME)  # Enable S3 if bucket name is set
+# Storage Configuration
+# S3 storage is no longer used - all files stored locally in conversations/ directory
+# These variables are kept for backward compatibility but are ignored
+AWS_S3_BUCKET_NAME = None  # Explicitly disabled
+AWS_S3_REGION = os.getenv("AWS_S3_REGION", "us-east-1")  # Kept for compatibility, not used
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")  # Kept for compatibility, not used
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")  # Kept for compatibility, not used
+USE_S3_STORAGE = False  # Always use local filesystem

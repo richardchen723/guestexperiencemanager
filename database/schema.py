@@ -10,25 +10,8 @@ from pathlib import Path
 
 
 def get_database_path():
-    """
-    Get the path to the SQLite database file.
-    
-    If DATABASE_URL is set (PostgreSQL), returns a dummy path since
-    the actual database path is not used with PostgreSQL.
-    Only creates directories when using SQLite (local development).
-    """
-    # If using PostgreSQL, return a dummy path (not used, but needed for API compatibility)
-    if os.getenv("DATABASE_URL"):
-        return "postgresql://dummy"  # Not actually used when DATABASE_URL is set
-    
-    # Only create directories for SQLite (local development)
-    # Skip on Vercel which has read-only filesystem
-    if os.getenv("VERCEL"):
-        # On Vercel, we should be using PostgreSQL, but if somehow we get here,
-        # return a dummy path to avoid filesystem errors
-        return "sqlite:///dummy.db"
-    
-    # Create data directory if it doesn't exist (SQLite only)
+    """Get the path to the SQLite database file"""
+    # Create data directory if it doesn't exist
     data_dir = Path("data")
     data_dir.mkdir(exist_ok=True)
     

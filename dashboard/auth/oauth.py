@@ -81,39 +81,58 @@ def handle_google_callback():
         if not email:
             return redirect(url_for('auth.login'))
         
+        # Check if this is the owner email - always set as owner and approved
+        is_owner_email = email.lower() == config.OWNER_EMAIL.lower()
+        
         # Check if user exists by email or google_id
         user = get_user_by_email(email)
         if not user:
             user = get_user_by_google_id(google_id) if google_id else None
         
         if not user:
-            # Create new user (not approved by default)
+            # Create new user
+            # If owner email, automatically set as owner and approved
             user = create_user(
                 email=email,
                 name=name,
                 picture_url=picture_url,
                 google_id=google_id,
-                role='user',
-                is_approved=False
+                role='owner' if is_owner_email else 'user',
+                is_approved=True if is_owner_email else False
             )
         else:
-            # Update user info if needed
+            # Update user info from Google
             from dashboard.auth.models import get_session, User
             session = get_session()
             try:
                 db_user = session.query(User).filter(User.user_id == user.user_id).first()
                 if db_user:
                     updated = False
+                    
+                    # Always update Google ID if provided and missing
                     if not db_user.google_id and google_id:
                         db_user.google_id = google_id
                         updated = True
-                    # Always update name from Google if provided (to replace hardcoded "Owner" etc.)
-                    if name and (not db_user.name or db_user.name == "Owner"):
+                    
+                    # Always update name from Google if provided (replace any existing value)
+                    if name and name != db_user.name:
                         db_user.name = name
                         updated = True
-                    if not db_user.picture_url and picture_url:
+                    
+                    # Always update picture from Google if provided (replace any existing value)
+                    if picture_url and picture_url != db_user.picture_url:
                         db_user.picture_url = picture_url
                         updated = True
+                    
+                    # If this is the owner email, ensure role is owner and approved
+                    if is_owner_email:
+                        if db_user.role != 'owner':
+                            db_user.role = 'owner'
+                            updated = True
+                        if not db_user.is_approved:
+                            db_user.is_approved = True
+                            updated = True
+                    
                     if updated:
                         session.commit()
             finally:

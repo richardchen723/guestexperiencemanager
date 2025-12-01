@@ -186,11 +186,10 @@ def get_recent_messages(listing_id: int, months: int = 2) -> List[Dict]:
 
 def read_message_content(file_path: str) -> Optional[str]:
     """
-    Read message content from conversation file.
-    Supports both S3 storage and local filesystem.
+    Read message content from conversation file (local filesystem only).
     
     Args:
-        file_path: Path to the conversation file (local path or S3 key)
+        file_path: Path to the conversation file (relative to CONVERSATIONS_DIR or absolute path)
         
     Returns:
         Message content as string, or None if file not found
@@ -198,57 +197,27 @@ def read_message_content(file_path: str) -> Optional[str]:
     if not file_path:
         return None
     
-    # Check if this is an S3 key
-    # S3 keys from our storage will be like "conversations/Listing Name/Guest_2025-11-15_conversation.txt"
-    is_s3_key = (
-        file_path.startswith('conversations/') or 
-        file_path.startswith('s3://') or
-        (not os.path.isabs(file_path) and '/' in file_path and not os.path.exists(file_path))
-    )
-    
-    # Also check if S3 is configured and file doesn't exist locally
-    use_s3 = config.USE_S3_STORAGE
-    if use_s3 and not is_s3_key:
-        # Check if local file exists
-        if os.path.isabs(file_path):
-            full_path = Path(file_path)
-        else:
-            full_path = Path(config.CONVERSATIONS_DIR) / file_path
-        
-        if not (full_path.exists() and full_path.is_file()):
-            # File doesn't exist locally, might be in S3
-            is_s3_key = True
-    
-    if is_s3_key and use_s3:
-        # Read from S3
-        try:
-            from utils.s3_storage import S3Storage
-            s3_storage = S3Storage()
-            # Remove s3:// prefix if present
-            s3_key = file_path.replace('s3://', '').split('/', 1)[-1] if 's3://' in file_path else file_path
-            content = s3_storage.read_file(s3_key)
-            return content
-        except Exception as e:
-            # Log at debug level to reduce noise - file read errors are not critical for analysis
-            logger.debug(f"Error reading message file from S3 {file_path}: {e}")
-            return None
-    
-    # Read from local filesystem
     # Handle both absolute and relative paths
-    if os.path.isabs(file_path):
+    # If path starts with 'conversations/', treat it as relative to CONVERSATIONS_DIR
+    if file_path.startswith('conversations/'):
+        # Remove 'conversations/' prefix and use CONVERSATIONS_DIR
+        relative_path = file_path[len('conversations/'):]
+        full_path = Path(config.CONVERSATIONS_DIR) / relative_path
+    elif os.path.isabs(file_path):
         full_path = Path(file_path)
     else:
         full_path = Path(config.CONVERSATIONS_DIR) / file_path
     
     try:
         if full_path.exists() and full_path.is_file():
-            with open(full_path, 'r', encoding='utf-8') as f:
-                return f.read()
+            return full_path.read_text(encoding='utf-8')
+        else:
+            logger.debug(f"Message file not found: {file_path}")
+            return None
     except Exception as e:
         # Log at debug level to reduce noise - file read errors are not critical for analysis
         logger.debug(f"Error reading message file {file_path}: {e}")
-    
-    return None
+        return None
 
 
 def filter_unprocessed_reviews(reviews: List[Dict], processed_review_ids: Set[int]) -> List[Dict]:

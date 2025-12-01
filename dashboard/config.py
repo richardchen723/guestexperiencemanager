@@ -23,21 +23,27 @@ if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY environment variable is required. Please set it in .env file or export it.")
 
 # Database Configuration
-# Supports both PostgreSQL (via DATABASE_URL) and SQLite (fallback)
-DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL connection string (shared for all databases)
+# PostgreSQL is required (no SQLite fallback)
+# For local dev: postgresql://user@localhost:5432/hostaway_dev
+# For production: postgresql://user@localhost:5432/hostaway_prod
+DATABASE_URL = os.getenv("DATABASE_URL")  # Required - PostgreSQL connection string (shared for all databases)
+if not DATABASE_URL:
+    raise ValueError(
+        "DATABASE_URL environment variable is required. "
+        "PostgreSQL is required for this application. "
+        "Example: postgresql://user@localhost:5432/hostaway_dev"
+    )
 
-# Database paths (relative to project root) - used only for SQLite fallback
+# Database paths (relative to project root) - kept for backward compatibility, not used with PostgreSQL
 MAIN_DATABASE_PATH = str(PROJECT_ROOT / "data" / "database" / "hostaway.db")
 CACHE_DATABASE_PATH = str(PROJECT_ROOT / "dashboard" / "data" / "ai_cache.db")
 USERS_DATABASE_PATH = str(PROJECT_ROOT / "dashboard" / "data" / "users.db")
 CONVERSATIONS_DIR = str(PROJECT_ROOT / "conversations")
 
-# AWS S3 Storage Configuration
-AWS_S3_BUCKET_NAME = os.getenv("AWS_S3_BUCKET_NAME")
-AWS_S3_REGION = os.getenv("AWS_S3_REGION", "us-east-1")
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")  # Optional, for local testing
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")  # Optional, for local testing
-USE_S3_STORAGE = bool(AWS_S3_BUCKET_NAME)  # Enable S3 if bucket name is set
+# Storage Configuration
+# All files stored on local filesystem (no S3)
+# S3 storage is no longer used - all files stored locally in conversations/ directory
+USE_S3_STORAGE = False  # Always use local filesystem
 
 # Analysis time windows
 REVIEW_MONTHS = 3  # Analyze reviews from last 3 months

@@ -1,3 +1,8 @@
+# DEPRECATED: This file is no longer used.
+# The application now uses local filesystem storage instead of AWS S3.
+# This file is kept for reference only.
+# For Lightsail deployment, files are stored in the conversations/ directory on the instance.
+
 # S3 Bucket for file storage
 resource "aws_s3_bucket" "main" {
   bucket        = var.s3_bucket_name

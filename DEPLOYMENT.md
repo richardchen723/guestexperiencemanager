@@ -9,8 +9,8 @@ This guide covers deploying the Hostaway Messages Dashboard to production.
 - Access to Hostaway API credentials
 - OpenAI API key (for AI features)
 - Google OAuth credentials (optional, for user authentication)
-- AWS account with credentials configured (for RDS PostgreSQL and S3 storage)
-- Terraform >= 1.0 (for infrastructure setup)
+- PostgreSQL installed locally or on deployment server
+- For Lightsail deployment: Ubuntu 22.04 LTS instance
 
 ## Environment Setup
 
@@ -46,11 +46,11 @@ This guide covers deploying the Hostaway Messages Dashboard to production.
    - `FLASK_DEBUG=False` - **MUST be False in production**
    - `FLASK_HOST` - Set to `0.0.0.0` for external access, or `127.0.0.1` for local only
    - `FLASK_PORT` - Port number (default: 5001)
-   - `DATABASE_URL` - PostgreSQL connection string (optional, falls back to SQLite if not set)
-   - `AWS_S3_BUCKET_NAME` - S3 bucket name for file storage (optional, falls back to local if not set)
-   - `AWS_S3_REGION` - AWS region for S3 bucket (default: us-east-1)
-   - `AWS_ACCESS_KEY_ID` - AWS access key (optional, uses IAM role in production)
-   - `AWS_SECRET_ACCESS_KEY` - AWS secret key (optional, uses IAM role in production)
+   - `DATABASE_URL` - PostgreSQL connection string (required)
+     - Format: `postgresql://user:password@host:port/database`
+     - Example (local): `postgresql://username@localhost:5432/hostaway_dev`
+     - Example (production): `postgresql://username@localhost:5432/hostaway_prod`
+   - Note: All files are stored locally in `conversations/` directory (S3 is no longer used)
 
 ## Security Checklist
 
@@ -62,9 +62,49 @@ This guide covers deploying the Hostaway Messages Dashboard to production.
 - [ ] Log files are in `.gitignore`
 - [ ] Google OAuth redirect URI matches your deployment URL
 
-## AWS Infrastructure Setup
+## Database Setup
 
-### Option 1: Using Terraform (Recommended)
+### Local PostgreSQL Installation
+
+**On macOS (using Homebrew):**
+```bash
+brew install postgresql@15
+brew services start postgresql@15
+createdb hostaway_dev
+```
+
+**On Linux (Ubuntu/Debian):**
+```bash
+sudo apt-get update
+sudo apt-get install postgresql postgresql-contrib
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+sudo -u postgres createdb hostaway_dev
+```
+
+**On Lightsail (Ubuntu):**
+See the comprehensive [Lightsail Deployment Guide](deployment/LIGHTSAIL_DEPLOYMENT.md) for detailed instructions.
+
+Quick setup:
+```bash
+# Clone repository and run setup scripts
+sudo ./deployment/lightsail-setup.sh
+sudo -u postgres ./deployment/setup-postgres.sh
+sudo ./deployment/setup-env.sh
+sudo ./deployment/deploy.sh
+```
+
+### Database Initialization
+
+The application will automatically create all required schemas and tables on first run:
+- `public` schema: Main application data (listings, reservations, guests, etc.)
+- `users` schema: User authentication data
+- `tickets` schema: Ticket management data
+- `cache` schema: AI analysis cache
+
+## AWS Infrastructure Setup (DEPRECATED)
+
+### Option 1: Using Terraform (DEPRECATED - No longer used)
 
 1. **Navigate to terraform directory:**
    ```bash
@@ -161,12 +201,23 @@ The script will:
 
 ## Running the Application
 
-### Development Mode
+### Local Development
 
-```bash
-cd dashboard
-python3 app.py
-```
+1. **Create `.env` file** in project root:
+   ```bash
+   cp deployment/env.production.example .env
+   # Edit .env with your local settings
+   ```
+
+2. **Set up local PostgreSQL** (see Database Setup section above)
+
+3. **Run the application**:
+   ```bash
+   cd dashboard
+   python3 app.py
+   ```
+
+   The application will be available at `http://localhost:5001`
 
 ### Production Mode (using Gunicorn)
 

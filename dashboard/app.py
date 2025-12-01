@@ -6,7 +6,9 @@ Flask application entry point for the Insights Dashboard.
 import sys
 import os
 import logging
+from datetime import datetime
 from flask import Flask, url_for
+import sqlalchemy
 
 # Add parent directories to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,23 +28,19 @@ from dashboard.auth.session import get_current_user
 
 def create_app():
     """Create and configure the Flask application."""
-    # Detect Vercel environment
-    is_vercel = os.getenv("VERCEL") == "1"
-    
     # Setup logging with DEBUG level for detailed diagnostics
-    # On Vercel, skip file logging (read-only filesystem)
-    log_file = None if is_vercel else os.path.join(project_root, 'logs', 'dashboard.log')
+    # Use absolute path for production deployment
+    log_file = os.getenv('LOG_FILE', os.path.join(project_root, 'logs', 'dashboard.log'))
+    # Ensure absolute path
+    if not os.path.isabs(log_file):
+        log_file = os.path.join(project_root, log_file)
     setup_logging(log_file=log_file)
     logger = logging.getLogger(__name__)
     logger.info("Initializing Flask application with DEBUG logging enabled")
     
-    # Allow insecure transport ONLY for localhost development (HTTP instead of HTTPS)
-    # On Vercel (production), HTTPS is required - don't set this
-    if not is_vercel:
-        os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
-    else:
-        # Ensure secure transport in production
-        os.environ.pop('OAUTHLIB_INSECURE_TRANSPORT', None)
+    # Allow insecure transport for localhost development (HTTP instead of HTTPS)
+    # This is required for OAuth to work on localhost
+    os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
     
     # Get absolute paths for templates and static files
     dashboard_dir = os.path.dirname(os.path.abspath(__file__))
@@ -70,6 +68,35 @@ def create_app():
     register_admin_routes(app)
     register_ticket_routes(app)
     register_sync_routes(app)
+    
+    # Health check endpoint for monitoring
+    @app.route('/health')
+    def health_check():
+        """Health check endpoint for monitoring and load balancers"""
+        try:
+            # Check database connectivity
+            from database.models import get_engine
+            from database.schema import get_database_path
+            db_path = get_database_path()
+            engine = get_engine(db_path)
+            
+            # Simple connection test
+            with engine.connect() as conn:
+                conn.execute(sqlalchemy.text("SELECT 1"))
+            
+            return {
+                'status': 'healthy',
+                'database': 'connected',
+                'timestamp': datetime.utcnow().isoformat()
+            }, 200
+        except Exception as e:
+            logger.error(f"Health check failed: {e}", exc_info=True)
+            return {
+                'status': 'unhealthy',
+                'database': 'disconnected',
+                'error': str(e),
+                'timestamp': datetime.utcnow().isoformat()
+            }, 503
     
     # Make current_user available to all templates
     @app.context_processor

@@ -50,73 +50,42 @@ class ListingInsights(Base):
 
 
 def get_engine():
-    """Create SQLAlchemy engine for cache database."""
+    """
+    Create SQLAlchemy engine for cache database.
+    PostgreSQL is required - no SQLite fallback.
+    """
     import os
     
-    # Check for PostgreSQL connection string
     database_url = os.getenv("DATABASE_URL")
-    
-    if database_url:
-        # PostgreSQL connection - use 'cache' schema
-        if '?' in database_url:
-            database_url += "&options=-csearch_path%3Dcache,public"
-        else:
-            database_url += "?options=-csearch_path%3Dcache,public"
-        
-        # For serverless (Vercel), use NullPool to avoid connection exhaustion
-        # For local development, use connection pooling
-        is_vercel = os.getenv("VERCEL") == "1"
-        
-        if is_vercel:
-            from sqlalchemy.pool import NullPool
-            # NullPool doesn't support pool_size, max_overflow, or pool_timeout
-            engine = create_engine(
-                database_url,
-                echo=False,
-                poolclass=NullPool,
-                pool_pre_ping=True,
-                connect_args={
-                    "connect_timeout": 15,
-                    "keepalives": 1,
-                    "keepalives_idle": 30,
-                    "keepalives_interval": 10,
-                    "keepalives_count": 5
-                }
-            )
-        else:
-            # Local development: use connection pooling
-            engine = create_engine(
-                database_url,
-                echo=False,
-                pool_size=5,
-                max_overflow=2,
-                pool_timeout=30,
-                pool_pre_ping=True,
-                connect_args={
-                    "connect_timeout": 15,
-                    "keepalives": 1,
-                    "keepalives_idle": 30,
-                    "keepalives_interval": 10,
-                    "keepalives_count": 5
-                }
-            )
-        return engine
-    else:
-        # SQLite connection (fallback)
-        db_path = config.CACHE_DATABASE_PATH
-        db_dir = Path(db_path).parent
-        db_dir.mkdir(parents=True, exist_ok=True)
-        
-        engine = create_engine(
-            f'sqlite:///{db_path}',
-            echo=False,
-            connect_args={
-                'check_same_thread': False,
-                'timeout': 30.0
-            },
-            pool_pre_ping=True
+    if not database_url:
+        raise ValueError(
+            "DATABASE_URL environment variable is required. "
+            "PostgreSQL is required for this application. "
+            "Example: postgresql://user@localhost:5432/hostaway_dev"
         )
-        return engine
+    
+    # PostgreSQL connection - use 'cache' schema
+    if '?' in database_url:
+        database_url += "&options=-csearch_path%3Dcache,public"
+    else:
+        database_url += "?options=-csearch_path%3Dcache,public"
+    
+    engine = create_engine(
+        database_url,
+        echo=False,
+        pool_size=5,
+        max_overflow=2,
+        pool_timeout=30,
+        pool_pre_ping=True,
+        connect_args={
+            "connect_timeout": 15,  # Increased from 10 to handle slower connections
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5
+        }
+    )
+    return engine
 
 
 def init_cache_db():

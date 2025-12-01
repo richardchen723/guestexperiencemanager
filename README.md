@@ -14,26 +14,56 @@ A production-ready data synchronization system for Hostaway that stores listings
 
 ## Installation
 
+### Local Development
+
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
    cd hostaway-messages
    ```
 
-2. **Install dependencies**:
+2. **Set up PostgreSQL** (required):
+   ```bash
+   # macOS (Homebrew)
+   brew install postgresql@15
+   brew services start postgresql@15
+   createdb hostaway_dev
+   
+   # Linux (Ubuntu/Debian)
+   sudo apt-get install postgresql postgresql-contrib
+   sudo systemctl start postgresql
+   sudo -u postgres createdb hostaway_dev
+   ```
+
+3. **Create `.env` file**:
+   ```bash
+   cp deployment/env.production.example .env
+   # Edit .env with your local settings:
+   # - DATABASE_URL=postgresql://username@localhost:5432/hostaway_dev
+   # - SECRET_KEY (generate with: python3 -c "import secrets; print(secrets.token_hex(32))")
+   # - OPENAI_API_KEY (required for AI features)
+   # - HOSTAWAY_ACCOUNT_ID and HOSTAWAY_API_KEY (optional, for sync operations)
+   ```
+
+4. **Install dependencies**:
    ```bash
    pip3 install -r requirements.txt
+   pip3 install -r dashboard/requirements.txt
    ```
 
-3. **Configure API credentials**:
-   
-   Edit `config.py` or set environment variables:
+5. **Run the application**:
    ```bash
-   export HOSTAWAY_ACCOUNT_ID="your_account_id"
-   export HOSTAWAY_API_KEY="your_api_key"
+   cd dashboard
+   python3 app.py
    ```
 
-   Get your credentials from: https://dashboard.hostaway.com/settings/api
+   The application will be available at `http://localhost:5001`
+
+### Production Deployment
+
+For production deployment to AWS Lightsail, see:
+- [Lightsail Deployment Guide](deployment/LIGHTSAIL_DEPLOYMENT.md)
+- [General Deployment Guide](DEPLOYMENT.md)
 
 ## Usage
 
@@ -73,30 +103,22 @@ Edit `config.py` or set environment variables:
 - `DATABASE_URL`: PostgreSQL connection string (optional, format: `postgresql://user:password@host:port/database`)
 - `DATABASE_PATH`: Path to SQLite database (default: `data/database/hostaway.db`, used if `DATABASE_URL` not set)
 
-### AWS S3 Storage (Optional)
-- `AWS_S3_BUCKET_NAME`: S3 bucket name for file storage (optional, falls back to local filesystem if not set)
-- `AWS_S3_REGION`: AWS region for S3 bucket (default: `us-east-1`)
-- `AWS_ACCESS_KEY_ID`: AWS access key (optional, uses IAM role in production)
-- `AWS_SECRET_ACCESS_KEY`: AWS secret key (optional, uses IAM role in production)
+### Database Configuration (Required)
+- `DATABASE_URL`: PostgreSQL connection string (required)
+  - Format: `postgresql://user:password@host:port/database`
+  - Example (local): `postgresql://username@localhost:5432/hostaway_dev`
+  - Example (production): `postgresql://username@localhost:5432/hostaway_prod`
+  - PostgreSQL is required - no SQLite fallback
+
+### Storage Configuration
+- All files are stored on local filesystem in the `conversations/` directory
+- S3 storage is no longer used
 
 ### Sync Configuration
 - `STORE_PHOTO_METADATA`: Store photo URLs/metadata (default: `True`)
 - `SYNC_FULL_ON_START`: Perform full sync on first run (default: `True`)
 - `SYNC_INCREMENTAL_DAILY`: Enable daily incremental sync (default: `True`)
 - `SYNC_INTERVAL_HOURS`: Hours between incremental syncs (default: `24`)
-
-### Storage Modes
-
-The application supports two storage modes:
-
-1. **Local Mode** (default): Uses SQLite database and local filesystem
-   - No `DATABASE_URL` or `AWS_S3_BUCKET_NAME` set
-   - Suitable for local development and testing
-
-2. **AWS Mode** (production): Uses PostgreSQL (RDS) and S3 storage
-   - Set `DATABASE_URL` for PostgreSQL connection
-   - Set `AWS_S3_BUCKET_NAME` for S3 file storage
-   - See `DEPLOYMENT.md` for AWS infrastructure setup
 
 ### Additional Configuration
 - `VERBOSE`: Show detailed progress (default: `True`)
@@ -122,16 +144,16 @@ hostaway-messages/
 ├── utils/                    # Utility modules
 │   └── logging_config.py    # Logging configuration
 ├── data/                     # Data storage
-│   ├── database/            # SQLite database
+│   ├── database/            # Database directory (not used with PostgreSQL)
 │   ├── photos/              # Photo metadata
 │   └── exports/             # Export directory
-├── conversations/            # Conversation text files
+├── conversations/            # Conversation text files (local filesystem storage)
 └── requirements.txt         # Python dependencies
 ```
 
 ## Database Schema
 
-The system uses SQLite with the following main tables:
+The system uses PostgreSQL with the following main tables:
 
 - **listings**: Property listing information
 - **listing_photos**: Photo URLs and metadata
@@ -161,8 +183,9 @@ Example queries using SQLAlchemy:
 
 ```python
 from database.models import get_session, Listing, Reservation, Guest
+from database.schema import get_database_path
 
-session = get_session("data/database/hostaway.db")
+session = get_session(get_database_path())
 
 # Get all active listings
 listings = session.query(Listing).filter(Listing.status == 'active').all()

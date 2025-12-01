@@ -7,8 +7,11 @@ Handles OAuth 2.0 authentication and API requests with rate limiting.
 import time
 import logging
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from datetime import datetime
 from typing import List, Dict, Optional, Any
+import socket
 
 from config import HOSTAWAY_API_KEY, HOSTAWAY_ACCOUNT_ID, HOSTAWAY_BASE_URL, VERBOSE
 
@@ -19,6 +22,9 @@ logger = logging.getLogger(__name__)
 RATE_LIMIT_RETRY_DELAY = 10  # seconds
 TOKEN_EXPIRATION_BUFFER = 60  # seconds
 DEFAULT_TOKEN_EXPIRATION = 3600  # seconds
+MAX_RETRIES = 5  # Maximum retries for DNS/network errors
+BASE_DELAY = 1  # Base delay in seconds for exponential backoff
+MAX_DELAY = 30  # Maximum delay cap in seconds
 
 
 class HostawayAPIClient:
@@ -39,6 +45,24 @@ class HostawayAPIClient:
         self.base_url = HOSTAWAY_BASE_URL
         self.access_token: Optional[str] = None
         self.token_expires_at: Optional[float] = None
+        
+        # Create retry strategy for DNS/network errors
+        # Retry on: DNS errors, connection errors, timeouts, and server errors (5xx)
+        retry_strategy = Retry(
+            total=MAX_RETRIES,
+            backoff_factor=BASE_DELAY,
+            status_forcelist=[500, 502, 503, 504],  # Server errors
+            allowed_methods=["GET", "POST"],  # Only retry safe methods
+            raise_on_status=False,  # Don't raise, let us handle it
+        )
+        
+        # Create HTTP adapter with retry strategy
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        
+        # Create session with retry adapter
+        self.session = requests.Session()
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
     
     def get_access_token(self) -> Optional[str]:
         """
@@ -68,30 +92,91 @@ class HostawayAPIClient:
             'scope': 'general'
         }
         
-        try:
-            response = requests.post(url, headers=headers, data=data, timeout=30)
-            response.raise_for_status()
-            token_data = response.json()
-            self.access_token = token_data.get('access_token')
-            
-            if not self.access_token:
-                logger.error("No access token in response")
-                return None
-            
-            # Set token expiration with buffer
-            expires_in = token_data.get('expires_in', DEFAULT_TOKEN_EXPIRATION)
-            self.token_expires_at = (
-                datetime.now().timestamp() + expires_in - TOKEN_EXPIRATION_BUFFER
-            )
-            
-            return self.access_token
-            
-        except requests.exceptions.Timeout:
-            logger.error("Timeout getting access token")
-            return None
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error getting access token: {e}")
-            return None
+        # Retry logic for DNS/network errors with exponential backoff
+        last_exception = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = self.session.post(url, headers=headers, data=data, timeout=30)
+                response.raise_for_status()
+                token_data = response.json()
+                self.access_token = token_data.get('access_token')
+                
+                if not self.access_token:
+                    logger.error("No access token in response")
+                    return None
+                
+                # Set token expiration with buffer
+                expires_in = token_data.get('expires_in', DEFAULT_TOKEN_EXPIRATION)
+                self.token_expires_at = (
+                    datetime.now().timestamp() + expires_in - TOKEN_EXPIRATION_BUFFER
+                )
+                
+                if attempt > 0:
+                    logger.info(f"Successfully got access token after {attempt} retries")
+                
+                return self.access_token
+                
+            except (requests.exceptions.Timeout, 
+                    requests.exceptions.ConnectTimeout,
+                    requests.exceptions.ReadTimeout) as e:
+                last_exception = e
+                if attempt < MAX_RETRIES - 1:
+                    wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
+                    logger.warning(f"Timeout getting access token (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"Timeout getting access token after {MAX_RETRIES} attempts")
+                    
+            except (requests.exceptions.ConnectionError,
+                    requests.exceptions.NewConnectionError) as e:
+                last_exception = e
+                # Check if it's a DNS error (requests wraps socket.gaierror)
+                error_str = str(e).lower()
+                is_dns_error = (
+                    "nodename nor servname" in error_str or
+                    "name or service not known" in error_str or
+                    "failed to resolve" in error_str or
+                    "getaddrinfo failed" in error_str or
+                    "temporary failure in name resolution" in error_str
+                )
+                
+                if attempt < MAX_RETRIES - 1:
+                    wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
+                    error_type = "DNS resolution" if is_dns_error else "Connection"
+                    logger.warning(f"{error_type} error getting access token (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    error_type = "DNS resolution" if is_dns_error else "Connection"
+                    logger.error(f"{error_type} error getting access token after {MAX_RETRIES} attempts: {e}")
+                    
+            except requests.exceptions.HTTPError as e:
+                # Don't retry HTTP errors (4xx, 5xx) except 5xx which are handled by urllib3 retry
+                # But if it's 401/403, don't retry
+                if e.response and e.response.status_code in (401, 403, 404):
+                    logger.error(f"Authentication/authorization error getting access token: {e}")
+                    return None
+                # For other HTTP errors, let urllib3 retry handle it or raise
+                last_exception = e
+                if attempt < MAX_RETRIES - 1:
+                    wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
+                    logger.warning(f"HTTP error getting access token (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"HTTP error getting access token after {MAX_RETRIES} attempts: {e}")
+                    
+            except requests.exceptions.RequestException as e:
+                last_exception = e
+                if attempt < MAX_RETRIES - 1:
+                    wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
+                    logger.warning(f"Request error getting access token (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"Request error getting access token after {MAX_RETRIES} attempts: {e}")
+        
+        # All retries exhausted
+        if last_exception:
+            logger.error(f"Failed to get access token after {MAX_RETRIES} attempts. Last error: {last_exception}")
+        return None
     
     def get_headers(self) -> Dict[str, str]:
         """
@@ -128,30 +213,91 @@ class HostawayAPIClient:
             logger.error("Failed to get valid access token")
             return None
         
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=30)
-            
-            # Handle rate limiting with retry
-            if response.status_code == 429:
-                if VERBOSE:
-                    logger.warning(f"Rate limit exceeded for {endpoint}, waiting {RATE_LIMIT_RETRY_DELAY}s...")
-                time.sleep(RATE_LIMIT_RETRY_DELAY)
-                response = requests.get(url, headers=headers, params=params, timeout=30)
-            
-            response.raise_for_status()
-            return response.json()
-            
-        except requests.exceptions.Timeout:
-            logger.error(f"Timeout making request to {endpoint}")
-            return None
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error for {endpoint}: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                logger.debug(f"Response: {e.response.text[:200]}")
-            return None
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error making request to {endpoint}: {e}")
-            return None
+        # Retry logic for DNS/network errors with exponential backoff
+        last_exception = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = self.session.get(url, headers=headers, params=params, timeout=30)
+                
+                # Handle rate limiting with retry (application-level, not network-level)
+                if response.status_code == 429:
+                    if VERBOSE:
+                        logger.warning(f"Rate limit exceeded for {endpoint}, waiting {RATE_LIMIT_RETRY_DELAY}s...")
+                    time.sleep(RATE_LIMIT_RETRY_DELAY)
+                    # Retry the rate-limited request once more
+                    response = self.session.get(url, headers=headers, params=params, timeout=30)
+                
+                response.raise_for_status()
+                
+                if attempt > 0:
+                    logger.info(f"Successfully made request to {endpoint} after {attempt} retries")
+                
+                return response.json()
+                
+            except (requests.exceptions.Timeout,
+                    requests.exceptions.ConnectTimeout,
+                    requests.exceptions.ReadTimeout) as e:
+                last_exception = e
+                if attempt < MAX_RETRIES - 1:
+                    wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
+                    logger.warning(f"Timeout making request to {endpoint} (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"Timeout making request to {endpoint} after {MAX_RETRIES} attempts")
+                    
+            except (requests.exceptions.ConnectionError,
+                    requests.exceptions.NewConnectionError) as e:
+                last_exception = e
+                # Check if it's a DNS error (requests wraps socket.gaierror)
+                error_str = str(e).lower()
+                is_dns_error = (
+                    "nodename nor servname" in error_str or
+                    "name or service not known" in error_str or
+                    "failed to resolve" in error_str or
+                    "getaddrinfo failed" in error_str or
+                    "temporary failure in name resolution" in error_str
+                )
+                
+                if attempt < MAX_RETRIES - 1:
+                    wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
+                    error_type = "DNS resolution" if is_dns_error else "Connection"
+                    logger.warning(f"{error_type} error making request to {endpoint} (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    error_type = "DNS resolution" if is_dns_error else "Connection"
+                    logger.error(f"{error_type} error making request to {endpoint} after {MAX_RETRIES} attempts: {e}")
+                    
+            except requests.exceptions.HTTPError as e:
+                # Don't retry client errors (4xx) except 429 which is handled above
+                if e.response and e.response.status_code in (400, 401, 403, 404, 422):
+                    logger.error(f"HTTP error for {endpoint}: {e}")
+                    if hasattr(e, 'response') and e.response is not None:
+                        logger.debug(f"Response: {e.response.text[:200]}")
+                    return None
+                # For 5xx errors, urllib3 retry should handle it, but we'll also retry here
+                last_exception = e
+                if attempt < MAX_RETRIES - 1:
+                    wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
+                    logger.warning(f"HTTP error for {endpoint} (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"HTTP error for {endpoint} after {MAX_RETRIES} attempts: {e}")
+                    if hasattr(e, 'response') and e.response is not None:
+                        logger.debug(f"Response: {e.response.text[:200]}")
+                        
+            except requests.exceptions.RequestException as e:
+                last_exception = e
+                if attempt < MAX_RETRIES - 1:
+                    wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
+                    logger.warning(f"Request error for {endpoint} (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"Request error for {endpoint} after {MAX_RETRIES} attempts: {e}")
+        
+        # All retries exhausted
+        if last_exception:
+            logger.error(f"Failed to make request to {endpoint} after {MAX_RETRIES} attempts. Last error: {last_exception}")
+        return None
     
     def get_listings(self, limit: Optional[int] = None, 
                     offset: Optional[int] = None) -> List[Dict]:

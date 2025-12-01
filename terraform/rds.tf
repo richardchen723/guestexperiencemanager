@@ -1,3 +1,8 @@
+# DEPRECATED: This file is no longer used.
+# The application now uses local PostgreSQL instead of AWS RDS.
+# This file is kept for reference only.
+# For Lightsail deployment, PostgreSQL is installed directly on the instance.
+
 # Generate random password for database
 resource "random_password" "db_password" {
   length  = 32
@@ -158,7 +163,7 @@ resource "aws_db_instance" "main" {
 
   # Engine configuration
   engine         = "postgres"
-  engine_version = var.db_engine_version
+  # engine_version = var.db_engine_version  # Commented out to allow AWS to manage version automatically
   instance_class = var.db_instance_class
 
   # Storage configuration

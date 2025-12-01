@@ -4,7 +4,6 @@ Logging configuration for the Hostaway sync system.
 """
 
 import logging
-import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -19,8 +18,8 @@ def setup_logging(log_file: Optional[str] = None) -> None:
     Args:
         log_file: Optional path to log file. If None, logs only to console.
     """
-    # Create logs directory if logging to file (skip on Vercel - read-only filesystem)
-    if log_file and not os.getenv("VERCEL"):
+    # Create logs directory if logging to file
+    if log_file:
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
     
@@ -31,8 +30,7 @@ def setup_logging(log_file: Optional[str] = None) -> None:
     # Configure root logger
     handlers = [logging.StreamHandler(sys.stdout)]
     
-    # Only add file handler if not on Vercel (Vercel has read-only filesystem)
-    if log_file and not os.getenv("VERCEL"):
+    if log_file:
         handlers.append(logging.FileHandler(log_file))
     
     # Enhanced format with more context

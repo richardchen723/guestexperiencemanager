@@ -66,6 +66,10 @@ def api_approve_user(user_id):
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
+        # Owner accounts are always approved, cannot be modified
+        if user.role == 'owner':
+            return jsonify({'error': 'Owner account is always approved'}), 403
+        
         approve_user(user_id, current_user.user_id)
         return jsonify({'success': True, 'message': 'User approved'})
     except Exception as e:
@@ -95,6 +99,10 @@ def api_revoke_user(user_id):
 def api_update_user_role(user_id):
     """Update user role."""
     try:
+        current_user = get_current_user()
+        if not current_user:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
         data = request.get_json()
         new_role = data.get('role')
         
@@ -105,12 +113,21 @@ def api_update_user_role(user_id):
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
-        # Prevent changing owner role
-        if user.role == 'owner' and new_role != 'owner':
-            return jsonify({'error': 'Cannot change owner role'}), 403
+        # Owner accounts cannot be modified by anyone (including other admins)
+        if user.role == 'owner':
+            return jsonify({'error': 'Cannot modify owner account'}), 403
         
-        # Prevent creating new owners
-        if new_role == 'owner' and user.role != 'owner':
+        # Only owner can assign admin role or change roles
+        if current_user.role != 'owner':
+            # Admins can only promote users to admin, not change existing admin roles
+            if user.role == 'admin' and new_role != 'admin':
+                return jsonify({'error': 'Only owner can modify admin accounts'}), 403
+            # Admins cannot assign admin role
+            if new_role == 'admin':
+                return jsonify({'error': 'Only owner can assign admin role'}), 403
+        
+        # Prevent creating new owners (only owner email can be owner)
+        if new_role == 'owner':
             return jsonify({'error': 'Cannot assign owner role'}), 403
         
         update_user_role(user_id, new_role)

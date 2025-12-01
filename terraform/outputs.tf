@@ -1,6 +1,28 @@
+# Lightsail Outputs
+output "lightsail_instance_public_ip" {
+  description = "Public IP address of the Lightsail instance"
+  value       = try(aws_lightsail_instance.hostaway_messages.public_ip_address, null)
+}
+
+output "lightsail_instance_private_ip" {
+  description = "Private IP address of the Lightsail instance"
+  value       = try(aws_lightsail_instance.hostaway_messages.private_ip_address, null)
+}
+
+output "lightsail_static_ip" {
+  description = "Static IP address (if attached)"
+  value       = var.attach_static_ip ? try(aws_lightsail_static_ip.hostaway_messages[0].ip_address, null) : null
+}
+
+output "lightsail_ssh_command" {
+  description = "SSH command to connect to the instance"
+  value       = "ssh ubuntu@${try(aws_lightsail_instance.hostaway_messages.public_ip_address, "INSTANCE_IP")}"
+}
+
+# Legacy RDS Outputs (deprecated - for reference only)
 output "rds_endpoint" {
-  value       = aws_db_instance.main.endpoint
-  description = "RDS instance endpoint"
+  value       = try(aws_db_instance.main.endpoint, null)
+  description = "RDS instance endpoint (deprecated - not used with Lightsail)"
 }
 
 output "rds_port" {

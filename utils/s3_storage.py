@@ -1,257 +1,217 @@
 #!/usr/bin/env python3
 """
-S3 Storage utility for file operations.
-Supports both S3 storage and local filesystem fallback.
+File storage utility (local filesystem only - S3 support removed).
+Keeps S3Storage class name for backward compatibility.
 """
 
 import os
 import logging
+import shutil
 from typing import Optional, List
 from pathlib import Path
-import boto3
-from botocore.exceptions import ClientError, BotoCoreError
-from botocore.config import Config
 
 logger = logging.getLogger(__name__)
 
 
 class S3Storage:
-    """S3 storage utility with local filesystem fallback."""
+    """File storage utility (local filesystem only - S3 support removed)."""
     
     def __init__(self, bucket_name: Optional[str] = None, region: Optional[str] = None):
         """
-        Initialize S3 storage client.
+        Initialize file storage (local filesystem only).
         
         Args:
-            bucket_name: S3 bucket name (from config if not provided)
-            region: AWS region (from config if not provided)
+            bucket_name: Ignored (kept for backward compatibility)
+            region: Ignored (kept for backward compatibility)
         """
-        self.bucket_name = bucket_name or os.getenv("AWS_S3_BUCKET_NAME")
-        self.region = region or os.getenv("AWS_S3_REGION", "us-east-1")
-        self.use_s3 = bool(self.bucket_name)
+        # Get conversations directory from config or use default
+        from dashboard.config import CONVERSATIONS_DIR
+        self.base_dir = CONVERSATIONS_DIR
+        self.use_s3 = False  # Always False - S3 removed
+        self.s3_client = None
         
-        if self.use_s3:
-            try:
-                # Configure boto3 client with retry logic
-                config = Config(
-                    retries={
-                        'max_attempts': 3,
-                        'mode': 'adaptive'
-                    },
-                    connect_timeout=10,
-                    read_timeout=30
-                )
-                
-                self.s3_client = boto3.client(
-                    's3',
-                    region_name=self.region,
-                    config=config
-                )
-                
-                # Verify bucket exists
-                try:
-                    self.s3_client.head_bucket(Bucket=self.bucket_name)
-                    logger.info(f"S3 storage initialized: bucket={self.bucket_name}, region={self.region}")
-                except ClientError as e:
-                    error_code = e.response.get('Error', {}).get('Code', '')
-                    if error_code == '404':
-                        logger.error(f"S3 bucket '{self.bucket_name}' not found")
-                        self.use_s3 = False
-                    else:
-                        logger.warning(f"Error accessing S3 bucket: {e}. Falling back to local storage.")
-                        self.use_s3 = False
-            except Exception as e:
-                logger.warning(f"Failed to initialize S3 client: {e}. Falling back to local storage.")
-                self.use_s3 = False
-        else:
-            logger.info("S3 storage not configured. Using local filesystem.")
-            self.s3_client = None
+        # Ensure base directory exists
+        Path(self.base_dir).mkdir(parents=True, exist_ok=True)
+        logger.info(f"File storage initialized: using local filesystem at {self.base_dir}")
     
     def upload_file(self, local_path: str, s3_key: str) -> bool:
         """
-        Upload a file from local filesystem to S3.
+        Copy file to storage location (local filesystem).
         
         Args:
             local_path: Path to local file
-            s3_key: S3 object key (path in bucket)
+            s3_key: Relative path within conversations/ directory (e.g., "conversations/Listing Name/file.txt")
             
         Returns:
             True if successful, False otherwise
         """
-        if not self.use_s3:
-            logger.debug(f"S3 not configured. Skipping upload: {s3_key}")
-            return False
-        
         try:
-            self.s3_client.upload_file(local_path, self.bucket_name, s3_key)
-            logger.debug(f"Uploaded file to S3: {s3_key}")
+            # Remove 'conversations/' prefix if present, then build full path
+            relative_path = s3_key.lstrip('conversations/').lstrip('/')
+            target_path = Path(self.base_dir) / relative_path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            shutil.copy2(local_path, target_path)
+            logger.debug(f"Copied file to local storage: {s3_key} -> {target_path}")
             return True
         except Exception as e:
-            logger.error(f"Error uploading file to S3 {s3_key}: {e}", exc_info=True)
+            logger.error(f"Error copying file to local storage {s3_key}: {e}", exc_info=True)
             return False
     
     def download_file(self, s3_key: str, local_path: str) -> bool:
         """
-        Download a file from S3 to local filesystem.
+        Copy file from storage to local path (local filesystem).
         
         Args:
-            s3_key: S3 object key (path in bucket)
-            local_path: Path to save downloaded file
+            s3_key: Relative path within conversations/ directory
+            local_path: Path to save file
             
         Returns:
             True if successful, False otherwise
         """
-        if not self.use_s3:
-            logger.debug(f"S3 not configured. Skipping download: {s3_key}")
-            return False
-        
         try:
-            # Ensure directory exists
-            Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+            # Remove 'conversations/' prefix if present, then build full path
+            relative_path = s3_key.lstrip('conversations/').lstrip('/')
+            source_path = Path(self.base_dir) / relative_path
             
-            self.s3_client.download_file(self.bucket_name, s3_key, local_path)
-            logger.debug(f"Downloaded file from S3: {s3_key} -> {local_path}")
+            if not source_path.exists():
+                logger.warning(f"File not found in local storage: {s3_key}")
+                return False
+            
+            # Ensure target directory exists
+            Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, local_path)
+            logger.debug(f"Copied file from local storage: {s3_key} -> {local_path}")
             return True
-        except ClientError as e:
-            if e.response.get('Error', {}).get('Code') == '404':
-                logger.warning(f"File not found in S3: {s3_key}")
-            else:
-                logger.error(f"Error downloading file from S3 {s3_key}: {e}", exc_info=True)
-            return False
         except Exception as e:
-            logger.error(f"Error downloading file from S3 {s3_key}: {e}", exc_info=True)
+            logger.error(f"Error copying file from local storage {s3_key}: {e}", exc_info=True)
             return False
     
     def read_file(self, s3_key: str) -> Optional[str]:
         """
-        Read file content directly from S3.
+        Read file content from local filesystem.
         
         Args:
-            s3_key: S3 object key (path in bucket)
+            s3_key: Relative path within conversations/ directory
             
         Returns:
             File content as string, or None if error
         """
-        if not self.use_s3:
-            logger.debug(f"S3 not configured. Cannot read from S3: {s3_key}")
-            return None
-        
         try:
-            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=s3_key)
-            content = response['Body'].read().decode('utf-8')
-            logger.debug(f"Read file from S3: {s3_key} ({len(content)} bytes)")
-            return content
-        except ClientError as e:
-            if e.response.get('Error', {}).get('Code') == '404':
-                logger.debug(f"File not found in S3: {s3_key}")
+            # Remove 'conversations/' prefix if present, then build full path
+            relative_path = s3_key.lstrip('conversations/').lstrip('/')
+            file_path = Path(self.base_dir) / relative_path
+            
+            if file_path.exists() and file_path.is_file():
+                content = file_path.read_text(encoding='utf-8')
+                logger.debug(f"Read file from local storage: {s3_key} ({len(content)} bytes)")
+                return content
             else:
-                logger.error(f"Error reading file from S3 {s3_key}: {e}", exc_info=True)
-            return None
+                logger.debug(f"File not found in local storage: {s3_key}")
+                return None
         except Exception as e:
-            logger.error(f"Error reading file from S3 {s3_key}: {e}", exc_info=True)
+            logger.error(f"Error reading file from local storage {s3_key}: {e}", exc_info=True)
             return None
     
     def write_file(self, s3_key: str, content: str) -> bool:
         """
-        Write content directly to S3.
+        Write content directly to local filesystem.
         
         Args:
-            s3_key: S3 object key (path in bucket)
+            s3_key: Relative path within conversations/ directory
             content: Content to write (string)
             
         Returns:
             True if successful, False otherwise
         """
-        if not self.use_s3:
-            logger.debug(f"S3 not configured. Cannot write to S3: {s3_key}")
-            return False
-        
         try:
-            self.s3_client.put_object(
-                Bucket=self.bucket_name,
-                Key=s3_key,
-                Body=content.encode('utf-8'),
-                ContentType='text/plain; charset=utf-8'
-            )
-            logger.debug(f"Wrote file to S3: {s3_key} ({len(content)} bytes)")
+            # Remove 'conversations/' prefix if present, then build full path
+            relative_path = s3_key.lstrip('conversations/').lstrip('/')
+            file_path = Path(self.base_dir) / relative_path
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            file_path.write_text(content, encoding='utf-8')
+            logger.debug(f"Wrote file to local storage: {s3_key} ({len(content)} bytes)")
             return True
         except Exception as e:
-            logger.error(f"Error writing file to S3 {s3_key}: {e}", exc_info=True)
+            logger.error(f"Error writing file to local storage {s3_key}: {e}", exc_info=True)
             return False
     
     def file_exists(self, s3_key: str) -> bool:
         """
-        Check if file exists in S3.
+        Check if file exists in local filesystem.
         
         Args:
-            s3_key: S3 object key (path in bucket)
+            s3_key: Relative path within conversations/ directory
             
         Returns:
             True if file exists, False otherwise
         """
-        if not self.use_s3:
-            return False
-        
         try:
-            self.s3_client.head_object(Bucket=self.bucket_name, Key=s3_key)
-            return True
-        except ClientError as e:
-            if e.response.get('Error', {}).get('Code') == '404':
-                return False
-            logger.error(f"Error checking file existence in S3 {s3_key}: {e}", exc_info=True)
-            return False
+            # Remove 'conversations/' prefix if present, then build full path
+            relative_path = s3_key.lstrip('conversations/').lstrip('/')
+            file_path = Path(self.base_dir) / relative_path
+            return file_path.exists() and file_path.is_file()
         except Exception as e:
-            logger.error(f"Error checking file existence in S3 {s3_key}: {e}", exc_info=True)
+            logger.error(f"Error checking file existence in local storage {s3_key}: {e}", exc_info=True)
             return False
     
     def delete_file(self, s3_key: str) -> bool:
         """
-        Delete file from S3.
+        Delete file from local filesystem.
         
         Args:
-            s3_key: S3 object key (path in bucket)
+            s3_key: Relative path within conversations/ directory
             
         Returns:
             True if successful, False otherwise
         """
-        if not self.use_s3:
-            logger.debug(f"S3 not configured. Cannot delete from S3: {s3_key}")
-            return False
-        
         try:
-            self.s3_client.delete_object(Bucket=self.bucket_name, Key=s3_key)
-            logger.debug(f"Deleted file from S3: {s3_key}")
-            return True
+            # Remove 'conversations/' prefix if present, then build full path
+            relative_path = s3_key.lstrip('conversations/').lstrip('/')
+            file_path = Path(self.base_dir) / relative_path
+            
+            if file_path.exists():
+                file_path.unlink()
+                logger.debug(f"Deleted file from local storage: {s3_key}")
+                return True
+            else:
+                logger.debug(f"File not found for deletion: {s3_key}")
+                return False
         except Exception as e:
-            logger.error(f"Error deleting file from S3 {s3_key}: {e}", exc_info=True)
+            logger.error(f"Error deleting file from local storage {s3_key}: {e}", exc_info=True)
             return False
     
     def list_files(self, prefix: str = "") -> List[str]:
         """
-        List files in S3 with given prefix.
+        List files in local filesystem with given prefix.
         
         Args:
-            prefix: Prefix to filter files (e.g., "conversations/")
+            prefix: Prefix to filter files (e.g., "conversations/Listing Name/")
             
         Returns:
-            List of S3 keys (file paths)
+            List of file paths (relative to conversations/)
         """
-        if not self.use_s3:
-            return []
-        
         try:
-            paginator = self.s3_client.get_paginator('list_objects_v2')
-            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=prefix)
+            # Remove 'conversations/' prefix if present
+            search_prefix = prefix.lstrip('conversations/').lstrip('/')
+            search_path = Path(self.base_dir) / search_prefix if search_prefix else Path(self.base_dir)
             
-            keys = []
-            for page in pages:
-                if 'Contents' in page:
-                    keys.extend([obj['Key'] for obj in page['Contents']])
+            if not search_path.exists():
+                return []
             
-            logger.debug(f"Listed {len(keys)} files from S3 with prefix: {prefix}")
-            return keys
+            files = []
+            # Walk directory and collect all files
+            for file_path in search_path.rglob('*'):
+                if file_path.is_file():
+                    # Get relative path from base_dir
+                    relative_path = file_path.relative_to(Path(self.base_dir))
+                    # Add 'conversations/' prefix for compatibility
+                    files.append(f"conversations/{relative_path.as_posix()}")
+            
+            logger.debug(f"Listed {len(files)} files from local storage with prefix: {prefix}")
+            return files
         except Exception as e:
-            logger.error(f"Error listing files from S3 with prefix {prefix}: {e}", exc_info=True)
+            logger.error(f"Error listing files from local storage with prefix {prefix}: {e}", exc_info=True)
             return []
-
 

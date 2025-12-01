@@ -6,7 +6,6 @@ SQLAlchemy ORM models for Hostaway data system.
 from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
-from sqlalchemy.pool import NullPool
 import sqlalchemy
 from datetime import datetime
 import json
@@ -338,97 +337,43 @@ class SyncLog(Base):
 # Database connection utilities
 def get_engine(db_path: str):
     """
-    Create SQLAlchemy engine with support for PostgreSQL and SQLite.
-    
-    Checks for DATABASE_URL environment variable first (PostgreSQL).
-    Falls back to SQLite if DATABASE_URL is not set.
+    Create SQLAlchemy engine for PostgreSQL.
+    PostgreSQL is required - no SQLite fallback.
     
     Args:
-        db_path: Path to SQLite database (used only if DATABASE_URL not set)
+        db_path: Ignored for PostgreSQL (kept for interface compatibility)
         
     Returns:
         SQLAlchemy engine
     """
     import os
     
-    # Check for PostgreSQL connection string
     database_url = os.getenv("DATABASE_URL")
-    
-    if database_url:
-        # PostgreSQL connection
-        # Connection string format: postgresql://user:password@host:port/database
-        
-        # For serverless (Vercel), use NullPool to avoid connection exhaustion
-        # For local development, use connection pooling
-        is_vercel = os.getenv("VERCEL") == "1"
-        
-        if is_vercel:
-            # Serverless: No connection pooling (each request gets fresh connection)
-            # NullPool doesn't support pool_size, max_overflow, or pool_timeout
-            engine = create_engine(
-                database_url,
-                echo=False,
-                poolclass=NullPool,
-                pool_pre_ping=True,
-                connect_args={
-                    "connect_timeout": 15,
-                    "keepalives": 1,
-                    "keepalives_idle": 30,
-                    "keepalives_interval": 10,
-                    "keepalives_count": 5
-                }
-            )
-        else:
-            # Local: Use connection pooling
-            engine = create_engine(
-                database_url,
-                echo=False,
-                pool_size=5,
-                max_overflow=2,
-                pool_timeout=30,
-                pool_pre_ping=True,
-                connect_args={
-                    "connect_timeout": 15,
-                    "keepalives": 1,
-                    "keepalives_idle": 30,
-                    "keepalives_interval": 10,
-                    "keepalives_count": 5
-                }
-            )
-        return engine
-    else:
-        # SQLite connection (fallback)
-        # Use connect_args to set WAL mode and other pragmas at connection time
-        # This avoids the need to execute PRAGMA separately which can cause locking issues
-        engine = create_engine(
-            f'sqlite:///{db_path}',
-            echo=False,
-            connect_args={
-                'check_same_thread': False,
-                'timeout': 30.0  # 30 second timeout for database operations
-            },
-            pool_pre_ping=True  # Verify connections before using
+    if not database_url:
+        raise ValueError(
+            "DATABASE_URL environment variable is required. "
+            "PostgreSQL is required for this application. "
+            "Example: postgresql://user@localhost:5432/hostaway_dev"
         )
-        
-        # Try to enable WAL mode, but don't fail if database is locked
-        # WAL mode will be set on first connection if possible
-        try:
-            with engine.connect() as conn:
-                result = conn.execute(sqlalchemy.text("PRAGMA journal_mode"))
-                current_mode = result.scalar()
-                if current_mode != 'wal':
-                    try:
-                        conn.execute(sqlalchemy.text("PRAGMA journal_mode=WAL"))
-                        conn.commit()
-                    except Exception:
-                        # If WAL mode can't be set, continue with default mode
-                        pass
-        except Exception:
-            # If we can't connect to set WAL mode, continue anyway
-            # The database might be locked by another process
-            pass
-        
-        return engine
+    
+    # PostgreSQL connection
+    # Connection string format: postgresql://user:password@host:port/database
+    engine = create_engine(
+        database_url,
+        echo=False,
+        pool_size=5,           # Small pool for 10-20 users
+        max_overflow=2,        # Minimal overflow
+        pool_timeout=30,       # Prevent hanging connections
+        pool_pre_ping=True,     # Verify connections before using
+        connect_args={
+            "connect_timeout": 15,  # Increased from 10 to handle slower connections
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5
+        }
+    )
+    return engine
 
 
 def get_session(db_path: str):

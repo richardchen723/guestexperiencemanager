@@ -71,8 +71,9 @@ variable "db_username" {
 }
 
 variable "s3_bucket_name" {
-  description = "Name of the S3 bucket for file storage"
+  description = "Name of the S3 bucket for file storage (optional, not used with Lightsail deployment)"
   type        = string
+  default     = ""
 }
 
 variable "s3_lifecycle_enabled" {
