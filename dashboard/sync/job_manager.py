@@ -67,7 +67,13 @@ class SyncJobManager:
         return None
     
     def get_all_active_jobs(self) -> Dict[str, Dict]:
-        """Get all active (pending or running) jobs"""
+        """
+        Get all active (pending or running) jobs.
+        
+        Note: Jobs remain 'running' until all sync logs are confirmed complete in the database.
+        This allows the UI to correctly show sync status based on database logs rather than
+        premature job completion.
+        """
         with self.lock:
             return {
                 job_id: job for job_id, job in self.jobs.items()
