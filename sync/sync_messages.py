@@ -25,29 +25,28 @@ from database.models import Conversation, MessageMetadata, Reservation, Listing,
 from database.schema import get_database_path
 from config import VERBOSE, MESSAGE_SYNC_PARALLEL_WORKERS, USE_S3_STORAGE, BATCH_SIZE
 import config
+from dashboard.config import CONVERSATIONS_DIR
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
 
 
 class MessageOrganizer:
-    """Organizes messages into folder structure with S3 support"""
+    """Organizes messages into folder structure (local filesystem only)."""
     
-    def __init__(self, base_dir: str = "conversations"):
-        self.base_dir = base_dir
-        self.use_s3 = config.USE_S3_STORAGE
-        
-        if self.use_s3:
-            from utils.s3_storage import S3Storage
-            self.s3_storage = S3Storage()
-        else:
-            self.s3_storage = None
-            self.ensure_base_directory()
+    def __init__(self, base_dir: Optional[str] = None):
+        # Use CONVERSATIONS_DIR from config if base_dir not provided
+        if base_dir is None:
+            base_dir = CONVERSATIONS_DIR
+        # Ensure absolute path
+        self.base_dir = os.path.abspath(base_dir)
+        self.use_s3 = False  # Always False - S3 removed
+        self.s3_storage = None
+        self.ensure_base_directory()
     
     def ensure_base_directory(self):
-        """Create base conversations directory (for local storage only)"""
-        if not self.use_s3:
-            os.makedirs(self.base_dir, exist_ok=True)
+        """Create base conversations directory."""
+        os.makedirs(self.base_dir, exist_ok=True)
     
     def sanitize_filename(self, name: str) -> str:
         """Sanitize filename by removing/replacing invalid characters"""
@@ -128,18 +127,7 @@ class MessageOrganizer:
         # Join all lines and write to file
         full_text = '\n'.join(conversational_text)
         
-        if self.use_s3 and self.s3_storage:
-            # Save to S3
-            s3_key = f"conversations/{safe_listing_name}/{filename}"
-            if self.s3_storage.write_file(s3_key, full_text):
-                return s3_key
-            else:
-                # Fallback to local if S3 write fails
-                logger.warning(f"Failed to write to S3, falling back to local storage: {s3_key}")
-                self.use_s3 = False
-                self.ensure_base_directory()
-        
-        # Local filesystem storage (fallback or primary)
+        # Always save to local filesystem
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(full_text)
         
