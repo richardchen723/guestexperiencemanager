@@ -1,0 +1,51 @@
+[Unit]
+Description=Hostaway Messages Dashboard
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+# Create PID directory
+RuntimeDirectory=hostaway-dashboard
+RuntimeDirectoryMode=0755
+
+[Service]
+Type=simple
+User=hostaway
+Group=hostaway
+WorkingDirectory=/opt/hostaway-messages/app
+Environment="PATH=/opt/hostaway-messages/venv/bin"
+Environment="LOG_FILE=/opt/hostaway-messages/logs/dashboard.log"
+EnvironmentFile=/opt/hostaway-messages/.env
+
+# Gunicorn configuration
+ExecStart=/opt/hostaway-messages/venv/bin/gunicorn \
+    --bind 127.0.0.1:5001 \
+    --workers 4 \
+    --worker-class sync \
+    --timeout 120 \
+    --access-logfile /opt/hostaway-messages/logs/gunicorn-access.log \
+    --error-logfile /opt/hostaway-messages/logs/gunicorn-error.log \
+    --log-level info \
+    --pid /run/hostaway-dashboard/gunicorn.pid \
+    wsgi:application
+
+# Restart configuration
+Restart=always
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/hostaway-messages/conversations /opt/hostaway-messages/app/conversations /opt/hostaway-messages/logs /run/hostaway-dashboard
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target
+
