@@ -26,31 +26,75 @@ env/
 ENV/
 .venv
 
-# IDE
+# IDE and editor files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.project
+.classpath
+.settings/
 
-# Database
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Database files (SQLite - not used in production but may exist locally)
 *.db
 *.db-shm
 *.db-wal
 *.db-journal
 data/database/*.db*
+dashboard/data/*.db*
+dashboard/data/database/
 
 # Logs
-*.log
 logs/
+*.log
+vercel_deploy.log
 
-# Environment variables
+# Environment variables and secrets
 .env
 .env.local
+.env.backup
+.env.*.backup
+.env.production
+.env.staging
+deployment/.env
+deployment/*.env
 
-# OS
-.DS_Store
-Thumbs.db
+# SSH Keys and Certificates (CRITICAL - Never commit private keys!)
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*_key
+*_private_key
+LightsailDefaultKey-*.pem
+*.rsa
+*.dsa
+id_rsa*
+id_ed25519*
+id_ecdsa*
+deployment/*.pem
+deployment/*.key
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+terraform/tfplan
+terraform/tfplan.*
 
 # Project specific
 conversations/
@@ -60,17 +104,14 @@ data/exports/
 !README.md
 !SYNC_README.md
 
-# Temporary files
+# Temporary and backup files
 *.tmp
 *.bak
 *.cache
+*.orig
 
-# Terraform
-.terraform/
-*.tfstate
-*.tfstate.*
-.terraform.lock.hcl
-
-# Environment backups
-.env.backup
-.env.*.backup
+# Build and distribution
+build/
+dist/
+*.whl
+*.tar.gz
