@@ -29,15 +29,15 @@ def initialize_all_databases():
         from dashboard.auth.models import get_engine
         from dashboard.ai.cache import get_engine as get_cache_engine
         from database.models import get_engine as get_main_engine
-        from database.schema import get_database_path
         import sqlalchemy
         
         # Create all schemas first before creating any tables
         # This prevents foreign key reference errors when tables reference each other
         users_engine = get_engine(config.USERS_DATABASE_PATH)
         cache_engine = get_cache_engine()
-        main_db_path = get_database_path()
-        main_engine = get_main_engine(main_db_path)
+        # For PostgreSQL, we use DATABASE_URL directly, not get_database_path()
+        # get_database_path() is for SQLite and will return None with PostgreSQL
+        main_engine = get_main_engine(None)  # None indicates use DATABASE_URL from config
         
         # Create all schemas first (public schema already exists in PostgreSQL, but we ensure others exist)
         schemas_to_create = [
@@ -58,7 +58,8 @@ def initialize_all_databases():
         try:
             from database.models import init_models
             logger.info("Initializing main database (public schema)...")
-            init_models(main_db_path)
+            # For PostgreSQL, pass None to use DATABASE_URL from config
+            init_models(None)
             logger.info("Main database initialized")
         except Exception as e:
             logger.warning(f"Error initializing main database: {e}")

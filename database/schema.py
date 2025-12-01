@@ -10,15 +10,32 @@ from pathlib import Path
 
 
 def get_database_path():
-    """Get the path to the SQLite database file"""
+    """
+    Get the path to the database file.
+    
+    NOTE: This function is deprecated for PostgreSQL deployments.
+    It's kept for backward compatibility but should not be used with PostgreSQL.
+    For PostgreSQL, use DATABASE_URL environment variable instead.
+    """
+    import os
+    # If DATABASE_URL is set, we're using PostgreSQL - return None to indicate SQLite is not used
+    if os.getenv("DATABASE_URL"):
+        return None
+    
+    # Legacy SQLite support (not used in production)
     # Create data directory if it doesn't exist
-    data_dir = Path("data")
-    data_dir.mkdir(exist_ok=True)
-    
-    db_dir = data_dir / "database"
-    db_dir.mkdir(exist_ok=True)
-    
-    return str(db_dir / "hostaway.db")
+    try:
+        data_dir = Path("data")
+        data_dir.mkdir(exist_ok=True)
+        
+        db_dir = data_dir / "database"
+        db_dir.mkdir(exist_ok=True)
+        
+        return str(db_dir / "hostaway.db")
+    except (OSError, PermissionError):
+        # If we can't create directories (e.g., read-only filesystem), return None
+        # This indicates SQLite is not available
+        return None
 
 
 def create_schema(db_path: str):
