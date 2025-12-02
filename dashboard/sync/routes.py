@@ -29,6 +29,103 @@ import dashboard.config as config
 sync_bp = Blueprint('sync', __name__, url_prefix='/sync')
 
 
+def determine_sync_status(
+    sync_run_id: int,
+    logs: list,
+    job_manager,
+    active_jobs: dict = None,
+    active_sync_run_ids: set = None
+) -> str:
+    """
+    Determine the status of a sync run using the same logic as api_sync_detail().
+    
+    This function ensures consistent status determination across history and detail pages.
+    
+    Args:
+        sync_run_id: The sync_run_id to check
+        logs: List of SyncLog objects for this sync_run_id
+        job_manager: JobManager instance
+        active_jobs: Optional dict of active jobs (will be fetched if not provided)
+        active_sync_run_ids: Optional set of active sync_run_ids (will be computed if not provided)
+    
+    Returns:
+        Status string: 'running', 'completed', or 'error'
+    """
+    # Get active jobs if not provided
+    if active_jobs is None:
+        active_jobs = job_manager.get_all_active_jobs()
+    
+    # Get active_sync_run_ids if not provided
+    if active_sync_run_ids is None:
+        active_sync_run_ids = {job.get('sync_run_id') for job in active_jobs.values() if job.get('sync_run_id')}
+    
+    # IMPORTANT: Directly get the job by sync_run_id using the dedicated method
+    # This ensures we find the job even if it wasn't in active_jobs for some reason
+    # This is the most reliable way to check if a sync is running
+    job_by_sync_run_id = job_manager.get_job_by_sync_run_id(sync_run_id)
+    
+    # Check if this sync is still running
+    # First check if job exists and is running (using direct lookup - most reliable)
+    if job_by_sync_run_id and job_by_sync_run_id.get('status') in ('pending', 'running'):
+        is_running = True
+    elif sync_run_id in active_sync_run_ids:
+        # Also check active_sync_run_ids as fallback
+        is_running = True
+    else:
+        is_running = False
+    
+    # Determine expected sync types based on sync_mode from logs
+    if logs:
+        sync_mode = logs[0].sync_mode or 'full'
+        if sync_mode == 'full':
+            expected_types = {'listings', 'reservations', 'guests', 'messages', 'reviews'}
+        else:
+            # Incremental - use actual types from logs
+            actual_types = {log.sync_type for log in logs}
+            expected_types = actual_types if actual_types else {'listings'}
+    else:
+        # No logs yet - default expectations
+        expected_types = {'listings', 'reservations', 'guests', 'messages', 'reviews'}
+        sync_mode = 'full'
+    
+    # Check if all expected sync types are present
+    actual_types = {log.sync_type for log in logs}
+    all_expected_present = expected_types.issubset(actual_types) if expected_types else len(logs) > 0
+    
+    # First, check if there's an active job (highest priority)
+    if is_running:
+        status = 'running'
+    else:
+        # Check if all logs have completed
+        all_logs_completed = all(
+            log.completed_at is not None and 
+            log.status in ('success', 'partial') 
+            for log in logs
+        )
+        
+        # Check if any log has error
+        has_error = any(log.status == 'error' for log in logs)
+        
+        if has_error:
+            status = 'error'
+        elif all_logs_completed and len(logs) > 0 and all_expected_present:
+            # All expected sync types have completed successfully
+            status = 'completed'
+        else:
+            # Not all sync types are done yet (some missing completed_at, wrong status, or missing expected types)
+            status = 'running'
+    
+    # Final pass: ensure active sync_run_id is marked as running
+    # Check both direct job lookup and active_sync_run_ids
+    # This is critical - it ensures that if a job is active, it's always marked as running
+    if job_by_sync_run_id and job_by_sync_run_id.get('status') in ('pending', 'running'):
+        status = 'running'
+    elif sync_run_id in active_sync_run_ids:
+        status = 'running'
+    
+    return status
+
+
 def run_sync_async(job_id: str, sync_mode: str):
     """Run sync in background thread"""
     logger.info(f"Starting async sync: job_id={job_id}, sync_mode={sync_mode}")
@@ -217,9 +314,6 @@ def api_sync_history():
                 else:
                     determined_sync_mode = 'full'  # Default fallback
             
-            # Check if this sync is still running
-            is_running = run_id in active_sync_run_ids
-            
             # Use the earliest started_at from all logs
             earliest_started = min((log.started_at for log in run_logs if log.started_at), default=None)
             
@@ -232,10 +326,6 @@ def api_sync_history():
                 'sync_types': [],
                 '_latest_completed_at': None  # Temporary: keep as datetime for comparison
             }
-            
-            # If running, add job_id for progress tracking
-            if is_running and run_id in jobs_by_sync_run_id:
-                sync_runs[run_id]['job_id'] = jobs_by_sync_run_id[run_id]['job_id']
             
             # Process all logs for this run
             for log in run_logs:
@@ -289,37 +379,18 @@ def api_sync_history():
             actual_types = {log.sync_type for log in run_logs}
             all_expected_present = expected_types.issubset(actual_types) if expected_types else len(run_logs) > 0
             
-            # Determine status using the SAME logic as api_sync_detail()
-            # First, check if there's an active job (highest priority)
-            if run_id in active_sync_run_ids:
-                sync_run['status'] = 'running'
-                # Ensure job_id is set for running syncs
-                if run_id in sync_run_id_to_jobs and sync_run_id_to_jobs[run_id]:
-                    sync_run['job_id'] = sync_run_id_to_jobs[run_id][0]
-            elif run_logs:
-                # Check if all logs have completed
-                all_completed = all(
-                    l.completed_at is not None and 
-                    l.status in ('success', 'partial') 
-                    for l in run_logs
-                )
-                has_error = any(l.status == 'error' for l in run_logs)
-                
-                # A sync is only complete if:
-                # 1. All expected sync types are present
-                # 2. All logs have completed_at set
-                # 3. All logs have status 'success' or 'partial'
-                if has_error:
-                    sync_run['status'] = 'error'
-                elif all_completed and len(run_logs) > 0 and all_expected_present:
-                    # All expected sync types have completed successfully
-                    sync_run['status'] = 'completed'
-                else:
-                    # Not all sync types are done yet (some missing completed_at, wrong status, or missing expected types)
-                    sync_run['status'] = 'running'
-            else:
-                # No logs yet, default to running
-                sync_run['status'] = 'running'
+            # Use the shared status determination function (same as detail page)
+            sync_run['status'] = determine_sync_status(
+                run_id,
+                run_logs,
+                job_manager,
+                active_jobs=active_jobs,
+                active_sync_run_ids=active_sync_run_ids
+            )
+            
+            # Ensure job_id is set for running syncs
+            if sync_run['status'] == 'running' and run_id in sync_run_id_to_jobs and sync_run_id_to_jobs[run_id]:
+                sync_run['job_id'] = sync_run_id_to_jobs[run_id][0]
         
         # Add active jobs that don't have sync_run_id yet AND don't have any database logs
         # (jobs that just started before any sync logs were written)
@@ -379,12 +450,22 @@ def api_sync_history():
         
         # Final pass: ensure all active sync_run_ids are marked as running
         # (in case a job got sync_run_id assigned after we processed its logs)
-        # This matches the logic in api_sync_detail() - always mark active syncs as running
-        for sync_run_id in active_sync_run_ids:
-            if sync_run_id in sync_runs:
-                sync_runs[sync_run_id]['status'] = 'running'
-                if sync_run_id in sync_run_id_to_jobs and sync_run_id_to_jobs[sync_run_id]:
-                    sync_runs[sync_run_id]['job_id'] = sync_run_id_to_jobs[sync_run_id][0]
+        # This is now handled by determine_sync_status(), but we do a final check here
+        # to catch any edge cases where sync_run_id was assigned after status determination
+        for sync_run_id_val in active_sync_run_ids:
+            if sync_run_id_val in sync_runs:
+                # Re-determine status to catch any updates
+                run_logs_for_final = logs_by_run_id.get(sync_run_id_val, [])
+                final_status = determine_sync_status(
+                    sync_run_id_val,
+                    run_logs_for_final,
+                    job_manager,
+                    active_jobs=active_jobs,
+                    active_sync_run_ids=active_sync_run_ids
+                )
+                sync_runs[sync_run_id_val]['status'] = final_status
+                if final_status == 'running' and sync_run_id_val in sync_run_id_to_jobs and sync_run_id_to_jobs[sync_run_id_val]:
+                    sync_runs[sync_run_id_val]['job_id'] = sync_run_id_to_jobs[sync_run_id_val][0]
         
         # Convert to list and sort by started_at
         result = list(sync_runs.values())
@@ -645,74 +726,30 @@ def api_sync_detail(sync_run_id):
                     sync_run_id_to_jobs[sync_run_id_val] = []
                 sync_run_id_to_jobs[sync_run_id_val].append(job_id)
         
-        # Check if this sync is still running
-        # First check if job exists and is running (using direct lookup - most reliable)
-        if job_by_sync_run_id and job_by_sync_run_id.get('status') in ('pending', 'running'):
-            is_running = True
-            active_job = job_by_sync_run_id
-        elif sync_run_id in active_sync_run_ids:
-            # Also check active_sync_run_ids as fallback
-            is_running = True
-            active_job = jobs_by_sync_run_id.get(sync_run_id)
-        else:
-            is_running = False
-            active_job = None
+        # Use the shared status determination function (same as history page)
+        status = determine_sync_status(
+            sync_run_id,
+            logs,
+            job_manager,
+            active_jobs=active_jobs,
+            active_sync_run_ids=active_sync_run_ids
+        )
         
-        # Determine status - a sync is only completed when ALL expected sync types have completed
-        # Expected sync types for full sync: listings, reservations, guests, messages, reviews
-        # Expected sync types for incremental sync: varies (only what needs syncing)
-        
-        # Determine expected sync types based on sync_mode from logs
-        if logs:
-            sync_mode = logs[0].sync_mode or 'full'
-            if sync_mode == 'full':
-                expected_types = {'listings', 'reservations', 'guests', 'messages', 'reviews'}
-            else:
-                # Incremental - use actual types from logs
-                actual_types = {log.sync_type for log in logs}
-                expected_types = actual_types if actual_types else {'listings'}
-        else:
-            # No logs yet - default expectations
-            expected_types = {'listings', 'reservations', 'guests', 'messages', 'reviews'}
-            sync_mode = 'full'
-        
-        # Check if all expected sync types are present
-        actual_types = {log.sync_type for log in logs}
-        all_expected_present = expected_types.issubset(actual_types) if expected_types else len(logs) > 0
-        
-        # First, check if there's an active job (highest priority)
-        if is_running:
-            status = 'running'
-        else:
-            # Check if all logs have completed
-            all_logs_completed = all(
-                log.completed_at is not None and 
-                log.status in ('success', 'partial') 
-                for log in logs
-            )
-            
-            # Check if any log has error
-            has_error = any(log.status == 'error' for log in logs)
-            
-            if has_error:
-                status = 'error'
-            elif all_logs_completed and len(logs) > 0 and all_expected_present:
-                # All expected sync types have completed successfully
-                status = 'completed'
-            else:
-                # Not all sync types are done yet (some missing completed_at, wrong status, or missing expected types)
-                status = 'running'
-        
-        # Final pass: ensure active sync_run_id is marked as running
-        # Check both direct job lookup and active_sync_run_ids
-        # BUT: Don't override if we determined it's incomplete based on logs
-        if job_by_sync_run_id and job_by_sync_run_id.get('status') in ('pending', 'running'):
-            status = 'running'
-        elif sync_run_id in active_sync_run_ids:
-            status = 'running'
-        
-        # Update is_running based on final status
+        # Determine if running based on status
         is_running = (status == 'running')
+        
+        # Get active job for progress tracking
+        if is_running:
+            # First check if job exists and is running (using direct lookup - most reliable)
+            if job_by_sync_run_id and job_by_sync_run_id.get('status') in ('pending', 'running'):
+                active_job = job_by_sync_run_id
+            elif sync_run_id in active_sync_run_ids:
+                # Also check active_sync_run_ids as fallback
+                active_job = jobs_by_sync_run_id.get(sync_run_id)
+            else:
+                active_job = None
+        else:
+            active_job = None
         
         # Aggregate listing_stats from all sync types
         aggregated_stats = {}  # {listing_id: {messages: X, reviews: Y, reservations: Z, guests: W}}
