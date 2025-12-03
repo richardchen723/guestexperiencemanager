@@ -6,6 +6,8 @@ SQLAlchemy ORM models for Hostaway data system.
 from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.types import JSON
 import sqlalchemy
 from datetime import datetime
 import json
@@ -332,6 +334,39 @@ class SyncLog(Base):
             except:
                 return {}
         return {}
+
+
+class SyncJob(Base):
+    """Sync job model - tracks sync job status and progress"""
+    __tablename__ = 'sync_jobs'
+    __table_args__ = (
+        {'schema': 'public'} if os.getenv("DATABASE_URL") else {},
+    )
+    
+    job_id = Column(String(36), primary_key=True)  # UUID string
+    sync_run_id = Column(Integer, nullable=False, index=True)  # Links to sync_logs.sync_run_id
+    sync_mode = Column(String(20), nullable=False)  # 'full' or 'incremental'
+    status = Column(String(20), nullable=False)  # 'pending', 'running', 'completed', 'error', 'cancelled'
+    progress = Column(JSONB if os.getenv("DATABASE_URL") else JSON)  # Progress data as JSON
+    error_message = Column(Text)  # Error message if status='error'
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    completed_at = Column(DateTime)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def get_progress(self) -> dict:
+        """Get progress data as dictionary"""
+        if self.progress:
+            if isinstance(self.progress, str):
+                try:
+                    return json.loads(self.progress)
+                except:
+                    return {}
+            return self.progress
+        return {}
+    
+    def set_progress(self, progress_data: dict):
+        """Set progress data from dictionary"""
+        self.progress = progress_data
 
 
 # Database connection utilities

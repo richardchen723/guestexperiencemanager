@@ -77,7 +77,7 @@ class WebProgressTracker:
         self._update_progress()
     
     def _update_progress(self):
-        """Update progress in job manager"""
+        """Update progress in job manager (which writes to database)"""
         self.job_manager.update_progress(
             self.job_id,
             phase=self.current_phase,

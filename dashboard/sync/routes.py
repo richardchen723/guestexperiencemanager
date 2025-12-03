@@ -18,7 +18,7 @@ sys.path.insert(0, project_root)
 # Configure logger
 logger = logging.getLogger(__name__)
 
-from database.models import SyncLog, Listing, get_session
+from database.models import SyncLog, SyncJob, Listing, get_session
 from database.schema import get_database_path
 from sync.sync_manager import full_sync, incremental_sync
 from dashboard.sync.job_manager import get_job_manager
@@ -29,155 +29,47 @@ import dashboard.config as config
 sync_bp = Blueprint('sync', __name__, url_prefix='/sync')
 
 
-def determine_sync_status(
-    sync_run_id: int,
-    logs: list,
-    job_manager,
-    active_jobs: dict = None,
-    active_sync_run_ids: set = None
-) -> str:
+def get_sync_status(sync_run_id: int) -> str:
     """
-    Determine the status of a sync run using the same logic as api_sync_detail().
-    
-    This function ensures consistent status determination across history and detail pages.
+    Get sync status from database (simple query, no complex inference).
     
     Args:
         sync_run_id: The sync_run_id to check
-        logs: List of SyncLog objects for this sync_run_id
-        job_manager: JobManager instance
-        active_jobs: Optional dict of active jobs (will be fetched if not provided)
-        active_sync_run_ids: Optional set of active sync_run_ids (will be computed if not provided)
     
     Returns:
-        Status string: 'running', 'completed', or 'error'
+        Status string: 'running', 'completed', 'error', or 'unknown'
     """
-    # Get active jobs if not provided
-    if active_jobs is None:
-        active_jobs = job_manager.get_all_active_jobs()
+    db_path = get_database_path()
+    session = get_session(db_path)
     
-    # Get active_sync_run_ids if not provided
-    if active_sync_run_ids is None:
-        active_sync_run_ids = {job.get('sync_run_id') for job in active_jobs.values() if job.get('sync_run_id')}
-    
-    # IMPORTANT: Directly get the job by sync_run_id using the dedicated method
-    # This ensures we find the job even if it wasn't in active_jobs for some reason
-    # This is the most reliable way to check if a sync is running
-    job_by_sync_run_id = job_manager.get_job_by_sync_run_id(sync_run_id)
-    
-    # Check if this sync is still running
-    # First check if job exists and is running (using direct lookup - most reliable)
-    if job_by_sync_run_id and job_by_sync_run_id.get('status') in ('pending', 'running'):
-        is_running = True
-    elif sync_run_id in active_sync_run_ids:
-        # Also check active_sync_run_ids as fallback
-        is_running = True
-    else:
-        is_running = False
-    
-    # Determine expected sync types based on sync_mode from logs
-    if logs:
-        sync_mode = logs[0].sync_mode or 'full'
-        if sync_mode == 'full':
-            expected_types = {'listings', 'reservations', 'guests', 'messages', 'reviews'}
-        else:
-            # Incremental sync - be conservative about expected types
-            # For incremental syncs, we can't reliably determine expected types from logs
-            # while the sync is running, because not all sync types may have been logged yet.
-            # The key issue: if a sync has only synced one type so far and that log is complete,
-            # we shouldn't mark the whole sync as complete - more types might be coming.
-            incomplete_logs = [log for log in logs if log.completed_at is None]
+    try:
+        # Query sync_jobs table directly - this is the single source of truth
+        job = session.query(SyncJob).filter_by(sync_run_id=sync_run_id).first()
+        if job:
+            return job.status
+        
+        # Fallback: If no job record exists (pre-migration syncs), check logs
+        # This provides backward compatibility for old syncs
+        logs = session.query(SyncLog).filter_by(sync_run_id=sync_run_id).all()
+        if logs:
+            # Use simple inference for backward compatibility
+            has_error = any(log.status == 'error' for log in logs)
+            all_completed = all(
+                log.completed_at is not None and 
+                log.status in ('success', 'partial')
+                for log in logs
+            )
             
-            # For incremental syncs, only use expected_types from logs if:
-            # 1. Job is definitely not running (checked via multiple methods)
-            # 2. All logs are complete (no incomplete logs)
-            # 3. We're confident the sync is done
-            if is_running or incomplete_logs:
-                # Job is still running or has incomplete logs - don't assume we know all expected types
-                # Don't use expected_types check - rely on job status and incomplete logs
-                expected_types = None
+            if has_error:
+                return 'error'
+            elif all_completed:
+                return 'completed'
             else:
-                # Job appears not running and all logs are complete
-                # But for incremental syncs, be extra conservative: if we only have 1-2 logs,
-                # the sync might still be running (job status might not be updated yet)
-                # Only trust expected_types if we have multiple logs or can verify job is done
-                if len(logs) <= 1:
-                    # Only one log - sync might still be running, be conservative
-                    expected_types = None
-                else:
-                    # Multiple logs and all complete - use actual types from logs
-                    actual_types = {log.sync_type for log in logs}
-                    expected_types = actual_types if actual_types else {'listings'}
-    else:
-        # No logs yet - default expectations
-        expected_types = {'listings', 'reservations', 'guests', 'messages', 'reviews'}
-        sync_mode = 'full'
-    
-    # Check if all expected sync types are present (only if expected_types is set)
-    actual_types = {log.sync_type for log in logs}
-    all_expected_present = expected_types.issubset(actual_types) if expected_types else len(logs) > 0
-    
-    # First, check if there's an active job (highest priority)
-    if is_running:
-        status = 'running'
-    else:
-        # Check if all logs have completed
-        all_logs_completed = all(
-            log.completed_at is not None and 
-            log.status in ('success', 'partial') 
-            for log in logs
-        )
+                return 'running'
         
-        # Check if any log has error
-        has_error = any(log.status == 'error' for log in logs)
-        
-        # Check for incomplete logs (missing completed_at)
-        has_incomplete_logs = any(log.completed_at is None for log in logs)
-        
-        if has_error:
-            status = 'error'
-        elif has_incomplete_logs:
-            # There are logs without completed_at - still running
-            status = 'running'
-        elif all_logs_completed and len(logs) > 0:
-            # All logs are completed - check if we have all expected types
-            if expected_types is None:
-                # expected_types is None means the job was running or had incomplete logs when we checked
-                # But now all logs are complete. For incremental syncs, we need to be more careful.
-                # If the job is not running and all logs are complete, it might be done.
-                # However, for incremental syncs, if we only have 1 log and job was recently running,
-                # it's likely still running (just not detected yet). Be conservative.
-                if sync_mode == 'incremental' and not is_running:
-                    # For incremental syncs, if job is not running and all logs are complete,
-                    # mark as completed (incremental can have variable types and some may be skipped)
-                    status = 'completed'
-                else:
-                    # Job might still be running - be conservative
-                    status = 'running'
-            elif all_expected_present:
-                # All expected sync types have completed successfully
-                status = 'completed'
-            else:
-                # Not all expected types are present
-                # For incremental syncs, if job is not running and all logs are complete,
-                # mark as completed (some types may have been skipped)
-                if sync_mode == 'incremental':
-                    status = 'completed'
-                else:
-                    # For full sync, we must have all expected types
-                    status = 'running'
-        else:
-            # Not all sync types are done yet (some missing completed_at, wrong status, or missing expected types)
-            status = 'running'
-    
-    # Final pass: ensure active sync_run_id is marked as running
-    # Check both direct job lookup and active_sync_run_ids
-    # This is critical - it ensures that if a job is active, it's always marked as running
-    if job_by_sync_run_id and job_by_sync_run_id.get('status') in ('pending', 'running'):
-        status = 'running'
-    elif sync_run_id in active_sync_run_ids:
-        status = 'running'
-    
-    return status
+        return 'unknown'
+    finally:
+        session.close()
 
 
 def run_sync_async(job_id: str, sync_mode: str):
@@ -228,15 +120,63 @@ def run_sync_async(job_id: str, sync_mode: str):
         # Store results (sync_run_id is already set above)
         job_manager.set_results(job_id, results)
         
-        # IMPORTANT: Don't mark job as 'completed' immediately - let the status be determined by database logs
-        # This ensures the UI shows 'running' until all sync types have actually completed
-        # The job will remain 'running' until all expected sync logs are written and completed
-        # The status determination in api_sync_history() and api_sync_detail() will check the logs
-        # and mark it as 'completed' only when all expected sync types have completed_at set
-        # 
-        # However, we need to keep the job in 'running' status so it appears in active_jobs
-        # The cleanup will happen when the job is old enough or when all logs are confirmed complete
-        logger.info(f"Job {job_id} sync function returned, status remains 'running' until all logs are complete")
+        # Determine final status by checking sync_logs
+        # Query all logs for this sync_run_id
+        db_path = get_database_path()
+        session = get_session(db_path)
+        try:
+            logs = session.query(SyncLog).filter_by(sync_run_id=sync_run_id).all()
+            
+            # Check if any log has error status
+            has_error = any(log.status == 'error' for log in logs)
+            
+            # Determine expected sync types based on sync_mode
+            if sync_mode == 'full':
+                expected_types = {'listings', 'reservations', 'guests', 'messages', 'reviews'}
+            else:
+                # For incremental sync, only check types that actually ran (have logs)
+                expected_types = {log.sync_type for log in logs}
+            
+            # Check if all expected types have completed
+            actual_types = {log.sync_type for log in logs}
+            all_completed = all(
+                log.completed_at is not None and 
+                log.status in ('success', 'partial')
+                for log in logs
+            )
+            
+            # Determine final status
+            if has_error:
+                final_status = 'error'
+            elif len(logs) == 0:
+                # No logs written - might be incremental sync with all types skipped
+                # Check results to see if anything was skipped
+                if sync_mode == 'incremental' and all(
+                    result.get('status') == 'skipped' 
+                    for result in results.values() 
+                    if isinstance(result, dict)
+                ):
+                    final_status = 'completed'  # All types skipped, that's a valid completion
+                else:
+                    final_status = 'error'  # No logs and not all skipped = error
+            elif all_completed and expected_types.issubset(actual_types):
+                final_status = 'completed'
+            else:
+                # Some logs incomplete or missing expected types - keep as running
+                # This shouldn't happen if sync completed normally, but handle it
+                final_status = 'running'
+                logger.warning(f"Job {job_id} sync completed but logs incomplete. Expected: {expected_types}, Actual: {actual_types}")
+            
+            # Update job status
+            job_manager.update_job_status(job_id, final_status)
+            logger.info(f"Job {job_id} final status set to: {final_status}")
+            
+        except Exception as e:
+            logger.error(f"Error determining final status for job {job_id}: {e}", exc_info=True)
+            # On error, mark as error
+            job_manager.update_job_status(job_id, 'error', error=f"Error determining status: {str(e)}")
+        finally:
+            session.close()
         
     except Exception as e:
         import traceback
@@ -248,6 +188,82 @@ def run_sync_async(job_id: str, sync_mode: str):
         )
         logger.debug(f"Full error traceback for job {job_id}:\n{error_details}")
         job_manager.update_job_status(job_id, 'error', error=str(e))
+
+
+def reconcile_stale_jobs(max_age_hours: int = 1):
+    """
+    Reconcile stale jobs (status='running' but updated_at too old).
+    Checks sync_logs to determine actual status and updates sync_jobs accordingly.
+    
+    This should be called periodically (e.g., every 15 minutes) or on server startup.
+    
+    Args:
+        max_age_hours: Jobs older than this (in hours) are considered stale
+    """
+    from datetime import timedelta
+    
+    db_path = get_database_path()
+    session = get_session(db_path)
+    job_manager = get_job_manager()
+    
+    try:
+        cutoff_time = datetime.utcnow() - timedelta(hours=max_age_hours)
+        
+        # Find jobs with status='running' that haven't been updated recently
+        stale_jobs = session.query(SyncJob).filter(
+            SyncJob.status == 'running',
+            SyncJob.updated_at < cutoff_time
+        ).all()
+        
+        for job in stale_jobs:
+            # Query sync_logs for this sync_run_id
+            logs = session.query(SyncLog).filter_by(sync_run_id=job.sync_run_id).all()
+            
+            if not logs:
+                # No logs - sync never started, mark as error
+                logger.warning(f"Reconciling stale job {job.job_id}: No logs found, marking as error")
+                job_manager.update_job_status(job.job_id, 'error', error_message="Sync never started - no logs found")
+                continue
+            
+            # Check if all logs are complete
+            has_error = any(log.status == 'error' for log in logs)
+            all_completed = all(
+                log.completed_at is not None and 
+                log.status in ('success', 'partial')
+                for log in logs
+            )
+            
+            # Determine expected types based on sync_mode
+            if job.sync_mode == 'full':
+                expected_types = {'listings', 'reservations', 'guests', 'messages', 'reviews'}
+            else:
+                # For incremental, use actual types from logs
+                expected_types = {log.sync_type for log in logs}
+            
+            actual_types = {log.sync_type for log in logs}
+            
+            # Determine final status
+            if has_error:
+                final_status = 'error'
+            elif all_completed and expected_types.issubset(actual_types):
+                final_status = 'completed'
+            else:
+                # Still incomplete - keep as running but log warning
+                logger.warning(f"Reconciling stale job {job.job_id}: Logs incomplete, keeping as running")
+                # Update updated_at to prevent it from being checked again immediately
+                job.updated_at = datetime.utcnow()
+                session.commit()
+                continue
+            
+            # Update job status
+            logger.info(f"Reconciling stale job {job.job_id}: Updating status from 'running' to '{final_status}'")
+            job_manager.update_job_status(job.job_id, final_status)
+            
+    except Exception as e:
+        logger.error(f"Error reconciling stale jobs: {e}", exc_info=True)
+        session.rollback()
+    finally:
+        session.close()
 
 
 @sync_bp.route('/history')
@@ -433,14 +449,8 @@ def api_sync_history():
             actual_types = {log.sync_type for log in run_logs}
             all_expected_present = expected_types.issubset(actual_types) if expected_types else len(run_logs) > 0
             
-            # Use the shared status determination function (same as detail page)
-            sync_run['status'] = determine_sync_status(
-                run_id,
-                run_logs,
-                job_manager,
-                active_jobs=active_jobs,
-                active_sync_run_ids=active_sync_run_ids
-            )
+            # Use simple database query for status (single source of truth)
+            sync_run['status'] = get_sync_status(run_id)
             
             # Ensure job_id is set for running syncs
             if sync_run['status'] == 'running' and run_id in sync_run_id_to_jobs and sync_run_id_to_jobs[run_id]:
@@ -504,19 +514,11 @@ def api_sync_history():
         
         # Final pass: ensure all active sync_run_ids are marked as running
         # (in case a job got sync_run_id assigned after we processed its logs)
-        # This is now handled by determine_sync_status(), but we do a final check here
-        # to catch any edge cases where sync_run_id was assigned after status determination
+        # Re-query status from database to catch any updates
         for sync_run_id_val in active_sync_run_ids:
             if sync_run_id_val in sync_runs:
-                # Re-determine status to catch any updates
-                run_logs_for_final = logs_by_run_id.get(sync_run_id_val, [])
-                final_status = determine_sync_status(
-                    sync_run_id_val,
-                    run_logs_for_final,
-                    job_manager,
-                    active_jobs=active_jobs,
-                    active_sync_run_ids=active_sync_run_ids
-                )
+                # Query status from database (single source of truth)
+                final_status = get_sync_status(sync_run_id_val)
                 sync_runs[sync_run_id_val]['status'] = final_status
                 if final_status == 'running' and sync_run_id_val in sync_run_id_to_jobs and sync_run_id_to_jobs[sync_run_id_val]:
                     sync_runs[sync_run_id_val]['job_id'] = sync_run_id_to_jobs[sync_run_id_val][0]
@@ -780,14 +782,8 @@ def api_sync_detail(sync_run_id):
                     sync_run_id_to_jobs[sync_run_id_val] = []
                 sync_run_id_to_jobs[sync_run_id_val].append(job_id)
         
-        # Use the shared status determination function (same as history page)
-        status = determine_sync_status(
-            sync_run_id,
-            logs,
-            job_manager,
-            active_jobs=active_jobs,
-            active_sync_run_ids=active_sync_run_ids
-        )
+        # Use simple database query for status (single source of truth)
+        status = get_sync_status(sync_run_id)
         
         # Determine if running based on status
         is_running = (status == 'running')

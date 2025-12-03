@@ -326,6 +326,27 @@ def create_schema(db_path: str):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_logs_started ON sync_logs(started_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_logs_run_id ON sync_logs(sync_run_id)")
     
+    # 10. Sync Jobs Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sync_jobs (
+            job_id TEXT PRIMARY KEY,
+            sync_run_id INTEGER NOT NULL,
+            sync_mode TEXT NOT NULL,
+            status TEXT NOT NULL,
+            progress TEXT,
+            error_message TEXT,
+            started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # Create indexes for sync_jobs
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_jobs_run_id ON sync_jobs(sync_run_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_jobs_status ON sync_jobs(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_jobs_started ON sync_jobs(started_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_jobs_updated ON sync_jobs(updated_at)")
+    
     conn.commit()
     conn.close()
     

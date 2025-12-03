@@ -1,25 +1,44 @@
 #!/usr/bin/env python3
 """
 Sync job manager for async execution of sync operations.
+Uses database table sync_jobs for persistence.
 """
 
 import uuid
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Optional
 from threading import Lock
+from database.models import SyncJob, get_session
+from database.schema import get_database_path
+from sqlalchemy.orm.attributes import flag_modified
 
 
 class SyncJobManager:
-    """Thread-safe manager for sync jobs"""
+    """Thread-safe manager for sync jobs using database persistence"""
     
     def __init__(self):
-        self.jobs: Dict[str, Dict] = {}
         self.lock = Lock()
+    
+    def _job_to_dict(self, job: SyncJob) -> Dict:
+        """Convert SyncJob model to dictionary format"""
+        if not job:
+            return None
+        return {
+            'job_id': job.job_id,
+            'sync_mode': job.sync_mode,
+            'sync_run_id': job.sync_run_id,
+            'status': job.status,
+            'progress': job.get_progress(),
+            'results': None,  # Not stored in database, kept for compatibility
+            'error': job.error_message,
+            'started_at': job.started_at,
+            'completed_at': job.completed_at
+        }
     
     def create_job(self, sync_mode: str) -> str:
         """
-        Create a new sync job.
+        Create a new sync job in database.
         
         Args:
             sync_mode: 'full' or 'incremental'
@@ -28,14 +47,16 @@ class SyncJobManager:
             job_id: Unique job identifier
         """
         job_id = str(uuid.uuid4())
+        db_path = get_database_path()
+        session = get_session(db_path)
         
-        with self.lock:
-            self.jobs[job_id] = {
-                'job_id': job_id,
-                'sync_mode': sync_mode,
-                'sync_run_id': None,  # Will be set when sync starts
-                'status': 'pending',
-                'progress': {
+        try:
+            job = SyncJob(
+                job_id=job_id,
+                sync_run_id=0,  # Will be set when sync starts
+                sync_mode=sync_mode,
+                status='pending',
+                progress={
                     'phase': None,
                     'processed': 0,
                     'total': 0,
@@ -44,98 +65,189 @@ class SyncJobManager:
                     'errors': 0,
                     'percentage': 0.0
                 },
-                'results': None,
-                'error': None,
-                'started_at': datetime.utcnow(),
-                'completed_at': None
-            }
+                error_message=None,
+                started_at=datetime.utcnow(),
+                completed_at=None,
+                updated_at=datetime.utcnow()
+            )
+            session.add(job)
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
         
         return job_id
     
     def set_sync_run_id(self, job_id: str, sync_run_id: int):
         """Set sync_run_id for a job"""
-        with self.lock:
-            if job_id in self.jobs:
-                self.jobs[job_id]['sync_run_id'] = sync_run_id
+        db_path = get_database_path()
+        session = get_session(db_path)
+        
+        try:
+            with self.lock:
+                job = session.query(SyncJob).filter_by(job_id=job_id).first()
+                if job:
+                    job.sync_run_id = sync_run_id
+                    job.updated_at = datetime.utcnow()
+                    session.commit()
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
     
     def get_job_by_sync_run_id(self, sync_run_id: int) -> Optional[Dict]:
-        """Get job by sync_run_id"""
-        with self.lock:
-            for job in self.jobs.values():
-                if job.get('sync_run_id') == sync_run_id:
-                    return job
-        return None
+        """Get job by sync_run_id - always gets fresh data from database"""
+        db_path = get_database_path()
+        session = get_session(db_path)
+        
+        try:
+            # Query with merge=False to ensure we get fresh data
+            job = session.query(SyncJob).filter_by(sync_run_id=sync_run_id).first()
+            if job:
+                # Expire the object to force reload from database on next access
+                session.expire(job)
+                # Access progress to trigger reload
+                _ = job.progress
+            return self._job_to_dict(job)
+        finally:
+            session.close()
     
     def get_all_active_jobs(self) -> Dict[str, Dict]:
         """
-        Get all active (pending or running) jobs.
+        Get all active (pending or running) jobs from database.
         
         Note: Jobs remain 'running' until all sync logs are confirmed complete in the database.
         This allows the UI to correctly show sync status based on database logs rather than
         premature job completion.
         """
-        with self.lock:
-            return {
-                job_id: job for job_id, job in self.jobs.items()
-                if job['status'] in ('pending', 'running')
-            }
+        db_path = get_database_path()
+        session = get_session(db_path)
+        
+        try:
+            jobs = session.query(SyncJob).filter(
+                SyncJob.status.in_(['pending', 'running'])
+            ).all()
+            return {job.job_id: self._job_to_dict(job) for job in jobs}
+        finally:
+            session.close()
     
     def get_job(self, job_id: str) -> Optional[Dict]:
-        """Get job status by job_id"""
-        with self.lock:
-            return self.jobs.get(job_id)
+        """Get job status by job_id - always gets fresh data from database"""
+        db_path = get_database_path()
+        session = get_session(db_path)
+        
+        try:
+            # Query with merge=False to ensure we get fresh data
+            job = session.query(SyncJob).filter_by(job_id=job_id).first()
+            if job:
+                # Expire the object to force reload from database on next access
+                session.expire(job)
+                # Access progress to trigger reload
+                _ = job.progress
+            return self._job_to_dict(job)
+        finally:
+            session.close()
     
     def get_all_jobs(self) -> Dict[str, Dict]:
-        """Get all jobs (including completed ones)"""
-        with self.lock:
-            return self.jobs.copy()
+        """Get all jobs (including completed ones) from database"""
+        db_path = get_database_path()
+        session = get_session(db_path)
+        
+        try:
+            jobs = session.query(SyncJob).all()
+            return {job.job_id: self._job_to_dict(job) for job in jobs}
+        finally:
+            session.close()
     
     def update_job_status(self, job_id: str, status: str, **kwargs):
         """Update job status and optional fields"""
-        with self.lock:
-            if job_id in self.jobs:
-                self.jobs[job_id]['status'] = status
-                for key, value in kwargs.items():
-                    self.jobs[job_id][key] = value
-                if status in ('completed', 'error'):
-                    self.jobs[job_id]['completed_at'] = datetime.utcnow()
+        db_path = get_database_path()
+        session = get_session(db_path)
+        
+        try:
+            with self.lock:
+                job = session.query(SyncJob).filter_by(job_id=job_id).first()
+                if job:
+                    job.status = status
+                    job.updated_at = datetime.utcnow()
+                    
+                    # Handle error_message from kwargs
+                    if 'error' in kwargs:
+                        job.error_message = kwargs['error']
+                    elif 'error_message' in kwargs:
+                        job.error_message = kwargs['error_message']
+                    
+                    if status in ('completed', 'error'):
+                        job.completed_at = datetime.utcnow()
+                    
+                    session.commit()
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
     
     def update_progress(self, job_id: str, **progress_data):
-        """Update job progress"""
-        with self.lock:
-            if job_id in self.jobs:
-                progress = self.jobs[job_id]['progress']
-                progress.update(progress_data)
-                
-                # Calculate percentage
-                if progress.get('total', 0) > 0:
-                    progress['percentage'] = (progress.get('processed', 0) / progress['total']) * 100
-                else:
-                    progress['percentage'] = 0.0
-                
-                # Store current_item for display
-                if 'current_item' in progress_data:
-                    progress['current_item'] = progress_data['current_item']
+        """Update job progress in database"""
+        db_path = get_database_path()
+        session = get_session(db_path)
+        
+        try:
+            with self.lock:
+                job = session.query(SyncJob).filter_by(job_id=job_id).first()
+                if job:
+                    progress = job.get_progress()
+                    progress.update(progress_data)
+                    
+                    # Calculate percentage
+                    if progress.get('total', 0) > 0:
+                        progress['percentage'] = (progress.get('processed', 0) / progress['total']) * 100
+                    else:
+                        progress['percentage'] = 0.0
+                    
+                    # Store current_item for display
+                    if 'current_item' in progress_data:
+                        progress['current_item'] = progress_data['current_item']
+                    
+                    job.set_progress(progress)
+                    job.updated_at = datetime.utcnow()
+                    # Mark progress field as modified so SQLAlchemy detects the change
+                    flag_modified(job, 'progress')
+                    session.commit()
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
     
     def set_results(self, job_id: str, results: Dict):
-        """Set job results"""
-        with self.lock:
-            if job_id in self.jobs:
-                self.jobs[job_id]['results'] = results
+        """Set job results (stored in progress field for now)"""
+        # Results are not stored separately in database
+        # They can be retrieved from sync_logs if needed
+        pass
     
     def cleanup_old_jobs(self, max_age_hours: int = 24):
-        """Remove jobs older than max_age_hours"""
-        cutoff = datetime.utcnow().timestamp() - (max_age_hours * 3600)
+        """Remove jobs older than max_age_hours from database"""
+        db_path = get_database_path()
+        session = get_session(db_path)
+        cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
         
-        with self.lock:
-            to_remove = []
-            for job_id, job in self.jobs.items():
-                started = job.get('started_at')
-                if started and started.timestamp() < cutoff:
-                    to_remove.append(job_id)
-            
-            for job_id in to_remove:
-                del self.jobs[job_id]
+        try:
+            with self.lock:
+                old_jobs = session.query(SyncJob).filter(
+                    SyncJob.started_at < cutoff
+                ).all()
+                for job in old_jobs:
+                    session.delete(job)
+                session.commit()
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
 
 # Global job manager instance
