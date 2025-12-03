@@ -1,6 +1,9 @@
 #!/bin/bash
 # PostgreSQL setup script for Hostaway Messages
 # Run this script as postgres user: sudo -u postgres ./deployment/setup-postgres.sh
+# 
+# Note: For EC2 deployments, ensure ec2-setup.sh has been run first to move
+# PostgreSQL data directory to EBS volume (/opt/hostaway-messages/postgresql)
 
 set -e  # Exit on error
 
@@ -18,6 +21,14 @@ NC='\033[0m' # No Color
 if [ "$USER" != "postgres" ]; then
     echo -e "${RED}Please run as postgres user: sudo -u postgres $0${NC}"
     exit 1
+fi
+
+# Verify PostgreSQL data directory (for EC2 with EBS)
+if [ -L /var/lib/postgresql ] && [ -d /opt/hostaway-messages/postgresql ]; then
+    echo -e "${GREEN}PostgreSQL data directory is on EBS volume (good for persistence)${NC}"
+elif [ -d /opt/hostaway-messages/postgresql ]; then
+    echo -e "${YELLOW}Note: EBS volume detected but PostgreSQL data directory may not be symlinked${NC}"
+    echo -e "${YELLOW}For EC2 deployments, ensure ec2-setup.sh has been run${NC}"
 fi
 
 DB_NAME="hostaway_prod"

@@ -80,15 +80,39 @@ def determine_sync_status(
         if sync_mode == 'full':
             expected_types = {'listings', 'reservations', 'guests', 'messages', 'reviews'}
         else:
-            # Incremental - use actual types from logs
-            actual_types = {log.sync_type for log in logs}
-            expected_types = actual_types if actual_types else {'listings'}
+            # Incremental sync - be conservative about expected types
+            # For incremental syncs, we can't reliably determine expected types from logs
+            # while the sync is running, because not all sync types may have been logged yet.
+            # The key issue: if a sync has only synced one type so far and that log is complete,
+            # we shouldn't mark the whole sync as complete - more types might be coming.
+            incomplete_logs = [log for log in logs if log.completed_at is None]
+            
+            # For incremental syncs, only use expected_types from logs if:
+            # 1. Job is definitely not running (checked via multiple methods)
+            # 2. All logs are complete (no incomplete logs)
+            # 3. We're confident the sync is done
+            if is_running or incomplete_logs:
+                # Job is still running or has incomplete logs - don't assume we know all expected types
+                # Don't use expected_types check - rely on job status and incomplete logs
+                expected_types = None
+            else:
+                # Job appears not running and all logs are complete
+                # But for incremental syncs, be extra conservative: if we only have 1-2 logs,
+                # the sync might still be running (job status might not be updated yet)
+                # Only trust expected_types if we have multiple logs or can verify job is done
+                if len(logs) <= 1:
+                    # Only one log - sync might still be running, be conservative
+                    expected_types = None
+                else:
+                    # Multiple logs and all complete - use actual types from logs
+                    actual_types = {log.sync_type for log in logs}
+                    expected_types = actual_types if actual_types else {'listings'}
     else:
         # No logs yet - default expectations
         expected_types = {'listings', 'reservations', 'guests', 'messages', 'reviews'}
         sync_mode = 'full'
     
-    # Check if all expected sync types are present
+    # Check if all expected sync types are present (only if expected_types is set)
     actual_types = {log.sync_type for log in logs}
     all_expected_present = expected_types.issubset(actual_types) if expected_types else len(logs) > 0
     
@@ -106,11 +130,41 @@ def determine_sync_status(
         # Check if any log has error
         has_error = any(log.status == 'error' for log in logs)
         
+        # Check for incomplete logs (missing completed_at)
+        has_incomplete_logs = any(log.completed_at is None for log in logs)
+        
         if has_error:
             status = 'error'
-        elif all_logs_completed and len(logs) > 0 and all_expected_present:
-            # All expected sync types have completed successfully
-            status = 'completed'
+        elif has_incomplete_logs:
+            # There are logs without completed_at - still running
+            status = 'running'
+        elif all_logs_completed and len(logs) > 0:
+            # All logs are completed - check if we have all expected types
+            if expected_types is None:
+                # expected_types is None means the job was running or had incomplete logs when we checked
+                # But now all logs are complete. For incremental syncs, we need to be more careful.
+                # If the job is not running and all logs are complete, it might be done.
+                # However, for incremental syncs, if we only have 1 log and job was recently running,
+                # it's likely still running (just not detected yet). Be conservative.
+                if sync_mode == 'incremental' and not is_running:
+                    # For incremental syncs, if job is not running and all logs are complete,
+                    # mark as completed (incremental can have variable types and some may be skipped)
+                    status = 'completed'
+                else:
+                    # Job might still be running - be conservative
+                    status = 'running'
+            elif all_expected_present:
+                # All expected sync types have completed successfully
+                status = 'completed'
+            else:
+                # Not all expected types are present
+                # For incremental syncs, if job is not running and all logs are complete,
+                # mark as completed (some types may have been skipped)
+                if sync_mode == 'incremental':
+                    status = 'completed'
+                else:
+                    # For full sync, we must have all expected types
+                    status = 'running'
         else:
             # Not all sync types are done yet (some missing completed_at, wrong status, or missing expected types)
             status = 'running'

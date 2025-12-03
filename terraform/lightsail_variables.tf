@@ -13,15 +13,16 @@ variable "lightsail_availability_zone" {
 }
 
 variable "lightsail_bundle_id" {
-  description = "Lightsail bundle ID (instance size). Options: nano_2_0, micro_2_0, small_2_0, medium_2_0, large_2_0, xlarge_2_0, 2xlarge_2_0"
+  description = "Lightsail bundle ID (instance size). Options: nano_3_0, micro_3_0, small_3_0, medium_3_0, large_3_0, xlarge_3_0, 2xlarge_3_0"
   type        = string
-  default     = "micro_2_0"  # 1GB RAM, 1 vCPU - start with this, can upgrade later
+  default     = "micro_3_0" # 1GB RAM, 2 vCPU - restoring instance
   # Options:
-  # nano_2_0: 0.5GB RAM, 1 vCPU (~$3.50/month)
-  # micro_2_0: 1GB RAM, 1 vCPU (~$5/month)
-  # small_2_0: 2GB RAM, 1 vCPU (~$10/month) - RECOMMENDED
-  # medium_2_0: 4GB RAM, 2 vCPU (~$20/month)
-  # large_2_0: 8GB RAM, 2 vCPU (~$40/month)
+  # nano_3_0: 0.5GB RAM, 2 vCPU (~$5/month)
+  # micro_3_0: 1GB RAM, 2 vCPU (~$7/month)
+  # small_3_0: 2GB RAM, 2 vCPU (~$12/month)
+  # medium_3_0: 4GB RAM, 2 vCPU (~$24/month) - CURRENT
+  # large_3_0: 8GB RAM, 2 vCPU (~$44/month)
+  # xlarge_3_0: 16GB RAM, 4 vCPU (~$84/month)
 }
 
 variable "attach_static_ip" {

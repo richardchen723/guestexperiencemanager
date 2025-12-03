@@ -94,6 +94,27 @@ sudo ./deployment/setup-env.sh
 sudo ./deployment/deploy.sh
 ```
 
+**On EC2 (Ubuntu with EBS volume):**
+See the comprehensive [EC2 Deployment Guide](deployment/EC2_DEPLOYMENT.md) for detailed instructions.
+
+Quick setup:
+```bash
+# 1. Set up EBS volume (format and mount)
+sudo ./deployment/setup-ebs.sh
+
+# 2. Initial server setup
+sudo ./deployment/ec2-setup.sh
+
+# 3. PostgreSQL setup
+sudo -u postgres ./deployment/setup-postgres.sh
+
+# 4. Environment configuration
+sudo ./deployment/setup-env.sh
+
+# 5. Deploy application
+sudo ./deployment/deploy.sh
+```
+
 ### Database Initialization
 
 The application will automatically create all required schemas and tables on first run:
@@ -101,6 +122,41 @@ The application will automatically create all required schemas and tables on fir
 - `users` schema: User authentication data
 - `tickets` schema: Ticket management data
 - `cache` schema: AI analysis cache
+
+## Deployment Platform Comparison
+
+### Lightsail vs EC2
+
+| Feature | Lightsail | EC2 |
+|---------|-----------|-----|
+| **Cost (4GB RAM)** | ~$24/month (all-inclusive) | ~$29-35/month (compute + storage) |
+| **Setup Complexity** | Lower (simpler) | Higher (more configuration) |
+| **Flexibility** | Limited (fixed bundles) | High (many instance types) |
+| **Storage** | Included in bundle | Separate EBS volumes (more control) |
+| **Networking** | Simplified | Full VPC control |
+| **Scaling** | Manual | Auto Scaling Groups available |
+| **Best For** | Simple deployments, quick setup | Production, scaling needs, flexibility |
+| **Instance Sizes** | Fixed bundles (may require AWS Support) | Full range of instance types |
+| **Persistence** | Instance storage | EBS volumes (survive instance termination) |
+
+**Recommendation:**
+- **Lightsail**: Best for simple deployments, cost-effective, easier setup
+- **EC2**: Best for production environments needing flexibility, scaling, or specific requirements
+
+### Choosing a Deployment Platform
+
+1. **Lightsail** if:
+   - You want the simplest setup
+   - Cost is a primary concern
+   - You don't need advanced networking
+   - Fixed instance sizes are acceptable
+
+2. **EC2** if:
+   - You need specific instance types or sizes
+   - You want full control over storage (EBS volumes)
+   - You plan to scale horizontally
+   - You need advanced VPC networking
+   - You want Reserved Instances for cost savings
 
 ## AWS Infrastructure Setup (DEPRECATED)
 
