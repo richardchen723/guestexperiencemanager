@@ -7,7 +7,7 @@ import sys
 import os
 from datetime import datetime, date
 from typing import Optional, List
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Date
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Date, Boolean, UniqueConstraint
 import sqlalchemy
 from sqlalchemy.orm import relationship
 from pathlib import Path
@@ -54,6 +54,8 @@ class Ticket(Base):
     assigned_user = relationship('User', foreign_keys=[assigned_user_id])
     creator = relationship('User', foreign_keys=[created_by])
     comments = relationship('TicketComment', back_populates='ticket', cascade='all, delete-orphan', order_by='TicketComment.created_at')
+    tags = relationship('TicketTag', back_populates='ticket', cascade='all, delete-orphan')
+    images = relationship('TicketImage', back_populates='ticket', cascade='all, delete-orphan', order_by='TicketImage.created_at')
     
     def __repr__(self):
         return f"<Ticket(ticket_id={self.ticket_id}, title='{self.title}', status='{self.status}')>"
@@ -83,6 +85,9 @@ class Ticket(Base):
         if include_comments:
             result['comments'] = [comment.to_dict() for comment in self.comments]
         
+        # Include images
+        result['images'] = [img.to_dict() for img in self.images] if hasattr(self, 'images') else []
+        
         return result
 
 
@@ -105,6 +110,7 @@ class TicketComment(Base):
     # Relationships
     ticket = relationship('Ticket', back_populates='comments')
     user = relationship('User', foreign_keys=[user_id])
+    images = relationship('CommentImage', back_populates='comment', cascade='all, delete-orphan', order_by='CommentImage.created_at')
     
     def __repr__(self):
         return f"<TicketComment(comment_id={self.comment_id}, ticket_id={self.ticket_id})>"
@@ -122,7 +128,137 @@ class TicketComment(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
         
+        # Include images - safely access the relationship
+        try:
+            if hasattr(self, 'images'):
+                # Access images to ensure they're loaded
+                images_list = list(self.images) if self.images else []
+                result['images'] = [img.to_dict() for img in images_list]
+            else:
+                result['images'] = []
+        except Exception as e:
+            # If there's an error accessing images (e.g., detached instance), return empty list
+            result['images'] = []
+        
         return result
+
+
+class TicketTag(Base):
+    """Junction table for many-to-many relationship between tickets and tags"""
+    __tablename__ = 'ticket_tags'
+    __table_args__ = (
+        {'schema': 'tickets'} if os.getenv("DATABASE_URL") else {},
+    )
+    
+    # Foreign key references - adjust schema prefix for PostgreSQL
+    _tickets_fk_schema = 'tickets.' if os.getenv("DATABASE_URL") else ''
+    
+    ticket_id = Column(Integer, ForeignKey(f'{_tickets_fk_schema}tickets.ticket_id', ondelete='CASCADE'), primary_key=True, nullable=False, index=True)
+    # tag_id references tags table in main database (public schema) - no FK constraint since it's cross-database
+    tag_id = Column(Integer, primary_key=True, nullable=False, index=True)
+    is_inherited = Column(Boolean, default=False, nullable=False)  # True if inherited from property, False if ticket-specific
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    ticket = relationship('Ticket', back_populates='tags')
+    # Note: Tag relationship would need to be set up separately since Tag is in different schema
+    
+    def __repr__(self):
+        return f"<TicketTag(ticket_id={self.ticket_id}, tag_id={self.tag_id}, is_inherited={self.is_inherited})>"
+
+
+class TicketImage(Base):
+    """Image model for ticket attachments."""
+    __tablename__ = 'ticket_images'
+    __table_args__ = (
+        {'schema': 'tickets'} if os.getenv("DATABASE_URL") else {},
+    )
+    
+    image_id = Column(Integer, primary_key=True, autoincrement=True)
+    # Foreign key references - adjust schema prefix for PostgreSQL
+    _tickets_fk_schema = 'tickets.' if os.getenv("DATABASE_URL") else ''
+    _users_fk_schema = 'users.' if os.getenv("DATABASE_URL") else ''
+    ticket_id = Column(Integer, ForeignKey(f'{_tickets_fk_schema}tickets.ticket_id', ondelete='CASCADE'), nullable=False, index=True)
+    file_path = Column(String, nullable=False)  # Relative path to image file
+    file_name = Column(String, nullable=False)  # Original filename
+    file_size = Column(Integer, nullable=False)  # Size in bytes
+    mime_type = Column(String, nullable=False)  # image/jpeg, image/png, etc.
+    width = Column(Integer, nullable=True)  # Image width in pixels
+    height = Column(Integer, nullable=True)  # Image height in pixels
+    thumbnail_path = Column(String, nullable=True)  # Optional thumbnail path
+    uploaded_by = Column(Integer, ForeignKey(f'{_users_fk_schema}users.user_id'), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    
+    # Relationships
+    ticket = relationship('Ticket', back_populates='images')
+    uploader = relationship('User', foreign_keys=[uploaded_by])
+    
+    def __repr__(self):
+        return f"<TicketImage(image_id={self.image_id}, ticket_id={self.ticket_id}, file_name='{self.file_name}')>"
+    
+    def to_dict(self):
+        """Convert image to dictionary."""
+        return {
+            'image_id': self.image_id,
+            'ticket_id': self.ticket_id,
+            'file_path': self.file_path,
+            'file_name': self.file_name,
+            'file_size': self.file_size,
+            'mime_type': self.mime_type,
+            'width': self.width,
+            'height': self.height,
+            'thumbnail_path': self.thumbnail_path,
+            'uploaded_by': self.uploaded_by,
+            'uploaded_by_name': self.uploader.name if self.uploader else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class CommentImage(Base):
+    """Image model for comment attachments."""
+    __tablename__ = 'comment_images'
+    __table_args__ = (
+        {'schema': 'tickets'} if os.getenv("DATABASE_URL") else {},
+    )
+    
+    image_id = Column(Integer, primary_key=True, autoincrement=True)
+    # Foreign key references - adjust schema prefix for PostgreSQL
+    _tickets_fk_schema = 'tickets.' if os.getenv("DATABASE_URL") else ''
+    _users_fk_schema = 'users.' if os.getenv("DATABASE_URL") else ''
+    comment_id = Column(Integer, ForeignKey(f'{_tickets_fk_schema}ticket_comments.comment_id', ondelete='CASCADE'), nullable=False, index=True)
+    file_path = Column(String, nullable=False)  # Relative path to image file
+    file_name = Column(String, nullable=False)  # Original filename
+    file_size = Column(Integer, nullable=False)  # Size in bytes
+    mime_type = Column(String, nullable=False)  # image/jpeg, image/png, etc.
+    width = Column(Integer, nullable=True)  # Image width in pixels
+    height = Column(Integer, nullable=True)  # Image height in pixels
+    thumbnail_path = Column(String, nullable=True)  # Optional thumbnail path
+    uploaded_by = Column(Integer, ForeignKey(f'{_users_fk_schema}users.user_id'), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    
+    # Relationships
+    comment = relationship('TicketComment', back_populates='images')
+    uploader = relationship('User', foreign_keys=[uploaded_by])
+    
+    def __repr__(self):
+        return f"<CommentImage(image_id={self.image_id}, comment_id={self.comment_id}, file_name='{self.file_name}')>"
+    
+    def to_dict(self):
+        """Convert image to dictionary."""
+        return {
+            'image_id': self.image_id,
+            'comment_id': self.comment_id,
+            'file_path': self.file_path,
+            'file_name': self.file_name,
+            'file_size': self.file_size,
+            'mime_type': self.mime_type,
+            'width': self.width,
+            'height': self.height,
+            'thumbnail_path': self.thumbnail_path,
+            'uploaded_by': self.uploaded_by,
+            'uploaded_by_name': self.uploader.name if self.uploader else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
 
 
 def init_ticket_database():
@@ -166,6 +302,8 @@ def init_ticket_database():
     if not database_url:
         # Migrate tickets table if needed (add category column)
         _migrate_tickets_table(engine)
+        # Migrate image tables if needed
+        _migrate_image_tables(engine)
     
     return engine
 
@@ -215,6 +353,27 @@ def _migrate_tickets_table(engine):
             pass
 
 
+def _migrate_image_tables(engine):
+    """Create image tables if they don't exist (SQLite only)."""
+    import sqlalchemy
+    with engine.connect() as conn:
+        # Check if ticket_images table exists
+        result = conn.execute(sqlalchemy.text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='ticket_images'"
+        ))
+        if not result.fetchone():
+            # Table doesn't exist, create_all will handle it
+            return
+        
+        # Check if comment_images table exists
+        result = conn.execute(sqlalchemy.text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='comment_images'"
+        ))
+        if not result.fetchone():
+            # Table doesn't exist, create_all will handle it
+            return
+
+
 def _safe_expunge(session, obj):
     """Safely expunge an object from the session if it's present."""
     if obj is None:
@@ -233,9 +392,18 @@ def _safe_expunge(session, obj):
 def create_ticket(listing_id: int, issue_title: str, title: str, description: str = None,
                   assigned_user_id: int = None, status: str = 'Open', priority: str = 'Low',
                   category: str = 'other', due_date: date = None, created_by: int = None) -> Ticket:
-    """Create a new ticket."""
+    """Create a new ticket and inherit tags from the property."""
     from sqlalchemy.orm import joinedload
+    import sys
+    import os
+    # Import main database models for tag inheritance
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    sys.path.insert(0, project_root)
+    from database.models import get_session as get_main_session, ListingTag
+    
     session = get_session()
+    main_session = get_main_session(config.MAIN_DATABASE_PATH)
+    
     try:
         ticket = Ticket(
             listing_id=listing_id,
@@ -250,8 +418,24 @@ def create_ticket(listing_id: int, issue_title: str, title: str, description: st
             created_by=created_by
         )
         session.add(ticket)
-        session.commit()
+        session.flush()  # Get ticket_id without committing
         ticket_id = ticket.ticket_id
+        
+        # Inherit tags from property
+        listing_tags = main_session.query(ListingTag).filter(
+            ListingTag.listing_id == listing_id
+        ).all()
+        
+        for listing_tag in listing_tags:
+            ticket_tag = TicketTag(
+                ticket_id=ticket_id,
+                tag_id=listing_tag.tag_id,
+                is_inherited=True
+            )
+            session.add(ticket_tag)
+        
+        session.commit()
+        main_session.close()
         
         # Re-query with eager loading to get relationships
         ticket = session.query(Ticket).options(
@@ -272,9 +456,13 @@ def create_ticket(listing_id: int, issue_title: str, title: str, description: st
         return ticket
     except Exception as e:
         session.rollback()
+        if 'main_session' in locals():
+            main_session.rollback()
         raise e
     finally:
         session.close()
+        if 'main_session' in locals():
+            main_session.close()
 
 
 def get_ticket(ticket_id: int) -> Optional[Ticket]:
@@ -284,18 +472,22 @@ def get_ticket(ticket_id: int) -> Optional[Ticket]:
     try:
         ticket = session.query(Ticket).options(
             joinedload(Ticket.assigned_user),
-            joinedload(Ticket.creator)
+            joinedload(Ticket.creator),
+            joinedload(Ticket.images)
         ).filter(Ticket.ticket_id == ticket_id).first()
         
         if ticket:
             # Access relationships while session is open to populate them
             _ = ticket.assigned_user
             _ = ticket.creator
+            _ = ticket.images
             
             # Expunge to detach from session but keep loaded relationships
             session.expunge(ticket)
             _safe_expunge(session, ticket.assigned_user)
             _safe_expunge(session, ticket.creator)
+            for img in ticket.images:
+                _safe_expunge(session, img)
         
         return ticket
     finally:
@@ -366,7 +558,8 @@ def update_ticket(ticket_id: int, **kwargs) -> Optional[Ticket]:
     try:
         ticket = session.query(Ticket).options(
             joinedload(Ticket.assigned_user),
-            joinedload(Ticket.creator)
+            joinedload(Ticket.creator),
+            joinedload(Ticket.images).joinedload(TicketImage.uploader)
         ).filter(Ticket.ticket_id == ticket_id).first()
         
         if not ticket:
@@ -384,18 +577,26 @@ def update_ticket(ticket_id: int, **kwargs) -> Optional[Ticket]:
         # Re-query with eager loading to get fresh relationships
         ticket = session.query(Ticket).options(
             joinedload(Ticket.assigned_user),
-            joinedload(Ticket.creator)
+            joinedload(Ticket.creator),
+            joinedload(Ticket.images).joinedload(TicketImage.uploader)
         ).filter(Ticket.ticket_id == ticket_id).first()
         
         if ticket:
             # Access relationships while session is open to populate them
             _ = ticket.assigned_user
             _ = ticket.creator
+            _ = ticket.images  # Access images while session is open
+            # Access uploader for each image while session is open
+            for img in ticket.images:
+                _ = img.uploader
             
             # Expunge to detach from session but keep loaded relationships
             session.expunge(ticket)
             _safe_expunge(session, ticket.assigned_user)
             _safe_expunge(session, ticket.creator)
+            for img in ticket.images:
+                _safe_expunge(session, img.uploader)
+                _safe_expunge(session, img)
         
         return ticket
     except Exception as e:
@@ -444,16 +645,24 @@ def add_ticket_comment(ticket_id: int, user_id: int, comment_text: str) -> Ticke
         
         # Re-query with eager loading to get relationships
         comment = session.query(TicketComment).options(
-            joinedload(TicketComment.user)
+            joinedload(TicketComment.user),
+            joinedload(TicketComment.images).joinedload(CommentImage.uploader)
         ).filter(TicketComment.comment_id == comment_id).first()
         
         if comment:
-            # Access relationship while session is open to populate it
+            # Access relationships while session is open to populate them
             _ = comment.user
+            _ = comment.images  # Access images while session is open
+            # Access uploader for each image while session is open
+            for img in comment.images:
+                _ = img.uploader
             
-            # Expunge to detach from session but keep loaded relationship
+            # Expunge to detach from session but keep loaded relationships
             session.expunge(comment)
             _safe_expunge(session, comment.user)
+            for img in comment.images:
+                _safe_expunge(session, img.uploader)
+                _safe_expunge(session, img)
         
         return comment
     except Exception as e:
@@ -469,7 +678,8 @@ def get_ticket_comments(ticket_id: int) -> List[TicketComment]:
     session = get_session()
     try:
         comments = session.query(TicketComment).options(
-            joinedload(TicketComment.user)
+            joinedload(TicketComment.user),
+            joinedload(TicketComment.images).joinedload(CommentImage.uploader)
         ).filter(
             TicketComment.ticket_id == ticket_id
         ).order_by(TicketComment.created_at.asc()).all()
@@ -477,8 +687,15 @@ def get_ticket_comments(ticket_id: int) -> List[TicketComment]:
         # Access relationships while session is open and expunge to detach
         for comment in comments:
             _ = comment.user
+            _ = comment.images
+            # Access uploader for each image while session is open
+            for img in comment.images:
+                _ = img.uploader
             session.expunge(comment)
             _safe_expunge(session, comment.user)
+            for img in comment.images:
+                _safe_expunge(session, img.uploader)
+                _safe_expunge(session, img)
         
         return comments
     finally:

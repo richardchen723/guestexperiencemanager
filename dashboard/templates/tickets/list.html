@@ -63,6 +63,8 @@
         <button onclick="clearFilters()" class="btn-secondary">Clear</button>
     </div>
     
+    <div id="tagFilterContainer" class="tag-filter" style="margin-top: 1rem;"></div>
+    
     <div id="loading" class="loading" style="display: none;">
         Loading tickets...
     </div>
@@ -76,47 +78,113 @@
     </div>
 </div>
 
+<script src="/static/js/tags.js"></script>
 <script>
 let allListings = [];
 let allUsers = [];
+let tagFilter = null;
+let selectedTagIds = [];
+let tagLogic = 'AND';
 
 // Load data on page load
 document.addEventListener('DOMContentLoaded', function() {
+    // Initialize tag filter
+    tagFilter = new TagFilter('#tagFilterContainer', {
+        endpoint: '/api/tags',
+        onFilterChange: (tagIds, logic) => {
+            selectedTagIds = tagIds;
+            tagLogic = logic;
+            loadTickets();
+        }
+    });
+    
     loadListings();
     loadUsers();
     loadTickets();
 });
 
 function loadListings() {
+    const select = document.getElementById('filterListing');
+    if (!select) {
+        console.error('filterListing select element not found');
+        return;
+    }
+    
     fetch('/api/listings')
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
         .then(listings => {
-            allListings = listings;
-            const select = document.getElementById('filterListing');
-            listings.forEach(listing => {
+            allListings = listings || [];
+            // Clear existing options except "All Listings"
+            while (select.options.length > 1) {
+                select.remove(1);
+            }
+            
+            // Add listings
+            allListings.forEach(listing => {
                 const option = document.createElement('option');
                 option.value = listing.listing_id;
-                option.textContent = listing.name;
+                option.textContent = listing.name || `Listing ${listing.listing_id}`;
                 select.appendChild(option);
             });
+            
+            console.log(`Loaded ${allListings.length} listings`);
         })
-        .catch(error => console.error('Error loading listings:', error));
+        .catch(error => {
+            console.error('Error loading listings:', error);
+            // Show error to user
+            const errorMsg = document.createElement('div');
+            errorMsg.className = 'error';
+            errorMsg.textContent = 'Failed to load listings. Please refresh the page.';
+            errorMsg.style.margin = '0.5rem 0';
+            select.parentElement.appendChild(errorMsg);
+        });
 }
 
 function loadUsers() {
+    const select = document.getElementById('filterAssigned');
+    if (!select) {
+        console.error('filterAssigned select element not found');
+        return;
+    }
+    
     fetch('/tickets/api/users')
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
         .then(users => {
-            allUsers = users;
-            const select = document.getElementById('filterAssigned');
-            users.forEach(user => {
+            allUsers = users || [];
+            // Clear existing options except "All Users"
+            while (select.options.length > 1) {
+                select.remove(1);
+            }
+            
+            // Add users
+            allUsers.forEach(user => {
                 const option = document.createElement('option');
                 option.value = user.user_id;
-                option.textContent = user.name || user.email;
+                option.textContent = user.name || user.email || `User ${user.user_id}`;
                 select.appendChild(option);
             });
+            
+            console.log(`Loaded ${allUsers.length} users`);
         })
-        .catch(error => console.error('Error loading users:', error));
+        .catch(error => {
+            console.error('Error loading users:', error);
+            // Show error to user
+            const errorMsg = document.createElement('div');
+            errorMsg.className = 'error';
+            errorMsg.textContent = 'Failed to load users. Please refresh the page.';
+            errorMsg.style.margin = '0.5rem 0';
+            select.parentElement.appendChild(errorMsg);
+        });
 }
 
 function loadTickets() {
@@ -139,6 +207,15 @@ function loadTickets() {
     if (status) params.append('status', status);
     if (priority) params.append('priority', priority);
     if (category) params.append('category', category);
+    
+    // Add tag filters
+    if (selectedTagIds.length > 0 && tagFilter) {
+        const selectedTags = tagFilter.allTags.filter(t => selectedTagIds.includes(t.tag_id));
+        if (selectedTags.length > 0) {
+            params.append('tags', selectedTags.map(t => t.name).join(','));
+            params.append('tag_logic', tagLogic);
+        }
+    }
     
     fetch(`/tickets/api/tickets?${params.toString()}`)
         .then(response => response.json())
@@ -179,6 +256,19 @@ function createTicketCard(ticket) {
     
     const categoryDisplay = ticket.category ? ticket.category.charAt(0).toUpperCase() + ticket.category.slice(1) : 'Other';
     
+    // Render tags
+    let tagsHtml = '';
+    if (ticket.tags && ticket.tags.length > 0) {
+        tagsHtml = '<div class="ticket-card-tags tags-display" style="margin-top: 0.5rem;">';
+        ticket.tags.forEach(tag => {
+            const tagStyle = tag.color ? `style="background-color: ${tag.color}; border-color: ${tag.color};" class="tag-chip has-color"` : 'class="tag-chip"';
+            const inheritedClass = tag.is_inherited ? ' tag-chip-inherited' : '';
+            const title = tag.is_inherited ? ' title="Inherited from property"' : '';
+            tagsHtml += `<span ${tagStyle}${inheritedClass}${title}>${escapeHtml(tag.name)}</span>`;
+        });
+        tagsHtml += '</div>';
+    }
+    
     card.innerHTML = `
         <div class="ticket-card-header">
                     <h3><a href="/tickets/${ticket.ticket_id}/page">${escapeHtml(ticket.title)}</a></h3>
@@ -192,6 +282,7 @@ function createTicketCard(ticket) {
             <p class="ticket-issue">Issue: ${escapeHtml(ticket.issue_title)}</p>
             <p class="ticket-listing">Property: ${escapeHtml(listingName)}</p>
             ${ticket.description ? `<p class="ticket-description">${escapeHtml(ticket.description.substring(0, 150))}${ticket.description.length > 150 ? '...' : ''}</p>` : ''}
+            ${tagsHtml}
             <div class="ticket-meta">
                 ${ticket.assigned_user_name ? `<span class="ticket-assigned">Assigned to: ${escapeHtml(ticket.assigned_user_name)}</span>` : '<span class="ticket-assigned">Unassigned</span>'}
                 ${dueDate ? `<span class="ticket-due ${isOverdue ? 'overdue' : ''}">Due: ${formatDate(dueDate)}</span>` : ''}
@@ -216,6 +307,9 @@ function clearFilters() {
     document.getElementById('filterStatus').value = '';
     document.getElementById('filterPriority').value = '';
     document.getElementById('filterCategory').value = '';
+    if (tagFilter) {
+        tagFilter.clear();
+    }
     loadTickets();
 }
 

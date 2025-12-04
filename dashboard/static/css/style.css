@@ -231,6 +231,27 @@ footer {
     line-height: var(--leading-normal);
 }
 
+.listing-card-tags-section {
+    padding-top: 1rem;
+    border-top: 1px solid #e5e7eb;
+    margin-top: 1rem;
+}
+
+.listing-card-tags-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.625rem;
+}
+
+.listing-card-tags-header label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #374151;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
 .listing-card-footer {
     padding: var(--space-6);
     border-top: 1px solid var(--border-light);
@@ -1277,6 +1298,7 @@ footer {
 
 .tickets-container {
     display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 1rem;
 }
 
@@ -1284,8 +1306,9 @@ footer {
     background: var(--white);
     border: 1px solid var(--gray-200);
     border-radius: var(--radius);
-    padding: 1.5rem;
+    padding: 1.25rem;
     transition: all 0.2s;
+    max-width: 100%;
 }
 
 .ticket-card:hover {

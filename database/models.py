@@ -3,11 +3,12 @@
 SQLAlchemy ORM models for Hostaway data system.
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, Boolean, Text, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import JSON
+from sqlalchemy.sql import func
 import sqlalchemy
 from datetime import datetime
 import json
@@ -55,6 +56,7 @@ class Listing(Base):
     reservations = relationship('Reservation', back_populates='listing')
     conversations = relationship('Conversation', back_populates='listing')
     reviews = relationship('Review', back_populates='listing', cascade='all, delete-orphan')
+    tags = relationship('ListingTag', back_populates='listing', cascade='all, delete-orphan')
     
     def get_amenities_list(self):
         """Parse amenities JSON string to list"""
@@ -369,6 +371,57 @@ class SyncJob(Base):
         self.progress = progress_data
 
 
+class Tag(Base):
+    """Tag model - stores tag definitions"""
+    __tablename__ = 'tags'
+    
+    tag_id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False, unique=True, index=True)
+    color = Column(String(7), nullable=True)  # Hex color code (e.g., #FF5733)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    listing_tags = relationship('ListingTag', back_populates='tag', cascade='all, delete-orphan')
+    
+    def __repr__(self):
+        return f"<Tag(tag_id={self.tag_id}, name='{self.name}')>"
+    
+    @staticmethod
+    def normalize_name(name: str) -> str:
+        """Normalize tag name: lowercase, trim whitespace, validate"""
+        if not name:
+            raise ValueError("Tag name cannot be empty")
+        normalized = name.strip().lower()
+        if len(normalized) == 0:
+            raise ValueError("Tag name cannot be empty")
+        if len(normalized) > 50:
+            raise ValueError("Tag name cannot exceed 50 characters")
+        # Allow alphanumeric, spaces, hyphens, underscores
+        if not all(c.isalnum() or c in (' ', '-', '_') for c in normalized):
+            raise ValueError("Tag name can only contain letters, numbers, spaces, hyphens, and underscores")
+        return normalized
+
+
+class ListingTag(Base):
+    """Junction table for many-to-many relationship between listings and tags"""
+    __tablename__ = 'listing_tags'
+    
+    listing_id = Column(Integer, ForeignKey('listings.listing_id', ondelete='CASCADE'), primary_key=True, nullable=False, index=True)
+    tag_id = Column(Integer, ForeignKey('tags.tag_id', ondelete='CASCADE'), primary_key=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    listing = relationship('Listing', back_populates='tags')
+    tag = relationship('Tag', back_populates='listing_tags')
+    
+    __table_args__ = (
+        UniqueConstraint('listing_id', 'tag_id', name='uq_listing_tag'),
+    )
+    
+    def __repr__(self):
+        return f"<ListingTag(listing_id={self.listing_id}, tag_id={self.tag_id})>"
+
+
 # Database connection utilities
 def get_engine(db_path: str):
     """
@@ -478,6 +531,9 @@ def init_models(db_path: str):
         
         # Migrate reviews table if needed (add status column)
         _migrate_reviews_table(engine)
+        
+        # Migrate tags tables if needed
+        _migrate_tags_tables(engine)
     
     return engine
 
@@ -546,3 +602,44 @@ def _migrate_reviews_table(engine):
                 conn.rollback()
                 # Column might already exist, ignore
                 pass
+
+
+def _migrate_tags_tables(engine):
+    """Create tags tables if they don't exist (SQLite only)"""
+    with engine.connect() as conn:
+        # Check if tags table exists
+        result = conn.execute(sqlalchemy.text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='tags'"
+        ))
+        if not result.fetchone():
+            # Create tags table
+            conn.execute(sqlalchemy.text("""
+                CREATE TABLE tags (
+                    tag_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    color TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(sqlalchemy.text("CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name)"))
+            conn.commit()
+        
+        # Check if listing_tags table exists
+        result = conn.execute(sqlalchemy.text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='listing_tags'"
+        ))
+        if not result.fetchone():
+            # Create listing_tags table
+            conn.execute(sqlalchemy.text("""
+                CREATE TABLE listing_tags (
+                    listing_id INTEGER NOT NULL,
+                    tag_id INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (listing_id, tag_id),
+                    FOREIGN KEY (listing_id) REFERENCES listings(listing_id) ON DELETE CASCADE,
+                    FOREIGN KEY (tag_id) REFERENCES tags(tag_id) ON DELETE CASCADE
+                )
+            """))
+            conn.execute(sqlalchemy.text("CREATE INDEX IF NOT EXISTS idx_listing_tags_listing ON listing_tags(listing_id)"))
+            conn.execute(sqlalchemy.text("CREATE INDEX IF NOT EXISTS idx_listing_tags_tag ON listing_tags(tag_id)"))
+            conn.commit()

@@ -13,10 +13,16 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, project_root)
 
 from dashboard.tickets.models import (
-    Ticket, TicketComment, get_session, create_ticket, get_ticket,
+    Ticket, TicketComment, TicketTag, TicketImage, CommentImage, get_session, create_ticket, get_ticket,
     get_tickets, update_ticket, delete_ticket, add_ticket_comment, get_ticket_comments,
     init_ticket_database, TICKET_CATEGORIES
 )
+from dashboard.tickets.image_utils import save_uploaded_image
+from pathlib import Path
+from flask import send_from_directory
+from database.models import Tag, ListingTag, get_session as get_main_session
+from sqlalchemy import func, or_, and_
+from sqlalchemy.orm import joinedload
 from dashboard.auth.decorators import approved_required, admin_required
 from dashboard.auth.session import get_current_user
 from dashboard.auth.models import get_all_users
@@ -118,43 +124,124 @@ def ticket_edit_form(ticket_id):
 @tickets_bp.route('/api/tickets', methods=['GET'])
 @approved_required
 def api_list_tickets():
-    """Get list of tickets with optional filters."""
+    """Get list of tickets with optional filters including tags."""
     listing_id = request.args.get('listing_id', type=int)
     assigned_user_id = request.args.get('assigned_user_id', type=int)
     status = request.args.get('status', type=str)
     priority = request.args.get('priority', type=str)
     category = request.args.get('category', type=str)
     issue_title = request.args.get('issue_title', type=str)
+    tags_param = request.args.get('tags', '')
+    tag_logic = request.args.get('tag_logic', 'AND').upper()  # AND or OR
+    
     # Normalize issue_title (trim whitespace)
     if issue_title:
         issue_title = issue_title.strip()
     
-    tickets = get_tickets(
-        listing_id=listing_id,
-        assigned_user_id=assigned_user_id,
-        status=status,
-        priority=priority,
-        category=category,
-        issue_title=issue_title
-    )
-    
-    # Get listing names for display
+    session = get_session()
     main_session = get_main_session(config.MAIN_DATABASE_PATH)
-    listing_map = {}
+    
     try:
+        # Start with base query
+        query = session.query(Ticket)
+        
+        # Apply tag filtering if provided
+        if tags_param:
+            tag_names = [t.strip().lower() for t in tags_param.split(',') if t.strip()]
+            if tag_names:
+                # Get tag IDs from main database
+                tags = main_session.query(Tag).filter(Tag.name.in_(tag_names)).all()
+                tag_ids = [t.tag_id for t in tags]
+                
+                if tag_ids:
+                    if tag_logic == 'OR':
+                        # At least one tag must match
+                        ticket_ids_with_tags = session.query(TicketTag.ticket_id).filter(
+                            TicketTag.tag_id.in_(tag_ids)
+                        ).distinct().all()
+                    else:
+                        # All tags must match (AND)
+                        ticket_ids_with_tags = session.query(TicketTag.ticket_id).filter(
+                            TicketTag.tag_id.in_(tag_ids)
+                        ).group_by(TicketTag.ticket_id).having(
+                            func.count(TicketTag.tag_id.distinct()) == len(tag_ids)
+                        ).all()
+                    
+                    ticket_ids = [row[0] for row in ticket_ids_with_tags]
+                    query = query.filter(Ticket.ticket_id.in_(ticket_ids))
+                else:
+                    # No tags found, return empty result
+                    return jsonify([])
+        
+        # Apply other filters
+        if listing_id:
+            query = query.filter(Ticket.listing_id == listing_id)
+        if assigned_user_id:
+            query = query.filter(Ticket.assigned_user_id == assigned_user_id)
+        if status:
+            query = query.filter(Ticket.status == status)
+        if priority:
+            query = query.filter(Ticket.priority == priority)
+        if category:
+            query = query.filter(Ticket.category == category)
+        
+        tickets = query.order_by(Ticket.created_at.desc()).all()
+        
+        # Filter by issue_title in Python if provided
+        if issue_title:
+            issue_title_normalized = issue_title.strip().lower()
+            filtered_tickets = []
+            for t in tickets:
+                if t.issue_title:
+                    ticket_issue_normalized = t.issue_title.strip().lower()
+                    if ticket_issue_normalized == issue_title_normalized:
+                        filtered_tickets.append(t)
+                    elif (len(ticket_issue_normalized) > 0 and len(issue_title_normalized) > 0):
+                        shorter = min(ticket_issue_normalized, issue_title_normalized, key=len)
+                        longer = max(ticket_issue_normalized, issue_title_normalized, key=len)
+                        if len(shorter) >= len(longer) * 0.8 and shorter in longer:
+                            filtered_tickets.append(t)
+            tickets = filtered_tickets
+        
+        # Get listing names for display
+        listing_map = {}
         listings = main_session.query(Listing).all()
         listing_map = {l.listing_id: {'name': l.name, 'address': l.address} for l in listings}
+        
+        # Get tags for all tickets
+        ticket_ids = [t.ticket_id for t in tickets]
+        ticket_tags_map = {}
+        if ticket_ids:
+            ticket_tags = session.query(TicketTag).filter(
+                TicketTag.ticket_id.in_(ticket_ids)
+            ).all()
+            # Get tag details from main database
+            tag_ids = list(set([tt.tag_id for tt in ticket_tags]))
+            if tag_ids:
+                tags = main_session.query(Tag).filter(Tag.tag_id.in_(tag_ids)).all()
+                tag_map = {t.tag_id: {'tag_id': t.tag_id, 'name': t.name, 'color': t.color} for t in tags}
+                
+                for tt in ticket_tags:
+                    if tt.ticket_id not in ticket_tags_map:
+                        ticket_tags_map[tt.ticket_id] = []
+                    if tt.tag_id in tag_map:
+                        ticket_tags_map[tt.ticket_id].append({
+                            **tag_map[tt.tag_id],
+                            'is_inherited': tt.is_inherited
+                        })
+        
+        result = []
+        for ticket in tickets:
+            ticket_dict = ticket.to_dict(include_comments=False)
+            if ticket.listing_id in listing_map:
+                ticket_dict['listing'] = listing_map[ticket.listing_id]
+            ticket_dict['tags'] = ticket_tags_map.get(ticket.ticket_id, [])
+            result.append(ticket_dict)
+        
+        return jsonify(result)
     finally:
+        session.close()
         main_session.close()
-    
-    result = []
-    for ticket in tickets:
-        ticket_dict = ticket.to_dict(include_comments=False)
-        if ticket.listing_id in listing_map:
-            ticket_dict['listing'] = listing_map[ticket.listing_id]
-        result.append(ticket_dict)
-    
-    return jsonify(result)
 
 
 @tickets_bp.route('/api/tickets/<int:ticket_id>', methods=['GET'])
@@ -354,6 +441,16 @@ def api_update_ticket(ticket_id):
             return jsonify(updated_ticket.to_dict(include_comments=False))
         return jsonify({'error': 'Failed to update ticket'}), 500
     except Exception as e:
+        import logging
+        import traceback
+        logger = logging.getLogger(__name__)
+        error_details = traceback.format_exc()
+        logger.error(
+            f"Error updating ticket {ticket_id}: {str(e)}",
+            exc_info=True,
+            extra={'ticket_id': ticket_id, 'update_data': update_data}
+        )
+        logger.debug(f"Full error traceback:\n{error_details}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -410,6 +507,16 @@ def api_add_comment(ticket_id):
         comment = add_ticket_comment(ticket_id, current_user.user_id, comment_text)
         return jsonify(comment.to_dict()), 201
     except Exception as e:
+        import logging
+        import traceback
+        logger = logging.getLogger(__name__)
+        error_details = traceback.format_exc()
+        logger.error(
+            f"Error adding comment to ticket {ticket_id}: {str(e)}",
+            exc_info=True,
+            extra={'ticket_id': ticket_id, 'user_id': current_user.user_id}
+        )
+        logger.debug(f"Full error traceback:\n{error_details}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -492,6 +599,598 @@ def api_users_list():
         'email': u.email,
         'picture_url': u.picture_url
     } for u in approved_users])
+
+
+# Ticket Tag Endpoints
+@tickets_bp.route('/api/tickets/<int:ticket_id>/tags', methods=['GET'])
+@approved_required
+def api_get_ticket_tags(ticket_id):
+    """Get all tags for a ticket (with inherited flag)."""
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        return jsonify({'error': 'Ticket not found'}), 404
+    
+    session = get_session()
+    main_session = get_main_session(config.MAIN_DATABASE_PATH)
+    
+    try:
+        ticket_tags = session.query(TicketTag).filter(
+            TicketTag.ticket_id == ticket_id
+        ).all()
+        
+        tag_ids = [tt.tag_id for tt in ticket_tags]
+        if not tag_ids:
+            return jsonify([])
+        
+        tags = main_session.query(Tag).filter(Tag.tag_id.in_(tag_ids)).all()
+        tag_map = {t.tag_id: {'tag_id': t.tag_id, 'name': t.name, 'color': t.color} for t in tags}
+        
+        result = []
+        for tt in ticket_tags:
+            if tt.tag_id in tag_map:
+                result.append({
+                    **tag_map[tt.tag_id],
+                    'is_inherited': tt.is_inherited,
+                    'created_at': tt.created_at.isoformat() if tt.created_at else None
+                })
+        
+        return jsonify(result)
+    finally:
+        session.close()
+        main_session.close()
+
+
+@tickets_bp.route('/api/tickets/<int:ticket_id>/tags', methods=['POST'])
+@approved_required
+def api_add_ticket_tags(ticket_id):
+    """Add tag(s) to a ticket."""
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        return jsonify({'error': 'Ticket not found'}), 404
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Invalid request data'}), 400
+    
+    tag_names = data.get('tags', [])
+    if not tag_names or not isinstance(tag_names, list):
+        return jsonify({'error': 'tags must be a non-empty array'}), 400
+    
+    session = get_session()
+    main_session = get_main_session(config.MAIN_DATABASE_PATH)
+    
+    try:
+        added_tags = []
+        for tag_name in tag_names:
+            try:
+                normalized_name = Tag.normalize_name(tag_name)
+            except ValueError:
+                continue  # Skip invalid tag names
+            
+            # Get or create tag in main database
+            tag = main_session.query(Tag).filter(Tag.name == normalized_name).first()
+            if not tag:
+                tag = Tag(name=normalized_name)
+                main_session.add(tag)
+                main_session.flush()  # Get tag_id
+            
+            # Check if ticket already has this tag
+            existing = session.query(TicketTag).filter(
+                TicketTag.ticket_id == ticket_id,
+                TicketTag.tag_id == tag.tag_id
+            ).first()
+            
+            if not existing:
+                ticket_tag = TicketTag(
+                    ticket_id=ticket_id,
+                    tag_id=tag.tag_id,
+                    is_inherited=False  # User-added tags are not inherited
+                )
+                session.add(ticket_tag)
+                added_tags.append({
+                    'tag_id': tag.tag_id,
+                    'name': tag.name,
+                    'color': tag.color,
+                    'is_inherited': False
+                })
+        
+        main_session.commit()
+        session.commit()
+        return jsonify(added_tags), 201
+    except Exception as e:
+        main_session.rollback()
+        session.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
+        main_session.close()
+
+
+@tickets_bp.route('/api/tickets/<int:ticket_id>/tags/<int:tag_id>', methods=['DELETE'])
+@approved_required
+def api_remove_ticket_tag(ticket_id, tag_id):
+    """Remove a tag from a ticket."""
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        return jsonify({'error': 'Ticket not found'}), 404
+    
+    session = get_session()
+    try:
+        ticket_tag = session.query(TicketTag).filter(
+            TicketTag.ticket_id == ticket_id,
+            TicketTag.tag_id == tag_id
+        ).first()
+        
+        if not ticket_tag:
+            return jsonify({'error': 'Tag not found on ticket'}), 404
+        
+        session.delete(ticket_tag)
+        session.commit()
+        return jsonify({'message': 'Tag removed successfully'}), 200
+    except Exception as e:
+        session.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
+
+
+# Image Upload Endpoints
+
+@tickets_bp.route('/api/tickets/<int:ticket_id>/images', methods=['POST'])
+@approved_required
+def api_upload_ticket_image(ticket_id):
+    """Upload an image to a ticket."""
+    from werkzeug.utils import secure_filename
+    
+    session = get_session()
+    current_user = get_current_user()
+    
+    try:
+        # Check if ticket exists
+        ticket = session.query(Ticket).filter(Ticket.ticket_id == ticket_id).first()
+        if not ticket:
+            return jsonify({'error': 'Ticket not found'}), 404
+        
+        # Check permissions (creator, assignee, or admin)
+        if not (current_user.is_admin() or 
+                ticket.created_by == current_user.user_id or 
+                ticket.assigned_user_id == current_user.user_id):
+            return jsonify({'error': 'Permission denied'}), 403
+        
+        # Check if file was uploaded
+        if 'image' not in request.files:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"No image file provided for ticket {ticket_id}",
+                extra={'ticket_id': ticket_id, 'user_id': current_user.user_id, 'files': list(request.files.keys())}
+            )
+            return jsonify({'error': 'No image file provided'}), 400
+        
+        file = request.files['image']
+        if file.filename == '':
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Empty filename for ticket {ticket_id} image upload",
+                extra={'ticket_id': ticket_id, 'user_id': current_user.user_id}
+            )
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Save and optimize image
+        file_path, file_name, width, height, thumbnail_path = save_uploaded_image(
+            file, config.TICKET_IMAGES_DIR, f'tickets/{ticket_id}'
+        )
+        
+        # Get file size
+        full_path = Path(config.TICKET_IMAGES_DIR) / file_path
+        file_size = full_path.stat().st_size
+        
+        # Determine MIME type
+        mime_type = 'image/jpeg'  # All optimized images are JPEG
+        
+        # Create database record
+        ticket_image = TicketImage(
+            ticket_id=ticket_id,
+            file_path=file_path,
+            file_name=secure_filename(file_name),
+            file_size=file_size,
+            mime_type=mime_type,
+            width=width,
+            height=height,
+            thumbnail_path=thumbnail_path,
+            uploaded_by=current_user.user_id
+        )
+        session.add(ticket_image)
+        session.commit()
+        image_id = ticket_image.image_id
+        
+        # Re-query with eager loading to get relationships
+        from sqlalchemy.orm import joinedload
+        ticket_image = session.query(TicketImage).options(
+            joinedload(TicketImage.uploader)
+        ).filter(TicketImage.image_id == image_id).first()
+        
+        if ticket_image:
+            # Access relationship while session is open
+            _ = ticket_image.uploader
+            # Expunge to detach from session but keep loaded relationship
+            session.expunge(ticket_image)
+            from dashboard.tickets.models import _safe_expunge
+            _safe_expunge(session, ticket_image.uploader)
+        
+        return jsonify(ticket_image.to_dict()), 201
+        
+    except ValueError as e:
+        session.rollback()
+        import logging
+        import traceback
+        logger = logging.getLogger(__name__)
+        error_details = traceback.format_exc()
+        logger.error(
+            f"ValueError uploading ticket image for ticket {ticket_id}: {str(e)}",
+            exc_info=True,
+            extra={'ticket_id': ticket_id, 'user_id': current_user.user_id}
+        )
+        logger.debug(f"Full error traceback:\n{error_details}")
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        session.rollback()
+        import logging
+        import traceback
+        logger = logging.getLogger(__name__)
+        error_details = traceback.format_exc()
+        logger.error(
+            f"Error uploading ticket image for ticket {ticket_id}: {str(e)}",
+            exc_info=True,
+            extra={'ticket_id': ticket_id, 'user_id': current_user.user_id}
+        )
+        logger.debug(f"Full error traceback:\n{error_details}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
+
+
+@tickets_bp.route('/api/tickets/<int:ticket_id>/images', methods=['GET'])
+@approved_required
+def api_get_ticket_images(ticket_id):
+    """Get all images for a ticket."""
+    from sqlalchemy.orm import joinedload
+    session = get_session()
+    try:
+        ticket = session.query(Ticket).filter(Ticket.ticket_id == ticket_id).first()
+        if not ticket:
+            return jsonify({'error': 'Ticket not found'}), 404
+        
+        images = session.query(TicketImage).options(
+            joinedload(TicketImage.uploader)
+        ).filter(
+            TicketImage.ticket_id == ticket_id
+        ).order_by(TicketImage.created_at.asc()).all()
+        
+        # Access relationships while session is open
+        for img in images:
+            _ = img.uploader
+            session.expunge(img)
+            from dashboard.tickets.models import _safe_expunge
+            _safe_expunge(session, img.uploader)
+        
+        result = [img.to_dict() for img in images]
+        return jsonify(result)
+    finally:
+        session.close()
+
+
+@tickets_bp.route('/api/tickets/<int:ticket_id>/images/<int:image_id>', methods=['DELETE'])
+@approved_required
+def api_delete_ticket_image(ticket_id, image_id):
+    """Delete an image from a ticket."""
+    session = get_session()
+    current_user = get_current_user()
+    
+    try:
+        ticket_image = session.query(TicketImage).filter(
+            TicketImage.image_id == image_id,
+            TicketImage.ticket_id == ticket_id
+        ).first()
+        
+        if not ticket_image:
+            return jsonify({'error': 'Image not found'}), 404
+        
+        # Check permissions
+        ticket = session.query(Ticket).filter(Ticket.ticket_id == ticket_id).first()
+        if not ticket:
+            return jsonify({'error': 'Ticket not found'}), 404
+        
+        if not (current_user.is_admin() or 
+                ticket.created_by == current_user.user_id or 
+                ticket.assigned_user_id == current_user.user_id or
+                ticket_image.uploaded_by == current_user.user_id):
+            return jsonify({'error': 'Permission denied'}), 403
+        
+        # Delete files
+        file_path = Path(config.TICKET_IMAGES_DIR) / ticket_image.file_path
+        if file_path.exists():
+            file_path.unlink()
+        
+        if ticket_image.thumbnail_path:
+            thumb_path = Path(config.TICKET_IMAGES_DIR) / ticket_image.thumbnail_path
+            if thumb_path.exists():
+                thumb_path.unlink()
+        
+        # Delete database record
+        session.delete(ticket_image)
+        session.commit()
+        
+        return jsonify({'message': 'Image deleted successfully'}), 200
+        
+    except Exception as e:
+        session.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
+
+
+@tickets_bp.route('/api/comments/<int:comment_id>/images', methods=['POST'])
+@approved_required
+def api_upload_comment_image(comment_id):
+    """Upload an image to a comment."""
+    from werkzeug.utils import secure_filename
+    
+    session = get_session()
+    current_user = get_current_user()
+    
+    try:
+        # Check if comment exists
+        comment = session.query(TicketComment).filter(TicketComment.comment_id == comment_id).first()
+        if not comment:
+            return jsonify({'error': 'Comment not found'}), 404
+        
+        # Check permissions (comment author or admin)
+        if not (current_user.is_admin() or comment.user_id == current_user.user_id):
+            return jsonify({'error': 'Permission denied'}), 403
+        
+        # Check if file was uploaded
+        if 'image' not in request.files:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"No image file provided for comment {comment_id}",
+                extra={'comment_id': comment_id, 'user_id': current_user.user_id, 'files': list(request.files.keys())}
+            )
+            return jsonify({'error': 'No image file provided'}), 400
+        
+        file = request.files['image']
+        if file.filename == '':
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Empty filename for comment {comment_id} image upload",
+                extra={'comment_id': comment_id, 'user_id': current_user.user_id}
+            )
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Save and optimize image
+        file_path, file_name, width, height, thumbnail_path = save_uploaded_image(
+            file, config.TICKET_IMAGES_DIR, f'comments/{comment_id}'
+        )
+        
+        # Get file size
+        full_path = Path(config.TICKET_IMAGES_DIR) / file_path
+        file_size = full_path.stat().st_size
+        
+        # Determine MIME type
+        mime_type = 'image/jpeg'  # All optimized images are JPEG
+        
+        # Create database record
+        comment_image = CommentImage(
+            comment_id=comment_id,
+            file_path=file_path,
+            file_name=secure_filename(file_name),
+            file_size=file_size,
+            mime_type=mime_type,
+            width=width,
+            height=height,
+            thumbnail_path=thumbnail_path,
+            uploaded_by=current_user.user_id
+        )
+        session.add(comment_image)
+        session.commit()
+        image_id = comment_image.image_id
+        
+        # Re-query with eager loading to get relationships
+        from sqlalchemy.orm import joinedload
+        comment_image = session.query(CommentImage).options(
+            joinedload(CommentImage.uploader)
+        ).filter(CommentImage.image_id == image_id).first()
+        
+        if comment_image:
+            # Access relationship while session is open
+            _ = comment_image.uploader
+            # Expunge to detach from session but keep loaded relationship
+            session.expunge(comment_image)
+            from dashboard.tickets.models import _safe_expunge
+            _safe_expunge(session, comment_image.uploader)
+        
+        return jsonify(comment_image.to_dict()), 201
+        
+    except ValueError as e:
+        session.rollback()
+        import logging
+        import traceback
+        logger = logging.getLogger(__name__)
+        error_details = traceback.format_exc()
+        logger.error(
+            f"ValueError uploading comment image for comment {comment_id}: {str(e)}",
+            exc_info=True,
+            extra={'comment_id': comment_id, 'user_id': current_user.user_id}
+        )
+        logger.debug(f"Full error traceback:\n{error_details}")
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        session.rollback()
+        import logging
+        import traceback
+        logger = logging.getLogger(__name__)
+        error_details = traceback.format_exc()
+        logger.error(
+            f"Error uploading comment image for comment {comment_id}: {str(e)}",
+            exc_info=True,
+            extra={'comment_id': comment_id, 'user_id': current_user.user_id}
+        )
+        logger.debug(f"Full error traceback:\n{error_details}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
+
+
+@tickets_bp.route('/api/comments/<int:comment_id>/images', methods=['GET'])
+@approved_required
+def api_get_comment_images(comment_id):
+    """Get all images for a comment."""
+    from sqlalchemy.orm import joinedload
+    session = get_session()
+    try:
+        comment = session.query(TicketComment).filter(TicketComment.comment_id == comment_id).first()
+        if not comment:
+            return jsonify({'error': 'Comment not found'}), 404
+        
+        images = session.query(CommentImage).options(
+            joinedload(CommentImage.uploader)
+        ).filter(
+            CommentImage.comment_id == comment_id
+        ).order_by(CommentImage.created_at.asc()).all()
+        
+        # Access relationships while session is open
+        for img in images:
+            _ = img.uploader
+            session.expunge(img)
+            from dashboard.tickets.models import _safe_expunge
+            _safe_expunge(session, img.uploader)
+        
+        result = [img.to_dict() for img in images]
+        return jsonify(result)
+    finally:
+        session.close()
+
+
+@tickets_bp.route('/api/comments/<int:comment_id>/images/<int:image_id>', methods=['DELETE'])
+@approved_required
+def api_delete_comment_image(comment_id, image_id):
+    """Delete an image from a comment."""
+    session = get_session()
+    current_user = get_current_user()
+    
+    try:
+        comment_image = session.query(CommentImage).filter(
+            CommentImage.image_id == image_id,
+            CommentImage.comment_id == comment_id
+        ).first()
+        
+        if not comment_image:
+            return jsonify({'error': 'Image not found'}), 404
+        
+        # Check permissions
+        comment = session.query(TicketComment).filter(TicketComment.comment_id == comment_id).first()
+        if not comment:
+            return jsonify({'error': 'Comment not found'}), 404
+        
+        if not (current_user.is_admin() or 
+                comment.user_id == current_user.user_id or
+                comment_image.uploaded_by == current_user.user_id):
+            return jsonify({'error': 'Permission denied'}), 403
+        
+        # Delete files
+        file_path = Path(config.TICKET_IMAGES_DIR) / comment_image.file_path
+        if file_path.exists():
+            file_path.unlink()
+        
+        if comment_image.thumbnail_path:
+            thumb_path = Path(config.TICKET_IMAGES_DIR) / comment_image.thumbnail_path
+            if thumb_path.exists():
+                thumb_path.unlink()
+        
+        # Delete database record
+        session.delete(comment_image)
+        session.commit()
+        
+        return jsonify({'message': 'Image deleted successfully'}), 200
+        
+    except Exception as e:
+        session.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
+
+
+@tickets_bp.route('/api/images/<int:image_id>', methods=['GET'])
+@approved_required
+def api_serve_image(image_id):
+    """Serve an image file."""
+    session = get_session()
+    try:
+        # Try ticket image first
+        ticket_image = session.query(TicketImage).filter(TicketImage.image_id == image_id).first()
+        if ticket_image:
+            file_path = Path(config.TICKET_IMAGES_DIR) / ticket_image.file_path
+            if file_path.exists():
+                return send_from_directory(
+                    str(file_path.parent),
+                    file_path.name,
+                    mimetype=ticket_image.mime_type
+                )
+        
+        # Try comment image
+        comment_image = session.query(CommentImage).filter(CommentImage.image_id == image_id).first()
+        if comment_image:
+            file_path = Path(config.TICKET_IMAGES_DIR) / comment_image.file_path
+            if file_path.exists():
+                return send_from_directory(
+                    str(file_path.parent),
+                    file_path.name,
+                    mimetype=comment_image.mime_type
+                )
+        
+        return jsonify({'error': 'Image not found'}), 404
+    finally:
+        session.close()
+
+
+@tickets_bp.route('/api/images/<int:image_id>/thumbnail', methods=['GET'])
+@approved_required
+def api_serve_thumbnail(image_id):
+    """Serve a thumbnail image file."""
+    session = get_session()
+    try:
+        # Try ticket image first
+        ticket_image = session.query(TicketImage).filter(TicketImage.image_id == image_id).first()
+        if ticket_image:
+            # For large files, thumbnail_path might be same as file_path
+            thumb_path_str = ticket_image.thumbnail_path or ticket_image.file_path
+            thumb_path = Path(config.TICKET_IMAGES_DIR) / thumb_path_str
+            if thumb_path.exists():
+                return send_from_directory(
+                    str(thumb_path.parent),
+                    thumb_path.name,
+                    mimetype='image/jpeg'
+                )
+        
+        # Try comment image
+        comment_image = session.query(CommentImage).filter(CommentImage.image_id == image_id).first()
+        if comment_image:
+            # For large files, thumbnail_path might be same as file_path
+            thumb_path_str = comment_image.thumbnail_path or comment_image.file_path
+            thumb_path = Path(config.TICKET_IMAGES_DIR) / thumb_path_str
+            if thumb_path.exists():
+                return send_from_directory(
+                    str(thumb_path.parent),
+                    thumb_path.name,
+                    mimetype='image/jpeg'
+                )
+        
+        return jsonify({'error': 'Thumbnail not found'}), 404
+    finally:
+        session.close()
 
 
 def register_ticket_routes(app):

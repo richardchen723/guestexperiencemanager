@@ -96,6 +96,16 @@
                     <label>Created By:</label>
                     <span>{{ ticket.creator.name if ticket.creator else 'Unknown' }}</span>
                 </div>
+                <div class="info-row">
+                    <label>Tags:</label>
+                    <div id="ticketTagsDisplay" class="tags-display"></div>
+                    <div id="ticketTagInputContainer" style="margin-top: 0.5rem;"></div>
+                </div>
+                
+                <div class="info-row">
+                    <label>Images:</label>
+                    <div id="ticketImagesContainer"></div>
+                </div>
             </div>
         </div>
         
@@ -108,18 +118,79 @@
             <div class="comment-form">
                 <h4>Add Comment</h4>
                 <textarea id="commentText" rows="4" placeholder="Enter your comment..."></textarea>
+                <div id="commentImagesContainer" style="margin-top: 0.5rem;"></div>
                 <button onclick="addComment({{ ticket.ticket_id }})" class="btn-primary">Post Comment</button>
             </div>
         </div>
     </div>
 </div>
 
+<script src="/static/js/tags.js"></script>
+<script src="/static/js/ticket-images.js"></script>
 <script>
 let allUsers = [];
+let ticketTagInput = null;
+let ticketImageUploader = null;
 
 document.addEventListener('DOMContentLoaded', function() {
     loadUsers();
     loadComments({{ ticket.ticket_id }});
+    loadTicketTags({{ ticket.ticket_id }});
+    initializeTicketImages({{ ticket.ticket_id }});
+    initializeCommentImages();
+    
+    // Add file input for comment images
+    const commentForm = document.querySelector('.comment-form');
+    if (commentForm && commentImageUploader) {
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = 'image/*';
+        fileInput.multiple = true;
+        fileInput.style.display = 'none';
+        fileInput.id = 'commentImageInput';
+        
+        fileInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            files.forEach(file => {
+                // Don't reject large files - backend will create thumbnail only
+                commentImageUploader.images.push(file);
+                
+                // Show preview
+                const preview = document.getElementById('commentImagesPreview');
+                if (preview) {
+                    const previewItem = document.createElement('div');
+                    previewItem.className = 'comment-image-preview-item';
+                    const img = document.createElement('img');
+                    img.src = URL.createObjectURL(file);
+                    img.className = 'comment-image-preview-thumb';
+                    const removeBtn = document.createElement('button');
+                    removeBtn.innerHTML = '×';
+                    removeBtn.className = 'comment-image-preview-remove';
+                    removeBtn.onclick = () => {
+                        commentImageUploader.images = commentImageUploader.images.filter(f => f !== file);
+                        previewItem.remove();
+                    };
+                    previewItem.appendChild(img);
+                    previewItem.appendChild(removeBtn);
+                    preview.appendChild(previewItem);
+                }
+            });
+            fileInput.value = '';
+        });
+        
+        const uploadBtn = document.createElement('button');
+        uploadBtn.type = 'button';
+        uploadBtn.className = 'btn-secondary';
+        uploadBtn.textContent = 'Attach Images';
+        uploadBtn.style.marginTop = '0.5rem';
+        uploadBtn.onclick = () => fileInput.click();
+        
+        const previewContainer = document.getElementById('commentImagesPreview');
+        if (previewContainer && previewContainer.parentElement) {
+            previewContainer.parentElement.insertBefore(uploadBtn, previewContainer);
+            previewContainer.parentElement.insertBefore(fileInput, previewContainer);
+        }
+    }
 });
 
 function loadUsers() {
@@ -149,6 +220,7 @@ function loadComments(ticketId) {
     })
         .then(response => response.json())
         .then(comments => {
+            console.log('Loaded comments:', comments);
             const container = document.getElementById('commentsContainer');
             container.innerHTML = '';
             
@@ -158,6 +230,7 @@ function loadComments(ticketId) {
             }
             
             comments.forEach(comment => {
+                console.log('Processing comment:', comment.comment_id, 'images:', comment.images);
                 const commentDiv = createCommentElement(comment);
                 container.appendChild(commentDiv);
             });
@@ -177,6 +250,28 @@ function createCommentElement(comment) {
     const userPicture = comment.user_picture_url || comment.user?.picture_url;
     const date = new Date(comment.created_at);
     
+    // Build images HTML
+    let imagesHtml = '';
+    if (comment.images && Array.isArray(comment.images) && comment.images.length > 0) {
+        console.log(`Rendering ${comment.images.length} images for comment ${comment.comment_id}`);
+        imagesHtml = '<div class="comment-images">';
+        comment.images.forEach(img => {
+            console.log('Comment image:', img);
+            imagesHtml += `
+                <div class="comment-image-item">
+                    <img src="/tickets/api/images/${img.image_id}/thumbnail" 
+                         alt="${escapeHtml(img.file_name || 'Image')}"
+                         onclick="showImageLightbox(${img.image_id})"
+                         class="comment-image-thumb"
+                         onerror="console.error('Failed to load image ${img.image_id}'); this.style.display='none';">
+                </div>
+            `;
+        });
+        imagesHtml += '</div>';
+    } else {
+        console.log(`No images for comment ${comment.comment_id}, images:`, comment.images);
+    }
+    
     div.innerHTML = `
         <div class="comment-header">
             <div class="comment-author">
@@ -186,25 +281,72 @@ function createCommentElement(comment) {
             <span class="comment-date">${formatDate(date)}</span>
         </div>
         <div class="comment-text">${escapeHtml(comment.comment_text)}</div>
+        ${imagesHtml}
     `;
     
     return div;
 }
 
+function showImageLightbox(imageId) {
+    const lightbox = document.createElement('div');
+    lightbox.className = 'image-lightbox';
+    lightbox.innerHTML = `
+        <div class="lightbox-content">
+            <button class="lightbox-close">×</button>
+            <img src="/tickets/api/images/${imageId}" alt="Image">
+        </div>
+    `;
+    
+    document.body.appendChild(lightbox);
+    
+    const close = () => {
+        lightbox.remove();
+    };
+    
+    lightbox.querySelector('.lightbox-close').addEventListener('click', close);
+    lightbox.addEventListener('click', (e) => {
+        if (e.target === lightbox) close();
+    });
+    
+    document.addEventListener('keydown', function escHandler(e) {
+        if (e.key === 'Escape') {
+            close();
+            document.removeEventListener('keydown', escHandler);
+        }
+    });
+}
+
+let commentImageUploader = null;
+
+function initializeCommentImages() {
+    const container = document.getElementById('commentImagesContainer');
+    if (!container) return;
+    
+    commentImageUploader = {
+        images: [],
+        container: container
+    };
+    
+    container.innerHTML = '<div id="commentImagesPreview" class="comment-images-preview"></div>';
+}
+
 function addComment(ticketId) {
     const text = document.getElementById('commentText').value.trim();
-    if (!text) {
-        alert('Please enter a comment');
+    const images = commentImageUploader ? commentImageUploader.images : [];
+    
+    if (!text && images.length === 0) {
+        alert('Please enter a comment or attach an image');
         return;
     }
     
+    // First create the comment
     fetch(`/tickets/api/tickets/${ticketId}/comments`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            comment_text: text
+            comment_text: text || '(No text)'
         })
     })
     .then(response => response.json())
@@ -214,14 +356,61 @@ function addComment(ticketId) {
             return;
         }
         
-        document.getElementById('commentText').value = '';
-        loadComments(ticketId);
+        const commentId = data.comment_id;
+        
+        // Upload images if any
+        if (images.length > 0) {
+            const uploadPromises = images.map(file => {
+                const formData = new FormData();
+                formData.append('image', file);
+                return fetch(`/tickets/api/comments/${commentId}/images`, {
+                    method: 'POST',
+                    body: formData
+                }).then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => Promise.reject(new Error(err.error || 'Upload failed')));
+                    }
+                    return response.json();
+                });
+            });
+            
+            Promise.all(uploadPromises).then((uploadResults) => {
+                console.log('All images uploaded successfully:', uploadResults);
+                document.getElementById('commentText').value = '';
+                if (commentImageUploader) {
+                    commentImageUploader.images = [];
+                    const preview = document.getElementById('commentImagesPreview');
+                    if (preview) preview.innerHTML = '';
+                }
+                // Small delay to ensure database commit
+                setTimeout(() => {
+                    loadComments(ticketId);
+                }, 100);
+            }).catch(error => {
+                console.error('Error uploading comment images:', error);
+                alert(`Error uploading images: ${error.message}`);
+                document.getElementById('commentText').value = '';
+                if (commentImageUploader) {
+                    commentImageUploader.images = [];
+                    const preview = document.getElementById('commentImagesPreview');
+                    if (preview) preview.innerHTML = '';
+                }
+                // Still reload comments even if image upload fails
+                setTimeout(() => {
+                    loadComments(ticketId);
+                }, 100);
+            });
+        } else {
+            document.getElementById('commentText').value = '';
+            loadComments(ticketId);
+        }
     })
     .catch(error => {
         console.error('Error adding comment:', error);
         alert('Error adding comment');
     });
 }
+
 
 function updateStatus(ticketId) {
     const status = document.getElementById('statusSelect').value;
@@ -307,6 +496,112 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function loadTicketTags(ticketId) {
+    fetch(`/tickets/api/tickets/${ticketId}/tags`)
+        .then(response => response.json())
+        .then(tags => {
+            const displayContainer = document.getElementById('ticketTagsDisplay');
+            renderTags(displayContainer, tags, {
+                showInherited: true,
+                onRemove: (tag, index) => {
+                    if (!tag.is_inherited) {
+                        removeTicketTag(ticketId, tag.tag_id);
+                    }
+                }
+            });
+            
+            // Initialize tag input for adding new tags
+            if (!ticketTagInput) {
+                const inputContainer = document.getElementById('ticketTagInputContainer');
+                ticketTagInput = new TagInput(inputContainer, {
+                    existingTags: tags.filter(t => !t.is_inherited),
+                    onTagsChange: (newTags) => {
+                        // Only add tags that aren't already in the list
+                        const currentTagIds = tags.map(t => t.tag_id);
+                        const tagsToAdd = newTags.filter(t => !currentTagIds.includes(t.tag_id));
+                        if (tagsToAdd.length > 0) {
+                            addTicketTags(ticketId, tagsToAdd.map(t => t.name));
+                        }
+                    }
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error loading ticket tags:', error);
+        });
+}
+
+function addTicketTags(ticketId, tagNames) {
+    fetch(`/tickets/api/tickets/${ticketId}/tags`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ tags: tagNames })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            loadTicketTags(ticketId);
+        }
+    })
+    .catch(error => {
+        console.error('Error adding tags:', error);
+        alert('Error adding tags');
+    });
+}
+
+function removeTicketTag(ticketId, tagId) {
+    fetch(`/tickets/api/tickets/${ticketId}/tags/${tagId}`, {
+        method: 'DELETE'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            loadTicketTags(ticketId);
+        }
+    })
+    .catch(error => {
+        console.error('Error removing tag:', error);
+        alert('Error removing tag');
+    });
+}
+
+function initializeTicketImages(ticketId) {
+    const container = document.getElementById('ticketImagesContainer');
+    if (!container) {
+        console.error('ticketImagesContainer not found');
+        return;
+    }
+    
+    try {
+        ticketImageUploader = new ImageUploader(container, {
+            uploadEndpoint: `/tickets/api/tickets/${ticketId}/images`,
+            deleteEndpoint: `/tickets/api/tickets/${ticketId}/images`,
+            listEndpoint: `/tickets/api/tickets/${ticketId}/images`,
+            imageServeUrl: '/tickets/api/images',
+            thumbnailUrl: '/tickets/api/images',
+            maxFiles: 10,
+            maxFileSize: 2 * 1024 * 1024,
+            onUploadComplete: (imageData) => {
+                console.log('Image uploaded successfully:', imageData);
+                // Image is already added to gallery by ImageUploader
+            },
+            onDeleteComplete: (imageId) => {
+                console.log('Image deleted successfully:', imageId);
+                // Image is already removed from gallery by ImageUploader
+            }
+        });
+        console.log('ImageUploader initialized for ticket', ticketId);
+    } catch (error) {
+        console.error('Error initializing ImageUploader:', error);
+    }
 }
 </script>
 {% endblock %}

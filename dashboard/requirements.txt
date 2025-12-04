@@ -6,4 +6,6 @@ Flask-Dance==7.0.0
 requests==2.31.0
 boto3>=1.28.0
 psycopg2-binary>=2.9.0
+Pillow>=10.0.0
+pillow-heif>=0.13.0
 

@@ -347,6 +347,49 @@ def create_schema(db_path: str):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_jobs_started ON sync_jobs(started_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_jobs_updated ON sync_jobs(updated_at)")
     
+    # 11. Tags Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tags (
+            tag_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            color TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # 12. Listing Tags Junction Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS listing_tags (
+            listing_id INTEGER NOT NULL,
+            tag_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (listing_id, tag_id),
+            FOREIGN KEY (listing_id) REFERENCES listings(listing_id) ON DELETE CASCADE,
+            FOREIGN KEY (tag_id) REFERENCES tags(tag_id) ON DELETE CASCADE
+        )
+    """)
+    
+    # 13. Ticket Tags Junction Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ticket_tags (
+            ticket_id INTEGER NOT NULL,
+            tag_id INTEGER NOT NULL,
+            is_inherited INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (ticket_id, tag_id),
+            FOREIGN KEY (ticket_id) REFERENCES tickets(ticket_id) ON DELETE CASCADE,
+            FOREIGN KEY (tag_id) REFERENCES tags(tag_id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Create indexes for tags
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_listing_tags_listing ON listing_tags(listing_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_listing_tags_tag ON listing_tags(tag_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ticket_tags_ticket ON ticket_tags(ticket_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ticket_tags_tag ON ticket_tags(tag_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ticket_tags_inherited ON ticket_tags(is_inherited)")
+    
     conn.commit()
     conn.close()
     

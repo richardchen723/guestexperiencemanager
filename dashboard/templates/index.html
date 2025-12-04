@@ -19,6 +19,7 @@
             </svg>
             <input type="text" id="searchInput" class="form-input search-input" placeholder="Search by property name or address..." onkeyup="filterListings()">
         </div>
+        <div id="tagFilterContainer" class="tag-filter"></div>
     </div>
     
     <div id="loading" class="loading" style="display: none;">
@@ -37,9 +38,29 @@
     </div>
 </div>
 
+<script src="/static/js/tags.js"></script>
 <script>
+let tagFilter = null;
+let selectedTagIds = [];
+let tagLogic = 'AND';
+
 // Load listings on page load
 document.addEventListener('DOMContentLoaded', function() {
+    // Initialize tag filter (with error handling)
+    try {
+        tagFilter = new TagFilter('#tagFilterContainer', {
+            onFilterChange: (tagIds, logic) => {
+                selectedTagIds = tagIds;
+                tagLogic = logic;
+                loadListings();
+            }
+        });
+    } catch (error) {
+        console.error('Error initializing tag filter:', error);
+        // Continue without tag filter - page should still work
+        tagFilter = null;
+    }
+    
     loadListings();
 });
 
@@ -51,7 +72,18 @@ function loadListings() {
     loading.style.display = 'block';
     container.innerHTML = '';
     
-    fetch('/api/listings')
+    // Build query params
+    const params = new URLSearchParams();
+    if (selectedTagIds.length > 0 && tagFilter && tagFilter.allTags) {
+        // Get tag names from selected IDs
+        const selectedTags = tagFilter.allTags.filter(t => selectedTagIds.includes(t.tag_id));
+        if (selectedTags.length > 0) {
+            params.append('tags', selectedTags.map(t => t.name).join(','));
+            params.append('tag_logic', tagLogic);
+        }
+    }
+    
+    fetch(`/api/listings?${params.toString()}`)
         .then(response => response.json())
         .then(listings => {
             loading.style.display = 'none';
@@ -95,6 +127,16 @@ function loadListings() {
                                 ${listing.city ? `<p class="listing-card-city">${escapeHtml(listing.city)}</p>` : ''}
                             </div>
                         </div>
+                        <div class="listing-card-tags-section">
+                            <div class="listing-card-tags-header">
+                                <label>Tags</label>
+                                <button class="btn btn-link btn-sm" onclick="toggleTagEdit(${listing.listing_id})" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; color: #2563eb;">
+                                    <span id="tagEditBtn-${listing.listing_id}">+ Add</span>
+                                </button>
+                            </div>
+                            <div id="tagsDisplay-${listing.listing_id}" class="tags-display"></div>
+                            <div id="tagsInput-${listing.listing_id}" class="tag-input-container" style="display: none; margin-top: 0.5rem;"></div>
+                        </div>
                     </div>
                     <div class="listing-card-footer">
                         <a href="/insights/${listing.listing_id}" class="btn btn-primary btn-block">View Details</a>
@@ -102,6 +144,9 @@ function loadListings() {
                 `;
                 
                 container.appendChild(card);
+                
+                // Initialize tags display and input for this listing
+                initializeListingTags(listing.listing_id, listing.tags || []);
             });
         })
         .catch(error => {
@@ -134,6 +179,138 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Tag management for listings
+const listingTagInputs = {};
+
+function initializeListingTags(listingId, tags) {
+    // Store tags for this listing
+    if (!window.listingTagsMap) {
+        window.listingTagsMap = {};
+    }
+    window.listingTagsMap[listingId] = tags;
+    
+    // Display current tags
+    const displayContainer = document.getElementById(`tagsDisplay-${listingId}`);
+    if (displayContainer) {
+        renderTags(displayContainer, tags, {
+            onRemove: (tag, index) => {
+                removeListingTag(listingId, tag.tag_id);
+            }
+        });
+    }
+    
+    // Initialize tag input (hidden by default)
+    const inputContainer = document.getElementById(`tagsInput-${listingId}`);
+    if (inputContainer && !listingTagInputs[listingId]) {
+        listingTagInputs[listingId] = new TagInput(inputContainer, {
+            existingTags: tags,
+            onTagsChange: (newTags) => {
+                // Get tags that were added
+                const currentTags = window.listingTagsMap[listingId] || [];
+                const currentTagIds = currentTags.map(t => t.tag_id);
+                const tagsToAdd = newTags.filter(t => !currentTagIds.includes(t.tag_id));
+                if (tagsToAdd.length > 0) {
+                    addListingTags(listingId, tagsToAdd.map(t => t.name));
+                }
+            }
+        });
+    }
+}
+
+function toggleTagEdit(listingId) {
+    const inputContainer = document.getElementById(`tagsInput-${listingId}`);
+    const displayContainer = document.getElementById(`tagsDisplay-${listingId}`);
+    const editBtn = document.getElementById(`tagEditBtn-${listingId}`);
+    
+    if (inputContainer && displayContainer) {
+        const isEditing = inputContainer.style.display !== 'none';
+        inputContainer.style.display = isEditing ? 'none' : 'block';
+        displayContainer.style.display = isEditing ? 'flex' : 'none';
+        if (editBtn) {
+            editBtn.textContent = isEditing ? '+ Add' : 'Done';
+        }
+        
+        // Focus input when showing
+        if (!isEditing && listingTagInputs[listingId] && listingTagInputs[listingId].input) {
+            setTimeout(() => {
+                listingTagInputs[listingId].input.focus();
+            }, 100);
+        }
+    }
+}
+
+async function addListingTags(listingId, tagNames) {
+    try {
+        const response = await fetch(`/api/listings/${listingId}/tags`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tags: tagNames })
+        });
+        
+        if (response.ok) {
+            const addedTags = await response.json();
+            // Reload tags for this listing
+            loadListingTags(listingId);
+        } else {
+            const error = await response.json();
+            alert(error.error || 'Failed to add tags');
+        }
+    } catch (error) {
+        console.error('Error adding tags:', error);
+        alert('Failed to add tags');
+    }
+}
+
+async function removeListingTag(listingId, tagId) {
+    try {
+        const response = await fetch(`/api/listings/${listingId}/tags/${tagId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            // Reload tags for this listing
+            loadListingTags(listingId);
+        } else {
+            const error = await response.json();
+            alert(error.error || 'Failed to remove tag');
+        }
+    } catch (error) {
+        console.error('Error removing tag:', error);
+        alert('Failed to remove tag');
+    }
+}
+
+async function loadListingTags(listingId) {
+    try {
+        const response = await fetch(`/api/listings/${listingId}/tags`);
+        if (response.ok) {
+            const tags = await response.json();
+            
+            // Update stored tags
+            if (!window.listingTagsMap) {
+                window.listingTagsMap = {};
+            }
+            window.listingTagsMap[listingId] = tags;
+            
+            const displayContainer = document.getElementById(`tagsDisplay-${listingId}`);
+            if (displayContainer) {
+                renderTags(displayContainer, tags, {
+                    onRemove: (tag, index) => {
+                        removeListingTag(listingId, tag.tag_id);
+                    }
+                });
+            }
+            
+            // Update tag input if it exists
+            if (listingTagInputs[listingId]) {
+                listingTagInputs[listingId].setTags(tags);
+            }
+        }
+    } catch (error) {
+        console.error('Error loading listing tags:', error);
+    }
 }
 </script>
 {% endblock %}

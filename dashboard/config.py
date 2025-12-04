@@ -79,3 +79,6 @@ if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
 
 # Owner Configuration
 OWNER_EMAIL = "yunhang.chen@gmail.com"
+
+# Ticket Image Storage
+TICKET_IMAGES_DIR = str(PROJECT_ROOT / "data" / "tickets")

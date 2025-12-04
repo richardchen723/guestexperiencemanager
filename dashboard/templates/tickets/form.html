@@ -15,9 +15,12 @@
         <form id="ticketForm" onsubmit="saveTicket(event)" class="ticket-form">
             <div class="form-group">
                 <label for="listingSelect" class="form-label">Property *</label>
-                <select id="listingSelect" class="form-select" required onchange="loadIssues()">
+                <select id="listingSelect" class="form-select" required onchange="loadIssues(); loadPropertyTags();">
                     <option value="">Select a property</option>
                 </select>
+                <div id="inheritedTagsDisplay" class="tags-display" style="margin-top: 0.5rem; display: none;">
+                    <span style="font-size: var(--text-sm); color: var(--text-tertiary); margin-right: var(--space-2);">Inherited tags:</span>
+                </div>
             </div>
             
             <div class="form-group">
@@ -49,6 +52,11 @@
             <div class="form-group">
                 <label for="descriptionInput" class="form-label">Description</label>
                 <textarea id="descriptionInput" class="form-textarea" rows="5" placeholder="Enter detailed description of the action item"></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Images</label>
+                <div id="ticketFormImagesContainer"></div>
             </div>
             
             <div class="form-row">
@@ -166,16 +174,23 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="/static/js/tags.js"></script>
+<script src="/static/js/ticket-images.js"></script>
 <script>
 let allListings = [];
 let allUsers = [];
 let allIssues = [];
 let currentListingId = null;
 let ticketId = {% if ticket %}{{ ticket.ticket_id }}{% else %}null{% endif %};
+let ticketFormImageUploader = null;
+let pendingImages = []; // For new tickets - images to upload after ticket creation
 
 document.addEventListener('DOMContentLoaded', function() {
     loadListings();
     loadUsers();
+    
+    // Initialize image uploader
+    initializeTicketFormImages();
     
     // Attach event listener to AI Suggestions button
     const aiBtn = document.getElementById('aiSuggestionsBtn');
@@ -558,6 +573,162 @@ function populateEditForm() {
     {% endif %}
 }
 
+function initializeTicketFormImages() {
+    const container = document.getElementById('ticketFormImagesContainer');
+    if (!container) return;
+    
+    if (ticketId) {
+        // Edit mode - initialize with existing images
+        ticketFormImageUploader = new ImageUploader(container, {
+            uploadEndpoint: `/tickets/api/tickets/${ticketId}/images`,
+            deleteEndpoint: `/tickets/api/tickets/${ticketId}/images`,
+            listEndpoint: `/tickets/api/tickets/${ticketId}/images`,
+            imageServeUrl: '/tickets/api/images',
+            thumbnailUrl: '/tickets/api/images',
+            maxFiles: 10,
+            maxFileSize: 2 * 1024 * 1024
+        });
+    } else {
+        // Create mode - use a custom upload handler that stores files for later
+        container.innerHTML = '';
+        container.className = 'ticket-images-container';
+        
+        const header = document.createElement('div');
+        header.className = 'ticket-images-header';
+        header.innerHTML = '<h4>Images</h4>';
+        container.appendChild(header);
+        
+        const gallery = document.createElement('div');
+        gallery.className = 'ticket-images-gallery';
+        gallery.id = 'ticketFormImagesGallery';
+        container.appendChild(gallery);
+        
+        const uploadArea = document.createElement('div');
+        uploadArea.className = 'ticket-images-upload';
+        
+        const uploadInput = document.createElement('input');
+        uploadInput.type = 'file';
+        uploadInput.accept = 'image/*';
+        uploadInput.multiple = true;
+        uploadInput.style.display = 'none';
+        uploadInput.addEventListener('change', (e) => handleFormImageSelect(e));
+        
+        const uploadLabel = document.createElement('label');
+        uploadLabel.className = 'ticket-images-upload-label';
+        uploadLabel.innerHTML = `
+            <div class="upload-icon">📷</div>
+            <div class="upload-text">Click to upload or drag and drop</div>
+            <div class="upload-hint">PNG, JPG, WebP, GIF, HEIC up to 2MB</div>
+        `;
+        uploadLabel.appendChild(uploadInput);
+        
+        uploadArea.appendChild(uploadLabel);
+        container.appendChild(uploadArea);
+        
+        // Drag and drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('drag-over');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            const files = Array.from(e.dataTransfer.files);
+            handleFormImageFiles(files);
+        });
+        
+        uploadLabel.addEventListener('click', (e) => {
+            if (e.target !== uploadInput) {
+                e.preventDefault();
+                uploadInput.click();
+            }
+        });
+    }
+}
+
+function handleFormImageSelect(e) {
+    const files = Array.from(e.target.files);
+    handleFormImageFiles(files);
+    e.target.value = '';
+}
+
+function handleFormImageFiles(files) {
+    const validFiles = files.filter(file => {
+        if (!file.type.startsWith('image/')) {
+            alert(`File ${file.name} is not an image`);
+            return false;
+        }
+        // Don't reject large files - backend will create thumbnail only
+        return true;
+    });
+    
+    if (validFiles.length === 0) return;
+    
+    if (pendingImages.length + validFiles.length > 10) {
+        alert('Maximum 10 images allowed');
+        return;
+    }
+    
+    validFiles.forEach(file => {
+        pendingImages.push(file);
+        renderFormImagePreview(file);
+    });
+}
+
+function renderFormImagePreview(file) {
+    const gallery = document.getElementById('ticketFormImagesGallery');
+    if (!gallery) return;
+    
+    const item = document.createElement('div');
+    item.className = 'ticket-image-item image-preview';
+    item.dataset.fileName = file.name;
+    
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(file);
+    img.className = 'ticket-image-thumb';
+    
+    const overlay = document.createElement('div');
+    overlay.className = 'ticket-image-overlay';
+    
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'ticket-image-delete';
+    deleteBtn.innerHTML = '×';
+    deleteBtn.onclick = () => {
+        pendingImages = pendingImages.filter(f => f !== file);
+        item.remove();
+    };
+    
+    overlay.appendChild(deleteBtn);
+    item.appendChild(img);
+    item.appendChild(overlay);
+    gallery.appendChild(item);
+}
+
+async function uploadPendingImages(ticketId) {
+    if (pendingImages.length === 0) return;
+    
+    const uploadPromises = pendingImages.map(file => {
+        const formData = new FormData();
+        formData.append('image', file);
+        return fetch(`/tickets/api/tickets/${ticketId}/images`, {
+            method: 'POST',
+            body: formData
+        });
+    });
+    
+    try {
+        await Promise.all(uploadPromises);
+    } catch (error) {
+        console.error('Error uploading images:', error);
+        // Don't block navigation if image upload fails
+    }
+}
+
 function saveTicket(event) {
     event.preventDefault();
     
@@ -601,11 +772,18 @@ function saveTicket(event) {
         body: JSON.stringify(data)
     })
     .then(response => response.json())
-    .then(result => {
+    .then(async (result) => {
         if (result.error) {
             alert('Error: ' + result.error);
         } else {
-            window.location.href = `/tickets/${result.ticket_id || ticketId}/page`;
+            const newTicketId = result.ticket_id || ticketId;
+            
+            // Upload pending images if creating a new ticket
+            if (!ticketId && pendingImages.length > 0) {
+                await uploadPendingImages(newTicketId);
+            }
+            
+            window.location.href = `/tickets/${newTicketId}/page`;
         }
     })
     .catch(error => {
@@ -621,6 +799,35 @@ document.addEventListener('click', function(event) {
         closeSuggestionsModal();
     }
 });
+
+function loadPropertyTags() {
+    const listingId = document.getElementById('listingSelect').value;
+    const container = document.getElementById('inheritedTagsDisplay');
+    
+    if (!listingId) {
+        container.style.display = 'none';
+        return;
+    }
+    
+    fetch(`/api/listings/${listingId}/tags`)
+        .then(response => response.json())
+        .then(tags => {
+            if (tags.length > 0) {
+                container.style.display = 'flex';
+                container.innerHTML = '<span style="font-size: var(--text-sm); color: var(--text-tertiary); margin-right: var(--space-2);">Inherited tags:</span>';
+                renderTags(container, tags.map(t => ({...t, is_inherited: true})), {
+                    showInherited: true,
+                    onRemove: null  // Inherited tags cannot be removed
+                });
+            } else {
+                container.style.display = 'none';
+            }
+        })
+        .catch(error => {
+            console.error('Error loading property tags:', error);
+            container.style.display = 'none';
+        });
+}
 </script>
 </div>
 {% endblock %}
