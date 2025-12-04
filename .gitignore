@@ -99,6 +99,8 @@ terraform/tfplan.*
 # Project specific
 conversations/
 data/exports/
+data/tickets/images/
+data/photos/listings/
 *.txt
 !requirements.txt
 !README.md
