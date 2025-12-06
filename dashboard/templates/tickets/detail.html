@@ -401,8 +401,8 @@ function addComment(ticketId) {
                 }, 100);
             });
         } else {
-            document.getElementById('commentText').value = '';
-            loadComments(ticketId);
+        document.getElementById('commentText').value = '';
+        loadComments(ticketId);
         }
     })
     .catch(error => {
