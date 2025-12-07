@@ -202,14 +202,14 @@ def api_list_tickets():
                         if len(shorter) >= len(longer) * 0.8 and shorter in longer:
                             filtered_tickets.append(t)
             tickets = filtered_tickets
-    
-    # Get listing names for display
-    listing_map = {}
-    listings = main_session.query(Listing).all()
-    listing_map = {l.listing_id: {'name': l.name, 'address': l.address} for l in listings}
-    
-    # Get tags for all tickets
-    ticket_ids = [t.ticket_id for t in tickets]
+        
+        # Get listing names for display
+        listing_map = {}
+        listings = main_session.query(Listing).all()
+        listing_map = {l.listing_id: {'name': l.name, 'address': l.address} for l in listings}
+        
+        # Get tags for all tickets
+        ticket_ids = [t.ticket_id for t in tickets]
         ticket_tags_map = {}
         if ticket_ids:
             ticket_tags = session.query(TicketTag).filter(
@@ -229,16 +229,16 @@ def api_list_tickets():
                             **tag_map[tt.tag_id],
                             'is_inherited': tt.is_inherited
                         })
-    
-    result = []
-    for ticket in tickets:
-        ticket_dict = ticket.to_dict(include_comments=False)
-        if ticket.listing_id in listing_map:
-            ticket_dict['listing'] = listing_map[ticket.listing_id]
-            ticket_dict['tags'] = ticket_tags_map.get(ticket.ticket_id, [])
-        result.append(ticket_dict)
-    
-    return jsonify(result)
+        
+        result = []
+        for ticket in tickets:
+            ticket_dict = ticket.to_dict(include_comments=False)
+            if ticket.listing_id in listing_map:
+                ticket_dict['listing'] = listing_map[ticket.listing_id]
+                ticket_dict['tags'] = ticket_tags_map.get(ticket.ticket_id, [])
+            result.append(ticket_dict)
+        
+        return jsonify(result)
     finally:
         session.close()
         main_session.close()
