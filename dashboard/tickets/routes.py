@@ -205,11 +205,11 @@ def api_list_tickets():
     
     # Get listing names for display
     listing_map = {}
-        listings = main_session.query(Listing).all()
-        listing_map = {l.listing_id: {'name': l.name, 'address': l.address} for l in listings}
-        
-        # Get tags for all tickets
-        ticket_ids = [t.ticket_id for t in tickets]
+    listings = main_session.query(Listing).all()
+    listing_map = {l.listing_id: {'name': l.name, 'address': l.address} for l in listings}
+    
+    # Get tags for all tickets
+    ticket_ids = [t.ticket_id for t in tickets]
         ticket_tags_map = {}
         if ticket_ids:
             ticket_tags = session.query(TicketTag).filter(
