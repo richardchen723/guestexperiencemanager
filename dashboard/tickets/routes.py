@@ -17,6 +17,7 @@ from dashboard.tickets.models import (
     get_tickets, update_ticket, delete_ticket, add_ticket_comment, get_ticket_comments,
     init_ticket_database, TICKET_CATEGORIES
 )
+from dashboard.tickets.recurring_tasks import process_recurring_tasks
 from dashboard.tickets.image_utils import save_uploaded_image
 from pathlib import Path
 from flask import send_from_directory
@@ -349,6 +350,60 @@ def api_create_ticket():
         except ValueError:
             return jsonify({'error': 'Invalid due_date format. Use YYYY-MM-DD'}), 400
     
+    # Parse recurring task fields
+    is_recurring = data.get('is_recurring', False)
+    frequency_value = None
+    frequency_unit = None
+    initial_due_date = None
+    recurring_admin_id = None
+    reopen_days_before_due_date = None
+    
+    if is_recurring:
+        frequency_value_raw = data.get('frequency_value')
+        frequency_unit_raw = data.get('frequency_unit')
+        reopen_days_raw = data.get('reopen_days_before_due_date')
+        
+        # Validate frequency
+        if frequency_value_raw:
+            try:
+                frequency_value = int(frequency_value_raw)
+                if frequency_value <= 0:
+                    return jsonify({'error': 'frequency_value must be greater than 0'}), 400
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Invalid frequency_value. Must be an integer.'}), 400
+        
+        if frequency_unit_raw:
+            if frequency_unit_raw not in ['days', 'months']:
+                return jsonify({'error': 'Invalid frequency_unit. Must be "days" or "months".'}), 400
+            frequency_unit = frequency_unit_raw
+        
+        if not frequency_value or not frequency_unit:
+            return jsonify({'error': 'frequency_value and frequency_unit are required for recurring tasks'}), 400
+        
+        # Validate reopen_days_before_due_date
+        if reopen_days_raw is not None:
+            try:
+                reopen_days_before_due_date = int(reopen_days_raw)
+                if reopen_days_before_due_date < 0:
+                    return jsonify({'error': 'reopen_days_before_due_date must be >= 0'}), 400
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Invalid reopen_days_before_due_date. Must be an integer.'}), 400
+        else:
+            reopen_days_before_due_date = 10  # Default
+        
+        # Set initial_due_date to due_date if provided
+        if due_date:
+            initial_due_date = due_date
+        
+        # Find admin user for assignment
+        from dashboard.tickets.recurring_tasks import get_admin_user
+        admin_user = get_admin_user()
+        if admin_user:
+            recurring_admin_id = admin_user.user_id
+            # Also assign the ticket to admin
+            if not assigned_user_id:
+                assigned_user_id = admin_user.user_id
+    
     try:
         ticket = create_ticket(
             listing_id=listing_id,
@@ -360,7 +415,13 @@ def api_create_ticket():
             priority=priority,
             category=category,
             due_date=due_date,
-            created_by=current_user.user_id
+            created_by=current_user.user_id,
+            is_recurring=is_recurring,
+            frequency_value=frequency_value,
+            frequency_unit=frequency_unit,
+            initial_due_date=initial_due_date,
+            recurring_admin_id=recurring_admin_id,
+            reopen_days_before_due_date=reopen_days_before_due_date
         )
         
         # Get the ticket again with relationships loaded to avoid lazy loading issues
@@ -450,6 +511,76 @@ def api_update_ticket(ticket_id):
                 return jsonify({'error': 'Invalid due_date format. Use YYYY-MM-DD'}), 400
         else:
             update_data['due_date'] = None
+    
+    # Handle recurring task fields
+    if 'is_recurring' in data:
+        is_recurring = data.get('is_recurring', False)
+        update_data['is_recurring'] = is_recurring
+        
+        if not is_recurring:
+            # If disabling recurring, also disable is_recurring_active
+            update_data['is_recurring_active'] = False
+        else:
+            # If enabling recurring, ensure is_recurring_active is True
+            update_data['is_recurring_active'] = True
+            
+            # Update frequency fields if provided
+            if 'frequency_value' in data:
+                frequency_value_raw = data['frequency_value']
+                if frequency_value_raw:
+                    try:
+                        frequency_value = int(frequency_value_raw)
+                        if frequency_value <= 0:
+                            return jsonify({'error': 'frequency_value must be greater than 0'}), 400
+                        update_data['frequency_value'] = frequency_value
+                    except (ValueError, TypeError):
+                        return jsonify({'error': 'Invalid frequency_value. Must be an integer.'}), 400
+            
+            if 'frequency_unit' in data:
+                frequency_unit = data['frequency_unit']
+                if frequency_unit:
+                    if frequency_unit not in ['days', 'months']:
+                        return jsonify({'error': 'Invalid frequency_unit. Must be "days" or "months".'}), 400
+                    update_data['frequency_unit'] = frequency_unit
+            
+            # Set initial_due_date if not set and due_date is provided
+            if 'initial_due_date' in data:
+                initial_due_date_str = data['initial_due_date']
+                if initial_due_date_str:
+                    try:
+                        update_data['initial_due_date'] = datetime.strptime(initial_due_date_str, '%Y-%m-%d').date()
+                    except ValueError:
+                        return jsonify({'error': 'Invalid initial_due_date format. Use YYYY-MM-DD'}), 400
+                else:
+                    update_data['initial_due_date'] = None
+            elif not ticket.initial_due_date and ticket.due_date:
+                # If initial_due_date is not set and we have a due_date, use it
+                update_data['initial_due_date'] = ticket.due_date
+            
+            # Update recurring_admin_id if provided
+            if 'recurring_admin_id' in data:
+                admin_id_raw = data['recurring_admin_id']
+                if admin_id_raw:
+                    try:
+                        update_data['recurring_admin_id'] = int(admin_id_raw)
+                    except (ValueError, TypeError):
+                        return jsonify({'error': 'Invalid recurring_admin_id. Must be an integer.'}), 400
+                else:
+                    update_data['recurring_admin_id'] = None
+    
+    if 'is_recurring_active' in data:
+        update_data['is_recurring_active'] = bool(data['is_recurring_active'])
+    
+    if 'reopen_days_before_due_date' in data:
+        reopen_days_raw = data['reopen_days_before_due_date']
+        if reopen_days_raw is not None:
+            try:
+                reopen_days = int(reopen_days_raw)
+                if reopen_days < 0:
+                    return jsonify({'error': 'reopen_days_before_due_date must be >= 0'}), 400
+                update_data['reopen_days_before_due_date'] = reopen_days
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Invalid reopen_days_before_due_date. Must be an integer.'}), 400
     
     try:
         updated_ticket = update_ticket(ticket_id, **update_data)
@@ -1207,6 +1338,21 @@ def api_serve_thumbnail(image_id):
         return jsonify({'error': 'Thumbnail not found'}), 404
     finally:
         session.close()
+
+
+@tickets_bp.route('/api/recurring/process', methods=['POST'])
+@admin_required
+def api_process_recurring_tasks():
+    """Manually trigger recurring tasks processing (admin only)."""
+    try:
+        results = process_recurring_tasks()
+        return jsonify({
+            'message': 'Recurring tasks processed successfully',
+            'results': results
+        }), 200
+    except Exception as e:
+        logger.error(f"Error processing recurring tasks: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 
 def register_ticket_routes(app):

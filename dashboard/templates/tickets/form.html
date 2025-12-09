@@ -107,6 +107,40 @@
                 </div>
             </div>
             
+            <div class="form-group">
+                <label class="form-label">
+                    <input type="checkbox" id="isRecurringCheckbox" onchange="toggleRecurringFields()">
+                    Make this a recurring task
+                </label>
+                <div id="recurringFieldsContainer" style="display: none; margin-top: var(--space-3); padding: var(--space-4); background: var(--bg-secondary); border-radius: var(--radius-md);">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="frequencyValueInput" class="form-label">Frequency</label>
+                            <div style="display: flex; gap: var(--space-2); align-items: center;">
+                                <input type="number" id="frequencyValueInput" class="form-input" min="1" placeholder="30" style="width: 100px;">
+                                <select id="frequencyUnitSelect" class="form-select" style="flex: 1;">
+                                    <option value="days">Days</option>
+                                    <option value="months">Months</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="reopenDaysInput" class="form-label">Reopen Days Before Due Date</label>
+                            <input type="number" id="reopenDaysInput" class="form-input" min="0" value="10" placeholder="10">
+                            <small style="color: var(--text-tertiary); font-size: var(--text-sm);">Number of days before due date to automatically reopen</small>
+                        </div>
+                    </div>
+                    {% if ticket and ticket.is_recurring %}
+                    <div class="form-group" style="margin-top: var(--space-3);">
+                        <label>
+                            <input type="checkbox" id="isRecurringActiveCheckbox" {% if ticket.is_recurring_active %}checked{% endif %}>
+                            Recurring is active
+                        </label>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary">{% if ticket %}Update Ticket{% else %}Create Ticket{% endif %}</button>
                 <a href="{% if ticket %}/tickets/{{ ticket.ticket_id }}/page{% else %}/tickets/{% endif %}" class="btn btn-secondary">Cancel</a>
@@ -617,6 +651,16 @@ function closeSuggestionsModal() {
     if (loading) loading.style.display = 'flex';
 }
 
+function toggleRecurringFields() {
+    const checkbox = document.getElementById('isRecurringCheckbox');
+    const container = document.getElementById('recurringFieldsContainer');
+    if (checkbox.checked) {
+        container.style.display = 'block';
+    } else {
+        container.style.display = 'none';
+    }
+}
+
 function populateEditForm() {
     {% if ticket %}
     document.getElementById('titleInput').value = {{ ticket.title|tojson }};
@@ -630,6 +674,21 @@ function populateEditForm() {
     document.getElementById('categorySelect').value = {{ ticket.category|tojson if ticket.category else 'other'|tojson }};
     {% if ticket.due_date %}
     document.getElementById('dueDateInput').value = {{ ticket.due_date.strftime('%Y-%m-%d')|tojson }};
+    {% endif %}
+    
+    // Populate recurring fields
+    {% if ticket.is_recurring %}
+    document.getElementById('isRecurringCheckbox').checked = true;
+    toggleRecurringFields();
+    {% if ticket.frequency_value %}
+    document.getElementById('frequencyValueInput').value = {{ ticket.frequency_value }};
+    {% endif %}
+    {% if ticket.frequency_unit %}
+    document.getElementById('frequencyUnitSelect').value = {{ ticket.frequency_unit|tojson }};
+    {% endif %}
+    {% if ticket.reopen_days_before_due_date %}
+    document.getElementById('reopenDaysInput').value = {{ ticket.reopen_days_before_due_date }};
+    {% endif %}
     {% endif %}
     {% endif %}
 }
@@ -833,6 +892,39 @@ function saveTicket(event) {
         assigned_user_id: assignedId ? parseInt(assignedId) : null,
         due_date: dueDate || null
     };
+    
+    // Add recurring task fields
+    const isRecurring = document.getElementById('isRecurringCheckbox').checked;
+    if (isRecurring) {
+        const frequencyValue = document.getElementById('frequencyValueInput').value;
+        const frequencyUnit = document.getElementById('frequencyUnitSelect').value;
+        const reopenDays = document.getElementById('reopenDaysInput').value;
+        
+        if (!frequencyValue || !frequencyUnit) {
+            alert('Please enter frequency value and unit for recurring tasks');
+            return;
+        }
+        
+        data.is_recurring = true;
+        data.frequency_value = parseInt(frequencyValue);
+        data.frequency_unit = frequencyUnit;
+        data.reopen_days_before_due_date = reopenDays ? parseInt(reopenDays) : 10;
+        
+        // Set initial_due_date to due_date if provided
+        if (dueDate) {
+            data.initial_due_date = dueDate;
+        }
+        
+        {% if ticket %}
+        // In edit mode, allow updating is_recurring_active
+        const isRecurringActive = document.getElementById('isRecurringActiveCheckbox');
+        if (isRecurringActive) {
+            data.is_recurring_active = isRecurringActive.checked;
+        }
+        {% endif %}
+    } else {
+        data.is_recurring = false;
+    }
     
     const url = ticketId ? `/tickets/api/tickets/${ticketId}` : '/tickets/api/tickets';
     const method = ticketId ? 'PUT' : 'POST';

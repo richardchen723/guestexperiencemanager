@@ -285,6 +285,10 @@ function createTicketCard(ticket) {
         tagsHtml += '</div>';
     }
     
+    // Check if recurring
+    const recurringBadge = ticket.is_recurring ? 
+        `<span class="status-badge" style="background: #6366f1; color: white; font-size: 10px; padding: 2px 6px;" title="Recurring task">🔄 Recurring</span>` : '';
+    
     card.innerHTML = `
         <div class="ticket-card-header">
                     <h3><a href="/tickets/${ticket.ticket_id}/page">${escapeHtml(ticket.title)}</a></h3>
@@ -292,6 +296,7 @@ function createTicketCard(ticket) {
                 <span class="status-badge status-${statusClass}">${escapeHtml(ticket.status)}</span>
                 <span class="priority-badge priority-${priorityClass}">${escapeHtml(ticket.priority)}</span>
                 <span class="category-badge category-${categoryClass}">${escapeHtml(categoryDisplay)}</span>
+                ${recurringBadge}
             </div>
         </div>
         <div class="ticket-card-body">

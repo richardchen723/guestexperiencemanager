@@ -73,7 +73,22 @@ sudo -u hostaway "$VENV_DIR/bin/python" "$APP_DIR/database/migrations.py" || {
     echo -e "${YELLOW}Warning: Migration script failed, but continuing. Migrations will run on app startup.${NC}"
 }
 
-echo -e "${GREEN}Step 6: Restarting systemd services...${NC}"
+echo -e "${GREEN}Step 6: Installing/updating systemd services...${NC}"
+# Copy service files
+if [ -f "$APP_DIR/deployment/hostaway-dashboard.service" ]; then
+    cp "$APP_DIR/deployment/hostaway-dashboard.service" /etc/systemd/system/
+    systemctl daemon-reload
+fi
+if [ -f "$APP_DIR/deployment/hostaway-recurring-tasks.service" ]; then
+    cp "$APP_DIR/deployment/hostaway-recurring-tasks.service" /etc/systemd/system/
+    cp "$APP_DIR/deployment/hostaway-recurring-tasks.timer" /etc/systemd/system/
+    systemctl daemon-reload
+    systemctl enable hostaway-recurring-tasks.timer
+    systemctl start hostaway-recurring-tasks.timer
+    echo -e "${GREEN}Recurring tasks timer enabled${NC}"
+fi
+
+echo -e "${GREEN}Step 7: Restarting systemd services...${NC}"
 if systemctl is-active --quiet hostaway-dashboard; then
     systemctl restart hostaway-dashboard
     echo -e "${GREEN}Service restarted${NC}"
@@ -81,10 +96,10 @@ else
     echo -e "${YELLOW}Service not running. Start it with: sudo systemctl start hostaway-dashboard${NC}"
 fi
 
-echo -e "${GREEN}Step 7: Waiting for service to start...${NC}"
+echo -e "${GREEN}Step 8: Waiting for service to start...${NC}"
 sleep 3
 
-echo -e "${GREEN}Step 8: Health check...${NC}"
+echo -e "${GREEN}Step 9: Health check...${NC}"
 if systemctl is-active --quiet hostaway-dashboard; then
     echo -e "${GREEN}Service is running${NC}"
     

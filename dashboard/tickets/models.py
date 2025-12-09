@@ -53,6 +53,15 @@ class Ticket(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
+    # Recurring task fields
+    is_recurring = Column(Boolean, default=False, nullable=False)
+    is_recurring_active = Column(Boolean, default=True, nullable=False)
+    frequency_value = Column(Integer, nullable=True)  # Number in frequency (e.g., 30 for "30 days")
+    frequency_unit = Column(String, nullable=True)  # Unit: "days" or "months"
+    initial_due_date = Column(Date, nullable=True)  # Original due date when recurring was set
+    recurring_admin_id = Column(Integer, ForeignKey(f'{_users_fk_schema}users.user_id'), nullable=True)  # Admin to assign on reopen
+    reopen_days_before_due_date = Column(Integer, nullable=True, default=10)  # Days before due date to reopen
+    
     # Relationships
     assigned_user = relationship('User', foreign_keys=[assigned_user_id])
     creator = relationship('User', foreign_keys=[created_by])
@@ -83,6 +92,13 @@ class Ticket(Base):
             'created_by_email': self.creator.email if self.creator else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'is_recurring': self.is_recurring,
+            'is_recurring_active': self.is_recurring_active,
+            'frequency_value': self.frequency_value,
+            'frequency_unit': self.frequency_unit,
+            'initial_due_date': self.initial_due_date.isoformat() if self.initial_due_date else None,
+            'recurring_admin_id': self.recurring_admin_id,
+            'reopen_days_before_due_date': self.reopen_days_before_due_date if self.reopen_days_before_due_date is not None else 10,
         }
         
         if include_comments:
@@ -307,9 +323,13 @@ def init_ticket_database():
         _migrate_tickets_table(engine)
         # Migrate image tables if needed
         _migrate_image_tables(engine)
+        # Migrate recurring fields to tickets table
+        _migrate_tickets_recurring_table(engine)
     else:
         # PostgreSQL: Migrate to make listing_id nullable
         _migrate_listing_id_nullable(engine)
+        # Migrate recurring fields to tickets table
+        _migrate_tickets_recurring_table(engine)
     
     return engine
 
@@ -418,6 +438,85 @@ def _migrate_image_tables(engine):
             return
 
 
+def _migrate_tickets_recurring_table(engine):
+    """Add recurring task columns to tickets table if they don't exist"""
+    import sqlalchemy
+    database_url = os.getenv("DATABASE_URL")
+    
+    with engine.connect() as conn:
+        if not database_url:
+            # SQLite migration
+            # Check if tickets table exists
+            result = conn.execute(sqlalchemy.text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='tickets'"
+            ))
+            if not result.fetchone():
+                return  # Table doesn't exist, create_all will handle it
+            
+            # Get existing columns
+            result = conn.execute(sqlalchemy.text("PRAGMA table_info(tickets)"))
+            existing_columns = {row[1] for row in result.fetchall()}
+            
+            # Add columns if missing (idempotent)
+            columns_to_add = [
+                ('is_recurring', 'INTEGER DEFAULT 0'),
+                ('is_recurring_active', 'INTEGER DEFAULT 1'),
+                ('frequency_value', 'INTEGER'),
+                ('frequency_unit', 'TEXT'),
+                ('initial_due_date', 'DATE'),
+                ('recurring_admin_id', 'INTEGER'),
+                ('reopen_days_before_due_date', 'INTEGER DEFAULT 10'),
+            ]
+            
+            for col_name, col_type in columns_to_add:
+                if col_name not in existing_columns:
+                    try:
+                        conn.execute(sqlalchemy.text(f"ALTER TABLE tickets ADD COLUMN {col_name} {col_type}"))
+                        conn.commit()
+                    except Exception as e:
+                        conn.rollback()
+                        # Column might already exist, ignore
+                        pass
+        else:
+            # PostgreSQL migration
+            # Check if tickets table exists
+            result = conn.execute(sqlalchemy.text(
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'tickets' AND table_name = 'tickets')"
+            ))
+            if not result.scalar():
+                return  # Table doesn't exist, create_all will handle it
+            
+            # Check and add columns
+            columns_to_add = [
+                ('is_recurring', 'BOOLEAN DEFAULT FALSE'),
+                ('is_recurring_active', 'BOOLEAN DEFAULT TRUE'),
+                ('frequency_value', 'INTEGER'),
+                ('frequency_unit', 'VARCHAR'),
+                ('initial_due_date', 'DATE'),
+                ('recurring_admin_id', 'INTEGER'),
+                ('reopen_days_before_due_date', 'INTEGER DEFAULT 10'),
+            ]
+            
+            for col_name, col_type in columns_to_add:
+                # Check if column exists
+                result = conn.execute(sqlalchemy.text("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.columns 
+                        WHERE table_schema = 'tickets' 
+                        AND table_name = 'tickets' 
+                        AND column_name = :col_name
+                    )
+                """), {'col_name': col_name})
+                if not result.scalar():
+                    try:
+                        conn.execute(sqlalchemy.text(f"ALTER TABLE tickets.tickets ADD COLUMN {col_name} {col_type}"))
+                        conn.commit()
+                    except Exception as e:
+                        conn.rollback()
+                        # Column might already exist, ignore
+                        pass
+
+
 def _safe_expunge(session, obj):
     """Safely expunge an object from the session if it's present."""
     if obj is None:
@@ -435,7 +534,10 @@ def _safe_expunge(session, obj):
 
 def create_ticket(listing_id: int = None, issue_title: str = None, title: str = None, description: str = None,
                   assigned_user_id: int = None, status: str = 'Open', priority: str = 'Low',
-                  category: str = 'other', due_date: date = None, created_by: int = None) -> Ticket:
+                  category: str = 'other', due_date: date = None, created_by: int = None,
+                  is_recurring: bool = False, frequency_value: int = None, frequency_unit: str = None,
+                  initial_due_date: date = None, recurring_admin_id: int = None,
+                  reopen_days_before_due_date: int = None) -> Ticket:
     """Create a new ticket and inherit tags from the property (if listing_id is provided).
     
     For general tickets (listing_id=None), issue_title can be None and will default to title.
@@ -470,7 +572,14 @@ def create_ticket(listing_id: int = None, issue_title: str = None, title: str = 
             priority=priority,
             category=category,
             due_date=due_date,
-            created_by=created_by
+            created_by=created_by,
+            is_recurring=is_recurring,
+            is_recurring_active=is_recurring if is_recurring else False,
+            frequency_value=frequency_value,
+            frequency_unit=frequency_unit,
+            initial_due_date=initial_due_date,
+            recurring_admin_id=recurring_admin_id,
+            reopen_days_before_due_date=reopen_days_before_due_date if reopen_days_before_due_date is not None else 10
         )
         session.add(ticket)
         session.flush()  # Get ticket_id without committing

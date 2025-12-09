@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Hostaway Messages Recurring Tasks Daily
+Requires=hostaway-recurring-tasks.service
+
+[Timer]
+# Run daily at 1:00 AM (before sync scheduler at 2 AM)
+OnCalendar=daily
+OnCalendar=01:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

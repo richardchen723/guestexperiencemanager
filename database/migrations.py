@@ -48,6 +48,7 @@ def run_all_migrations(engine=None):
             _migrate_tags_tables,
             _migrate_listings_table
         )
+        from dashboard.tickets.models import get_engine as get_tickets_engine
         
         database_url = os.getenv("DATABASE_URL")
         
@@ -61,10 +62,28 @@ def run_all_migrations(engine=None):
             _migrate_reviews_table(engine)
             _migrate_tags_tables(engine)
             _migrate_listings_table(engine)
+            # Tickets DB migrations
+            from dashboard.tickets.models import (
+                _migrate_tickets_table,
+                _migrate_image_tables,
+                _migrate_tickets_recurring_table
+            )
+            tickets_engine = get_tickets_engine()
+            _migrate_tickets_table(tickets_engine)
+            _migrate_image_tables(tickets_engine)
+            _migrate_tickets_recurring_table(tickets_engine)
         else:
             # PostgreSQL migrations
             logger.info("Running PostgreSQL migrations...")
             _migrate_listings_table(engine)
+            # Tickets DB migrations
+            from dashboard.tickets.models import (
+                _migrate_listing_id_nullable,
+                _migrate_tickets_recurring_table
+            )
+            tickets_engine = get_tickets_engine()
+            _migrate_listing_id_nullable(tickets_engine)
+            _migrate_tickets_recurring_table(tickets_engine)
             # Note: Other migrations are SQLite-specific
         
         logger.info("Database migrations completed successfully")

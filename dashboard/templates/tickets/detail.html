@@ -92,6 +92,32 @@
                     <label>Due Date:</label>
                     <input type="date" id="dueDateInput" value="{{ ticket.due_date.strftime('%Y-%m-%d') if ticket.due_date else '' }}" onchange="updateDueDate({{ ticket.ticket_id }})">
                 </div>
+                {% if ticket.is_recurring %}
+                <div class="info-row" style="background: var(--bg-secondary); padding: var(--space-3); border-radius: var(--radius-md); margin-top: var(--space-3);">
+                    <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);">
+                        <span style="font-weight: 600;">🔄 Recurring Task</span>
+                        <span id="recurringStatusBadge" class="status-badge" style="background: {% if ticket.is_recurring_active %}var(--success){% else %}var(--text-tertiary){% endif %}; color: white; font-size: var(--text-xs); padding: 2px 8px;">
+                            {% if ticket.is_recurring_active %}Active{% else %}Inactive{% endif %}
+                        </span>
+                    </div>
+                    <div style="font-size: var(--text-sm); color: var(--text-secondary); margin-bottom: var(--space-2);">
+                        Recurs every {{ ticket.frequency_value }} {{ ticket.frequency_unit }}
+                    </div>
+                    <div style="font-size: var(--text-sm); color: var(--text-secondary); margin-bottom: var(--space-2);">
+                        Reopens {{ ticket.reopen_days_before_due_date or 10 }} days before due date
+                    </div>
+                    {% if ticket.initial_due_date %}
+                    <div style="font-size: var(--text-sm); color: var(--text-secondary);">
+                        Initial due date: {{ ticket.initial_due_date.strftime('%Y-%m-%d') }}
+                    </div>
+                    {% endif %}
+                    <div style="margin-top: var(--space-3);">
+                        <button id="toggleRecurringBtn" onclick="toggleRecurringActive({{ ticket.ticket_id }})" class="btn btn-secondary btn-sm">
+                            {% if ticket.is_recurring_active %}Disable Recurring{% else %}Enable Recurring{% endif %}
+                        </button>
+                    </div>
+                </div>
+                {% endif %}
                 <div class="info-row">
                     <label>Created:</label>
                     <span>{{ ticket.created_at.strftime('%Y-%m-%d %H:%M') if ticket.created_at else '' }}</span>
@@ -441,7 +467,33 @@ function updateDueDate(ticketId) {
     updateTicket(ticketId, { due_date: dueDate || null });
 }
 
-function updateTicket(ticketId, data) {
+function toggleRecurringActive(ticketId) {
+    // Get current state from the button text or badge
+    const button = document.getElementById('toggleRecurringBtn');
+    const badge = document.getElementById('recurringStatusBadge');
+    const isCurrentlyActive = button.textContent.includes('Disable');
+    const newActiveState = !isCurrentlyActive;
+    
+    updateTicket(ticketId, { is_recurring_active: newActiveState }, function(success) {
+        if (success) {
+            // Update button text
+            button.textContent = newActiveState ? 'Disable Recurring' : 'Enable Recurring';
+            
+            // Update badge
+            if (badge) {
+                if (newActiveState) {
+                    badge.textContent = 'Active';
+                    badge.style.background = 'var(--success)';
+                } else {
+                    badge.textContent = 'Inactive';
+                    badge.style.background = 'var(--text-tertiary)';
+                }
+            }
+        }
+    });
+}
+
+function updateTicket(ticketId, data, onSuccess) {
     fetch(`/tickets/api/tickets/${ticketId}`, {
         method: 'PUT',
         headers: {
@@ -453,12 +505,16 @@ function updateTicket(ticketId, data) {
     .then(result => {
         if (result.error) {
             alert('Error: ' + result.error);
+            if (onSuccess) onSuccess(false);
             location.reload();
+        } else {
+            if (onSuccess) onSuccess(true);
         }
     })
     .catch(error => {
         console.error('Error updating ticket:', error);
         alert('Error updating ticket');
+        if (onSuccess) onSuccess(false);
         location.reload();
     });
 }

@@ -1,0 +1,26 @@
+[Unit]
+Description=Hostaway Messages Recurring Tasks Processor
+After=network.target postgresql.service hostaway-dashboard.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=hostaway
+Group=hostaway
+WorkingDirectory=/opt/hostaway-messages/app
+Environment="PATH=/opt/hostaway-messages/venv/bin"
+EnvironmentFile=/opt/hostaway-messages/.env
+
+# Run recurring tasks processor
+ExecStart=/opt/hostaway-messages/venv/bin/python3 -m dashboard.tickets.recurring_scheduler
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/hostaway-messages/conversations /opt/hostaway-messages/app/conversations /opt/hostaway-messages/logs /opt/hostaway-messages/app/data /run/hostaway-dashboard
+
+[Install]
+WantedBy=multi-user.target
+
