@@ -14,6 +14,7 @@
             <label for="filterListing">Listing:</label>
             <select id="filterListing">
                 <option value="">All Listings</option>
+                <option value="0">General (No Property)</option>
             </select>
         </div>
         
@@ -128,8 +129,7 @@ function loadListings() {
             allListings.forEach(listing => {
                 const option = document.createElement('option');
                 option.value = listing.listing_id;
-                const displayName = listing.internal_name || listing.name || `Listing ${listing.listing_id}`;
-                option.textContent = displayName;
+                option.textContent = listing.name || `Listing ${listing.listing_id}`;
                 select.appendChild(option);
             });
             
@@ -245,8 +245,8 @@ function createTicketCard(ticket) {
     const card = document.createElement('div');
     card.className = 'ticket-card';
     
-    const listing = allListings.find(l => l.listing_id === ticket.listing_id);
-    const listingName = listing ? (listing.internal_name || listing.name) : `Listing ${ticket.listing_id}`;
+    const listing = ticket.listing_id ? allListings.find(l => l.listing_id === ticket.listing_id) : null;
+    const listingName = listing ? listing.name : (ticket.listing_id ? `Listing ${ticket.listing_id}` : 'General');
     
     const statusClass = ticket.status.toLowerCase().replace(' ', '-');
     const priorityClass = ticket.priority.toLowerCase();
@@ -280,7 +280,7 @@ function createTicketCard(ticket) {
             </div>
         </div>
         <div class="ticket-card-body">
-            <p class="ticket-issue">Issue: ${escapeHtml(ticket.issue_title)}</p>
+            ${ticket.issue_title ? `<p class="ticket-issue">Issue: ${escapeHtml(ticket.issue_title)}</p>` : ''}
             <p class="ticket-listing">Property: ${escapeHtml(listingName)}</p>
             ${ticket.description ? `<p class="ticket-description">${escapeHtml(ticket.description.substring(0, 150))}${ticket.description.length > 150 ? '...' : ''}</p>` : ''}
             ${tagsHtml}

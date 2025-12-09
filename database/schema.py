@@ -52,7 +52,6 @@ def create_schema(db_path: str):
         CREATE TABLE IF NOT EXISTS listings (
             listing_id INTEGER PRIMARY KEY,
             name TEXT,
-            internal_name TEXT,
             description TEXT,
             property_type_id INTEGER,
             accommodates INTEGER,

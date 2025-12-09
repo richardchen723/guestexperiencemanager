@@ -5,12 +5,15 @@ Ticket database models and utilities.
 
 import sys
 import os
+import logging
 from datetime import datetime, date
 from typing import Optional, List
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Date, Boolean, UniqueConstraint
 import sqlalchemy
 from sqlalchemy.orm import relationship
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
@@ -35,7 +38,7 @@ class Ticket(Base):
     )
     
     ticket_id = Column(Integer, primary_key=True, autoincrement=True)
-    listing_id = Column(Integer, nullable=False, index=True)  # References main database listings
+    listing_id = Column(Integer, nullable=True, index=True)  # References main database listings (nullable for general tickets)
     issue_title = Column(String, nullable=False)  # The issue title this ticket addresses
     title = Column(String, nullable=False)
     description = Column(Text)
@@ -300,10 +303,13 @@ def init_ticket_database():
     
     # SQLite-specific migrations (skip for PostgreSQL)
     if not database_url:
-        # Migrate tickets table if needed (add category column)
+        # Migrate tickets table if needed (add category column, make listing_id nullable)
         _migrate_tickets_table(engine)
         # Migrate image tables if needed
         _migrate_image_tables(engine)
+    else:
+        # PostgreSQL: Migrate to make listing_id nullable
+        _migrate_listing_id_nullable(engine)
     
     return engine
 
@@ -353,6 +359,44 @@ def _migrate_tickets_table(engine):
             pass
 
 
+def _migrate_listing_id_nullable(engine):
+    """Make listing_id nullable in tickets table (PostgreSQL only)."""
+    import sqlalchemy
+    database_url = os.getenv("DATABASE_URL")
+    
+    if not database_url:
+        return  # SQLite migration handled separately
+    
+    try:
+        with engine.connect() as conn:
+            # Check if tickets table exists
+            result = conn.execute(sqlalchemy.text(
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'tickets' AND table_name = 'tickets')"
+            ))
+            if not result.scalar():
+                return  # Table doesn't exist, create_all will handle it
+            
+            # Check if listing_id is already nullable
+            result = conn.execute(sqlalchemy.text("""
+                SELECT is_nullable 
+                FROM information_schema.columns 
+                WHERE table_schema = 'tickets' 
+                AND table_name = 'tickets' 
+                AND column_name = 'listing_id'
+            """))
+            row = result.fetchone()
+            if row and row[0] == 'YES':
+                return  # Already nullable
+            
+            # Make listing_id nullable
+            conn.execute(sqlalchemy.text("ALTER TABLE tickets.tickets ALTER COLUMN listing_id DROP NOT NULL"))
+            conn.commit()
+            logger.info("Migrated tickets.listing_id to be nullable")
+    except Exception as e:
+        logger.warning(f"Error migrating listing_id to nullable: {e}")
+        # Migration might have already been applied, ignore
+
+
 def _migrate_image_tables(engine):
     """Create image tables if they don't exist (SQLite only)."""
     import sqlalchemy
@@ -389,10 +433,21 @@ def _safe_expunge(session, obj):
 
 
 
-def create_ticket(listing_id: int, issue_title: str, title: str, description: str = None,
+def create_ticket(listing_id: int = None, issue_title: str = None, title: str = None, description: str = None,
                   assigned_user_id: int = None, status: str = 'Open', priority: str = 'Low',
                   category: str = 'other', due_date: date = None, created_by: int = None) -> Ticket:
-    """Create a new ticket and inherit tags from the property."""
+    """Create a new ticket and inherit tags from the property (if listing_id is provided).
+    
+    For general tickets (listing_id=None), issue_title can be None and will default to title.
+    """
+    # For general tickets, use title as issue_title if not provided
+    if listing_id is None and not issue_title and title:
+        issue_title = title
+    
+    # Ensure issue_title is not None
+    if not issue_title:
+        raise ValueError("issue_title is required")
+    
     from sqlalchemy.orm import joinedload
     import sys
     import os
@@ -421,18 +476,19 @@ def create_ticket(listing_id: int, issue_title: str, title: str, description: st
         session.flush()  # Get ticket_id without committing
         ticket_id = ticket.ticket_id
         
-        # Inherit tags from property
-        listing_tags = main_session.query(ListingTag).filter(
-            ListingTag.listing_id == listing_id
-        ).all()
-        
-        for listing_tag in listing_tags:
-            ticket_tag = TicketTag(
-                ticket_id=ticket_id,
-                tag_id=listing_tag.tag_id,
-                is_inherited=True
-            )
-            session.add(ticket_tag)
+        # Inherit tags from property (only if listing_id is provided)
+        if listing_id is not None:
+            listing_tags = main_session.query(ListingTag).filter(
+                ListingTag.listing_id == listing_id
+            ).all()
+            
+            for listing_tag in listing_tags:
+                ticket_tag = TicketTag(
+                    ticket_id=ticket_id,
+                    tag_id=listing_tag.tag_id,
+                    is_inherited=True
+                )
+                session.add(ticket_tag)
         
         session.commit()
         main_session.close()

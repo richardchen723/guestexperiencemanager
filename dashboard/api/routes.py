@@ -107,7 +107,6 @@ def register_routes(app):
                 result.append({
                     'listing_id': l.listing_id,
                     'name': l.name,
-                    'internal_name': l.internal_name or l.name,  # Use internal_name if available, fallback to name
                     'address': l.address,
                     'city': l.city,
                     'status': l.status,

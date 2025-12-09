@@ -14,9 +14,9 @@
     <div class="card">
         <form id="ticketForm" onsubmit="saveTicket(event)" class="ticket-form">
             <div class="form-group">
-                <label for="listingSelect" class="form-label">Property *</label>
-                <select id="listingSelect" class="form-select" required onchange="loadIssues(); loadPropertyTags();">
-                    <option value="">Select a property</option>
+                <label for="listingSelect" class="form-label">Property</label>
+                <select id="listingSelect" class="form-select" onchange="loadIssues(); loadPropertyTags();">
+                    <option value="">General (No specific property)</option>
                 </select>
                 <div id="inheritedTagsDisplay" class="tags-display" style="margin-top: 0.5rem; display: none;">
                     <span style="font-size: var(--text-sm); color: var(--text-tertiary); margin-right: var(--space-2);">Inherited tags:</span>
@@ -246,7 +246,7 @@ function loadListings() {
             listings.forEach(listing => {
                 const option = document.createElement('option');
                 option.value = listing.listing_id;
-                option.textContent = listing.internal_name || listing.name;
+                option.textContent = listing.name;
                 {% if ticket %}
                 if (listing.listing_id === {{ ticket.listing_id }}) {
                     option.selected = true;
@@ -293,7 +293,14 @@ function loadIssues() {
         return;
     }
     
-    currentListingId = listingId;
+    // Allow empty listingId for general tickets
+    currentListingId = listingId || null;
+    
+    if (!listingId) {
+        // For general tickets, clear issues dropdown
+        document.getElementById('issueSelect').innerHTML = '<option value="">Select an issue</option>';
+        return;
+    }
     
     fetch(`/tickets/api/listings/${listingId}/issues`)
         .then(response => response.json())
@@ -449,7 +456,7 @@ function getAISuggestions(event) {
         }
     }
     
-    if (!listingId || !issueTitle) {
+    if (!issueTitle) {
         // Show error in modal instead of hiding it
         const errorEl = document.getElementById('suggestionsError');
         const loadingEl = document.getElementById('suggestionsLoading');
@@ -458,7 +465,22 @@ function getAISuggestions(event) {
         if (loadingEl) loadingEl.style.display = 'none';
         if (contentEl) contentEl.style.display = 'none';
         if (errorEl) {
-            errorEl.textContent = 'Please select a property and issue first';
+            errorEl.textContent = listingId ? 'Please select an issue first' : 'Please enter an issue title first';
+            errorEl.style.display = 'block';
+        }
+        return false;
+    }
+    
+    if (!listingId) {
+        // AI suggestions require a property
+        const errorEl = document.getElementById('suggestionsError');
+        const loadingEl = document.getElementById('suggestionsLoading');
+        const contentEl = document.getElementById('suggestionsContent');
+        
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (contentEl) contentEl.style.display = 'none';
+        if (errorEl) {
+            errorEl.textContent = 'AI suggestions are only available for property-specific tickets';
             errorEl.style.display = 'block';
         }
         return false;
@@ -735,22 +757,34 @@ function saveTicket(event) {
     const listingId = document.getElementById('listingSelect').value;
     const issueSelect = document.getElementById('issueSelect');
     const issueInput = document.getElementById('issueTitleInput');
-    const issueTitle = issueInput.style.display !== 'none' ? issueInput.value : issueSelect.value;
-        const title = document.getElementById('titleInput').value;
-        const description = document.getElementById('descriptionInput').value;
-        const status = document.getElementById('statusSelect').value;
-        const priority = document.getElementById('prioritySelect').value;
-        const category = document.getElementById('categorySelect').value;
-        const assignedId = document.getElementById('assignedSelect').value;
-        const dueDate = document.getElementById('dueDateInput').value;
+    let issueTitle = issueInput.style.display !== 'none' ? issueInput.value : issueSelect.value;
+    const title = document.getElementById('titleInput').value.trim();
+    const description = document.getElementById('descriptionInput').value;
+    const status = document.getElementById('statusSelect').value;
+    const priority = document.getElementById('prioritySelect').value;
+    const category = document.getElementById('categorySelect').value;
+    const assignedId = document.getElementById('assignedSelect').value;
+    const dueDate = document.getElementById('dueDateInput').value;
     
-    if (!listingId || !issueTitle || !title) {
-        alert('Please fill in all required fields');
+    // Title is always required
+    if (!title) {
+        alert('Please enter a ticket title');
+        return;
+    }
+    
+    // For general tickets (no property), use title as issue_title if not provided
+    if (!listingId && !issueTitle) {
+        issueTitle = title;
+    }
+    
+    // Issue title is required
+    if (!issueTitle) {
+        alert('Please select an issue or enter an issue title');
         return;
     }
     
     const data = {
-        listing_id: parseInt(listingId),
+        listing_id: listingId ? parseInt(listingId) : null,
         issue_title: issueTitle,
         title: title,
         description: description,

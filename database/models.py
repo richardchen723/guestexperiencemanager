@@ -22,8 +22,7 @@ class Listing(Base):
     __tablename__ = 'listings'
     
     listing_id = Column(Integer, primary_key=True)
-    name = Column(String)  # Official name
-    internal_name = Column(String)  # Internal name (preferred for display)
+    name = Column(String)
     description = Column(Text)
     property_type_id = Column(Integer)
     accommodates = Column(Integer)

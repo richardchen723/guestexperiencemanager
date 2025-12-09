@@ -175,7 +175,11 @@ def api_list_tickets():
         
         # Apply other filters
         if listing_id:
-            query = query.filter(Ticket.listing_id == listing_id)
+            # Handle "General" tickets - if listing_id is 0 or "general", show tickets with NULL listing_id
+            if listing_id == 0 or str(listing_id).lower() == 'general':
+                query = query.filter(Ticket.listing_id.is_(None))
+            else:
+                query = query.filter(Ticket.listing_id == listing_id)
         if assigned_user_id:
             query = query.filter(Ticket.assigned_user_id == assigned_user_id)
         if status:
@@ -203,10 +207,11 @@ def api_list_tickets():
                             filtered_tickets.append(t)
             tickets = filtered_tickets
         
-        # Get listing names for display
+        # Get listing names for display (only for tickets with listing_id)
         listing_map = {}
-        listings = main_session.query(Listing).all()
-        listing_map = {l.listing_id: {'name': l.name, 'internal_name': l.internal_name or l.name, 'address': l.address} for l in listings}
+        if tickets and any(t.listing_id for t in tickets):
+            listings = main_session.query(Listing).all()
+            listing_map = {l.listing_id: {'name': l.name, 'address': l.address} for l in listings}
         
         # Get tags for all tickets
         ticket_ids = [t.ticket_id for t in tickets]
@@ -230,13 +235,13 @@ def api_list_tickets():
                             'is_inherited': tt.is_inherited
                         })
         
-        result = []
-        for ticket in tickets:
-            ticket_dict = ticket.to_dict(include_comments=False)
-            if ticket.listing_id in listing_map:
-                ticket_dict['listing'] = listing_map[ticket.listing_id]
-                ticket_dict['tags'] = ticket_tags_map.get(ticket.ticket_id, [])
-            result.append(ticket_dict)
+    result = []
+    for ticket in tickets:
+        ticket_dict = ticket.to_dict(include_comments=False)
+        if ticket.listing_id and ticket.listing_id in listing_map:
+            ticket_dict['listing'] = listing_map[ticket.listing_id]
+        ticket_dict['tags'] = ticket_tags_map.get(ticket.ticket_id, [])
+        result.append(ticket_dict)
         
         return jsonify(result)
     finally:
@@ -269,7 +274,6 @@ def api_get_ticket(ticket_id):
         ticket_dict['listing'] = {
             'listing_id': listing.listing_id,
             'name': listing.name,
-            'internal_name': listing.internal_name or listing.name,
             'address': listing.address,
             'city': listing.city
         }
@@ -289,18 +293,22 @@ def api_create_ticket():
     if not data:
         return jsonify({'error': 'Invalid request data'}), 400
     
-    # Validate required fields
+    # Validate listing_id (optional - can be None for general tickets)
+    listing_id = None
     listing_id_raw = data.get('listing_id')
-    if not listing_id_raw:
-        return jsonify({'error': 'listing_id is required'}), 400
-    
-    try:
-        listing_id = int(listing_id_raw)
-    except (ValueError, TypeError):
-        return jsonify({'error': 'Invalid listing_id. Must be an integer.'}), 400
+    if listing_id_raw:
+        try:
+            listing_id = int(listing_id_raw)
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid listing_id. Must be an integer or empty for general tickets.'}), 400
     
     issue_title = data.get('issue_title', '').strip()
     title = data.get('title', '').strip()
+    
+    # For general tickets (no listing_id), issue_title can be empty - use title as fallback
+    if not listing_id and not issue_title:
+        issue_title = title  # Use title as issue_title for general tickets
+    
     if not issue_title:
         return jsonify({'error': 'issue_title is required'}), 400
     if not title:
