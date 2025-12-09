@@ -78,9 +78,18 @@ def run_all_migrations(engine=None):
 if __name__ == "__main__":
     # Allow running migrations as a standalone script
     import sys
-    from utils.logging_config import setup_logging
+    import os
     
-    setup_logging()
+    # Add project root to path
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, project_root)
+    
+    try:
+        from utils.logging_config import setup_logging
+        setup_logging()
+    except ImportError:
+        # Fallback to basic logging if utils module not available
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
     logger.info("=" * 60)
     logger.info("Running Database Migrations")
