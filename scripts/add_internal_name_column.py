@@ -2,6 +2,14 @@
 """
 Migration script to add internal_name column to listings table.
 This script is idempotent - safe to run multiple times.
+
+Usage:
+    # Using virtual environment
+    /opt/hostaway-messages/venv/bin/python3 scripts/add_internal_name_column.py
+    
+    # Or activate venv first
+    source /opt/hostaway-messages/venv/bin/activate
+    python3 scripts/add_internal_name_column.py
 """
 
 import sys
@@ -14,7 +22,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database.models import get_session, init_models, Listing
 from database.schema import get_database_path
 from sqlalchemy import text
-import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
