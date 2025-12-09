@@ -15,9 +15,19 @@ Usage:
 import sys
 import os
 import logging
+from pathlib import Path
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Load environment variables from .env file
+from dotenv import load_dotenv
+env_path = Path('/opt/hostaway-messages/.env')
+if env_path.exists():
+    load_dotenv(env_path)
+else:
+    # Try alternative location
+    load_dotenv(Path(__file__).parent.parent / '.env')
 
 from database.models import get_session, init_models, Listing
 from database.schema import get_database_path
