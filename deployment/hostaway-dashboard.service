@@ -40,7 +40,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/hostaway-messages/conversations /opt/hostaway-messages/app/conversations /opt/hostaway-messages/logs /run/hostaway-dashboard
+ReadWritePaths=/opt/hostaway-messages/conversations /opt/hostaway-messages/app/conversations /opt/hostaway-messages/logs /opt/hostaway-messages/data /opt/hostaway-messages/app/data /run/hostaway-dashboard
 
 # Resource limits
 LimitNOFILE=65536
