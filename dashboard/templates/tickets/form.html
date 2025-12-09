@@ -322,10 +322,12 @@ function loadIssues() {
                 {% endif %}
                 select.appendChild(option);
             });
+            updateIssueRequired(); // Update required state after loading issues
         })
         .catch(error => {
             console.error('Error loading issues:', error);
             document.getElementById('issueSelect').innerHTML = '<option value="">Error loading issues</option>';
+            updateIssueRequired();
         });
 }
 
