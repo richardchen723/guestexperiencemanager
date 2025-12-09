@@ -289,10 +289,6 @@ function loadUsers() {
 
 function loadIssues() {
     const listingId = document.getElementById('listingSelect').value;
-    if (!listingId) {
-        document.getElementById('issueSelect').innerHTML = '<option value="">Select an issue</option>';
-        return;
-    }
     
     // Allow empty listingId for general tickets
     currentListingId = listingId || null;
@@ -300,6 +296,7 @@ function loadIssues() {
     if (!listingId) {
         // For general tickets, clear issues dropdown
         document.getElementById('issueSelect').innerHTML = '<option value="">Select an issue</option>';
+        updateIssueRequired();
         return;
     }
     
