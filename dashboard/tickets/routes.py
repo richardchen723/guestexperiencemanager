@@ -235,13 +235,13 @@ def api_list_tickets():
                             'is_inherited': tt.is_inherited
                         })
         
-    result = []
-    for ticket in tickets:
-        ticket_dict = ticket.to_dict(include_comments=False)
-        if ticket.listing_id and ticket.listing_id in listing_map:
-            ticket_dict['listing'] = listing_map[ticket.listing_id]
-        ticket_dict['tags'] = ticket_tags_map.get(ticket.ticket_id, [])
-        result.append(ticket_dict)
+        result = []
+        for ticket in tickets:
+            ticket_dict = ticket.to_dict(include_comments=False)
+            if ticket.listing_id and ticket.listing_id in listing_map:
+                ticket_dict['listing'] = listing_map[ticket.listing_id]
+            ticket_dict['tags'] = ticket_tags_map.get(ticket.ticket_id, [])
+            result.append(ticket_dict)
         
         return jsonify(result)
     finally:
