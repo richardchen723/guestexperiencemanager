@@ -78,7 +78,8 @@ def create_schema(db_path: str):
             custom_fields TEXT,
             inserted_on TIMESTAMP,
             updated_on TIMESTAMP,
-            last_synced_at TIMESTAMP
+            last_synced_at TIMESTAMP,
+            internal_listing_name TEXT
         )
     """)
     

@@ -67,9 +67,11 @@ if [ -f "$ENV_FILE" ] && [ ! -f "$APP_DIR/.env" ]; then
     chmod 600 "$APP_DIR/.env"
 fi
 
-echo -e "${GREEN}Step 5: Database initialization (automatic on app startup)...${NC}"
-# Database tables are created automatically on app startup via ensure_owner_exists()
-# No manual migration needed
+echo -e "${GREEN}Step 5: Running database migrations...${NC}"
+# Run migrations explicitly before service restart
+sudo -u hostaway "$VENV_DIR/bin/python" "$APP_DIR/database/migrations.py" || {
+    echo -e "${YELLOW}Warning: Migration script failed, but continuing. Migrations will run on app startup.${NC}"
+}
 
 echo -e "${GREEN}Step 6: Restarting systemd services...${NC}"
 if systemctl is-active --quiet hostaway-dashboard; then

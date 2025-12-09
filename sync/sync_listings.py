@@ -248,7 +248,8 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
                     ),
                     'inserted_on': parse_timestamp(listing_data.get('insertedOn')),
                     'updated_on': parse_timestamp(listing_data.get('updatedOn')),
-                    'last_synced_at': datetime.utcnow()
+                    'last_synced_at': datetime.utcnow(),
+                    'internal_listing_name': listing_data.get('internalListingName')
                 }
                 
                 if existing_listing:

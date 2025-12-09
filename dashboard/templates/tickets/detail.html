@@ -40,7 +40,7 @@
                     <span>
                         {% if ticket.listing_id %}
                             {% if listing %}
-                            <a href="/insights/{{ listing.listing_id }}">{{ listing.name }}</a>
+                            <a href="/insights/{{ listing.listing_id }}">{{ listing.internal_listing_name or listing.name }}</a>
                             {% else %}
                             Listing #{{ ticket.listing_id }}
                             {% endif %}

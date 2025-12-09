@@ -61,6 +61,11 @@ def initialize_all_databases():
             # For PostgreSQL, pass None to use DATABASE_URL from config
             init_models(None)
             logger.info("Main database initialized")
+            
+            # Run migrations after initialization
+            from database.migrations import run_all_migrations
+            logger.info("Running database migrations...")
+            run_all_migrations(main_engine)
         except Exception as e:
             logger.warning(f"Error initializing main database: {e}")
             # Continue with other databases

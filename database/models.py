@@ -50,6 +50,7 @@ class Listing(Base):
     inserted_on = Column(DateTime)
     updated_on = Column(DateTime)
     last_synced_at = Column(DateTime)
+    internal_listing_name = Column(String)  # Internal listing name from Hostaway API
     
     # Relationships
     photos = relationship('ListingPhoto', back_populates='listing', cascade='all, delete-orphan')
@@ -534,6 +535,12 @@ def init_models(db_path: str):
         
         # Migrate tags tables if needed
         _migrate_tags_tables(engine)
+        
+        # Migrate listings table if needed (add internal_listing_name column)
+        _migrate_listings_table(engine)
+    else:
+        # PostgreSQL migrations
+        _migrate_listings_table(engine)
     
     return engine
 
@@ -602,6 +609,62 @@ def _migrate_reviews_table(engine):
                 conn.rollback()
                 # Column might already exist, ignore
                 pass
+
+
+def _migrate_listings_table(engine):
+    """Add internal_listing_name column to listings table if it doesn't exist"""
+    import os
+    database_url = os.getenv("DATABASE_URL")
+    
+    with engine.connect() as conn:
+        if not database_url:
+            # SQLite migration
+            # Check if listings table exists
+            result = conn.execute(sqlalchemy.text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='listings'"
+            ))
+            if not result.fetchone():
+                return  # Table doesn't exist, create_all will handle it
+            
+            # Get existing columns
+            result = conn.execute(sqlalchemy.text("PRAGMA table_info(listings)"))
+            existing_columns = {row[1] for row in result.fetchall()}
+            
+            # Add internal_listing_name column if missing
+            if 'internal_listing_name' not in existing_columns:
+                try:
+                    conn.execute(sqlalchemy.text("ALTER TABLE listings ADD COLUMN internal_listing_name TEXT"))
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    # Column might already exist, ignore
+                    pass
+        else:
+            # PostgreSQL migration
+            # Check if listings table exists
+            result = conn.execute(sqlalchemy.text(
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'listings')"
+            ))
+            if not result.scalar():
+                return  # Table doesn't exist, create_all will handle it
+            
+            # Check if internal_listing_name column exists
+            result = conn.execute(sqlalchemy.text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'listings' 
+                    AND column_name = 'internal_listing_name'
+                )
+            """))
+            if not result.scalar():
+                try:
+                    conn.execute(sqlalchemy.text("ALTER TABLE public.listings ADD COLUMN internal_listing_name VARCHAR"))
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    # Column might already exist, ignore
+                    pass
 
 
 def _migrate_tags_tables(engine):

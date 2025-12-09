@@ -129,7 +129,8 @@ function loadListings() {
             allListings.forEach(listing => {
                 const option = document.createElement('option');
                 option.value = listing.listing_id;
-                option.textContent = listing.name || `Listing ${listing.listing_id}`;
+                const displayName = listing.internal_listing_name || listing.name || `Listing ${listing.listing_id}`;
+                option.textContent = displayName;
                 select.appendChild(option);
             });
             
@@ -245,8 +246,22 @@ function createTicketCard(ticket) {
     const card = document.createElement('div');
     card.className = 'ticket-card';
     
-    const listing = ticket.listing_id ? allListings.find(l => l.listing_id === ticket.listing_id) : null;
-    const listingName = listing ? listing.name : (ticket.listing_id ? `Listing ${ticket.listing_id}` : 'General');
+    // Try to get listing name from ticket.listing (from API), then from allListings, then fallback
+    let listingName = 'General';
+    if (ticket.listing_id) {
+        if (ticket.listing) {
+            // Use listing info from API response (includes internal_listing_name)
+            listingName = ticket.listing.internal_listing_name || ticket.listing.name || `Listing ${ticket.listing_id}`;
+        } else {
+            // Fallback to allListings lookup
+            const listing = allListings.find(l => l.listing_id === ticket.listing_id);
+            if (listing) {
+                listingName = listing.internal_listing_name || listing.name || `Listing ${ticket.listing_id}`;
+            } else {
+                listingName = `Listing ${ticket.listing_id}`;
+            }
+        }
+    }
     
     const statusClass = ticket.status.toLowerCase().replace(' ', '-');
     const priorityClass = ticket.priority.toLowerCase();
