@@ -15,7 +15,7 @@
         <form id="ticketForm" onsubmit="saveTicket(event)" class="ticket-form">
             <div class="form-group">
                 <label for="listingSelect" class="form-label">Property</label>
-                <select id="listingSelect" class="form-select" onchange="loadIssues(); loadPropertyTags();">
+                <select id="listingSelect" class="form-select" onchange="loadIssues(); loadPropertyTags(); updateIssueRequired();">
                     <option value="">General (No specific property)</option>
                 </select>
                 <div id="inheritedTagsDisplay" class="tags-display" style="margin-top: 0.5rem; display: none;">
@@ -24,10 +24,10 @@
             </div>
             
             <div class="form-group">
-                <label for="issueSelect" class="form-label">Issue *</label>
+                <label for="issueSelect" class="form-label">Issue <span id="issueRequired" style="color: var(--text-tertiary);">*</span></label>
                 <div style="display: flex; gap: var(--space-3); align-items: flex-start;">
                     <div style="flex: 1;">
-                        <select id="issueSelect" class="form-select" required>
+                        <select id="issueSelect" class="form-select">
                             <option value="">Select an issue</option>
                         </select>
                         <input type="text" id="issueTitleInput" class="form-input" placeholder="Or enter issue title manually" style="display: none; margin-top: var(--space-2);">
@@ -261,6 +261,7 @@ function loadListings() {
             {% if ticket or listing_id %}
             loadIssues();
             {% endif %}
+            updateIssueRequired(); // Set initial required state
         })
         .catch(error => console.error('Error loading listings:', error));
 }
@@ -334,12 +335,50 @@ function loadIssues() {
 function toggleIssueInput() {
     const select = document.getElementById('issueSelect');
     const input = document.getElementById('issueTitleInput');
+    const listingId = document.getElementById('listingSelect').value;
+    const isRequired = !!listingId; // Only required if property is selected
+    
     if (input.style.display === 'none') {
+        // Switch to manual input
         input.style.display = 'block';
         select.style.display = 'none';
+        select.removeAttribute('required');
+        if (isRequired) {
+            input.setAttribute('required', 'required');
+        } else {
+            input.removeAttribute('required');
+        }
     } else {
+        // Switch back to dropdown
         input.style.display = 'none';
         select.style.display = 'block';
+        input.removeAttribute('required');
+        if (isRequired) {
+            select.setAttribute('required', 'required');
+        } else {
+            select.removeAttribute('required');
+        }
+    }
+}
+
+function updateIssueRequired() {
+    const listingId = document.getElementById('listingSelect').value;
+    const isRequired = !!listingId;
+    const select = document.getElementById('issueSelect');
+    const input = document.getElementById('issueTitleInput');
+    const requiredSpan = document.getElementById('issueRequired');
+    
+    if (isRequired) {
+        requiredSpan.style.display = 'inline';
+        if (select.style.display !== 'none') {
+            select.setAttribute('required', 'required');
+        } else {
+            input.setAttribute('required', 'required');
+        }
+    } else {
+        requiredSpan.style.display = 'none';
+        select.removeAttribute('required');
+        input.removeAttribute('required');
     }
 }
 
