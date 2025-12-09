@@ -128,7 +128,8 @@ function loadListings() {
             allListings.forEach(listing => {
                 const option = document.createElement('option');
                 option.value = listing.listing_id;
-                option.textContent = listing.name || `Listing ${listing.listing_id}`;
+                const displayName = listing.internal_name || listing.name || `Listing ${listing.listing_id}`;
+                option.textContent = displayName;
                 select.appendChild(option);
             });
             
@@ -245,7 +246,7 @@ function createTicketCard(ticket) {
     card.className = 'ticket-card';
     
     const listing = allListings.find(l => l.listing_id === ticket.listing_id);
-    const listingName = listing ? listing.name : `Listing ${ticket.listing_id}`;
+    const listingName = listing ? (listing.internal_name || listing.name) : `Listing ${ticket.listing_id}`;
     
     const statusClass = ticket.status.toLowerCase().replace(' ', '-');
     const priorityClass = ticket.priority.toLowerCase();

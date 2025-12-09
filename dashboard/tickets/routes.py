@@ -206,7 +206,7 @@ def api_list_tickets():
         # Get listing names for display
         listing_map = {}
         listings = main_session.query(Listing).all()
-        listing_map = {l.listing_id: {'name': l.name, 'address': l.address} for l in listings}
+        listing_map = {l.listing_id: {'name': l.name, 'internal_name': l.internal_name or l.name, 'address': l.address} for l in listings}
         
         # Get tags for all tickets
         ticket_ids = [t.ticket_id for t in tickets]
@@ -269,6 +269,7 @@ def api_get_ticket(ticket_id):
         ticket_dict['listing'] = {
             'listing_id': listing.listing_id,
             'name': listing.name,
+            'internal_name': listing.internal_name or listing.name,
             'address': listing.address,
             'city': listing.city
         }

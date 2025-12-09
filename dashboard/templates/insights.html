@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}{{ listing.name }} - Insights{% endblock %}
+{% block title %}{{ listing.internal_name or listing.name }} - Insights{% endblock %}
 
 {% block content %}
 <div class="insights-page">
@@ -8,7 +8,7 @@
     <div class="insights-hero">
         <div class="insights-hero-content">
             <div>
-                <h1 class="insights-hero-title">{{ listing.name }}</h1>
+                <h1 class="insights-hero-title">{{ listing.internal_name or listing.name }}</h1>
                 <p class="insights-hero-subtitle">
                     <svg class="hero-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M8 8.5C9.10457 8.5 10 7.60457 10 6.5C10 5.39543 9.10457 4.5 8 4.5C6.89543 4.5 6 5.39543 6 6.5C6 7.60457 6.89543 8.5 8 8.5Z" stroke="currentColor" stroke-width="1.5"/>

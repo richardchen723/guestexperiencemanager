@@ -216,6 +216,7 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
                 listing_dict = {
                     'listing_id': listing_id,
                     'name': listing_data.get('name'),
+                    'internal_name': listing_data.get('internalName') or listing_data.get('internal_name'),
                     'description': listing_data.get('description'),
                     'property_type_id': listing_data.get('propertyTypeId'),
                     'accommodates': listing_data.get('accommodates'),

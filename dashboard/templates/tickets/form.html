@@ -246,7 +246,7 @@ function loadListings() {
             listings.forEach(listing => {
                 const option = document.createElement('option');
                 option.value = listing.listing_id;
-                option.textContent = listing.name;
+                option.textContent = listing.internal_name || listing.name;
                 {% if ticket %}
                 if (listing.listing_id === {{ ticket.listing_id }}) {
                     option.selected = true;

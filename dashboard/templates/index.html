@@ -96,7 +96,9 @@ function loadListings() {
             listings.forEach(listing => {
                 const card = document.createElement('div');
                 card.className = 'listing-card';
-                card.setAttribute('data-name', listing.name.toLowerCase());
+                // Use internal_name for display, fallback to name
+                const displayName = listing.internal_name || listing.name;
+                card.setAttribute('data-name', displayName.toLowerCase());
                 card.setAttribute('data-address', (listing.address || '').toLowerCase());
                 
                 // Get quality rating and create badge
@@ -112,7 +114,7 @@ function loadListings() {
                 card.innerHTML = `
                     <div class="listing-card-header">
                         <div class="listing-card-title-section">
-                            <h3 class="listing-card-title">${escapeHtml(listing.name)}</h3>
+                            <h3 class="listing-card-title">${escapeHtml(displayName)}</h3>
                             ${ratingBadge}
                         </div>
                     </div>
