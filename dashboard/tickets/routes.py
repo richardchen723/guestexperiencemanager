@@ -1166,7 +1166,7 @@ def api_upload_comment_image(comment_id):
         logger.info(
             f"Received file for comment {comment_id}: filename={file.filename}, content_type={file.content_type}, "
             f"content_length={file.content_length if hasattr(file, 'content_length') else 'unknown'}",
-            extra={'comment_id': comment_id, 'user_id': current_user.user_id, 'filename': file.filename}
+            extra={'comment_id': comment_id, 'user_id': current_user.user_id, 'uploaded_filename': file.filename}
         )
         
         # CRITICAL: Reset file stream position before processing
