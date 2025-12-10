@@ -1130,7 +1130,9 @@ def api_delete_ticket_image(ticket_id, image_id):
 def api_upload_comment_image(comment_id):
     """Upload an image to a comment."""
     from werkzeug.utils import secure_filename
+    import logging
     
+    logger = logging.getLogger(__name__)
     session = get_session()
     current_user = get_current_user()
     
@@ -1146,8 +1148,6 @@ def api_upload_comment_image(comment_id):
         
         # Check if file was uploaded
         if 'image' not in request.files:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(
                 f"No image file provided for comment {comment_id}",
                 extra={'comment_id': comment_id, 'user_id': current_user.user_id, 'files': list(request.files.keys())}
@@ -1156,8 +1156,6 @@ def api_upload_comment_image(comment_id):
         
         file = request.files['image']
         if file.filename == '':
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(
                 f"Empty filename for comment {comment_id} image upload",
                 extra={'comment_id': comment_id, 'user_id': current_user.user_id}
@@ -1181,8 +1179,6 @@ def api_upload_comment_image(comment_id):
         )
         
         # Log image upload details for debugging
-        import logging
-        logger = logging.getLogger(__name__)
         logger.info(
             f"Uploading image to comment {comment_id}: file_path={file_path}, file_name={file_name}",
             extra={'comment_id': comment_id, 'user_id': current_user.user_id, 'file_path': file_path, 'file_name': file_name}
