@@ -1291,13 +1291,112 @@ footer {
     color: var(--gray-700);
 }
 
-.filter-group select {
+.filter-group select,
+.filter-group input[type="text"] {
     padding: 0.625rem 0.875rem;
     border: 1px solid var(--gray-300);
     border-radius: var(--radius);
     font-size: 0.9375rem;
     background: var(--white);
     color: var(--gray-900);
+}
+
+.filter-group input[type="text"] {
+    cursor: text;
+}
+
+.filter-group input[type="text"]:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* Tickets Search Bar - Professional Design */
+.tickets-search-bar {
+    margin-bottom: 1.5rem;
+    padding: 0;
+}
+
+.search-input-wrapper {
+    position: relative;
+    max-width: 600px;
+    display: flex;
+    align-items: center;
+}
+
+.search-icon {
+    position: absolute;
+    left: 1rem;
+    color: var(--gray-400);
+    pointer-events: none;
+    z-index: 1;
+    transition: color 0.2s ease;
+}
+
+.tickets-search-input {
+    width: 100%;
+    padding: 0.875rem 1rem;
+    padding-left: 3rem;
+    padding-right: 3rem;
+    font-size: 0.9375rem;
+    border: 2px solid var(--gray-300);
+    border-radius: var(--radius);
+    background: var(--white);
+    color: var(--gray-900);
+    transition: all 0.2s ease;
+    box-shadow: var(--shadow-sm);
+}
+
+.tickets-search-input::placeholder {
+    color: var(--gray-400);
+    font-weight: 400;
+}
+
+.tickets-search-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1), var(--shadow-md);
+}
+
+.search-input-wrapper.focused .search-icon {
+    color: var(--primary-color);
+}
+
+.clear-search-btn {
+    position: absolute;
+    right: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    background: var(--gray-100);
+    color: var(--gray-500);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 1;
+}
+
+.clear-search-btn:hover {
+    background: var(--gray-200);
+    color: var(--gray-700);
+}
+
+.clear-search-btn:active {
+    transform: scale(0.95);
+}
+
+.clear-search-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.filter-group-search {
+    min-width: 250px;
+    flex: 1;
 }
 
 /* Status Filter Dropdown Styles */

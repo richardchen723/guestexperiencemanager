@@ -134,6 +134,7 @@ def api_list_tickets():
     issue_title = request.args.get('issue_title', type=str)
     tags_param = request.args.get('tags', '')
     tag_logic = request.args.get('tag_logic', 'AND').upper()  # AND or OR
+    search_query = request.args.get('search', type=str)
     
     # Normalize issue_title (trim whitespace)
     if issue_title:
@@ -192,6 +193,36 @@ def api_list_tickets():
             query = query.filter(Ticket.priority == priority)
         if category:
             query = query.filter(Ticket.category == category)
+        
+        # Apply text search if provided
+        if search_query:
+            search_query = search_query.strip()
+            if search_query:
+                # Import SQLAlchemy functions
+                from sqlalchemy import or_, String, cast, func
+                
+                search_pattern_lower = f"%{search_query.lower()}%"
+                search_pattern = f"%{search_query}%"
+                
+                # Build search conditions - search across ticket_id, title, description, and issue_title
+                # Handle NULL values: only search in non-NULL fields
+                search_conditions = [
+                    cast(Ticket.ticket_id, String).like(search_pattern),
+                    func.lower(Ticket.title).like(search_pattern_lower)
+                ]
+                
+                # Add description search (only if not NULL)
+                search_conditions.append(
+                    and_(Ticket.description.isnot(None), func.lower(Ticket.description).like(search_pattern_lower))
+                )
+                
+                # Add issue_title search (only if not NULL)
+                search_conditions.append(
+                    and_(Ticket.issue_title.isnot(None), func.lower(Ticket.issue_title).like(search_pattern_lower))
+                )
+                
+                # Apply the search filter - match if any condition is true
+                query = query.filter(or_(*search_conditions))
         
         tickets = query.order_by(Ticket.created_at.desc()).all()
         

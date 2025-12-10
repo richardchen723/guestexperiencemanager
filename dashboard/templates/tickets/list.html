@@ -9,6 +9,21 @@
             <a href="/tickets/create" class="btn-primary">Create New Ticket</a>
     </div>
     
+    <div class="tickets-search-bar">
+        <div class="search-input-wrapper">
+            <svg class="search-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M9 17C13.4183 17 17 13.4183 17 9C17 4.58172 13.4183 1 9 1C4.58172 1 1 4.58172 1 9C1 13.4183 4.58172 17 9 17Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M19 19L14.65 14.65" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <input type="text" id="searchInput" class="tickets-search-input" placeholder="Search tickets by number, title, or description..." autocomplete="off">
+            <button type="button" id="clearSearchBtn" class="clear-search-btn" style="display: none;" onclick="clearSearch()" aria-label="Clear search">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+    
     <div class="tickets-filters">
         <div class="filter-group">
             <label for="filterListing">Listing:</label>
@@ -126,6 +141,7 @@ let allUsers = [];
 let tagFilter = null;
 let selectedTagIds = [];
 let tagLogic = 'AND';
+let searchTimeout = null;
 
 // Load data on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -150,6 +166,37 @@ document.addEventListener('DOMContentLoaded', function() {
             loadTickets();
         });
     });
+    
+    // Add search input event listener with debouncing
+    const searchInput = document.getElementById('searchInput');
+    const clearSearchBtn = document.getElementById('clearSearchBtn');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            // Show/hide clear button based on input
+            if (clearSearchBtn) {
+                clearSearchBtn.style.display = this.value.trim() ? 'flex' : 'none';
+            }
+            
+            // Clear existing timeout
+            if (searchTimeout) {
+                clearTimeout(searchTimeout);
+            }
+            
+            // Set new timeout for debounced search
+            searchTimeout = setTimeout(function() {
+                loadTickets();
+            }, 400); // 400ms debounce delay
+        });
+        
+        // Handle focus
+        searchInput.addEventListener('focus', function() {
+            this.parentElement.classList.add('focused');
+        });
+        
+        searchInput.addEventListener('blur', function() {
+            this.parentElement.classList.remove('focused');
+        });
+    }
     
     // Close dropdown when clicking outside
     document.addEventListener('click', function(event) {
@@ -297,6 +344,7 @@ function loadTickets() {
     const selectedStatuses = Array.from(statusCheckboxes).map(cb => cb.value);
     const priority = document.getElementById('filterPriority').value;
     const category = document.getElementById('filterCategory').value;
+    const searchQuery = document.getElementById('searchInput').value.trim();
     
     if (listingId) params.append('listing_id', listingId);
     if (assignedId) params.append('assigned_user_id', assignedId);
@@ -306,6 +354,7 @@ function loadTickets() {
     }
     if (priority) params.append('priority', priority);
     if (category) params.append('category', category);
+    if (searchQuery) params.append('search', searchQuery);
     
     // Add tag filters
     if (selectedTagIds.length > 0 && tagFilter) {
@@ -431,6 +480,21 @@ function deselectAllStatuses() {
     loadTickets();
 }
 
+function clearSearch() {
+    const searchInput = document.getElementById('searchInput');
+    const clearBtn = document.getElementById('clearSearchBtn');
+    if (searchInput) {
+        searchInput.value = '';
+        if (clearBtn) clearBtn.style.display = 'none';
+        // Clear any pending search timeout
+        if (searchTimeout) {
+            clearTimeout(searchTimeout);
+            searchTimeout = null;
+        }
+        loadTickets();
+    }
+}
+
 function clearFilters() {
     document.getElementById('filterListing').value = '';
     document.getElementById('filterAssigned').value = '';
@@ -439,6 +503,7 @@ function clearFilters() {
     updateStatusFilterText();
     document.getElementById('filterPriority').value = '';
     document.getElementById('filterCategory').value = '';
+    clearSearch();
     if (tagFilter) {
         tagFilter.clear();
     }
