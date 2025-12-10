@@ -292,8 +292,27 @@ def save_uploaded_image(file: FileStorage, base_dir: str, subfolder: str) -> Tup
     temp_path = upload_dir / f"temp_{unique_filename}"
     
     # Save original file temporarily (with original extension for HEIC files)
+    # CRITICAL: Reset file stream position and ensure we read the actual file content
+    # This is especially important for mobile/iCloud uploads where file objects might be references
     file.seek(0)
-    file.save(str(temp_path))
+    
+    # Log file details for debugging
+    logger.debug(f"Saving file: filename={file.filename}, content_type={file.content_type}, content_length={file.content_length if hasattr(file, 'content_length') else 'unknown'}")
+    
+    # Read the file content into memory to ensure we get the actual file data
+    # This prevents issues with file object references from mobile/iCloud
+    file_content = file.read()
+    file.seek(0)  # Reset again after read
+    
+    # Write the content to temp file
+    with open(str(temp_path), 'wb') as f:
+        f.write(file_content)
+    
+    # Verify the file was written correctly
+    if not temp_path.exists() or temp_path.stat().st_size == 0:
+        raise ValueError(f"Failed to save temporary file: {temp_path}")
+    
+    logger.debug(f"Saved temp file: {temp_path}, size={temp_path.stat().st_size} bytes")
     
     # If file exceeds 2MB, only create and save thumbnail
     if file_size > MAX_FILE_SIZE:

@@ -1164,6 +1164,17 @@ def api_upload_comment_image(comment_id):
             )
             return jsonify({'error': 'No file selected'}), 400
         
+        # Log file details before processing
+        logger.info(
+            f"Received file for comment {comment_id}: filename={file.filename}, content_type={file.content_type}, "
+            f"content_length={file.content_length if hasattr(file, 'content_length') else 'unknown'}",
+            extra={'comment_id': comment_id, 'user_id': current_user.user_id, 'filename': file.filename}
+        )
+        
+        # CRITICAL: Reset file stream position before processing
+        # This ensures we read the actual file content, especially important for mobile/iCloud uploads
+        file.seek(0)
+        
         # Save and optimize image
         file_path, file_name, width, height, thumbnail_path = save_uploaded_image(
             file, config.TICKET_IMAGES_DIR, f'comments/{comment_id}'
