@@ -128,7 +128,7 @@ def api_list_tickets():
     """Get list of tickets with optional filters including tags."""
     listing_id = request.args.get('listing_id', type=int)
     assigned_user_id = request.args.get('assigned_user_id', type=int)
-    status = request.args.get('status', type=str)
+    status_param = request.args.get('status', type=str)  # Can be comma-separated
     priority = request.args.get('priority', type=str)
     category = request.args.get('category', type=str)
     issue_title = request.args.get('issue_title', type=str)
@@ -183,8 +183,11 @@ def api_list_tickets():
                 query = query.filter(Ticket.listing_id == listing_id)
         if assigned_user_id:
             query = query.filter(Ticket.assigned_user_id == assigned_user_id)
-        if status:
-            query = query.filter(Ticket.status == status)
+        if status_param:
+            # Support multiple statuses (comma-separated)
+            statuses = [s.strip() for s in status_param.split(',') if s.strip()]
+            if statuses:
+                query = query.filter(Ticket.status.in_(statuses))
         if priority:
             query = query.filter(Ticket.priority == priority)
         if category:

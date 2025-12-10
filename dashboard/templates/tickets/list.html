@@ -25,17 +25,57 @@
             </select>
         </div>
         
-        <div class="filter-group">
-            <label for="filterStatus">Status:</label>
-            <select id="filterStatus">
-                <option value="">All Statuses</option>
-                <option value="Open">Open</option>
-                <option value="Assigned">Assigned</option>
-                <option value="In Progress">In Progress</option>
-                <option value="Blocked">Blocked</option>
-                <option value="Resolved">Resolved</option>
-                <option value="Closed">Closed</option>
-            </select>
+        <div class="filter-group filter-group-status">
+            <label for="statusFilterTrigger">Status:</label>
+            <div class="status-filter-wrapper">
+                <button type="button" id="statusFilterTrigger" class="status-filter-trigger" onclick="toggleStatusFilter()">
+                    <span id="statusFilterText">All Statuses</span>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="status-filter-arrow">
+                        <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+                <div id="statusFilterDropdown" class="status-filter-dropdown" style="display: none;">
+                    <div class="status-filter-header">
+                        <span class="status-filter-title">Filter by Status</span>
+                        <div class="status-filter-actions">
+                            <button type="button" onclick="selectAllStatuses()" class="status-filter-action-link">Select All</button>
+                            <button type="button" onclick="deselectAllStatuses()" class="status-filter-action-link">Clear</button>
+                        </div>
+                    </div>
+                    <div class="status-filter-options">
+                        <label class="status-filter-option">
+                            <input type="checkbox" class="status-checkbox" value="Open" checked>
+                            <span class="status-checkbox-custom"></span>
+                            <span class="status-filter-label">Open</span>
+                        </label>
+                        <label class="status-filter-option">
+                            <input type="checkbox" class="status-checkbox" value="Assigned" checked>
+                            <span class="status-checkbox-custom"></span>
+                            <span class="status-filter-label">Assigned</span>
+                        </label>
+                        <label class="status-filter-option">
+                            <input type="checkbox" class="status-checkbox" value="In Progress" checked>
+                            <span class="status-checkbox-custom"></span>
+                            <span class="status-filter-label">In Progress</span>
+                        </label>
+                        <label class="status-filter-option">
+                            <input type="checkbox" class="status-checkbox" value="Blocked" checked>
+                            <span class="status-checkbox-custom"></span>
+                            <span class="status-filter-label">Blocked</span>
+                        </label>
+                        <label class="status-filter-option">
+                            <input type="checkbox" class="status-checkbox" value="Resolved" checked>
+                            <span class="status-checkbox-custom"></span>
+                            <span class="status-filter-label">Resolved</span>
+                        </label>
+                        <label class="status-filter-option">
+                            <input type="checkbox" class="status-checkbox" value="Closed" checked>
+                            <span class="status-checkbox-custom"></span>
+                            <span class="status-filter-label">Closed</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
         </div>
         
         <div class="filter-group">
@@ -102,7 +142,60 @@ document.addEventListener('DOMContentLoaded', function() {
     loadListings();
     loadUsers();
     loadTickets();
+    
+    // Add change listeners to status checkboxes
+    document.querySelectorAll('.status-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            updateStatusFilterText();
+            loadTickets();
+        });
+    });
+    
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function(event) {
+        const wrapper = document.querySelector('.status-filter-wrapper');
+        const dropdown = document.getElementById('statusFilterDropdown');
+        const trigger = document.getElementById('statusFilterTrigger');
+        
+        if (wrapper && dropdown && trigger && 
+            !wrapper.contains(event.target) && 
+            dropdown.style.display !== 'none') {
+            dropdown.style.display = 'none';
+            trigger.classList.remove('active');
+        }
+    });
+    
+    // Initialize status filter text
+    updateStatusFilterText();
 });
+
+function toggleStatusFilter() {
+    const dropdown = document.getElementById('statusFilterDropdown');
+    const trigger = document.getElementById('statusFilterTrigger');
+    
+    if (dropdown.style.display === 'none') {
+        dropdown.style.display = 'block';
+        trigger.classList.add('active');
+    } else {
+        dropdown.style.display = 'none';
+        trigger.classList.remove('active');
+    }
+}
+
+function updateStatusFilterText() {
+    const checkboxes = document.querySelectorAll('.status-checkbox:checked');
+    const textElement = document.getElementById('statusFilterText');
+    
+    if (checkboxes.length === 0) {
+        textElement.textContent = 'No Statuses';
+    } else if (checkboxes.length === 6) {
+        textElement.textContent = 'All Statuses';
+    } else if (checkboxes.length === 1) {
+        textElement.textContent = checkboxes[0].value;
+    } else {
+        textElement.textContent = `${checkboxes.length} Selected`;
+    }
+}
 
 function loadListings() {
     const select = document.getElementById('filterListing');
@@ -200,13 +293,17 @@ function loadTickets() {
     const params = new URLSearchParams();
     const listingId = document.getElementById('filterListing').value;
     const assignedId = document.getElementById('filterAssigned').value;
-    const status = document.getElementById('filterStatus').value;
+    const statusCheckboxes = document.querySelectorAll('.status-checkbox:checked');
+    const selectedStatuses = Array.from(statusCheckboxes).map(cb => cb.value);
     const priority = document.getElementById('filterPriority').value;
     const category = document.getElementById('filterCategory').value;
     
     if (listingId) params.append('listing_id', listingId);
     if (assignedId) params.append('assigned_user_id', assignedId);
-    if (status) params.append('status', status);
+    if (selectedStatuses.length > 0) {
+        // Send multiple status values as comma-separated string
+        params.append('status', selectedStatuses.join(','));
+    }
     if (priority) params.append('priority', priority);
     if (category) params.append('category', category);
     
@@ -322,15 +419,31 @@ function applyFilters() {
     loadTickets();
 }
 
+function selectAllStatuses() {
+    document.querySelectorAll('.status-checkbox').forEach(cb => cb.checked = true);
+    updateStatusFilterText();
+    loadTickets();
+}
+
+function deselectAllStatuses() {
+    document.querySelectorAll('.status-checkbox').forEach(cb => cb.checked = false);
+    updateStatusFilterText();
+    loadTickets();
+}
+
 function clearFilters() {
     document.getElementById('filterListing').value = '';
     document.getElementById('filterAssigned').value = '';
-    document.getElementById('filterStatus').value = '';
+    // Select all statuses by default
+    document.querySelectorAll('.status-checkbox').forEach(cb => cb.checked = true);
+    updateStatusFilterText();
     document.getElementById('filterPriority').value = '';
     document.getElementById('filterCategory').value = '';
     if (tagFilter) {
         tagFilter.clear();
     }
+    selectedTagIds = [];
+    tagLogic = 'AND';
     loadTickets();
 }
 

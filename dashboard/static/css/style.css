@@ -1281,6 +1281,10 @@ footer {
     min-width: 150px;
 }
 
+.filter-group-status {
+    min-width: 180px;
+}
+
 .filter-group label {
     font-size: 0.875rem;
     font-weight: 500;
@@ -1294,6 +1298,186 @@ footer {
     font-size: 0.9375rem;
     background: var(--white);
     color: var(--gray-900);
+}
+
+/* Status Filter Dropdown Styles */
+.filter-group-status {
+    position: relative;
+}
+
+.status-filter-wrapper {
+    position: relative;
+}
+
+.status-filter-trigger {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.625rem 0.875rem;
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius);
+    font-size: 0.9375rem;
+    background: var(--white);
+    color: var(--gray-900);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+    text-align: left;
+}
+
+.status-filter-trigger:hover {
+    border-color: var(--gray-400);
+    background: var(--gray-50);
+}
+
+.status-filter-trigger:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.status-filter-arrow {
+    color: var(--gray-500);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+    margin-left: 0.5rem;
+}
+
+.status-filter-trigger.active .status-filter-arrow {
+    transform: rotate(180deg);
+}
+
+.status-filter-dropdown {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    left: 0;
+    right: 0;
+    min-width: 240px;
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    z-index: 1000;
+    overflow: hidden;
+    animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.status-filter-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--gray-200);
+    background: var(--gray-50);
+}
+
+.status-filter-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--gray-700);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.status-filter-actions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.status-filter-action-link {
+    background: none;
+    border: none;
+    color: var(--primary-color);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.2s ease;
+    font-family: inherit;
+}
+
+.status-filter-action-link:hover {
+    color: var(--primary-dark);
+    text-decoration: underline;
+}
+
+.status-filter-options {
+    padding: 0.5rem;
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.status-filter-option {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+    position: relative;
+}
+
+.status-filter-option:hover {
+    background: var(--gray-50);
+}
+
+.status-filter-option input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.status-checkbox-custom {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--gray-400);
+    border-radius: 4px;
+    background: var(--white);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.status-filter-option input[type="checkbox"]:checked + .status-checkbox-custom {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.status-filter-option input[type="checkbox"]:checked + .status-checkbox-custom::after {
+    content: '';
+    width: 5px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    margin-top: -2px;
+}
+
+.status-filter-option input[type="checkbox"]:focus + .status-checkbox-custom {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.status-filter-label {
+    font-size: 0.9375rem;
+    color: var(--gray-900);
+    font-weight: 400;
+    user-select: none;
 }
 
 .tickets-container {
