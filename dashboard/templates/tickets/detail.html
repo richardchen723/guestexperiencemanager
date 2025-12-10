@@ -261,7 +261,7 @@ function loadComments(ticketId) {
             
             comments.forEach(comment => {
                 console.log('Processing comment:', comment.comment_id, 'images:', comment.images);
-                const commentDiv = createCommentElement(comment);
+                const commentDiv = createCommentElement(comment, ticketId);
                 container.appendChild(commentDiv);
             });
         })
@@ -272,13 +272,16 @@ function loadComments(ticketId) {
         });
 }
 
-function createCommentElement(comment) {
+function createCommentElement(comment, ticketId) {
     const div = document.createElement('div');
     div.className = 'comment-item';
+    div.setAttribute('data-comment-id', comment.comment_id);
     
     const userName = comment.user_name || comment.user?.name || comment.user_email || comment.user?.email || 'Unknown';
     const userPicture = comment.user_picture_url || comment.user?.picture_url;
     const date = new Date(comment.created_at);
+    const currentUserId = {{ current_user.user_id if current_user else 'null' }};
+    const isOwnComment = comment.user_id === currentUserId;
     
     // Build images HTML
     let imagesHtml = '';
@@ -302,13 +305,25 @@ function createCommentElement(comment) {
         console.log(`No images for comment ${comment.comment_id}, images:`, comment.images);
     }
     
+    // Add delete button if it's the user's own comment
+    const deleteButton = isOwnComment ? `
+        <button onclick="deleteComment(${comment.comment_id}, ${ticketId})" 
+                class="comment-delete-btn" 
+                title="Delete comment">
+            Delete
+        </button>
+    ` : '';
+    
     div.innerHTML = `
         <div class="comment-header">
             <div class="comment-author">
                 ${userPicture ? `<img src="${escapeHtml(userPicture)}" alt="${escapeHtml(userName)}" class="comment-avatar">` : ''}
                 <span class="comment-author-name">${escapeHtml(userName)}</span>
             </div>
-            <span class="comment-date">${formatDate(date)}</span>
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <span class="comment-date">${formatDate(date)}</span>
+                ${deleteButton}
+            </div>
         </div>
         <div class="comment-text">${escapeHtml(comment.comment_text)}</div>
         ${imagesHtml}
@@ -538,6 +553,29 @@ function deleteTicket(ticketId) {
     .catch(error => {
         console.error('Error deleting ticket:', error);
         alert('Error deleting ticket');
+    });
+}
+
+function deleteComment(commentId, ticketId) {
+    if (!confirm('Are you sure you want to delete this comment? This action cannot be undone.')) {
+        return;
+    }
+    
+    fetch(`/tickets/api/tickets/${ticketId}/comments/${commentId}`, {
+        method: 'DELETE'
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.error) {
+            alert('Error: ' + result.error);
+        } else {
+            // Reload comments to reflect the deletion
+            loadComments(ticketId);
+        }
+    })
+    .catch(error => {
+        console.error('Error deleting comment:', error);
+        alert('Error deleting comment');
     });
 }
 

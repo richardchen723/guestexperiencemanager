@@ -14,7 +14,7 @@ sys.path.insert(0, project_root)
 
 from dashboard.tickets.models import (
     Ticket, TicketComment, TicketTag, TicketImage, CommentImage, get_session, create_ticket, get_ticket,
-    get_tickets, update_ticket, delete_ticket, add_ticket_comment, get_ticket_comments,
+    get_tickets, update_ticket, delete_ticket, add_ticket_comment, get_ticket_comments, delete_ticket_comment,
     init_ticket_database, TICKET_CATEGORIES
 )
 from dashboard.tickets.recurring_tasks import process_recurring_tasks
@@ -668,6 +668,50 @@ def api_add_comment(ticket_id):
         )
         logger.debug(f"Full error traceback:\n{error_details}")
         return jsonify({'error': str(e)}), 500
+
+
+@tickets_bp.route('/api/tickets/<int:ticket_id>/comments/<int:comment_id>', methods=['DELETE'])
+@approved_required
+def api_delete_comment(ticket_id, comment_id):
+    """Delete a comment from a ticket."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    session = get_session()
+    try:
+        comment = session.query(TicketComment).filter(
+            TicketComment.comment_id == comment_id,
+            TicketComment.ticket_id == ticket_id
+        ).first()
+        
+        if not comment:
+            return jsonify({'error': 'Comment not found'}), 404
+        
+        # Check permissions: user can only delete their own comments
+        if comment.user_id != current_user.user_id and not current_user.is_admin():
+            return jsonify({'error': 'Permission denied. You can only delete your own comments.'}), 403
+        
+        # Delete the comment
+        success = delete_ticket_comment(comment_id)
+        if success:
+            return jsonify({'message': 'Comment deleted successfully'}), 200
+        return jsonify({'error': 'Failed to delete comment'}), 500
+        
+    except Exception as e:
+        import logging
+        import traceback
+        logger = logging.getLogger(__name__)
+        error_details = traceback.format_exc()
+        logger.error(
+            f"Error deleting comment {comment_id} from ticket {ticket_id}: {str(e)}",
+            exc_info=True,
+            extra={'ticket_id': ticket_id, 'comment_id': comment_id, 'user_id': current_user.user_id}
+        )
+        logger.debug(f"Full error traceback:\n{error_details}")
+        return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
 
 
 @tickets_bp.route('/api/tickets/suggest', methods=['POST'])

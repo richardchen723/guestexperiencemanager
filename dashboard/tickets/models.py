@@ -865,3 +865,47 @@ def get_ticket_comments(ticket_id: int) -> List[TicketComment]:
         return comments
     finally:
         session.close()
+
+
+def delete_ticket_comment(comment_id: int) -> bool:
+    """Delete a ticket comment."""
+    from pathlib import Path
+    from dashboard.config import TICKET_IMAGES_DIR
+    import os
+    
+    session = get_session()
+    try:
+        # Load comment with images
+        from sqlalchemy.orm import joinedload
+        comment = session.query(TicketComment).options(
+            joinedload(TicketComment.images)
+        ).filter(TicketComment.comment_id == comment_id).first()
+        
+        if comment:
+            # Delete associated image files
+            for img in comment.images:
+                if img.file_path:
+                    file_path = Path(TICKET_IMAGES_DIR) / img.file_path
+                    if file_path.exists():
+                        try:
+                            os.remove(file_path)
+                        except Exception:
+                            pass
+                if img.thumbnail_path:
+                    thumb_path = Path(TICKET_IMAGES_DIR) / img.thumbnail_path
+                    if thumb_path.exists():
+                        try:
+                            os.remove(thumb_path)
+                        except Exception:
+                            pass
+            
+            # Delete the comment (cascade will handle CommentImage records)
+            session.delete(comment)
+            session.commit()
+            return True
+        return False
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()

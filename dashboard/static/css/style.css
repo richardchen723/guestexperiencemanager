@@ -1779,6 +1779,25 @@ footer {
     margin-bottom: 0.75rem;
 }
 
+.comment-delete-btn {
+    background: none;
+    border: none;
+    color: var(--gray-500);
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+    font-family: inherit;
+    opacity: 0.7;
+}
+
+.comment-delete-btn:hover {
+    background: var(--gray-100);
+    color: var(--danger-color);
+    opacity: 1;
+}
+
 .comment-author {
     display: flex;
     align-items: center;
