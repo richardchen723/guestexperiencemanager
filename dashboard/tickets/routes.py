@@ -1169,6 +1169,14 @@ def api_upload_comment_image(comment_id):
             file, config.TICKET_IMAGES_DIR, f'comments/{comment_id}'
         )
         
+        # Log image upload details for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(
+            f"Uploading image to comment {comment_id}: file_path={file_path}, file_name={file_name}",
+            extra={'comment_id': comment_id, 'user_id': current_user.user_id, 'file_path': file_path, 'file_name': file_name}
+        )
+        
         # Get file size
         full_path = Path(config.TICKET_IMAGES_DIR) / file_path
         file_size = full_path.stat().st_size
@@ -1192,6 +1200,12 @@ def api_upload_comment_image(comment_id):
         session.commit()
         image_id = comment_image.image_id
         
+        # Log the created image_id for debugging
+        logger.info(
+            f"Created comment image record: image_id={image_id}, comment_id={comment_id}, file_path={file_path}",
+            extra={'image_id': image_id, 'comment_id': comment_id, 'file_path': file_path, 'user_id': current_user.user_id}
+        )
+        
         # Re-query with eager loading to get relationships
         from sqlalchemy.orm import joinedload
         comment_image = session.query(CommentImage).options(
@@ -1206,7 +1220,14 @@ def api_upload_comment_image(comment_id):
             from dashboard.tickets.models import _safe_expunge
             _safe_expunge(session, comment_image.uploader)
         
-        return jsonify(comment_image.to_dict()), 201
+        # Log the returned image data
+        image_dict = comment_image.to_dict()
+        logger.info(
+            f"Returning comment image: image_id={image_dict.get('image_id')}, file_path={image_dict.get('file_path')}",
+            extra={'image_id': image_dict.get('image_id'), 'comment_id': comment_id, 'file_path': image_dict.get('file_path')}
+        )
+        
+        return jsonify(image_dict), 201
         
     except ValueError as e:
         session.rollback()

@@ -338,8 +338,28 @@ def save_uploaded_image(file: FileStorage, base_dir: str, subfolder: str) -> Tup
     # Optimize image (HEIF opener is already registered at module level if available)
     optimized_path, width, height = optimize_image(str(temp_path))
     
+    # Remove "temp_" prefix from optimized filename if present
+    optimized_path_obj = Path(optimized_path)
+    if optimized_path_obj.name.startswith('temp_'):
+        # Rename to remove "temp_" prefix
+        final_optimized_path = optimized_path_obj.parent / optimized_path_obj.name[5:]  # Remove "temp_" (5 chars)
+        if optimized_path != str(final_optimized_path):
+            import shutil
+            shutil.move(str(optimized_path), str(final_optimized_path))
+            optimized_path = str(final_optimized_path)
+    
     # Create thumbnail
     thumbnail_path = create_thumbnail(optimized_path)
+    
+    # Remove "temp_" prefix from thumbnail filename if present
+    thumbnail_path_obj = Path(thumbnail_path)
+    if thumbnail_path_obj.name.startswith('temp_'):
+        # Rename to remove "temp_" prefix
+        final_thumbnail_path = thumbnail_path_obj.parent / thumbnail_path_obj.name[5:]  # Remove "temp_" (5 chars)
+        if thumbnail_path != str(final_thumbnail_path):
+            import shutil
+            shutil.move(str(thumbnail_path), str(final_thumbnail_path))
+            thumbnail_path = str(final_thumbnail_path)
     
     # Get relative paths for database storage
     relative_path = f"images/{subfolder}/{Path(optimized_path).name}"
