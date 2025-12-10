@@ -48,8 +48,6 @@ def run_all_migrations(engine=None):
             _migrate_tags_tables,
             _migrate_listings_table
         )
-        from dashboard.tickets.models import get_engine as get_tickets_engine
-        
         database_url = os.getenv("DATABASE_URL")
         
         logger.info("Running database migrations...")
@@ -66,9 +64,11 @@ def run_all_migrations(engine=None):
             from dashboard.tickets.models import (
                 _migrate_tickets_table,
                 _migrate_image_tables,
-                _migrate_tickets_recurring_table
+                _migrate_tickets_recurring_table,
+                init_ticket_database
             )
-            tickets_engine = get_tickets_engine()
+            # Initialize tickets database and get engine
+            tickets_engine = init_ticket_database()
             _migrate_tickets_table(tickets_engine)
             _migrate_image_tables(tickets_engine)
             _migrate_tickets_recurring_table(tickets_engine)
@@ -79,9 +79,11 @@ def run_all_migrations(engine=None):
             # Tickets DB migrations
             from dashboard.tickets.models import (
                 _migrate_listing_id_nullable,
-                _migrate_tickets_recurring_table
+                _migrate_tickets_recurring_table,
+                init_ticket_database
             )
-            tickets_engine = get_tickets_engine()
+            # Initialize tickets database and get engine
+            tickets_engine = init_ticket_database()
             _migrate_listing_id_nullable(tickets_engine)
             _migrate_tickets_recurring_table(tickets_engine)
             # Note: Other migrations are SQLite-specific
