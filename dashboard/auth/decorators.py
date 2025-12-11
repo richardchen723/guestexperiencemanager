@@ -55,7 +55,7 @@ def admin_required(f):
         if not is_admin():
             if request.is_json or request.path.startswith('/api/'):
                 return jsonify({'error': 'Admin access required'}), 403
-            return redirect(url_for('index'))
+            return redirect(url_for('dashboard.dashboard_page'))
         
         return f(*args, **kwargs)
     return decorated_function

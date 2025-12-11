@@ -5,7 +5,7 @@ Flask API routes for the dashboard.
 
 import sys
 import os
-from flask import render_template, jsonify, request
+from flask import render_template, jsonify, request, redirect, url_for
 
 # Add parent directories to path
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -32,7 +32,13 @@ def register_routes(app):
     @app.route('/')
     @approved_required
     def index():
-        """Dashboard home page with listing selection."""
+        """Root route - redirects to dashboard."""
+        return redirect(url_for('dashboard.dashboard_page'))
+    
+    @app.route('/properties')
+    @approved_required
+    def properties():
+        """Properties page with listing selection."""
         return render_template('index.html', current_user=get_current_user())
     
     @app.route('/api/listings')

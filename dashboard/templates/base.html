@@ -18,7 +18,8 @@
                 <div class="header-brand">
                     <a href="/" class="header-logo">Hostaway Insights</a>
                     <nav class="header-nav">
-                        <a href="/" {% if request.endpoint == 'index' or request.endpoint == 'api_listings' %}class="active"{% endif %}>Properties</a>
+                        <a href="{{ url_for('dashboard.dashboard_page') }}" {% if 'dashboard' in request.endpoint %}class="active"{% endif %}>Dashboard</a>
+                        <a href="{{ url_for('properties') }}" {% if request.endpoint == 'properties' %}class="active"{% endif %}>Properties</a>
                         <a href="{{ url_for('tickets.tickets_list') }}" {% if 'tickets' in request.endpoint %}class="active"{% endif %}>Tickets</a>
                         <a href="{{ url_for('sync.sync_history_page') }}" {% if 'sync' in request.endpoint %}class="active"{% endif %}>Sync</a>
                         {% if current_user and current_user.is_admin() %}

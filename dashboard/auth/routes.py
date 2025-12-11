@@ -24,7 +24,7 @@ def login():
     if get_current_user():
         user = get_current_user()
         if user and user.is_approved:
-            return redirect(url_for('index'))
+            return redirect(url_for('dashboard.dashboard_page'))
         elif user:
             return redirect(url_for('auth.pending_approval'))
     
@@ -61,7 +61,7 @@ def pending_approval():
     """Pending approval page for unapproved users."""
     user = get_current_user()
     if user and user.is_approved:
-        return redirect(url_for('index'))
+        return redirect(url_for('dashboard.dashboard_page'))
     
     return render_template('auth/pending.html', current_user=user)
 

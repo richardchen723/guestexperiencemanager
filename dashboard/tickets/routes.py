@@ -22,7 +22,7 @@ from dashboard.tickets.image_utils import save_uploaded_image
 from pathlib import Path
 from flask import send_from_directory
 from database.models import Tag, ListingTag, get_session as get_main_session
-from sqlalchemy import func, or_, and_
+from sqlalchemy import func, or_, and_, String, cast
 from sqlalchemy.orm import joinedload
 from dashboard.auth.decorators import approved_required, admin_required
 from dashboard.auth.session import get_current_user
@@ -198,8 +198,7 @@ def api_list_tickets():
         if search_query:
             search_query = search_query.strip()
             if search_query:
-                # Import SQLAlchemy functions
-                from sqlalchemy import or_, String, cast, func
+                # func, or_, and_, String, and cast are already imported at module level
                 
                 search_pattern_lower = f"%{search_query.lower()}%"
                 search_pattern = f"%{search_query}%"

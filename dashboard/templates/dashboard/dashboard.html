@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Hostaway Insights{% endblock %}
+
+{% block content %}
+<div class="dashboard-page">
+    <!-- Header -->
+    <div class="dashboard-header">
+        <h1>Dashboard</h1>
+        <p class="dashboard-subtitle">Welcome back, {{ current_user.name or current_user.email }}</p>
+    </div>
+    
+    <!-- Loading State -->
+    <div id="dashboardLoading" class="dashboard-loading">
+        <div class="spinner"></div>
+        <span>Loading dashboard...</span>
+    </div>
+    
+    <!-- Error State -->
+    <div id="dashboardError" class="dashboard-error" style="display: none;">
+        <p>Failed to load dashboard data. <button onclick="loadDashboard()" class="btn btn-secondary">Retry</button></p>
+    </div>
+    
+    <!-- Content (hidden until loaded) -->
+    <div id="dashboardContent" style="display: none;">
+        <!-- Statistics Cards -->
+        <div class="dashboard-stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">📋</div>
+                <div class="stat-value" id="statTotalAssigned">-</div>
+                <div class="stat-label">My Tickets</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">📅</div>
+                <div class="stat-value" id="statDueThisWeek">-</div>
+                <div class="stat-label">Due This Week</div>
+            </div>
+            <div class="stat-card stat-card-warning">
+                <div class="stat-icon">⚠️</div>
+                <div class="stat-value" id="statOverdue">-</div>
+                <div class="stat-label">Overdue</div>
+            </div>
+            <div class="stat-card stat-card-danger">
+                <div class="stat-icon">🔥</div>
+                <div class="stat-value" id="statHighPriority">-</div>
+                <div class="stat-label">High Priority</div>
+            </div>
+        </div>
+        
+        <!-- My Tickets Section -->
+        <div class="dashboard-section">
+            <div class="section-header">
+                <h2>Top Priority Tickets Assigned to Me</h2>
+                <a href="/tickets?assigned_user_id={{ current_user.user_id }}" class="btn-link">View All</a>
+            </div>
+            <div id="myTicketsList" class="tickets-list">
+                <!-- Tickets loaded via JavaScript -->
+            </div>
+            <div id="noTickets" class="empty-state" style="display: none;">
+                <p>No tickets assigned to you.</p>
+            </div>
+        </div>
+        
+        <!-- Occupancy Chart Section -->
+        <div class="dashboard-section">
+            <div class="section-header">
+                <h2>Occupancy Rate (Last 6 Months)</h2>
+            </div>
+            <div class="chart-container">
+                <canvas id="occupancyChart"></canvas>
+            </div>
+            <div id="noOccupancyData" class="empty-state" style="display: none;">
+                <p>No occupancy data available.</p>
+            </div>
+        </div>
+        
+        <!-- Quick Actions -->
+        <div class="dashboard-actions">
+            <a href="/tickets/create" class="btn btn-primary">Create New Ticket</a>
+            <a href="/tickets?assigned_user_id={{ current_user.user_id }}" class="btn btn-secondary">View All My Tickets</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/dashboard-page.js') }}"></script>
+{% endblock %}
+

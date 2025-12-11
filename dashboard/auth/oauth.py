@@ -145,7 +145,7 @@ def handle_google_callback():
         # Flask-Dance will redirect to the home page by default, but we want custom logic
         # So we return a redirect response
         if user.is_approved:
-            return redirect(url_for('index'))
+            return redirect(url_for('dashboard.dashboard_page'))
         else:
             return redirect(url_for('auth.pending_approval'))
             

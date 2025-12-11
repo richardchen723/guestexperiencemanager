@@ -5,14 +5,44 @@ Flask application entry point for the Insights Dashboard.
 
 import sys
 import os
+
+# CRITICAL: Set up paths BEFORE any other imports
+# Get the absolute path of this file, then go up to project root
+# This works whether running as: python3 dashboard/app.py or python3 app.py (from dashboard dir)
+# os.path.abspath() handles both relative and absolute paths correctly
+_this_file = os.path.abspath(os.path.realpath(__file__))
+_dashboard_dir = os.path.dirname(_this_file)
+project_root = os.path.dirname(_dashboard_dir)
+
+# Debug: uncomment to verify paths (commented out for production)
+# print(f"DEBUG: __file__ = {__file__}")
+# print(f"DEBUG: _this_file = {_this_file}")
+# print(f"DEBUG: project_root = {project_root}")
+# print(f"DEBUG: CWD before chdir = {os.getcwd()}")
+
+# Add project root to Python path
+# CRITICAL: Remove dashboard directory from path if it was auto-added
+# Python automatically adds the script's directory to sys.path, which causes conflicts
+if _dashboard_dir in sys.path:
+    sys.path.remove(_dashboard_dir)
+
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Change working directory to project root BEFORE any imports
+# This ensures that relative imports and file paths work correctly
+os.chdir(project_root)
+
+# Debug: verify path setup (comment out after testing)
+# print(f"DEBUG: CWD after chdir = {os.getcwd()}")
+# print(f"DEBUG: sys.path[0] = {sys.path[0]}")
+# print(f"DEBUG: dashboard/config.py exists = {os.path.exists(os.path.join(project_root, 'dashboard', 'config.py'))}")
+
+# Now we can safely import other modules
 import logging
 from datetime import datetime
 from flask import Flask, url_for
 import sqlalchemy
-
-# Add parent directories to path
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, project_root)
 
 import dashboard.config as config
 from utils.logging_config import setup_logging
@@ -21,6 +51,7 @@ from dashboard.auth.routes import register_auth_routes
 from dashboard.auth.admin_routes import register_admin_routes
 from dashboard.tickets.routes import register_ticket_routes
 from dashboard.sync.routes import register_sync_routes
+from dashboard.dashboard.routes import dashboard_bp
 from dashboard.auth.oauth import create_google_blueprint
 from dashboard.auth.init import ensure_owner_exists
 from dashboard.auth.session import get_current_user
@@ -68,6 +99,7 @@ def create_app():
     register_admin_routes(app)
     register_ticket_routes(app)
     register_sync_routes(app)
+    app.register_blueprint(dashboard_bp)
     
     # Health check endpoint for monitoring
     @app.route('/health')
