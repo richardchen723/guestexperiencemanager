@@ -59,3 +59,4 @@ def api_dashboard_data():
         logger.error(f"Error fetching dashboard data for user {current_user.user_id}: {e}", exc_info=True)
         return jsonify({'error': 'Failed to load dashboard data'}), 500
 
+

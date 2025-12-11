@@ -102,18 +102,18 @@ REMOTE_SCRIPT=$(cat << 'ENDSSH'
     echo "========================================="
     
     # Navigate to app directory
-    cd /opt/hostaway-messages/app
-    
-    # Pull latest code
-    echo "Pulling latest code from git..."
-    sudo -u hostaway git fetch origin
-    sudo -u hostaway git checkout main
-    sudo -u hostaway git pull origin main
-    
-    # Run deployment script
-    echo "Running deployment script..."
-    sudo ./deployment/deploy.sh
-    
+        cd /opt/hostaway-messages/app
+        
+        # Pull latest code
+        echo "Pulling latest code from git..."
+        sudo -u hostaway git fetch origin
+        sudo -u hostaway git checkout main
+        sudo -u hostaway git pull origin main
+        
+        # Run deployment script
+        echo "Running deployment script..."
+        sudo ./deployment/deploy.sh
+        
     # Restart service
     echo "Restarting service..."
     sudo systemctl restart hostaway-dashboard
@@ -122,8 +122,8 @@ REMOTE_SCRIPT=$(cat << 'ENDSSH'
     sleep 3
     
     # Check status
-    echo ""
-    echo "Service status:"
+        echo ""
+        echo "Service status:"
     sudo systemctl status hostaway-dashboard --no-pager -l || true
     
     echo ""

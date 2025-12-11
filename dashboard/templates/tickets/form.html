@@ -210,6 +210,7 @@
 {% block extra_scripts %}
 <script src="/static/js/tags.js"></script>
 <script src="/static/js/ticket-images.js"></script>
+<script src="/static/js/mention-handler.js"></script>
 <script>
 let allListings = [];
 let allUsers = [];
@@ -857,12 +858,12 @@ function saveTicket(event) {
     const issueInput = document.getElementById('issueTitleInput');
     let issueTitle = issueInput.style.display !== 'none' ? issueInput.value : issueSelect.value;
     const title = document.getElementById('titleInput').value.trim();
-    const description = document.getElementById('descriptionInput').value;
-    const status = document.getElementById('statusSelect').value;
-    const priority = document.getElementById('prioritySelect').value;
-    const category = document.getElementById('categorySelect').value;
-    const assignedId = document.getElementById('assignedSelect').value;
-    const dueDate = document.getElementById('dueDateInput').value;
+        const description = document.getElementById('descriptionInput').value;
+        const status = document.getElementById('statusSelect').value;
+        const priority = document.getElementById('prioritySelect').value;
+        const category = document.getElementById('categorySelect').value;
+        const assignedId = document.getElementById('assignedSelect').value;
+        const dueDate = document.getElementById('dueDateInput').value;
     
     // Title is always required
     if (!title) {

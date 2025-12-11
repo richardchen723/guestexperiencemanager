@@ -41,6 +41,7 @@
                             <span class="user-menu-name">{{ current_user.name or current_user.email }}</span>
                         </div>
                         <div class="user-menu-dropdown">
+                            <a href="{{ url_for('auth.profile_page') }}">Profile</a>
                             <a href="{{ url_for('auth.logout') }}">Logout</a>
                         </div>
                     </div>

@@ -82,3 +82,9 @@ OWNER_EMAIL = "yunhang.chen@gmail.com"
 
 # Ticket Image Storage
 TICKET_IMAGES_DIR = str(PROJECT_ROOT / "data" / "tickets")
+
+# Twilio WhatsApp Configuration
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_WHATSAPP_FROM = os.getenv("TWILIO_WHATSAPP_FROM")  # e.g., "whatsapp:+14155238886"
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:5001")  # Base URL for ticket links

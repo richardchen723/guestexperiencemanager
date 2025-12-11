@@ -514,7 +514,7 @@ def _migrate_tickets_recurring_table(engine):
                     except Exception as e:
                         conn.rollback()
                         # Column might already exist, ignore
-                        pass
+            pass
 
 
 def _safe_expunge(session, obj):

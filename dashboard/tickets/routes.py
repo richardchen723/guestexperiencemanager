@@ -473,6 +473,36 @@ def api_create_ticket():
         finally:
             session.close()
         
+        # Send notification if ticket was assigned during creation
+        if assigned_user_id:
+            try:
+                from dashboard.notifications.helpers import send_assignment_notification
+                send_assignment_notification(assigned_user_id, ticket.ticket_id)
+            except Exception as e:
+                # Log but don't fail ticket creation if notification fails
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Error sending assignment notification: {e}", exc_info=True)
+        
+        # Parse mentions from description and send notifications
+        if description:
+            try:
+                from dashboard.notifications.mention_parser import parse_mentions
+                from dashboard.notifications.helpers import send_mention_notification
+                
+                mentioned_users = parse_mentions(description)
+                mentioner_name = current_user.name or current_user.email
+                
+                for mentioned_user_id, mention_text in mentioned_users:
+                    # Don't notify if user mentioned themselves
+                    if mentioned_user_id != current_user.user_id:
+                        send_mention_notification(mentioned_user_id, ticket.ticket_id, description, mentioner_name)
+            except Exception as e:
+                # Log but don't fail ticket creation if notification fails
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Error sending mention notifications from ticket description: {e}", exc_info=True)
+        
         return jsonify(ticket_dict), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -616,8 +646,35 @@ def api_update_ticket(ticket_id):
                 return jsonify({'error': 'Invalid reopen_days_before_due_date. Must be an integer.'}), 400
     
     try:
+        # Track old values for notifications
+        old_assigned_user_id = ticket.assigned_user_id
+        old_status = ticket.status
+        
         updated_ticket = update_ticket(ticket_id, **update_data)
+        
         if updated_ticket:
+            # Send notifications for assignment and status changes
+            try:
+                from dashboard.notifications.helpers import send_assignment_notification, send_status_change_notification
+                
+                # Check if assignment changed
+                new_assigned_user_id = update_data.get('assigned_user_id', old_assigned_user_id)
+                if new_assigned_user_id and new_assigned_user_id != old_assigned_user_id:
+                    # Only notify if assigned to a different user (not unassignment)
+                    send_assignment_notification(new_assigned_user_id, ticket_id)
+                
+                # Check if status changed
+                new_status = update_data.get('status', old_status)
+                if new_status != old_status and updated_ticket.assigned_user_id:
+                    # Only notify if ticket has an assigned user
+                    changer_name = current_user.name or current_user.email
+                    send_status_change_notification(updated_ticket.assigned_user_id, ticket_id, old_status, new_status, changer_name)
+            except Exception as e:
+                # Log but don't fail ticket update if notification fails
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Error sending notifications: {e}", exc_info=True)
+            
             return jsonify(updated_ticket.to_dict(include_comments=False))
         return jsonify({'error': 'Failed to update ticket'}), 500
     except Exception as e:
@@ -685,6 +742,41 @@ def api_add_comment(ticket_id):
     
     try:
         comment = add_ticket_comment(ticket_id, current_user.user_id, comment_text)
+        
+        # Parse mentions and send notifications
+        try:
+            # #region agent log
+            with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"routes.py:747","message":"Starting mention parsing","data":{{"comment_text":"{comment_text[:50]}...","ticket_id":{ticket_id},"current_user_id":{current_user.user_id}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+            # #endregion
+            from dashboard.notifications.mention_parser import parse_mentions
+            from dashboard.notifications.helpers import send_mention_notification
+            
+            mentioned_users = parse_mentions(comment_text)
+            # #region agent log
+            with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"routes.py:752","message":"Mentions parsed","data":{{"mentioned_users_count":{len(mentioned_users)},"mentioned_users":{mentioned_users}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+            # #endregion
+            mentioner_name = current_user.name or current_user.email
+            
+            for mentioned_user_id, mention_text in mentioned_users:
+                # Don't notify if user mentioned themselves
+                if mentioned_user_id != current_user.user_id:
+                    # #region agent log
+                    with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"routes.py:757","message":"Sending mention notification","data":{{"mentioned_user_id":{mentioned_user_id},"ticket_id":{ticket_id},"mention_text":"{mention_text}"}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+                    # #endregion
+                    send_mention_notification(mentioned_user_id, ticket_id, comment_text, mentioner_name)
+                else:
+                    # #region agent log
+                    with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"routes.py:760","message":"Skipping self-mention","data":{{"mentioned_user_id":{mentioned_user_id},"current_user_id":{current_user.user_id}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+                    # #endregion
+        except Exception as e:
+            # Log but don't fail comment creation if notification fails
+            import logging
+            logger = logging.getLogger(__name__)
+            # #region agent log
+            with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"routes.py:762","message":"Exception in mention notifications","data":{{"error":str(e)}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+            # #endregion
+            logger.warning(f"Error sending mention notifications: {e}", exc_info=True)
+        
         return jsonify(comment.to_dict()), 201
     except Exception as e:
         import logging

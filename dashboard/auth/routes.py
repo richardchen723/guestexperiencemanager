@@ -5,15 +5,17 @@ Authentication routes.
 
 import sys
 import os
-from flask import Blueprint, render_template, redirect, url_for
+import re
+from flask import Blueprint, render_template, redirect, url_for, jsonify, request
 
 # Add parent directories to path
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
 from dashboard.auth.session import logout_user, get_current_user
-from dashboard.auth.decorators import login_required
+from dashboard.auth.decorators import login_required, approved_required
 from dashboard.auth.oauth import handle_google_callback
+from dashboard.auth.models import get_session
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 
@@ -64,6 +66,91 @@ def pending_approval():
         return redirect(url_for('dashboard.dashboard_page'))
     
     return render_template('auth/pending.html', current_user=user)
+
+
+@auth_bp.route('/profile')
+@approved_required
+def profile_page():
+    """User profile page."""
+    return render_template('auth/profile.html', current_user=get_current_user())
+
+
+@auth_bp.route('/api/profile', methods=['GET'])
+@approved_required
+def api_get_profile():
+    """Get current user's profile data."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    return jsonify({
+        'user_id': user.user_id,
+        'email': user.email,
+        'name': user.name,
+        'role': user.role,
+        'whatsapp_number': user.whatsapp_number or '',
+        'whatsapp_notifications_enabled': user.whatsapp_notifications_enabled
+    })
+
+
+@auth_bp.route('/api/profile', methods=['PUT'])
+@approved_required
+def api_update_profile():
+    """Update current user's profile."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Invalid request data'}), 400
+    
+    session = get_session()
+    try:
+        # Import User model
+        from dashboard.auth.models import User
+        
+        # Refresh user from database
+        db_user = session.query(User).filter(User.user_id == user.user_id).first()
+        if not db_user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Update WhatsApp number
+        if 'whatsapp_number' in data:
+            whatsapp_number = data['whatsapp_number'].strip() if data['whatsapp_number'] else None
+            
+            # Validate phone number format (E.164)
+            if whatsapp_number:
+                # E.164 format: +[country code][number] (1-15 digits after +)
+                pattern = r'^\+[1-9]\d{1,14}$'
+                if not re.match(pattern, whatsapp_number):
+                    return jsonify({'error': 'Invalid phone number format. Use E.164 format (e.g., +14155552671)'}), 400
+            
+            db_user.whatsapp_number = whatsapp_number
+        
+        # Update notification preference
+        if 'whatsapp_notifications_enabled' in data:
+            db_user.whatsapp_notifications_enabled = bool(data['whatsapp_notifications_enabled'])
+        
+        session.commit()
+        session.refresh(db_user)
+        
+        return jsonify({
+            'user_id': db_user.user_id,
+            'email': db_user.email,
+            'name': db_user.name,
+            'role': db_user.role,
+            'whatsapp_number': db_user.whatsapp_number or '',
+            'whatsapp_notifications_enabled': db_user.whatsapp_notifications_enabled
+        })
+    except Exception as e:
+        session.rollback()
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error updating profile: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
 
 
 def register_auth_routes(app):

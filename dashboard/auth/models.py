@@ -40,6 +40,8 @@ class User(Base):
     _users_schema = 'users.' if os.getenv("DATABASE_URL") else ''
     approved_by = Column(Integer, ForeignKey(f'{_users_schema}users.user_id'), nullable=True)
     last_login = Column(DateTime)
+    whatsapp_number = Column(String, nullable=True)  # E.164 format (e.g., +14155552671)
+    whatsapp_notifications_enabled = Column(Boolean, default=True, nullable=False)
     
     # Relationship to approver
     approver = relationship('User', remote_side=[user_id], foreign_keys=[approved_by])
@@ -304,3 +306,95 @@ def delete_user(user_id: int):
         raise e
     finally:
         session.close()
+
+
+def _migrate_user_whatsapp_fields(engine):
+    """Add WhatsApp-related columns to users table if they don't exist (idempotent)."""
+    import sqlalchemy
+    import logging
+    logger = logging.getLogger(__name__)
+    database_url = os.getenv("DATABASE_URL")
+    
+    try:
+        with engine.connect() as conn:
+            if not database_url:
+                # SQLite migration
+                # Check if users table exists
+                result = conn.execute(sqlalchemy.text(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+                ))
+                if not result.fetchone():
+                    return  # Table doesn't exist, create_all will handle it
+                
+                # Get existing columns
+                result = conn.execute(sqlalchemy.text("PRAGMA table_info(users)"))
+                existing_columns = {row[1] for row in result.fetchall()}
+                
+                # Add whatsapp_number column if missing
+                if 'whatsapp_number' not in existing_columns:
+                    try:
+                        conn.execute(sqlalchemy.text("ALTER TABLE users ADD COLUMN whatsapp_number TEXT"))
+                        conn.commit()
+                        logger.info("Added whatsapp_number column to users table")
+                    except Exception as e:
+                        conn.rollback()
+                        logger.warning(f"Error adding whatsapp_number column: {e}")
+                
+                # Add whatsapp_notifications_enabled column if missing
+                if 'whatsapp_notifications_enabled' not in existing_columns:
+                    try:
+                        conn.execute(sqlalchemy.text("ALTER TABLE users ADD COLUMN whatsapp_notifications_enabled INTEGER DEFAULT 1"))
+                        # Update existing records to have notifications enabled by default
+                        conn.execute(sqlalchemy.text("UPDATE users SET whatsapp_notifications_enabled = 1 WHERE whatsapp_notifications_enabled IS NULL"))
+                        conn.commit()
+                        logger.info("Added whatsapp_notifications_enabled column to users table")
+                    except Exception as e:
+                        conn.rollback()
+                        logger.warning(f"Error adding whatsapp_notifications_enabled column: {e}")
+            else:
+                # PostgreSQL migration
+                # Check if users table exists
+                result = conn.execute(sqlalchemy.text(
+                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'users' AND table_name = 'users')"
+                ))
+                if not result.scalar():
+                    return  # Table doesn't exist, create_all will handle it
+                
+                # Check if whatsapp_number column exists
+                result = conn.execute(sqlalchemy.text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_schema = 'users' 
+                    AND table_name = 'users' 
+                    AND column_name = 'whatsapp_number'
+                """))
+                if not result.fetchone():
+                    try:
+                        conn.execute(sqlalchemy.text("ALTER TABLE users.users ADD COLUMN whatsapp_number VARCHAR"))
+                        conn.commit()
+                        logger.info("Added whatsapp_number column to users.users table")
+                    except Exception as e:
+                        conn.rollback()
+                        logger.warning(f"Error adding whatsapp_number column: {e}")
+                
+                # Check if whatsapp_notifications_enabled column exists
+                result = conn.execute(sqlalchemy.text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_schema = 'users' 
+                    AND table_name = 'users' 
+                    AND column_name = 'whatsapp_notifications_enabled'
+                """))
+                if not result.fetchone():
+                    try:
+                        conn.execute(sqlalchemy.text("ALTER TABLE users.users ADD COLUMN whatsapp_notifications_enabled BOOLEAN DEFAULT TRUE NOT NULL"))
+                        # Update existing records to have notifications enabled by default
+                        conn.execute(sqlalchemy.text("UPDATE users.users SET whatsapp_notifications_enabled = TRUE WHERE whatsapp_notifications_enabled IS NULL"))
+                        conn.commit()
+                        logger.info("Added whatsapp_notifications_enabled column to users.users table")
+                    except Exception as e:
+                        conn.rollback()
+                        logger.warning(f"Error adding whatsapp_notifications_enabled column: {e}")
+    except Exception as e:
+        logger.warning(f"Error in _migrate_user_whatsapp_fields: {e}")
+        # Migration might have already been applied, ignore

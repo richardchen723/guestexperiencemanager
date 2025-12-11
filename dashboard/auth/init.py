@@ -73,8 +73,12 @@ def initialize_all_databases():
     # Initialize all databases (now schemas exist)
     try:
         logger.info("Initializing user database...")
-        init_user_database()
+        user_engine = init_user_database()
         logger.info("User database initialized")
+        
+        # Run user database migrations
+        from dashboard.auth.models import _migrate_user_whatsapp_fields
+        _migrate_user_whatsapp_fields(user_engine)
     except Exception as e:
         logger.warning(f"Error initializing user database: {e}")
     

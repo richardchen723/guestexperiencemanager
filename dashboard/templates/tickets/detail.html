@@ -39,7 +39,7 @@
                     <label>Property:</label>
                     <span>
                         {% if ticket.listing_id %}
-                            {% if listing %}
+                        {% if listing %}
                             <a href="/insights/{{ listing.listing_id }}">{{ listing.internal_listing_name or listing.name }}</a>
                             {% else %}
                             Listing #{{ ticket.listing_id }}
@@ -157,6 +157,7 @@
 
 <script src="/static/js/tags.js"></script>
 <script src="/static/js/ticket-images.js"></script>
+<script src="/static/js/mention-handler.js"></script>
 <script>
 let allUsers = [];
 let ticketTagInput = null;
@@ -272,6 +273,122 @@ function loadComments(ticketId) {
         });
 }
 
+function highlightMentions(text) {
+    // Highlight @mentions in text, matching full names when possible
+    if (!allUsers || allUsers.length === 0) {
+        // Fallback: simple pattern if users not loaded
+        return text.replace(/@(\w+)/g, '<span class="mention-highlight">@$1</span>');
+    }
+    
+    // Build user lookup maps
+    const usersByFirstName = {};
+    const usersByFullName = {};
+    allUsers.forEach(user => {
+        const name = user.name || user.email;
+        const nameLower = name.toLowerCase();
+        const nameWords = name.split(' ');
+        
+        if (nameWords.length > 1) {
+            const firstName = nameWords[0].toLowerCase();
+            if (!usersByFirstName[firstName]) {
+                usersByFirstName[firstName] = [];
+            }
+            usersByFirstName[firstName].push({
+                name: name,
+                fullNameLower: nameLower
+            });
+        }
+        
+        usersByFullName[nameLower] = name;
+    });
+    
+    // Match @mentions - try to match full names when present
+    // First, try to match full names (two words), then fall back to single word
+    let result = text;
+    const matches = [];
+    
+    // Try to match full names first: @FirstName LastName
+    const fullNamePattern = /@(\w+)\s+(\w+)/g;
+    let match;
+    while ((match = fullNamePattern.exec(text)) !== null) {
+        // Check if this could be a full name
+        const firstPart = match[1].toLowerCase();
+        const secondPart = match[2].toLowerCase();
+        const fullMentionLower = firstPart + ' ' + secondPart;
+        
+        // Check if it matches a user's full name
+        if (usersByFullName[fullMentionLower]) {
+            matches.push({
+                index: match.index,
+                fullMatch: match[0],
+                highlightText: '@' + usersByFullName[fullMentionLower],
+                isFullName: true
+            });
+        } else {
+            // Check if first name matches and second could be last name
+            const matchingUsers = usersByFirstName[firstPart];
+            if (matchingUsers) {
+                for (const user of matchingUsers) {
+                    const userWords = user.name.split(' ');
+                    if (userWords.length > 1 && userWords[1].toLowerCase().startsWith(secondPart)) {
+                        matches.push({
+                            index: match.index,
+                            fullMatch: match[0],
+                            highlightText: '@' + user.name,
+                            isFullName: true
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Now match single-word mentions that weren't already matched
+    const singleWordPattern = /@(\w+)/g;
+    while ((match = singleWordPattern.exec(text)) !== null) {
+        // Check if this mention is already part of a full name match
+        const isPartOfFullMatch = matches.some(m => 
+            match.index >= m.index && match.index < m.index + m.fullMatch.length
+        );
+        
+        if (!isPartOfFullMatch) {
+            const firstPartLower = match[1].toLowerCase();
+            let highlightText = null;
+            
+            // Check if it matches a first name (and there's only one user with that first name)
+            const matchingUsers = usersByFirstName[firstPartLower];
+            if (matchingUsers && matchingUsers.length === 1) {
+                highlightText = '@' + matchingUsers[0].name;
+            } else if (usersByFullName[firstPartLower]) {
+                highlightText = '@' + usersByFullName[firstPartLower];
+            } else {
+                highlightText = '@' + match[1];
+            }
+            
+            matches.push({
+                index: match.index,
+                fullMatch: match[0],
+                highlightText: highlightText,
+                isFullName: false
+            });
+        }
+    }
+    
+    // Sort matches by index in descending order for safe replacement
+    matches.sort((a, b) => b.index - a.index);
+    
+    // Process matches in reverse order to maintain positions
+    for (const m of matches) {
+        // Replace in result
+        const before = result.substring(0, m.index);
+        const after = result.substring(m.index + m.fullMatch.length);
+        result = before + '<span class="mention-highlight">' + escapeHtml(m.highlightText) + '</span>' + after;
+    }
+    
+    return result;
+}
+
 function createCommentElement(comment, ticketId) {
     const div = document.createElement('div');
     div.className = 'comment-item';
@@ -321,11 +438,11 @@ function createCommentElement(comment, ticketId) {
                 <span class="comment-author-name">${escapeHtml(userName)}</span>
             </div>
             <div style="display: flex; align-items: center; gap: 0.75rem;">
-                <span class="comment-date">${formatDate(date)}</span>
+            <span class="comment-date">${formatDate(date)}</span>
                 ${deleteButton}
             </div>
         </div>
-        <div class="comment-text">${escapeHtml(comment.comment_text)}</div>
+        <div class="comment-text">${highlightMentions(escapeHtml(comment.comment_text))}</div>
         ${imagesHtml}
     `;
     
