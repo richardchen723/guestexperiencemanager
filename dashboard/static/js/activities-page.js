@@ -133,8 +133,9 @@ function renderActivityLog(activities) {
         
         // Build details based on action type
         if (activity.action === 'status_change') {
-            const oldStatus = metadata.old_status || 'N/A';
-            const newStatus = metadata.new_status || 'N/A';
+            // Get status values from metadata, with fallbacks
+            const oldStatus = (metadata && metadata.old_status) ? metadata.old_status : (activity.entity_type === 'ticket' ? 'Unknown' : 'N/A');
+            const newStatus = (metadata && metadata.new_status) ? metadata.new_status : (activity.entity_type === 'ticket' ? 'Unknown' : 'N/A');
             details = `<strong>Status Change:</strong> ${escapeHtml(oldStatus)} → ${escapeHtml(newStatus)}`;
         } else if (activity.action === 'assign') {
             const oldUserId = metadata.old_assigned_user_id;

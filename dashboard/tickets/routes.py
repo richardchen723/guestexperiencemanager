@@ -666,9 +666,10 @@ def api_update_ticket(ticket_id):
                 return jsonify({'error': 'Invalid reopen_days_before_due_date. Must be an integer.'}), 400
     
     try:
-        # Track old values for notifications
+        # Track old values for notifications and logging
+        # IMPORTANT: Get old values BEFORE update_ticket() modifies the ticket object
         old_assigned_user_id = ticket.assigned_user_id
-        old_status = ticket.status
+        old_status = ticket.status or 'Open'  # Ensure we have a default if None
         
         updated_ticket = update_ticket(ticket_id, **update_data)
         
@@ -677,9 +678,9 @@ def api_update_ticket(ticket_id):
             try:
                 from dashboard.activities.logger import log_ticket_activity
                 
-                # Check what changed
-                new_assigned_user_id = update_data.get('assigned_user_id', old_assigned_user_id)
-                new_status = update_data.get('status', old_status)
+                # Check what changed - get new values from the updated ticket object
+                new_assigned_user_id = updated_ticket.assigned_user_id
+                new_status = updated_ticket.status or 'Open'  # Get from updated ticket, ensure not None
                 
                 # Log status change if it changed
                 if new_status != old_status:
@@ -689,8 +690,8 @@ def api_update_ticket(ticket_id):
                         ticket_id=ticket_id,
                         metadata={
                             'title': ticket.title,
-                            'old_status': old_status,
-                            'new_status': new_status
+                            'old_status': old_status or 'Open',  # Ensure not None
+                            'new_status': new_status or 'Open'   # Ensure not None
                         }
                     )
                 
