@@ -29,7 +29,9 @@ def parse_mentions(comment_text: str) -> List[Tuple[int, str]]:
         List of (user_id, mention_text) tuples for matched users
     """
     # #region agent log
-    with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:17","message":"parse_mentions called","data":{{"comment_text":"{comment_text[:100] if comment_text else ""}"}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+    try:
+        with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:17","message":"parse_mentions called","data":{{"comment_text":"{comment_text[:100] if comment_text else ""}"}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+    except: pass
     # #endregion
     if not comment_text:
         return []
@@ -43,7 +45,9 @@ def parse_mentions(comment_text: str) -> List[Tuple[int, str]]:
     # Clean up mentions - remove extra spaces
     mentions = [m.strip() for m in mentions if m.strip()]
     # #region agent log
-    with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:37","message":"Mentions found by regex","data":{{"mentions":{mentions}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+    try:
+        with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:37","message":"Mentions found by regex","data":{{"mentions":{mentions}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+    except: pass
     # #endregion
     
     if not mentions:
@@ -52,7 +56,9 @@ def parse_mentions(comment_text: str) -> List[Tuple[int, str]]:
     # Get all users for matching
     users = get_all_users()
     # #region agent log
-    with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:43","message":"Users loaded","data":{{"user_count":{len(users)},"user_names":[u.name or u.email for u in users]}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+    try:
+        with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:43","message":"Users loaded","data":{{"user_count":{len(users)},"user_names":[u.name or u.email for u in users]}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+    except: pass
     # #endregion
     
     matched_users = []
@@ -110,12 +116,16 @@ def parse_mentions(comment_text: str) -> List[Tuple[int, str]]:
                     matched_users.append((user.user_id, mention_text))
                     seen_user_ids.add(user.user_id)
                     # #region agent log
-                    with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:83","message":"User matched by email","data":{{"user_id":{user.user_id},"user_email":"{user.email}","mention_text":"{mention_text}"}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+                    try:
+                        with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:83","message":"User matched by email","data":{{"user_id":{user.user_id},"user_email":"{user.email}","mention_text":"{mention_text}"}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+                    except: pass
                     # #endregion
                     break
     
     # #region agent log
-    with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:85","message":"parse_mentions returning","data":{{"matched_users":{matched_users}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+    try:
+        with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:85","message":"parse_mentions returning","data":{{"matched_users":{matched_users}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+    except: pass
     # #endregion
     return matched_users
 
