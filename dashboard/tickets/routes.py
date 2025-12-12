@@ -688,6 +688,7 @@ def api_update_ticket(ticket_id):
                         action='status_change',
                         ticket_id=ticket_id,
                         metadata={
+                            'title': ticket.title,
                             'old_status': old_status,
                             'new_status': new_status
                         }
@@ -700,6 +701,7 @@ def api_update_ticket(ticket_id):
                         action='assign',
                         ticket_id=ticket_id,
                         metadata={
+                            'title': ticket.title,
                             'old_assigned_user_id': old_assigned_user_id,
                             'new_assigned_user_id': new_assigned_user_id
                         }
@@ -715,7 +717,10 @@ def api_update_ticket(ticket_id):
                         user_id=current_user.user_id,
                         action='update',
                         ticket_id=ticket_id,
-                        metadata={'updated_fields': list(update_data.keys())}
+                        metadata={
+                            'title': ticket.title,
+                            'updated_fields': list(update_data.keys())
+                        }
                     )
             except Exception as e:
                 import logging

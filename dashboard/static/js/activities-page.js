@@ -122,11 +122,43 @@ function renderActivityLog(activities) {
         const date = new Date(activity.created_at);
         const metadata = activity.metadata || {};
         let details = '';
+        let entityDisplay = escapeHtml(activity.entity_type);
         
+        // If it's a ticket-related activity, show link to ticket
+        if (activity.entity_type === 'ticket' && activity.entity_id) {
+            const ticketUrl = `/tickets/${activity.entity_id}`;
+            const ticketTitle = metadata.title ? escapeHtml(metadata.title) : `Ticket #${activity.entity_id}`;
+            entityDisplay = `<a href="${ticketUrl}" target="_blank">${ticketTitle}</a>`;
+        }
+        
+        // Build details based on action type
         if (activity.action === 'status_change') {
-            details = `${metadata.old_status || ''} → ${metadata.new_status || ''}`;
+            const oldStatus = metadata.old_status || 'N/A';
+            const newStatus = metadata.new_status || 'N/A';
+            details = `<strong>Status Change:</strong> ${escapeHtml(oldStatus)} → ${escapeHtml(newStatus)}`;
         } else if (activity.action === 'assign') {
-            details = `Assigned to user ${metadata.new_assigned_user_id || ''}`;
+            const oldUserId = metadata.old_assigned_user_id;
+            const newUserId = metadata.new_assigned_user_id;
+            if (oldUserId && newUserId) {
+                details = `<strong>Reassigned:</strong> User ${oldUserId} → User ${newUserId}`;
+            } else if (newUserId) {
+                details = `<strong>Assigned to:</strong> User ${newUserId}`;
+            } else if (oldUserId) {
+                details = `<strong>Unassigned from:</strong> User ${oldUserId}`;
+            } else {
+                details = `<strong>Assignment changed</strong>`;
+            }
+        } else if (activity.action === 'create' && activity.entity_type === 'ticket') {
+            details = `<strong>Created:</strong> ${escapeHtml(metadata.title || 'Ticket')}`;
+        } else if (activity.action === 'update' && activity.entity_type === 'ticket') {
+            const updatedFields = metadata.updated_fields || [];
+            if (updatedFields.length > 0) {
+                details = `<strong>Updated fields:</strong> ${escapeHtml(updatedFields.join(', '))}`;
+            } else {
+                details = `<strong>Ticket updated</strong>`;
+            }
+        } else if (activity.action === 'delete' && activity.entity_type === 'ticket') {
+            details = `<strong>Deleted:</strong> ${escapeHtml(metadata.title || 'Ticket')}`;
         } else if (activity.entity_id) {
             details = `ID: ${activity.entity_id}`;
         }
@@ -136,8 +168,8 @@ function renderActivityLog(activities) {
             <td>${escapeHtml(activity.user_name || activity.user_email || 'Unknown')}</td>
             <td>${escapeHtml(activity.activity_type)}</td>
             <td>${escapeHtml(activity.action)}</td>
-            <td>${escapeHtml(activity.entity_type)}</td>
-            <td>${escapeHtml(details)}</td>
+            <td>${entityDisplay}</td>
+            <td>${details}</td>
         </tr>`;
     });
     
