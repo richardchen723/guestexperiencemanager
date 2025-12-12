@@ -116,6 +116,8 @@ def log_comment_activity(user_id: int, action: str, ticket_id: int,
     """
     if metadata is None:
         metadata = {}
+    # Always include ticket_id in metadata so we can link to the ticket
+    metadata['ticket_id'] = ticket_id
     if comment_id:
         metadata['comment_id'] = comment_id
     

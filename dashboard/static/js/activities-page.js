@@ -126,9 +126,9 @@ function renderActivityLog(activities) {
         
         // If it's a ticket-related activity, show link to ticket
         if (activity.entity_type === 'ticket' && activity.entity_id) {
-            const ticketUrl = `/tickets/${activity.entity_id}`;
-            const ticketTitle = metadata.title ? escapeHtml(metadata.title) : `Ticket #${activity.entity_id}`;
-            entityDisplay = `<a href="${ticketUrl}" target="_blank">${ticketTitle}</a>`;
+            const ticketUrl = `/tickets/${activity.entity_id}/page`;
+            // Always show "Ticket #X" format for consistency
+            entityDisplay = `<a href="${ticketUrl}" target="_blank">Ticket #${activity.entity_id}</a>`;
         }
         
         // Build details based on action type
@@ -160,6 +160,16 @@ function renderActivityLog(activities) {
             }
         } else if (activity.action === 'delete' && activity.entity_type === 'ticket') {
             details = `<strong>Deleted:</strong> ${escapeHtml(metadata.title || 'Ticket')}`;
+        } else if (activity.entity_type === 'comment' && metadata.ticket_id) {
+            // For comment activities, show link to the ticket
+            const ticketUrl = `/tickets/${metadata.ticket_id}/page`;
+            if (activity.action === 'create') {
+                details = `<strong>Comment added on:</strong> <a href="${ticketUrl}" target="_blank">Ticket #${metadata.ticket_id}</a>`;
+            } else if (activity.action === 'delete') {
+                details = `<strong>Comment deleted on:</strong> <a href="${ticketUrl}" target="_blank">Ticket #${metadata.ticket_id}</a>`;
+            } else {
+                details = `<a href="${ticketUrl}" target="_blank">Ticket #${metadata.ticket_id}</a>`;
+            }
         } else if (activity.entity_id) {
             details = `ID: ${activity.entity_id}`;
         }
