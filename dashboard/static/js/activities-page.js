@@ -133,15 +133,9 @@ function renderActivityLog(activities) {
         
         // Build details based on action type
         if (activity.action === 'status_change') {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'activities-page.js:135',message:'Processing status_change',data:{activity_action:activity.action,metadata:metadata,metadata_type:typeof metadata,has_old_status:metadata && 'old_status' in metadata,has_new_status:metadata && 'new_status' in metadata,old_status_value:metadata && metadata.old_status,new_status_value:metadata && metadata.new_status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
-            // #endregion
             // Get status values from metadata, with fallbacks
             const oldStatus = (metadata && metadata.old_status) ? metadata.old_status : (activity.entity_type === 'ticket' ? 'Unknown' : 'N/A');
             const newStatus = (metadata && metadata.new_status) ? metadata.new_status : (activity.entity_type === 'ticket' ? 'Unknown' : 'N/A');
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'activities-page.js:141',message:'Status values determined',data:{oldStatus:oldStatus,newStatus:newStatus},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
-            // #endregion
             details = `<strong>Status Change:</strong> ${escapeHtml(oldStatus)} → ${escapeHtml(newStatus)}`;
         } else if (activity.action === 'assign') {
             const oldUserId = metadata.old_assigned_user_id;

@@ -34,47 +34,8 @@ def log_activity(user_id: int, activity_type: str, entity_type: str,
     """
     def _log():
         try:
-            # #region agent log
-            import json
-            debug_log_path = '/Users/richardchen/projects/hostaway-messages/.cursor/debug.log'
-            try:
-                with open(debug_log_path, 'a') as f:
-                    f.write(json.dumps({
-                        'sessionId': 'debug-session',
-                        'runId': 'run1',
-                        'hypothesisId': 'H1',
-                        'location': 'logger.py:36',
-                        'message': 'log_activity _log called',
-                        'data': {
-                            'user_id': user_id,
-                            'action': action,
-                            'metadata': metadata,
-                            'metadata_type': type(metadata).__name__,
-                            'metadata_keys': list(metadata.keys()) if metadata and isinstance(metadata, dict) else None
-                        },
-                        'timestamp': int(datetime.utcnow().timestamp() * 1000)
-                    }) + '\n')
-            except: pass
-            # #endregion
             session = get_session()
             try:
-                # #region agent log
-                try:
-                    with open(debug_log_path, 'a') as f:
-                        f.write(json.dumps({
-                            'sessionId': 'debug-session',
-                            'runId': 'run1',
-                            'hypothesisId': 'H1',
-                            'location': 'logger.py:50',
-                            'message': 'Creating ActivityLog object',
-                            'data': {
-                                'metadata_param': metadata,
-                                'using_activity_metadata': True
-                            },
-                            'timestamp': int(datetime.utcnow().timestamp() * 1000)
-                        }) + '\n')
-                except: pass
-                # #endregion
                 activity = ActivityLog(
                     user_id=user_id,
                     activity_type=activity_type,
@@ -84,42 +45,8 @@ def log_activity(user_id: int, activity_type: str, entity_type: str,
                     activity_metadata=metadata,  # Fixed: use activity_metadata not metadata
                     created_at=datetime.utcnow()
                 )
-                # #region agent log
-                try:
-                    with open(debug_log_path, 'a') as f:
-                        f.write(json.dumps({
-                            'sessionId': 'debug-session',
-                            'runId': 'run1',
-                            'hypothesisId': 'H1',
-                            'location': 'logger.py:66',
-                            'message': 'ActivityLog created, before commit',
-                            'data': {
-                                'activity_metadata': activity.activity_metadata,
-                                'activity_metadata_type': type(activity.activity_metadata).__name__
-                            },
-                            'timestamp': int(datetime.utcnow().timestamp() * 1000)
-                        }) + '\n')
-                except: pass
-                # #endregion
                 session.add(activity)
                 session.commit()
-                # #region agent log
-                try:
-                    with open(debug_log_path, 'a') as f:
-                        f.write(json.dumps({
-                            'sessionId': 'debug-session',
-                            'runId': 'run1',
-                            'hypothesisId': 'H1',
-                            'location': 'logger.py:75',
-                            'message': 'ActivityLog committed',
-                            'data': {
-                                'activity_id': activity.activity_id,
-                                'activity_metadata_after_commit': activity.activity_metadata
-                            },
-                            'timestamp': int(datetime.utcnow().timestamp() * 1000)
-                        }) + '\n')
-                except: pass
-                # #endregion
             except Exception as e:
                 session.rollback()
                 logger.error(f"Error logging activity: {e}", exc_info=True)
