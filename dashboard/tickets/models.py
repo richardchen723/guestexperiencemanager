@@ -309,7 +309,31 @@ class ActivityLog(Base):
     
     def to_dict(self):
         """Convert activity log to dictionary."""
-        return {
+        # #region agent log
+        import json
+        debug_log_path = '/Users/richardchen/projects/hostaway-messages/.cursor/debug.log'
+        try:
+            with open(debug_log_path, 'a') as f:
+                f.write(json.dumps({
+                    'sessionId': 'debug-session',
+                    'runId': 'run1',
+                    'hypothesisId': 'H3',
+                    'location': 'models.py:310',
+                    'message': 'ActivityLog.to_dict called',
+                    'data': {
+                        'activity_id': self.activity_id,
+                        'action': self.action,
+                        'activity_metadata': self.activity_metadata,
+                        'activity_metadata_type': type(self.activity_metadata).__name__,
+                        'activity_metadata_is_dict': isinstance(self.activity_metadata, dict),
+                        'old_status_in_metadata': self.activity_metadata.get('old_status') if isinstance(self.activity_metadata, dict) else None,
+                        'new_status_in_metadata': self.activity_metadata.get('new_status') if isinstance(self.activity_metadata, dict) else None
+                    },
+                    'timestamp': int(__import__('datetime').datetime.utcnow().timestamp() * 1000)
+                }) + '\n')
+        except: pass
+        # #endregion
+        result = {
             'activity_id': self.activity_id,
             'user_id': self.user_id,
             'user_name': self.user.name if self.user else None,
@@ -321,6 +345,24 @@ class ActivityLog(Base):
             'metadata': self.activity_metadata,  # Expose as 'metadata' in API for consistency
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+        # #region agent log
+        try:
+            with open(debug_log_path, 'a') as f:
+                f.write(json.dumps({
+                    'sessionId': 'debug-session',
+                    'runId': 'run1',
+                    'hypothesisId': 'H3',
+                    'location': 'models.py:332',
+                    'message': 'ActivityLog.to_dict result',
+                    'data': {
+                        'result_metadata': result.get('metadata'),
+                        'result_metadata_type': type(result.get('metadata')).__name__
+                    },
+                    'timestamp': int(__import__('datetime').datetime.utcnow().timestamp() * 1000)
+                }) + '\n')
+        except: pass
+        # #endregion
+        return result
 
 
 def init_ticket_database():

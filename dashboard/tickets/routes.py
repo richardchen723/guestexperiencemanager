@@ -684,15 +684,57 @@ def api_update_ticket(ticket_id):
                 
                 # Log status change if it changed
                 if new_status != old_status:
+                    # #region agent log
+                    import json
+                    debug_log_path = '/Users/richardchen/projects/hostaway-messages/.cursor/debug.log'
+                    try:
+                        with open(debug_log_path, 'a') as f:
+                            f.write(json.dumps({
+                                'sessionId': 'debug-session',
+                                'runId': 'run1',
+                                'hypothesisId': 'H2',
+                                'location': 'routes.py:686',
+                                'message': 'About to log status_change',
+                                'data': {
+                                    'old_status': old_status,
+                                    'old_status_type': type(old_status).__name__,
+                                    'new_status': new_status,
+                                    'new_status_type': type(new_status).__name__,
+                                    'ticket_id': ticket_id,
+                                    'ticket_title': ticket.title
+                                },
+                                'timestamp': int(__import__('datetime').datetime.utcnow().timestamp() * 1000)
+                            }) + '\n')
+                    except: pass
+                    # #endregion
+                    metadata_dict = {
+                        'title': ticket.title,
+                        'old_status': old_status or 'Open',  # Ensure not None
+                        'new_status': new_status or 'Open'   # Ensure not None
+                    }
+                    # #region agent log
+                    try:
+                        with open(debug_log_path, 'a') as f:
+                            f.write(json.dumps({
+                                'sessionId': 'debug-session',
+                                'runId': 'run1',
+                                'hypothesisId': 'H2',
+                                'location': 'routes.py:700',
+                                'message': 'Metadata dict created',
+                                'data': {
+                                    'metadata_dict': metadata_dict,
+                                    'old_status_in_dict': metadata_dict.get('old_status'),
+                                    'new_status_in_dict': metadata_dict.get('new_status')
+                                },
+                                'timestamp': int(__import__('datetime').datetime.utcnow().timestamp() * 1000)
+                            }) + '\n')
+                    except: pass
+                    # #endregion
                     log_ticket_activity(
                         user_id=current_user.user_id,
                         action='status_change',
                         ticket_id=ticket_id,
-                        metadata={
-                            'title': ticket.title,
-                            'old_status': old_status or 'Open',  # Ensure not None
-                            'new_status': new_status or 'Open'   # Ensure not None
-                        }
+                        metadata=metadata_dict
                     )
                 
                 # Log assignment change if it changed
