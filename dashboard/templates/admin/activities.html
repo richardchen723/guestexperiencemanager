@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}Activity Tracking{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="activities-page">
+    <h2>Activity Tracking & Reports</h2>
+    
+    <!-- Query Builder Section -->
+    <div class="query-builder">
+        <div class="query-filters">
+            <div class="filter-group">
+                <label>Start Date:</label>
+                <input type="date" id="startDate" class="form-control">
+            </div>
+            <div class="filter-group">
+                <label>End Date:</label>
+                <input type="date" id="endDate" class="form-control">
+            </div>
+            <div class="filter-group">
+                <label>Activity Type:</label>
+                <select id="activityType" class="form-control">
+                    <option value="">All</option>
+                    <option value="ticket">Tickets</option>
+                    <option value="auth">Auth</option>
+                    <option value="comment">Comments</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>User:</label>
+                <select id="userId" class="form-control">
+                    <option value="">All Users</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Action:</label>
+                <select id="action" class="form-control">
+                    <option value="">All Actions</option>
+                    <option value="create">Create</option>
+                    <option value="update">Update</option>
+                    <option value="delete">Delete</option>
+                    <option value="status_change">Status Change</option>
+                    <option value="assign">Assign</option>
+                    <option value="login">Login</option>
+                    <option value="logout">Logout</option>
+                </select>
+            </div>
+        </div>
+        <div class="query-presets">
+            <button class="btn btn-secondary" onclick="setPreset('7days')">Last 7 days</button>
+            <button class="btn btn-secondary" onclick="setPreset('30days')">Last 30 days</button>
+            <button class="btn btn-secondary" onclick="setPreset('90days')">Last 90 days</button>
+            <button class="btn btn-secondary" onclick="setPreset('month')">This month</button>
+            <button class="btn btn-secondary" onclick="setPreset('year')">This year</button>
+        </div>
+        <div class="query-actions">
+            <button class="btn btn-primary" onclick="runQuery()">Run Query</button>
+            <button class="btn btn-secondary" onclick="resetFilters()">Reset</button>
+        </div>
+    </div>
+    
+    <!-- Tabs -->
+    <div class="activities-tabs">
+        <button class="tab-button active" onclick="switchTab('log', this)">Activity Log</button>
+        <button class="tab-button" onclick="switchTab('reports', this)">Reports</button>
+        <button class="tab-button" onclick="switchTab('trends', this)">Trends</button>
+    </div>
+    
+    <!-- Activity Log Tab -->
+    <div id="logTab" class="tab-content active">
+        <div class="activity-log-header">
+            <h3>Activity Log</h3>
+            <button class="btn btn-secondary" onclick="exportToCSV()">Export to CSV</button>
+        </div>
+        <div id="activityLogContainer">
+            <div class="loading">Loading activities...</div>
+        </div>
+        <div id="activityLogPagination" class="pagination"></div>
+    </div>
+    
+    <!-- Reports Tab -->
+    <div id="reportsTab" class="tab-content">
+        <div class="reports-grid">
+            <!-- Ticket Metrics Card -->
+            <div class="report-card">
+                <h3>Ticket Metrics</h3>
+                <div id="ticketMetricsContent">
+                    <div class="loading">Loading metrics...</div>
+                </div>
+            </div>
+            
+            <!-- User Performance Card -->
+            <div class="report-card">
+                <h3>User Performance</h3>
+                <div id="userPerformanceContent">
+                    <div class="loading">Loading performance data...</div>
+                </div>
+            </div>
+            
+            <!-- Unresolved Assignments Card -->
+            <div class="report-card">
+                <h3>Unresolved Assignments</h3>
+                <div id="unresolvedAssignmentsContent">
+                    <div class="loading">Loading assignments...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Trends Tab -->
+    <div id="trendsTab" class="tab-content">
+        <div class="trends-controls">
+            <label>Metric:</label>
+            <select id="trendMetric" class="form-control" onchange="loadTrends()">
+                <option value="created">Tickets Created</option>
+                <option value="resolved">Tickets Resolved</option>
+                <option value="assigned">Tickets Assigned</option>
+            </select>
+        </div>
+        <div class="trends-chart-container">
+            <canvas id="trendsChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/activities-page.js') }}"></script>
+{% endblock %}
+

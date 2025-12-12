@@ -53,6 +53,27 @@ def google_callback():
 @login_required
 def logout():
     """Logout the current user."""
+    user = get_current_user()
+    user_id = user.user_id if user else None
+    
+    # Log logout activity before logging out
+    if user_id:
+        try:
+            from dashboard.activities.logger import log_auth_activity
+            log_auth_activity(
+                user_id=user_id,
+                action='logout',
+                metadata={
+                    'ip_address': request.remote_addr if request else None,
+                    'user_agent': request.headers.get('User-Agent') if request else None
+                }
+            )
+        except Exception as e:
+            # Log but don't fail logout if activity logging fails
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Error logging logout activity: {e}", exc_info=True)
+    
     logout_user()
     return redirect(url_for('auth.login'))
 
@@ -134,6 +155,27 @@ def api_update_profile():
         
         session.commit()
         session.refresh(db_user)
+        
+        # Log profile update activity
+        try:
+            from dashboard.activities.logger import log_auth_activity
+            updated_fields = []
+            if 'whatsapp_number' in data:
+                updated_fields.append('whatsapp_number')
+            if 'whatsapp_notifications_enabled' in data:
+                updated_fields.append('whatsapp_notifications_enabled')
+            
+            if updated_fields:
+                log_auth_activity(
+                    user_id=user.user_id,
+                    action='profile_update',
+                    metadata={'updated_fields': updated_fields}
+                )
+        except Exception as e:
+            # Log but don't fail profile update if activity logging fails
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Error logging profile update activity: {e}", exc_info=True)
         
         return jsonify({
             'user_id': db_user.user_id,

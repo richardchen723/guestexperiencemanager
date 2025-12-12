@@ -11,6 +11,7 @@ from typing import Optional, List
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Date, Boolean, UniqueConstraint
 import sqlalchemy
 from sqlalchemy.orm import relationship
+from sqlalchemy.types import JSON
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -280,6 +281,48 @@ class CommentImage(Base):
         }
 
 
+class ActivityLog(Base):
+    """Activity log model for tracking user activities."""
+    __tablename__ = 'activity_logs'
+    __table_args__ = (
+        {'schema': 'tickets'} if os.getenv("DATABASE_URL") else {},
+    )
+    
+    activity_id = Column(Integer, primary_key=True, autoincrement=True)
+    # Foreign key references - adjust schema prefix for PostgreSQL
+    _users_fk_schema = 'users.' if os.getenv("DATABASE_URL") else ''
+    user_id = Column(Integer, ForeignKey(f'{_users_fk_schema}users.user_id'), nullable=False, index=True)
+    activity_type = Column(String, nullable=False, index=True)  # 'ticket', 'auth', 'comment'
+    entity_type = Column(String, nullable=False)  # 'ticket', 'user', 'comment'
+    entity_id = Column(Integer, nullable=True, index=True)  # ID of the entity (ticket_id, user_id, etc.)
+    action = Column(String, nullable=False, index=True)  # 'create', 'update', 'delete', 'login', 'logout', 'status_change', 'assign', etc.
+    # Use JSONB for PostgreSQL, JSON for SQLite - will be set in __init_subclass__ or migration
+    # Note: 'metadata' is reserved in SQLAlchemy, so we use 'activity_metadata'
+    activity_metadata = Column(JSON, nullable=True)  # Flexible JSON for additional context (JSONB for PostgreSQL handled in migration)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    
+    # Relationships
+    user = relationship('User', foreign_keys=[user_id])
+    
+    def __repr__(self):
+        return f"<ActivityLog(activity_id={self.activity_id}, user_id={self.user_id}, activity_type='{self.activity_type}', action='{self.action}')>"
+    
+    def to_dict(self):
+        """Convert activity log to dictionary."""
+        return {
+            'activity_id': self.activity_id,
+            'user_id': self.user_id,
+            'user_name': self.user.name if self.user else None,
+            'user_email': self.user.email if self.user else None,
+            'activity_type': self.activity_type,
+            'entity_type': self.entity_type,
+            'entity_id': self.entity_id,
+            'action': self.action,
+            'metadata': self.activity_metadata,  # Expose as 'metadata' in API for consistency
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 def init_ticket_database():
     """
     Initialize the ticket tables in the user database.
@@ -325,11 +368,15 @@ def init_ticket_database():
         _migrate_image_tables(engine)
         # Migrate recurring fields to tickets table
         _migrate_tickets_recurring_table(engine)
+        # Migrate activity_logs table
+        _migrate_activity_logs_table(engine)
     else:
         # PostgreSQL: Migrate to make listing_id nullable
         _migrate_listing_id_nullable(engine)
         # Migrate recurring fields to tickets table
         _migrate_tickets_recurring_table(engine)
+        # Migrate activity_logs table
+        _migrate_activity_logs_table(engine)
     
     return engine
 
@@ -515,6 +562,64 @@ def _migrate_tickets_recurring_table(engine):
                         conn.rollback()
                         # Column might already exist, ignore
             pass
+
+
+def _migrate_activity_logs_table(engine):
+    """Create activity_logs table if it doesn't exist."""
+    import sqlalchemy
+    database_url = os.getenv("DATABASE_URL")
+    
+    with engine.connect() as conn:
+        if not database_url:
+            # SQLite migration
+            # Check if activity_logs table exists
+            result = conn.execute(sqlalchemy.text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='activity_logs'"
+            ))
+            if result.fetchone():
+                return  # Table already exists
+            
+            # Table will be created by create_all, but we ensure it exists
+            # create_all will handle it
+            return
+        else:
+            # PostgreSQL migration
+            # Check if activity_logs table exists
+            result = conn.execute(sqlalchemy.text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'tickets' 
+                    AND table_name = 'activity_logs'
+                )
+            """))
+            if result.scalar():
+                return  # Table already exists
+            
+            # Create table with JSONB for activity_metadata (metadata is reserved in SQLAlchemy)
+            from sqlalchemy.dialects.postgresql import JSONB
+            conn.execute(sqlalchemy.text("""
+                CREATE TABLE tickets.activity_logs (
+                    activity_id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users.users(user_id),
+                    activity_type VARCHAR NOT NULL,
+                    entity_type VARCHAR NOT NULL,
+                    entity_id INTEGER,
+                    action VARCHAR NOT NULL,
+                    activity_metadata JSONB,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            
+            # Create indexes
+            conn.execute(sqlalchemy.text("CREATE INDEX idx_activity_logs_user_id ON tickets.activity_logs(user_id)"))
+            conn.execute(sqlalchemy.text("CREATE INDEX idx_activity_logs_activity_type ON tickets.activity_logs(activity_type)"))
+            conn.execute(sqlalchemy.text("CREATE INDEX idx_activity_logs_entity_id ON tickets.activity_logs(entity_id)"))
+            conn.execute(sqlalchemy.text("CREATE INDEX idx_activity_logs_action ON tickets.activity_logs(action)"))
+            conn.execute(sqlalchemy.text("CREATE INDEX idx_activity_logs_created_at ON tickets.activity_logs(created_at)"))
+            conn.execute(sqlalchemy.text("CREATE INDEX idx_activity_logs_type_created ON tickets.activity_logs(activity_type, created_at)"))
+            
+            conn.commit()
+            logger.info("Created activity_logs table with indexes")
 
 
 def _safe_expunge(session, obj):

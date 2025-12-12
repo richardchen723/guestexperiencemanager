@@ -141,6 +141,24 @@ def handle_google_callback():
         # Log in the user
         login_user(user.user_id)
         
+        # Log login activity
+        try:
+            from dashboard.activities.logger import log_auth_activity
+            from flask import request
+            log_auth_activity(
+                user_id=user.user_id,
+                action='login',
+                metadata={
+                    'ip_address': request.remote_addr if request else None,
+                    'user_agent': request.headers.get('User-Agent') if request else None
+                }
+            )
+        except Exception as e:
+            # Log but don't fail login if activity logging fails
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Error logging login activity: {e}", exc_info=True)
+        
         # Return None to let Flask-Dance handle the redirect, or return a redirect
         # Flask-Dance will redirect to the home page by default, but we want custom logic
         # So we return a redirect response

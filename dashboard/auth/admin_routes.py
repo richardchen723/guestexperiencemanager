@@ -28,6 +28,13 @@ def users_page():
     return render_template('admin/users.html')
 
 
+@admin_bp.route('/activities')
+@admin_required
+def activities_page():
+    """Activity tracking and reporting page."""
+    return render_template('admin/activities.html')
+
+
 @admin_bp.route('/api/users')
 @admin_required
 def api_list_users():

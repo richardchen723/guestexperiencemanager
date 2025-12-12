@@ -473,6 +473,26 @@ def api_create_ticket():
         finally:
             session.close()
         
+        # Log ticket creation activity
+        try:
+            from dashboard.activities.logger import log_ticket_activity
+            log_ticket_activity(
+                user_id=current_user.user_id,
+                action='create',
+                ticket_id=ticket.ticket_id,
+                metadata={
+                    'title': ticket.title,
+                    'status': ticket.status,
+                    'assigned_user_id': assigned_user_id,
+                    'priority': priority,
+                    'category': category
+                }
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Error logging ticket creation activity: {e}", exc_info=True)
+        
         # Send notification if ticket was assigned during creation
         if assigned_user_id:
             try:
@@ -653,6 +673,55 @@ def api_update_ticket(ticket_id):
         updated_ticket = update_ticket(ticket_id, **update_data)
         
         if updated_ticket:
+            # Log activity for ticket updates
+            try:
+                from dashboard.activities.logger import log_ticket_activity
+                
+                # Check what changed
+                new_assigned_user_id = update_data.get('assigned_user_id', old_assigned_user_id)
+                new_status = update_data.get('status', old_status)
+                
+                # Log status change if it changed
+                if new_status != old_status:
+                    log_ticket_activity(
+                        user_id=current_user.user_id,
+                        action='status_change',
+                        ticket_id=ticket_id,
+                        metadata={
+                            'old_status': old_status,
+                            'new_status': new_status
+                        }
+                    )
+                
+                # Log assignment change if it changed
+                if new_assigned_user_id != old_assigned_user_id:
+                    log_ticket_activity(
+                        user_id=current_user.user_id,
+                        action='assign',
+                        ticket_id=ticket_id,
+                        metadata={
+                            'old_assigned_user_id': old_assigned_user_id,
+                            'new_assigned_user_id': new_assigned_user_id
+                        }
+                    )
+                
+                # Log general update if other fields changed (but not status or assignment)
+                other_fields_changed = any(
+                    key in update_data 
+                    for key in ['title', 'description', 'priority', 'category', 'due_date']
+                )
+                if other_fields_changed and new_status == old_status and new_assigned_user_id == old_assigned_user_id:
+                    log_ticket_activity(
+                        user_id=current_user.user_id,
+                        action='update',
+                        ticket_id=ticket_id,
+                        metadata={'updated_fields': list(update_data.keys())}
+                    )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Error logging ticket update activity: {e}", exc_info=True)
+            
             # Send notifications for assignment and status changes
             try:
                 from dashboard.notifications.helpers import send_assignment_notification, send_status_change_notification
@@ -695,11 +764,32 @@ def api_update_ticket(ticket_id):
 @admin_required
 def api_delete_ticket(ticket_id):
     """Delete a ticket (admin only)."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+    
     ticket = get_ticket(ticket_id)
     if not ticket:
         return jsonify({'error': 'Ticket not found'}), 404
     
     try:
+        # Log ticket deletion activity
+        try:
+            from dashboard.activities.logger import log_ticket_activity
+            log_ticket_activity(
+                user_id=current_user.user_id,
+                action='delete',
+                ticket_id=ticket_id,
+                metadata={
+                    'title': ticket.title,
+                    'status': ticket.status
+                }
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Error logging ticket deletion activity: {e}", exc_info=True)
+        
         success = delete_ticket(ticket_id)
         if success:
             return jsonify({'message': 'Ticket deleted successfully'})
@@ -742,6 +832,21 @@ def api_add_comment(ticket_id):
     
     try:
         comment = add_ticket_comment(ticket_id, current_user.user_id, comment_text)
+        
+        # Log comment creation activity
+        try:
+            from dashboard.activities.logger import log_comment_activity
+            log_comment_activity(
+                user_id=current_user.user_id,
+                action='create',
+                ticket_id=ticket_id,
+                comment_id=comment.comment_id,
+                metadata={'comment_length': len(comment_text)}
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Error logging comment creation activity: {e}", exc_info=True)
         
         # Parse mentions and send notifications
         try:
@@ -813,6 +918,21 @@ def api_delete_comment(ticket_id, comment_id):
         # Check permissions: user can only delete their own comments
         if comment.user_id != current_user.user_id and not current_user.is_admin():
             return jsonify({'error': 'Permission denied. You can only delete your own comments.'}), 403
+        
+        # Log comment deletion activity
+        try:
+            from dashboard.activities.logger import log_comment_activity
+            log_comment_activity(
+                user_id=current_user.user_id,
+                action='delete',
+                ticket_id=ticket_id,
+                comment_id=comment_id,
+                metadata={'comment_length': len(comment.comment_text) if comment.comment_text else 0}
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Error logging comment deletion activity: {e}", exc_info=True)
         
         # Delete the comment
         success = delete_ticket_comment(comment_id)
