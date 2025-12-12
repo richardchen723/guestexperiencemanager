@@ -224,7 +224,9 @@ class WhatsAppNotificationService:
             )
             
             # #region agent log
-            with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"whatsapp_service.py:216","message":"Twilio message created","data":{{"message_sid":"{twilio_message.sid}","status":"{twilio_message.status}","error_code":"{getattr(twilio_message, \"error_code\", \"None\")}","error_message":"{getattr(twilio_message, \"error_message\", \"None\")}","from_number":"{self.whatsapp_from}","to_number":"{to_number}"}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+            error_code_val = getattr(twilio_message, 'error_code', None)
+            error_message_val = getattr(twilio_message, 'error_message', None)
+            with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"whatsapp_service.py:216","message":"Twilio message created","data":{{"message_sid":"{twilio_message.sid}","status":"{twilio_message.status}","error_code":"{error_code_val or "None"}","error_message":"{error_message_val or "None"}","from_number":"{self.whatsapp_from}","to_number":"{to_number}"}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
             # #endregion
             
             # Check if this is a sandbox number (sandbox numbers typically start with specific patterns)
