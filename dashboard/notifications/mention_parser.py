@@ -12,6 +12,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, project_root)
 
 from dashboard.auth.models import get_all_users
+from dashboard.config import DEBUG_LOG_PATH
 
 
 def parse_mentions(comment_text: str) -> List[Tuple[int, str]]:
@@ -30,7 +31,7 @@ def parse_mentions(comment_text: str) -> List[Tuple[int, str]]:
     """
     # #region agent log
     try:
-        with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:17","message":"parse_mentions called","data":{{"comment_text":"{comment_text[:100] if comment_text else ""}"}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+        with open(DEBUG_LOG_PATH, 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:17","message":"parse_mentions called","data":{{"comment_text":"{comment_text[:100] if comment_text else ""}"}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
     except: pass
     # #endregion
     if not comment_text:
@@ -46,7 +47,7 @@ def parse_mentions(comment_text: str) -> List[Tuple[int, str]]:
     mentions = [m.strip() for m in mentions if m.strip()]
     # #region agent log
     try:
-        with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:37","message":"Mentions found by regex","data":{{"mentions":{mentions}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+        with open(DEBUG_LOG_PATH, 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:37","message":"Mentions found by regex","data":{{"mentions":{mentions}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
     except: pass
     # #endregion
     
@@ -57,7 +58,7 @@ def parse_mentions(comment_text: str) -> List[Tuple[int, str]]:
     users = get_all_users()
     # #region agent log
     try:
-        with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:43","message":"Users loaded","data":{{"user_count":{len(users)},"user_names":[u.name or u.email for u in users]}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+        with open(DEBUG_LOG_PATH, 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:43","message":"Users loaded","data":{{"user_count":{len(users)},"user_names":[u.name or u.email for u in users]}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
     except: pass
     # #endregion
     
@@ -117,14 +118,14 @@ def parse_mentions(comment_text: str) -> List[Tuple[int, str]]:
                     seen_user_ids.add(user.user_id)
                     # #region agent log
                     try:
-                        with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:83","message":"User matched by email","data":{{"user_id":{user.user_id},"user_email":"{user.email}","mention_text":"{mention_text}"}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+                        with open(DEBUG_LOG_PATH, 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:83","message":"User matched by email","data":{{"user_id":{user.user_id},"user_email":"{user.email}","mention_text":"{mention_text}"}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
                     except: pass
                     # #endregion
                     break
     
     # #region agent log
     try:
-        with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:85","message":"parse_mentions returning","data":{{"matched_users":{matched_users}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+        with open(DEBUG_LOG_PATH, 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"mention_parser.py:85","message":"parse_mentions returning","data":{{"matched_users":{matched_users}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
     except: pass
     # #endregion
     return matched_users

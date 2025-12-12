@@ -128,3 +128,4 @@ def log_comment_activity(user_id: int, action: str, ticket_id: int,
         metadata=metadata
     )
 
+

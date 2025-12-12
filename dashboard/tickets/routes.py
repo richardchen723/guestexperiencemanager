@@ -851,14 +851,15 @@ def api_add_comment(ticket_id):
         # Parse mentions and send notifications
         try:
             # #region agent log
-            with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"routes.py:747","message":"Starting mention parsing","data":{{"comment_text":"{comment_text[:50]}...","ticket_id":{ticket_id},"current_user_id":{current_user.user_id}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+            from dashboard.config import DEBUG_LOG_PATH
+            with open(DEBUG_LOG_PATH, 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"routes.py:747","message":"Starting mention parsing","data":{{"comment_text":"{comment_text[:50]}...","ticket_id":{ticket_id},"current_user_id":{current_user.user_id}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
             # #endregion
             from dashboard.notifications.mention_parser import parse_mentions
             from dashboard.notifications.helpers import send_mention_notification
             
             mentioned_users = parse_mentions(comment_text)
             # #region agent log
-            with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"routes.py:752","message":"Mentions parsed","data":{{"mentioned_users_count":{len(mentioned_users)},"mentioned_users":{mentioned_users}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+            with open(DEBUG_LOG_PATH, 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"routes.py:752","message":"Mentions parsed","data":{{"mentioned_users_count":{len(mentioned_users)},"mentioned_users":{mentioned_users}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
             # #endregion
             mentioner_name = current_user.name or current_user.email
             
@@ -866,19 +867,22 @@ def api_add_comment(ticket_id):
                 # Don't notify if user mentioned themselves
                 if mentioned_user_id != current_user.user_id:
                     # #region agent log
-                    with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"routes.py:757","message":"Sending mention notification","data":{{"mentioned_user_id":{mentioned_user_id},"ticket_id":{ticket_id},"mention_text":"{mention_text}"}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+                    with open(DEBUG_LOG_PATH, 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"routes.py:757","message":"Sending mention notification","data":{{"mentioned_user_id":{mentioned_user_id},"ticket_id":{ticket_id},"mention_text":"{mention_text}"}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
                     # #endregion
                     send_mention_notification(mentioned_user_id, ticket_id, comment_text, mentioner_name)
                 else:
                     # #region agent log
-                    with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"routes.py:760","message":"Skipping self-mention","data":{{"mentioned_user_id":{mentioned_user_id},"current_user_id":{current_user.user_id}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+                    with open(DEBUG_LOG_PATH, 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"routes.py:760","message":"Skipping self-mention","data":{{"mentioned_user_id":{mentioned_user_id},"current_user_id":{current_user.user_id}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
                     # #endregion
         except Exception as e:
             # Log but don't fail comment creation if notification fails
             import logging
             logger = logging.getLogger(__name__)
             # #region agent log
-            with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"routes.py:762","message":"Exception in mention notifications","data":{{"error":str(e)}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+            try:
+                from dashboard.config import DEBUG_LOG_PATH
+                with open(DEBUG_LOG_PATH, 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"routes.py:762","message":"Exception in mention notifications","data":{{"error":str(e)}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+            except: pass
             # #endregion
             logger.warning(f"Error sending mention notifications: {e}", exc_info=True)
         

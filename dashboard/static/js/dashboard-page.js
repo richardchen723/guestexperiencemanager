@@ -266,3 +266,4 @@ function createTicketCard(ticket) {
 document.addEventListener('DOMContentLoaded', loadDashboard);
 
 
+

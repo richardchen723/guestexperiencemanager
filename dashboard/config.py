@@ -88,3 +88,25 @@ TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_FROM = os.getenv("TWILIO_WHATSAPP_FROM")  # e.g., "whatsapp:+14155238886"
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:5001")  # Base URL for ticket links
+
+# Debug Log Configuration
+def get_debug_log_path():
+    """
+    Get the appropriate debug log path based on the environment.
+    Returns a writable path for debug logs, creating the directory if needed.
+    """
+    # Check if we're on EC2 (production environment)
+    ec2_logs_dir = Path("/opt/hostaway-messages/logs")
+    if ec2_logs_dir.exists() and ec2_logs_dir.is_dir():
+        # On EC2, use the logs directory
+        debug_log_path = ec2_logs_dir / "debug.log"
+        # Ensure directory exists and is writable
+        ec2_logs_dir.mkdir(parents=True, exist_ok=True)
+        return str(debug_log_path)
+    else:
+        # Local development - use .cursor directory in project root
+        debug_log_dir = PROJECT_ROOT / ".cursor"
+        debug_log_dir.mkdir(parents=True, exist_ok=True)
+        return str(debug_log_dir / "debug.log")
+
+DEBUG_LOG_PATH = get_debug_log_path()

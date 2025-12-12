@@ -12,6 +12,7 @@ sys.path.insert(0, project_root)
 
 from dashboard.notifications.whatsapp_service import WhatsAppNotificationService
 from dashboard.notifications.async_sender import send_notification_async
+from dashboard.config import DEBUG_LOG_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -39,14 +40,14 @@ def send_mention_notification(mentioned_user_id: int, ticket_id: int, comment_te
     """
     # #region agent log
     try:
-        with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"helpers.py:30","message":"send_mention_notification called","data":{{"mentioned_user_id":{mentioned_user_id},"ticket_id":{ticket_id}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+        with open(DEBUG_LOG_PATH, 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"helpers.py:30","message":"send_mention_notification called","data":{{"mentioned_user_id":{mentioned_user_id},"ticket_id":{ticket_id}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
     except: pass
     # #endregion
     try:
         service = _get_service()
         # #region agent log
         try:
-            with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"helpers.py:42","message":"Service obtained","data":{{"service_client_exists":{service.client is not None}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+            with open(DEBUG_LOG_PATH, 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"helpers.py:42","message":"Service obtained","data":{{"service_client_exists":{service.client is not None}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
         except: pass
         # #endregion
         context = {
@@ -56,13 +57,13 @@ def send_mention_notification(mentioned_user_id: int, ticket_id: int, comment_te
         send_notification_async(service, mentioned_user_id, 'mention', ticket_id, context)
         # #region agent log
         try:
-            with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"helpers.py:47","message":"Async notification sent","data":{{"mentioned_user_id":{mentioned_user_id}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+            with open(DEBUG_LOG_PATH, 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"helpers.py:47","message":"Async notification sent","data":{{"mentioned_user_id":{mentioned_user_id}}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
         except: pass
         # #endregion
     except Exception as e:
         # #region agent log
         try:
-            with open('/Users/richardchen/projects/hostaway-messages/.cursor/debug.log', 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"helpers.py:49","message":"Exception in send_mention_notification","data":{{"error":str(e)}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
+            with open(DEBUG_LOG_PATH, 'a') as f: f.write(f'{{"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"helpers.py:49","message":"Exception in send_mention_notification","data":{{"error":str(e)}},"timestamp":{int(__import__("time").time()*1000)}}}\n')
         except: pass
         # #endregion
         logger.error(f"Error sending mention notification: {e}", exc_info=True)
