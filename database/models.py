@@ -273,6 +273,7 @@ class Review(Base):
     language = Column(String)
     helpful_count = Column(Integer)
     status = Column(String)  # Review status: 'published', 'pending', 'rejected', etc.
+    origin = Column(String)  # Review origin: 'Guest', 'Host', etc.
     inserted_on = Column(DateTime)
     updated_on = Column(DateTime)
     last_synced_at = Column(DateTime)
@@ -297,6 +298,23 @@ class ReviewSubRating(Base):
     
     # Relationships
     review = relationship('Review', back_populates='sub_ratings')
+
+
+class ReviewFilter(Base):
+    """Review filter model - stores saved filter criteria for bad reviews"""
+    __tablename__ = 'review_filters'
+    __table_args__ = (
+        {'schema': 'public'} if os.getenv("DATABASE_URL") else {},
+    )
+    
+    filter_id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=True)  # Optional name for the filter
+    tag_ids = Column(JSONB if os.getenv("DATABASE_URL") else JSON)  # Array of tag IDs to filter by
+    max_rating = Column(Float, nullable=True)  # Maximum rating (e.g., 4.0 for <= 4 stars)
+    months_back = Column(Integer, nullable=True)  # Number of months to look back (e.g., 2 for last 2 months)
+    created_by = Column(Integer, nullable=False, index=True)  # FK to users.user_id (cross-schema, so using Integer)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class SyncLog(Base):
@@ -706,3 +724,113 @@ def _migrate_tags_tables(engine):
             conn.execute(sqlalchemy.text("CREATE INDEX IF NOT EXISTS idx_listing_tags_listing ON listing_tags(listing_id)"))
             conn.execute(sqlalchemy.text("CREATE INDEX IF NOT EXISTS idx_listing_tags_tag ON listing_tags(tag_id)"))
             conn.commit()
+
+
+def _migrate_review_origin_column(engine):
+    """Add origin column to reviews table if it doesn't exist"""
+    import os
+    database_url = os.getenv("DATABASE_URL")
+    
+    with engine.connect() as conn:
+        if not database_url:
+            # SQLite migration
+            # Check if reviews table exists
+            result = conn.execute(sqlalchemy.text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='reviews'"
+            ))
+            if not result.fetchone():
+                return  # Table doesn't exist, create_all will handle it
+            
+            # Get existing columns
+            result = conn.execute(sqlalchemy.text("PRAGMA table_info(reviews)"))
+            existing_columns = {row[1] for row in result.fetchall()}
+            
+            # Add origin column if missing
+            if 'origin' not in existing_columns:
+                try:
+                    conn.execute(sqlalchemy.text("ALTER TABLE reviews ADD COLUMN origin TEXT"))
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    # Column might already exist, ignore
+                    pass
+        else:
+            # PostgreSQL migration
+            # Check if reviews table exists
+            result = conn.execute(sqlalchemy.text(
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'reviews')"
+            ))
+            if not result.scalar():
+                return  # Table doesn't exist, create_all will handle it
+            
+            # Check if origin column exists
+            result = conn.execute(sqlalchemy.text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'reviews' 
+                    AND column_name = 'origin'
+                )
+            """))
+            if not result.scalar():
+                try:
+                    conn.execute(sqlalchemy.text("ALTER TABLE public.reviews ADD COLUMN origin VARCHAR"))
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    # Column might already exist, ignore
+                    pass
+
+
+def _migrate_review_filters_table(engine):
+    """Create review_filters table if it doesn't exist"""
+    import os
+    database_url = os.getenv("DATABASE_URL")
+    
+    with engine.connect() as conn:
+        if not database_url:
+            # SQLite migration
+            # Check if review_filters table exists
+            result = conn.execute(sqlalchemy.text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='review_filters'"
+            ))
+            if not result.fetchone():
+                # Create review_filters table
+                conn.execute(sqlalchemy.text("""
+                    CREATE TABLE review_filters (
+                        filter_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT,
+                        tag_ids TEXT,
+                        max_rating REAL,
+                        months_back INTEGER,
+                        created_by INTEGER NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                conn.execute(sqlalchemy.text("CREATE INDEX IF NOT EXISTS ix_review_filters_created_by ON review_filters(created_by)"))
+                conn.execute(sqlalchemy.text("CREATE INDEX IF NOT EXISTS ix_review_filters_created_at ON review_filters(created_at)"))
+                conn.commit()
+        else:
+            # PostgreSQL migration
+            # Check if review_filters table exists
+            result = conn.execute(sqlalchemy.text(
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'review_filters')"
+            ))
+            if not result.scalar():
+                # Create review_filters table
+                conn.execute(sqlalchemy.text("""
+                    CREATE TABLE public.review_filters (
+                        filter_id SERIAL PRIMARY KEY,
+                        name VARCHAR,
+                        tag_ids JSONB,
+                        max_rating REAL,
+                        months_back INTEGER,
+                        created_by INTEGER NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                conn.execute(sqlalchemy.text("CREATE INDEX ix_review_filters_created_by ON public.review_filters(created_by)"))
+                conn.execute(sqlalchemy.text("CREATE INDEX ix_review_filters_created_at ON public.review_filters(created_at)"))
+                conn.commit()

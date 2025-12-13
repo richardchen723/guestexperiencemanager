@@ -308,16 +308,20 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
         # Calculate cutoff time for incremental sync
         cutoff_time = None
         cutoff_date = None
+        cutoff_datetime = None
         if not full_sync:
             from sync.sync_manager import get_last_sync_time
             last_sync_time = get_last_sync_time('reviews')
             if last_sync_time:
                 # Calculate cutoff: t1 - 20 days
                 cutoff_time = last_sync_time - timedelta(days=20)
-                # Convert to date for comparison with departureDate
+                # Use datetime for comparison with review submission dates (submittedAt/reviewDate)
+                # Reviews can be submitted days/weeks after departure, so we should use submission date, not departure date
+                cutoff_datetime = cutoff_time
+                # Also keep cutoff_date for backward compatibility with departureDate filtering (but don't use it for early-stop)
                 cutoff_date = cutoff_time.date()
                 if VERBOSE:
-                    logger.info(f"Incremental review sync: Filtering reviews with departureDate >= {cutoff_date} (cutoff = {last_sync_time.date()} - 20 days)")
+                    logger.info(f"Incremental review sync: Filtering reviews with submission date >= {cutoff_datetime} (cutoff = {last_sync_time} - 20 days)")
             else:
                 # No previous sync - treat as full sync
                 if VERBOSE:
@@ -357,58 +361,95 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
         progress.start_phase(phase_name, 0)
         
         # Try to fetch all reviews at once first (if API supports it)
+        # Note: We don't use status filter since API ignores it - we filter client-side instead
+        # Only fetch guest-to-host reviews (filter at API level for efficiency)
         bulk_fetch_succeeded = False
         try:
+            if VERBOSE:
+                logger.info(f"Starting bulk fetch of guest-to-host reviews (full_sync={full_sync})...")
             offset = 0
             while True:
-                # For incremental sync, use sorting by departureDate DESC
-                if not full_sync and cutoff_date:
+                # For incremental sync, use sorting by review submission date (submittedAt) DESC for early-stop optimization
+                # This is more accurate than departureDate since reviews can be submitted days/weeks after departure
+                # Only sync guest-to-host reviews (filter at API level for efficiency)
+                if not full_sync and cutoff_datetime:
+                    # Try to sort by submittedAt if API supports it, otherwise use departureDate
                     reviews = client.get_reviews(
                         limit=PAGINATION_LIMIT, 
                         offset=offset, 
-                        status='Published',
-                        sortBy='departureDate',
-                        order='desc'
+                        sortBy='departureDate',  # API may not support submittedAt sorting, so use departureDate as fallback
+                        order='desc',
+                        type='guest-to-host'  # Only fetch guest-to-host reviews
                     )
                 else:
-                    reviews = client.get_reviews(limit=PAGINATION_LIMIT, offset=offset, status='Published')
+                    reviews = client.get_reviews(
+                        limit=PAGINATION_LIMIT, 
+                        offset=offset,
+                        type='guest-to-host'  # Only fetch guest-to-host reviews
+                    )
                 if not reviews:
                     break
                 
-                # For incremental sync, filter by cutoff date and stop if we hit reviews below cutoff
-                if not full_sync and cutoff_date:
+                # For incremental sync, filter by cutoff datetime using review submission date
+                # This is more accurate than departureDate since reviews can be submitted after departure
+                if not full_sync and cutoff_datetime:
                     filtered_reviews = []
                     should_stop = False
                     for review in reviews:
+                        # Get review submission date (submittedAt is preferred, fallback to reviewDate or updatedOn)
+                        submission_date_str = (
+                            review.get('submittedAt') or 
+                            review.get('reviewDate') or 
+                            review.get('updatedOn') or
+                            review.get('review_date')
+                        )
                         departure_date_str = review.get('departureDate')
-                        if departure_date_str:
-                            departure_date = parse_date(departure_date_str)
-                            if departure_date:
-                                if departure_date >= cutoff_date:
+                        
+                        # Use submission date for filtering (more accurate for incremental sync)
+                        if submission_date_str:
+                            submission_datetime = parse_timestamp(submission_date_str)
+                            if submission_datetime:
+                                if submission_datetime >= cutoff_datetime:
                                     filtered_reviews.append(review)
                                 else:
-                                    # Since reviews are sorted DESC by departureDate,
-                                    # once we hit a review below cutoff, all subsequent reviews will also be below cutoff
-                                    should_stop = True
+                                    # Since reviews are sorted DESC, once we hit reviews below cutoff, stop fetching
+                                    # However, we can't rely on early-stop since we're sorting by departureDate but filtering by submission date
+                                    # So we'll continue fetching but filter them out
                                     reviews_skipped_cutoff += 1
-                                    break
+                                    # Don't break here - continue fetching since submission dates may be later than departure dates
                             else:
-                                # Can't parse date - skip this review in incremental sync
+                                # Can't parse submission date - check departure date as fallback
+                                if departure_date_str:
+                                    departure_date = parse_date(departure_date_str)
+                                    if departure_date and departure_date >= cutoff_date:
+                                        filtered_reviews.append(review)
+                                    else:
+                                        reviews_skipped_cutoff += 1
+                                else:
+                                    # No dates - include it anyway (will be filtered by status later)
+                                    filtered_reviews.append(review)
+                        elif departure_date_str:
+                            # No submission date, fallback to departure date
+                            departure_date = parse_date(departure_date_str)
+                            if departure_date and departure_date >= cutoff_date:
+                                filtered_reviews.append(review)
+                            else:
                                 reviews_skipped_cutoff += 1
-                                continue
                         else:
-                            # No departureDate - skip this review in incremental sync
-                            reviews_skipped_cutoff += 1
-                            continue
+                            # No dates at all - include it anyway (will be filtered by status later)
+                            filtered_reviews.append(review)
                     
                     reviews = filtered_reviews
-                    if should_stop:
-                        # We've hit reviews below cutoff, stop fetching
-                        if VERBOSE:
-                            logger.info(f"Reached cutoff date {cutoff_date}. Stopping fetch. Skipped {reviews_skipped_cutoff} reviews below cutoff.")
-                        break
+                    # Don't use early-stop since we're filtering by submission date but sorting by departure date
+                    # Reviews can be submitted days/weeks after departure, so we need to fetch all pages
+                    # Continue fetching until we get no more results
                 
                 all_reviews.extend(reviews)
+                
+                # Stop if we got fewer reviews than requested (end of data)
+                if len(reviews) < PAGINATION_LIMIT:
+                    break
+                
                 reviews_after = len(all_reviews)
                 
                 # Update total: increment it as we discover more reviews
@@ -423,40 +464,42 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                         item_name=f"Fetched {reviews_after} reviews..."
                     )
                 
-                if len(reviews) < PAGINATION_LIMIT:
-                    # Last page - we're done
-                    break
+                # Increment offset for next batch
                 offset += PAGINATION_LIMIT
             # Mark all listings as processed since we fetched all reviews at once
             bulk_fetch_succeeded = True
+            if VERBOSE:
+                logger.info(f"Bulk fetch completed: fetched {len(all_reviews)} reviews (before deduplication)")
         except Exception:
             # Fall back to per-listing fetching if bulk fetch doesn't work
             if VERBOSE:
                 logger.info("Bulk fetch not available, fetching per listing...")
             # Only do per-listing fetch if bulk fetch didn't succeed
+            # Note: We don't use status filter since API ignores it - we filter client-side instead
             if not bulk_fetch_succeeded:
                 all_reviews = []
                 for listing in listings:
                     try:
-                        offset = 0
+                        listing_offset = 0
                         listing_reviews = []
                         while True:
-                            # For incremental sync, use sorting by departureDate DESC
+                            # For incremental sync, use sorting by departureDate DESC for early-stop optimization
+                            # Only sync guest-to-host reviews (filter at API level for efficiency)
                             if not full_sync and cutoff_date:
                                 reviews = client.get_reviews(
                                     listing_id=listing.listing_id,
                                     limit=PAGINATION_LIMIT,
-                                    offset=offset,
-                                    status='Published',
+                                    offset=listing_offset,
                                     sortBy='departureDate',
-                                    order='desc'
+                                    order='desc',
+                                    type='guest-to-host'  # Only fetch guest-to-host reviews
                                 )
                             else:
                                 reviews = client.get_reviews(
                                     listing_id=listing.listing_id,
                                     limit=PAGINATION_LIMIT,
-                                    offset=offset,
-                                    status='Published'
+                                    offset=listing_offset,
+                                    type='guest-to-host'  # Only fetch guest-to-host reviews
                                 )
                             if not reviews:
                                 break
@@ -479,13 +522,11 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                                                 reviews_skipped_cutoff += 1
                                                 break
                                         else:
-                                            # Can't parse date - skip this review in incremental sync
-                                            reviews_skipped_cutoff += 1
-                                            continue
+                                            # Can't parse date - include it anyway (will be filtered by status later)
+                                            filtered_reviews.append(review)
                                     else:
-                                        # No departureDate - skip this review in incremental sync
-                                        reviews_skipped_cutoff += 1
-                                        continue
+                                        # No departureDate - include it anyway (will be filtered by status later)
+                                        filtered_reviews.append(review)
                                 
                                 reviews = filtered_reviews
                                 if should_stop:
@@ -496,8 +537,9 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                             
                             listing_reviews.extend(reviews)
                             if len(reviews) < PAGINATION_LIMIT:
+                                # Last page - we're done for this listing
                                 break
-                            offset += PAGINATION_LIMIT
+                            listing_offset += PAGINATION_LIMIT
                         
                         # Add reviews to total and update progress
                         all_reviews.extend(listing_reviews)
@@ -584,7 +626,7 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                 if not review_id:
                     continue
                 
-                # Get review status (we already filtered by status='Published' at API level, but verify as safety check)
+                # Get review status - we filter client-side since API ignores status parameter
                 review_status = (
                     review_data.get('status') or 
                     review_data.get('reviewStatus') or 
@@ -594,18 +636,16 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                 # Normalize status to lowercase for storage
                 review_status_lower = str(review_status).lower().strip() if review_status else 'published'
                 
-                # Client-side filtering: Only process reviews with 'published' status
-                # The API doesn't reliably filter by status, so we must filter client-side
-                if not review_status or review_status_lower != 'published':
+                
+                # Client-side filtering: Only process reviews with 'published' or 'submitted' status
+                # The API doesn't reliably filter by status, so we fetch all reviews and filter client-side
+                if not review_status or review_status_lower not in ['published', 'submitted']:
                     if review_status:
-                        logger.debug(f"Review {review_id} has status '{review_status}' (not 'published'), skipping")
+                        logger.debug(f"Review {review_id} has status '{review_status}' (not 'published' or 'submitted'), skipping")
                     else:
-                        logger.debug(f"Review {review_id} has no status field, skipping (only processing 'published' reviews)")
+                        logger.debug(f"Review {review_id} has no status field, skipping (only processing 'published' or 'submitted' reviews)")
                     progress.increment()
                     continue
-                
-                # At this point, we know review_status_lower == 'published'
-                review_status_lower = 'published'
                 
                 # Skip if we've already processed this review_id in this batch
                 if review_id in processed_in_batch:
@@ -654,22 +694,22 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                 # Fall back to API reviewer name or "Unknown"
                 reviewer_name = reviewer_name or 'Unknown'
                 
-                # Determine review_date: Use guest checkout time (departure_date) if reservation found,
-                # otherwise fall back to API review date
-                review_date = None
-                if reservation_id and reservation_id in lookups['reservations_by_id']:
+                # Determine review_date: Use actual review submission date from API
+                # For submitted reviews, submittedAt might be None, so use updatedOn as fallback
+                # Only use departure_date as last resort if no API date is available
+                review_date = parse_date(
+                    review_data.get('submittedAt') or  # Primary field: actual submission date
+                    review_data.get('updatedOn') or    # Fallback: for submitted reviews, this is likely submission time
+                    review_data.get('reviewDate') or 
+                    review_data.get('review_date') or
+                    review_data.get('date')
+                )
+                
+                # Last resort: use departure_date from reservation if no API date available
+                if not review_date and reservation_id and reservation_id in lookups['reservations_by_id']:
                     reservation = lookups['reservations_by_id'][reservation_id]
                     if reservation.departure_date:
                         review_date = reservation.departure_date
-                
-                # Fall back to API review date if no reservation or no departure_date
-                if not review_date:
-                    review_date = parse_date(
-                        review_data.get('submittedAt') or  # Primary field from API
-                        review_data.get('reviewDate') or 
-                        review_data.get('review_date') or
-                        review_data.get('date')
-                    )
                 
                 # MEMORY OPTIMIZATION: Check if review exists using lightweight lookup, then query if needed
                 review_exists = review_id in existing_review_ids
@@ -678,6 +718,44 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                     # Query the review only when we need to update it
                     existing_review = session.query(Review).filter(Review.review_id == review_id).first()
                 
+                # Get origin field from API response
+                # The API uses 'type' field with values like "guest-to-host", "host-to-guest", etc.
+                origin = None
+                
+                # First try the 'type' field (primary source)
+                review_type = review_data.get('type')
+                if review_type:
+                    # Map API type values to origin values
+                    type_lower = str(review_type).lower().strip()
+                    if type_lower == 'guest-to-host':
+                        origin = 'Guest'
+                    elif type_lower == 'host-to-guest':
+                        origin = 'Host'
+                    elif type_lower in ['guest', 'host', 'admin']:
+                        origin = review_type.capitalize()
+                
+                # Fallback to other possible fields
+                if not origin:
+                    origin = (
+                        review_data.get('origin') or 
+                        review_data.get('reviewerType') or 
+                        review_data.get('reviewer_type') or
+                        review_data.get('source') or
+                        None
+                    )
+                    # Normalize origin (capitalize first letter if present)
+                    if origin:
+                        origin = str(origin).strip()
+                        if origin.lower() in ['guest', 'host', 'admin']:
+                            origin = origin.capitalize()
+                
+                # Get channel_name from review data, or fallback to reservation
+                channel_name = review_data.get('channelName')
+                if not channel_name and reservation_id and reservation_id in lookups['reservations_by_id']:
+                    reservation = lookups['reservations_by_id'][reservation_id]
+                    if reservation and reservation.channel_name:
+                        channel_name = reservation.channel_name
+                
                 # Prepare review data
                 review_dict = {
                     'review_id': review_id,
@@ -685,7 +763,7 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                     'reservation_id': reservation_id,
                     'guest_id': guest_id,
                     'channel_id': review_data.get('channelId'),
-                    'channel_name': review_data.get('channelName'),
+                    'channel_name': channel_name,
                     'overall_rating': review_data.get('overallRating') or review_data.get('rating') or review_data.get('overall_rating'),
                     'review_text': (
                         review_data.get('publicReview') or  # Primary field from API
@@ -710,6 +788,7 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                     'language': review_data.get('language'),
                     'helpful_count': review_data.get('helpfulCount') or review_data.get('helpful_count') or 0,
                     'status': review_status_lower,  # Store normalized status
+                    'origin': origin,  # Store origin field
                     'inserted_on': parse_timestamp(review_data.get('insertedOn') or review_data.get('inserted_on')),
                     'updated_on': parse_timestamp(review_data.get('updatedOn') or review_data.get('updated_on')),
                     'last_synced_at': datetime.utcnow()

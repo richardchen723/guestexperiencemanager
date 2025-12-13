@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Reviews - Hostaway Insights Dashboard{% endblock %}
+
+{% block content %}
+<div class="reviews-page">
+    <div class="reviews-header">
+        <h2>Reviews</h2>
+    </div>
+    
+    <!-- Unresponded Reviews Section -->
+    <section class="reviews-section unresponded-section">
+        <div class="section-header">
+            <h3>Unresponded Guest Reviews</h3>
+            <p class="section-description">Reviews submitted by guests that need responses</p>
+        </div>
+        <div id="unrespondedTagFilterContainer" class="tag-filter-container" style="margin-bottom: 1.5rem;"></div>
+        <div id="unrespondedReviewsContainer" class="reviews-container">
+            <div class="loading-spinner">Loading reviews...</div>
+        </div>
+    </section>
+    
+    <!-- Bad Review Filters Section -->
+    <section class="reviews-section filters-section">
+        <div class="section-header">
+            <h3>Bad Review Filters</h3>
+            <button type="button" id="addFilterBtn" class="btn-primary">Add Filter</button>
+        </div>
+        <div id="filtersContainer" class="filters-container">
+            <div class="loading-spinner">Loading filters...</div>
+        </div>
+    </section>
+</div>
+
+<!-- Filter Form Modal -->
+<div id="filterModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="filterModalTitle">Create Review Filter</h3>
+            <button type="button" class="modal-close" onclick="closeFilterModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="filterForm">
+                <input type="hidden" id="filterId" name="filter_id">
+                
+                <div class="form-group">
+                    <label for="filterName">Filter Name (optional)</label>
+                    <input type="text" id="filterName" name="name" placeholder="e.g., Enchanted Havens Bad Reviews">
+                </div>
+                
+                <div class="form-group">
+                    <label for="filterTags">Tags</label>
+                    <select id="filterTags" name="tag_ids" multiple>
+                        <!-- Tags will be populated by JavaScript -->
+                    </select>
+                    <small>Select one or more tags to filter by listing tags</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="filterMaxRating">Maximum Rating</label>
+                    <input type="number" id="filterMaxRating" name="max_rating" min="0" max="5" step="0.1" value="4.0">
+                    <small>Show reviews with rating ≤ X stars</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="filterMonthsBack">Time Period</label>
+                    <input type="number" id="filterMonthsBack" name="months_back" min="1" max="24" value="2">
+                    <small>Last X months</small>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn-secondary" onclick="closeFilterModal()">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Filter</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/tags.js') }}"></script>
+<script src="{{ url_for('static', filename='js/reviews-page.js') }}"></script>
+{% endblock %}
+

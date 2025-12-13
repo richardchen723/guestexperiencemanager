@@ -482,6 +482,7 @@ class HostawayAPIClient:
                     limit: Optional[int] = None,
                     offset: Optional[int] = None,
                     status: Optional[str] = None,
+                    type: Optional[str] = None,
                     sortBy: Optional[str] = None,
                     order: Optional[str] = None) -> List[Dict]:
         """
@@ -493,6 +494,7 @@ class HostawayAPIClient:
             limit: Maximum number of reviews to return
             offset: Number of reviews to skip
             status: Filter by review status (e.g., 'Published')
+            type: Filter by review type (e.g., 'guest-to-host', 'host-to-guest')
             sortBy: Sort field (e.g., 'departureDate', 'arrivalDate')
             order: Sort order ('asc' or 'desc')
             
@@ -510,6 +512,8 @@ class HostawayAPIClient:
             params['offset'] = offset
         if status:
             params['status'] = status
+        if type:
+            params['type'] = type
         if sortBy:
             params['sortBy'] = sortBy
         if order:
