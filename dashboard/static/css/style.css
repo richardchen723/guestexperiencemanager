@@ -2073,6 +2073,12 @@ footer {
     font-size: 0.9375rem;
 }
 
+.ticket-description-text {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    line-height: 1.6;
+}
+
 .info-row select,
 .info-row input[type="date"] {
     padding: 0.5rem 0.75rem;
