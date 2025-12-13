@@ -103,12 +103,14 @@ def get_unresponded_reviews(tag_ids: Optional[List[int]] = None) -> List[Dict]:
         session.close()
 
 
-def get_reviews_by_filter(filter_obj: ReviewFilter) -> List[Dict]:
+def get_reviews_by_filter(filter_obj: ReviewFilter, sort_by: str = 'review_date', sort_order: str = 'desc') -> List[Dict]:
     """
     Query reviews matching filter criteria.
     
     Args:
         filter_obj: ReviewFilter object with criteria.
+        sort_by: Field to sort by ('review_date' or 'overall_rating'). Default: 'review_date'.
+        sort_order: Sort order ('asc' or 'desc'). Default: 'desc'.
         
     Returns:
         List of review dictionaries with listing and tag information.
@@ -163,8 +165,34 @@ def get_reviews_by_filter(filter_obj: ReviewFilter) -> List[Dict]:
                         Review.review_date.isnot(None),
                         Review.review_date >= cutoff_date.date()
                     )
+                    )
                 )
-            )
+        
+        # Apply sorting
+        # Use nullslast() if available (SQLAlchemy 1.1+), otherwise handle nulls in Python
+        try:
+            if sort_by == 'review_date':
+                if sort_order == 'desc':
+                    query = query.order_by(Review.review_date.desc().nullslast())
+                else:
+                    query = query.order_by(Review.review_date.asc().nullslast())
+            elif sort_by == 'overall_rating':
+                if sort_order == 'desc':
+                    query = query.order_by(Review.overall_rating.desc().nullslast())
+                else:
+                    query = query.order_by(Review.overall_rating.asc().nullslast())
+        except AttributeError:
+            # Fallback for older SQLAlchemy versions - sort in Python
+            if sort_by == 'review_date':
+                if sort_order == 'desc':
+                    query = query.order_by(Review.review_date.desc())
+                else:
+                    query = query.order_by(Review.review_date.asc())
+            elif sort_by == 'overall_rating':
+                if sort_order == 'desc':
+                    query = query.order_by(Review.overall_rating.desc())
+                else:
+                    query = query.order_by(Review.overall_rating.asc())
         
         # Execute query with tag loading
         reviews = query.options(

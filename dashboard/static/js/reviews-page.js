@@ -217,6 +217,15 @@ function createFilterSection(filter) {
                 <p class="filter-criteria">${escapeHtml(criteriaText)}</p>
             </div>
             <div class="filter-section-actions">
+                <div class="filter-sort-control">
+                    <label for="sortSelect_${filter.filter_id}" class="sort-label">Sort by:</label>
+                    <select id="sortSelect_${filter.filter_id}" class="sort-select" onchange="handleSortChange(${filter.filter_id}, this.value)">
+                        <option value="date_desc">Most Recent First</option>
+                        <option value="date_asc">Oldest First</option>
+                        <option value="rating_asc">Rating: Low to High</option>
+                        <option value="rating_desc">Rating: High to Low</option>
+                    </select>
+                </div>
                 <button type="button" class="btn-secondary btn-sm" onclick="editFilter(${filter.filter_id})">Edit</button>
                 <button type="button" class="btn-danger btn-sm" onclick="deleteFilter(${filter.filter_id})">Delete</button>
             </div>
@@ -234,7 +243,7 @@ function createFilterSection(filter) {
 }
 
 // Load reviews for a specific filter
-async function loadFilterReviews(filterId) {
+async function loadFilterReviews(filterId, sortBy = 'date_desc') {
     const container = document.getElementById(`filterReviews_${filterId}`);
     if (!container) {
         return;
@@ -243,7 +252,26 @@ async function loadFilterReviews(filterId) {
     container.innerHTML = '<div class="loading-spinner">Loading reviews...</div>';
     
     try {
-        const response = await fetch(`/reviews/api/filters/${filterId}/reviews`);
+        // Parse sortBy to get sort_by and sort_order
+        let sort_by = 'review_date';
+        let sort_order = 'desc';
+        
+        if (sortBy === 'date_desc') {
+            sort_by = 'review_date';
+            sort_order = 'desc';
+        } else if (sortBy === 'date_asc') {
+            sort_by = 'review_date';
+            sort_order = 'asc';
+        } else if (sortBy === 'rating_asc') {
+            sort_by = 'overall_rating';
+            sort_order = 'asc';
+        } else if (sortBy === 'rating_desc') {
+            sort_by = 'overall_rating';
+            sort_order = 'desc';
+        }
+        
+        const url = `/reviews/api/filters/${filterId}/reviews?sort_by=${encodeURIComponent(sort_by)}&sort_order=${encodeURIComponent(sort_order)}`;
+        const response = await fetch(url);
         
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
@@ -265,6 +293,11 @@ async function loadFilterReviews(filterId) {
         console.error(`Error loading reviews for filter ${filterId}:`, error);
         container.innerHTML = `<div class="error-state">Error loading reviews: ${escapeHtml(error.message)}. Please try again.</div>`;
     }
+}
+
+// Handle sort change
+function handleSortChange(filterId, sortValue) {
+    loadFilterReviews(filterId, sortValue);
 }
 
 // Open filter modal for creating new filter

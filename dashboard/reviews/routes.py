@@ -299,9 +299,22 @@ def api_get_filtered_reviews(filter_id):
             logger.warning(f"Filter {filter_id} not found for user {current_user.user_id}")
             return jsonify({'error': 'Filter not found'}), 404
         
-        logger.info(f"Filter found: tag_ids={filter_obj.tag_ids}, max_rating={filter_obj.max_rating}, months_back={filter_obj.months_back}")
+        # Get sort parameters from query string
+        sort_by = request.args.get('sort_by', 'review_date')  # Default to review_date
+        sort_order = request.args.get('sort_order', 'desc')  # Default to desc
         
-        reviews = get_reviews_by_filter(filter_obj)
+        # Validate sort_by
+        valid_sort_fields = ['review_date', 'overall_rating']
+        if sort_by not in valid_sort_fields:
+            sort_by = 'review_date'
+        
+        # Validate sort_order
+        if sort_order not in ['asc', 'desc']:
+            sort_order = 'desc'
+        
+        logger.info(f"Filter found: tag_ids={filter_obj.tag_ids}, max_rating={filter_obj.max_rating}, months_back={filter_obj.months_back}, sort_by={sort_by}, sort_order={sort_order}")
+        
+        reviews = get_reviews_by_filter(filter_obj, sort_by=sort_by, sort_order=sort_order)
         
         logger.info(f"Found {len(reviews)} reviews matching filter {filter_id}")
         return jsonify({'reviews': reviews}), 200
