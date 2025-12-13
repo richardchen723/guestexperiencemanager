@@ -82,7 +82,7 @@ Return your response as a JSON object with the following exact structure:
     "title": "Specific, concise ticket title (e.g., 'Replace broken smoke detector in master bedroom')",
     "description": "Detailed description of the action item, including specific steps or requirements. Be very specific about what needs to be done, where, and any relevant details.",
     "priority": "Low" or "Medium" or "High" or "Critical" (based on urgency and impact),
-    "category": "cleaning" or "maintenance" or "online" or "other" (classify the task type),
+    "category": "cleaning" or "maintenance" or "online" or "technology" or "review management" or "other" (classify the task type),
     "suggested_due_date_days": <number> (suggested number of days from now for due date, or null if no urgency)
 }}
 
@@ -92,6 +92,8 @@ Guidelines:
   * "cleaning" - tasks related to cleaning, sanitization, or tidying
   * "maintenance" - tasks related to repairs, replacements, or property upkeep
   * "online" - tasks that can be resolved by the online team (e.g., listing updates, communication improvements, documentation updates)
+  * "technology" - tasks related to technology, software, or IT issues
+  * "review management" - tasks related to managing guest reviews, responding to reviews, or review-related issues
   * "other" - tasks that don't fit the above categories
 - Priority should reflect urgency: Critical (safety/legal), High (guest experience), Medium (operational), Low (nice-to-have)
 - suggested_due_date_days should be reasonable (e.g., 1-3 for critical, 7-14 for high, 30 for medium, null for low)
@@ -156,7 +158,7 @@ Guidelines:
             result_dict['priority'] = 'Medium'
         
         # Validate category
-        valid_categories = ['cleaning', 'maintenance', 'online', 'other']
+        valid_categories = ['cleaning', 'maintenance', 'online', 'technology', 'review management', 'other']
         if result_dict['category'] not in valid_categories:
             result_dict['category'] = 'other'
         

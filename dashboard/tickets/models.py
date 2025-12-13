@@ -28,7 +28,7 @@ get_session = get_user_session
 # Ticket statuses
 TICKET_STATUSES = ['Open', 'Assigned', 'In Progress', 'Blocked', 'Resolved', 'Closed']
 TICKET_PRIORITIES = ['Low', 'Medium', 'High', 'Critical']
-TICKET_CATEGORIES = ['cleaning', 'maintenance', 'online', 'other']
+TICKET_CATEGORIES = ['cleaning', 'maintenance', 'online', 'technology', 'review management', 'other']
 
 
 class Ticket(Base):
