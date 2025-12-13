@@ -26,7 +26,7 @@ from sqlalchemy import func, or_, and_, String, cast
 from sqlalchemy.orm import joinedload
 from dashboard.auth.decorators import approved_required, admin_required
 from dashboard.auth.session import get_current_user
-from dashboard.auth.models import get_all_users
+from dashboard.auth.models import get_all_users, get_user_by_id
 from database.models import get_session as get_main_session, Listing
 from dashboard.ai.cache import get_cached_insights
 import dashboard.config as config
@@ -476,6 +476,13 @@ def api_create_ticket():
         # Log ticket creation activity
         try:
             from dashboard.activities.logger import log_ticket_activity
+            # Get assigned user name if ticket was assigned during creation
+            assigned_user_name = None
+            if assigned_user_id:
+                assigned_user = get_user_by_id(assigned_user_id)
+                if assigned_user:
+                    assigned_user_name = assigned_user.name or assigned_user.email
+            
             log_ticket_activity(
                 user_id=current_user.user_id,
                 action='create',
@@ -484,6 +491,7 @@ def api_create_ticket():
                     'title': ticket.title,
                     'status': ticket.status,
                     'assigned_user_id': assigned_user_id,
+                    'assigned_user_name': assigned_user_name,
                     'priority': priority,
                     'category': category
                 }
@@ -697,6 +705,18 @@ def api_update_ticket(ticket_id):
                 
                 # Log assignment change if it changed
                 if new_assigned_user_id != old_assigned_user_id:
+                    # Get user names for display
+                    old_user_name = None
+                    new_user_name = None
+                    if old_assigned_user_id:
+                        old_user = get_user_by_id(old_assigned_user_id)
+                        if old_user:
+                            old_user_name = old_user.name or old_user.email
+                    if new_assigned_user_id:
+                        new_user = get_user_by_id(new_assigned_user_id)
+                        if new_user:
+                            new_user_name = new_user.name or new_user.email
+                    
                     log_ticket_activity(
                         user_id=current_user.user_id,
                         action='assign',
@@ -704,7 +724,9 @@ def api_update_ticket(ticket_id):
                         metadata={
                             'title': ticket.title,
                             'old_assigned_user_id': old_assigned_user_id,
-                            'new_assigned_user_id': new_assigned_user_id
+                            'new_assigned_user_id': new_assigned_user_id,
+                            'old_assigned_user_name': old_user_name,
+                            'new_assigned_user_name': new_user_name
                         }
                     )
                 

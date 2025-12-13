@@ -140,12 +140,15 @@ function renderActivityLog(activities) {
         } else if (activity.action === 'assign') {
             const oldUserId = metadata.old_assigned_user_id;
             const newUserId = metadata.new_assigned_user_id;
+            const oldUserName = metadata.old_assigned_user_name || (oldUserId ? `User ${oldUserId}` : null);
+            const newUserName = metadata.new_assigned_user_name || (newUserId ? `User ${newUserId}` : null);
+            
             if (oldUserId && newUserId) {
-                details = `<strong>Reassigned:</strong> User ${oldUserId} → User ${newUserId}`;
+                details = `<strong>Reassigned:</strong> ${escapeHtml(oldUserName)} → ${escapeHtml(newUserName)}`;
             } else if (newUserId) {
-                details = `<strong>Assigned to:</strong> User ${newUserId}`;
+                details = `<strong>Assigned to:</strong> ${escapeHtml(newUserName)}`;
             } else if (oldUserId) {
-                details = `<strong>Unassigned from:</strong> User ${oldUserId}`;
+                details = `<strong>Unassigned from:</strong> ${escapeHtml(oldUserName)}`;
             } else {
                 details = `<strong>Assignment changed</strong>`;
             }
