@@ -383,8 +383,13 @@ def api_create_ticket():
         except ValueError:
             return jsonify({'error': 'Invalid due_date format. Use YYYY-MM-DD'}), 400
     
-    # Parse recurring task fields
-    is_recurring = data.get('is_recurring', False)
+        # Parse tag_ids (optional - user-selected tags, in addition to inherited tags)
+        tag_ids = data.get('tag_ids', [])
+        if not isinstance(tag_ids, list):
+            tag_ids = []
+        
+        # Parse recurring task fields
+        is_recurring = data.get('is_recurring', False)
     frequency_value = None
     frequency_unit = None
     initial_due_date = None
@@ -454,7 +459,8 @@ def api_create_ticket():
             frequency_unit=frequency_unit,
             initial_due_date=initial_due_date,
             recurring_admin_id=recurring_admin_id,
-            reopen_days_before_due_date=reopen_days_before_due_date
+            reopen_days_before_due_date=reopen_days_before_due_date,
+            tag_ids=tag_ids  # User-selected tags (in addition to inherited tags)
         )
         
         # Get the ticket again with relationships loaded to avoid lazy loading issues
@@ -673,6 +679,13 @@ def api_update_ticket(ticket_id):
             except (ValueError, TypeError):
                 return jsonify({'error': 'Invalid reopen_days_before_due_date. Must be an integer.'}), 400
     
+    # Handle tag_ids update
+    tag_ids = None
+    if 'tag_ids' in data:
+        tag_ids = data.get('tag_ids', [])
+        if not isinstance(tag_ids, list):
+            tag_ids = []
+    
     try:
         # Track old values for notifications and logging
         # IMPORTANT: Get old values BEFORE update_ticket() modifies the ticket object
@@ -680,6 +693,80 @@ def api_update_ticket(ticket_id):
         old_status = ticket.status or 'Open'  # Ensure we have a default if None
         
         updated_ticket = update_ticket(ticket_id, **update_data)
+        
+        # Update tags if tag_ids provided
+        if tag_ids is not None:
+            try:
+                from database.models import get_session as get_main_session, Tag
+                from dashboard.tickets.models import TicketTag
+                main_session = get_main_session(config.MAIN_DATABASE_PATH)
+                session = get_session()
+                
+                try:
+                    # Get listing tags if ticket has a listing (for inheritance check)
+                    listing_tag_ids = set()
+                    if ticket.listing_id:
+                        from database.models import ListingTag
+                        listing_tags = main_session.query(ListingTag).filter(
+                            ListingTag.listing_id == ticket.listing_id
+                        ).all()
+                        listing_tag_ids = {lt.tag_id for lt in listing_tags}
+                    
+                    # Get current ticket tags
+                    current_ticket_tags = session.query(TicketTag).filter(
+                        TicketTag.ticket_id == ticket_id
+                    ).all()
+                    
+                    # Get current tag IDs (both inherited and non-inherited)
+                    current_tag_ids = {tt.tag_id for tt in current_ticket_tags}
+                    
+                    # Get inherited tag IDs (these should be preserved)
+                    inherited_tag_ids = {tt.tag_id for tt in current_ticket_tags if tt.is_inherited}
+                    
+                    # Final tag set should include:
+                    # 1. All inherited tags (from listing)
+                    # 2. All user-selected tags (from tag_ids)
+                    final_tag_ids = listing_tag_ids | set(tag_ids)
+                    
+                    # Tags to add: tags in final_tag_ids that are not in current_tag_ids
+                    tags_to_add = final_tag_ids - current_tag_ids
+                    
+                    # Tags to remove: tags in current_tag_ids that are not in final_tag_ids
+                    # But preserve inherited tags that are still in listing
+                    tags_to_remove = current_tag_ids - final_tag_ids
+                    
+                    # Add new tags
+                    for tag_id in tags_to_add:
+                        # Verify tag exists
+                        tag = main_session.query(Tag).filter(Tag.tag_id == tag_id).first()
+                        if tag:
+                            # Check if it's an inherited tag (from listing)
+                            is_inherited = tag_id in listing_tag_ids
+                            ticket_tag = TicketTag(
+                                ticket_id=ticket_id,
+                                tag_id=tag_id,
+                                is_inherited=is_inherited
+                            )
+                            session.add(ticket_tag)
+                    
+                    # Remove tags (only non-inherited tags or inherited tags that are no longer in listing)
+                    for tag_id in tags_to_remove:
+                        ticket_tag = session.query(TicketTag).filter(
+                            TicketTag.ticket_id == ticket_id,
+                            TicketTag.tag_id == tag_id
+                        ).first()
+                        if ticket_tag:
+                            session.delete(ticket_tag)
+                    
+                    session.commit()
+                finally:
+                    session.close()
+                    main_session.close()
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Error updating ticket tags: {e}", exc_info=True)
+                # Don't fail the ticket update if tag update fails
         
         if updated_ticket:
             # Log activity for ticket updates
@@ -1088,7 +1175,7 @@ def api_get_ticket_tags(ticket_id):
         
         tag_ids = [tt.tag_id for tt in ticket_tags]
         if not tag_ids:
-            return jsonify([])
+            return jsonify({'tags': []})
         
         tags = main_session.query(Tag).filter(Tag.tag_id.in_(tag_ids)).all()
         tag_map = {t.tag_id: {'tag_id': t.tag_id, 'name': t.name, 'color': t.color} for t in tags}
@@ -1102,7 +1189,8 @@ def api_get_ticket_tags(ticket_id):
                     'created_at': tt.created_at.isoformat() if tt.created_at else None
                 })
         
-        return jsonify(result)
+        # Return as {'tags': [...]} for consistency with other endpoints
+        return jsonify({'tags': result})
     finally:
         session.close()
         main_session.close()

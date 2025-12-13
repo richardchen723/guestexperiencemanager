@@ -642,7 +642,7 @@ def create_ticket(listing_id: int = None, issue_title: str = None, title: str = 
                   category: str = 'other', due_date: date = None, created_by: int = None,
                   is_recurring: bool = False, frequency_value: int = None, frequency_unit: str = None,
                   initial_due_date: date = None, recurring_admin_id: int = None,
-                  reopen_days_before_due_date: int = None) -> Ticket:
+                  reopen_days_before_due_date: int = None, tag_ids: List[int] = None) -> Ticket:
     """Create a new ticket and inherit tags from the property (if listing_id is provided).
     
     For general tickets (listing_id=None), issue_title can be None and will default to title.
@@ -703,6 +703,32 @@ def create_ticket(listing_id: int = None, issue_title: str = None, title: str = 
                     is_inherited=True
                 )
                 session.add(ticket_tag)
+        
+        # Add user-selected tags (non-inherited)
+        if tag_ids:
+            from database.models import Tag
+            # Get existing tag IDs from inherited tags to avoid duplicates
+            existing_tag_ids = set()
+            if listing_id is not None:
+                listing_tags = main_session.query(ListingTag).filter(
+                    ListingTag.listing_id == listing_id
+                ).all()
+                existing_tag_ids = {lt.tag_id for lt in listing_tags}
+            
+            for tag_id in tag_ids:
+                # Skip if tag is already inherited
+                if tag_id in existing_tag_ids:
+                    continue
+                
+                # Verify tag exists in main database
+                tag = main_session.query(Tag).filter(Tag.tag_id == tag_id).first()
+                if tag:
+                    ticket_tag = TicketTag(
+                        ticket_id=ticket_id,
+                        tag_id=tag_id,
+                        is_inherited=False
+                    )
+                    session.add(ticket_tag)
         
         session.commit()
         main_session.close()

@@ -130,8 +130,10 @@
                 </div>
                 <div class="info-row">
                     <label>Tags:</label>
-                    <div id="ticketTagsDisplay" class="tags-display"></div>
-                    <div id="ticketTagInputContainer" style="margin-top: 0.5rem;"></div>
+                    <div style="width: 100%;">
+                        <div id="ticketTagsDisplay" class="tags-display" style="margin-bottom: 0.75rem;"></div>
+                        <div id="ticketTagInputContainer"></div>
+                    </div>
                 </div>
                 
                 <div class="info-row">
@@ -718,31 +720,68 @@ function escapeHtml(text) {
 function loadTicketTags(ticketId) {
     fetch(`/tickets/api/tickets/${ticketId}/tags`)
         .then(response => response.json())
-        .then(tags => {
-            const displayContainer = document.getElementById('ticketTagsDisplay');
-            renderTags(displayContainer, tags, {
-                showInherited: true,
-                onRemove: (tag, index) => {
-                    if (!tag.is_inherited) {
-                        removeTicketTag(ticketId, tag.tag_id);
-                    }
-                }
-            });
+        .then(data => {
+            // Handle both array and object formats (for backward compatibility)
+            let tags = [];
+            if (Array.isArray(data)) {
+                tags = data;
+            } else if (data.tags && Array.isArray(data.tags)) {
+                tags = data.tags;
+            } else if (data.error) {
+                console.error('Error loading tags:', data.error);
+                return;
+            }
             
-            // Initialize tag input for adding new tags
-            if (!ticketTagInput) {
-                const inputContainer = document.getElementById('ticketTagInputContainer');
-                ticketTagInput = new TagInput(inputContainer, {
-                    existingTags: tags.filter(t => !t.is_inherited),
-                    onTagsChange: (newTags) => {
-                        // Only add tags that aren't already in the list
-                        const currentTagIds = tags.map(t => t.tag_id);
-                        const tagsToAdd = newTags.filter(t => !currentTagIds.includes(t.tag_id));
-                        if (tagsToAdd.length > 0) {
-                            addTicketTags(ticketId, tagsToAdd.map(t => t.name));
+            const displayContainer = document.getElementById('ticketTagsDisplay');
+            if (displayContainer) {
+                renderTags(displayContainer, tags, {
+                    showInherited: true,
+                    onRemove: (tag, index) => {
+                        if (!tag.is_inherited) {
+                            removeTicketTag(ticketId, tag.tag_id);
                         }
                     }
                 });
+            }
+            
+            // Initialize tag input for adding new tags (empty - existing tags are shown in display area only)
+            if (!ticketTagInput) {
+                const inputContainer = document.getElementById('ticketTagInputContainer');
+                if (inputContainer) {
+                    ticketTagInput = new TagInput(inputContainer, {
+                        existingTags: [], // Don't show existing tags in input - they're already displayed above
+                        onTagsChange: (newTags) => {
+                            // When user adds tags in the input, add them to the ticket
+                            // Get current tags from display to check for duplicates
+                            const currentTagIds = tags.map(t => t.tag_id);
+                            const tagsToAdd = newTags.filter(t => {
+                                // Only add tags that aren't already in the list
+                                // Check by tag_id if available, otherwise by name
+                                if (t.tag_id) {
+                                    return !currentTagIds.includes(t.tag_id);
+                                }
+                                // For newly created tags without tag_id yet, check by name
+                                const currentTagNames = tags.map(t => t.name.toLowerCase());
+                                return !currentTagNames.includes(t.name.toLowerCase());
+                            });
+                            
+                            if (tagsToAdd.length > 0) {
+                                // Clear the input immediately before adding tags
+                                // This prevents tags from staying in the input area
+                                if (ticketTagInput) {
+                                    ticketTagInput.setTags([]);
+                                }
+                                // Add tags to ticket
+                                addTicketTags(ticketId, tagsToAdd.map(t => t.name || t));
+                            }
+                        }
+                    });
+                }
+            }
+            
+            // Always ensure the tag input is empty after loading tags (tags are only in display area)
+            if (ticketTagInput) {
+                ticketTagInput.setTags([]);
             }
         })
         .catch(error => {
@@ -763,6 +802,11 @@ function addTicketTags(ticketId, tagNames) {
         if (data.error) {
             alert('Error: ' + data.error);
         } else {
+            // Clear the tag input after successfully adding tags
+            if (ticketTagInput) {
+                ticketTagInput.setTags([]);
+            }
+            // Reload tags to update the display area
             loadTicketTags(ticketId);
         }
     })

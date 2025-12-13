@@ -18,9 +18,14 @@
                 <select id="listingSelect" class="form-select" onchange="loadIssues(); loadPropertyTags(); updateIssueRequired();">
                     <option value="">General (No specific property)</option>
                 </select>
-                <div id="inheritedTagsDisplay" class="tags-display" style="margin-top: 0.5rem; display: none;">
-                    <span style="font-size: var(--text-sm); color: var(--text-tertiary); margin-right: var(--space-2);">Inherited tags:</span>
-                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="ticketTagsInput" class="form-label">Tags</label>
+                <div id="ticketTagsInput" class="tag-input-container"></div>
+                <small style="color: var(--text-tertiary); font-size: var(--text-sm); margin-top: var(--space-1); display: block;">
+                    Tags inherited from property will be added automatically. You can add more tags here.
+                </small>
             </div>
             
             <div class="form-group">
@@ -223,6 +228,7 @@ let currentListingId = null;
 let ticketId = {% if ticket %}{{ ticket.ticket_id }}{% else %}null{% endif %};
 let ticketFormImageUploader = null;
 let pendingImages = []; // For new tickets - images to upload after ticket creation
+let ticketTagInput = null; // TagInput instance for ticket tags
 
 document.addEventListener('DOMContentLoaded', function() {
     loadListings();
@@ -230,6 +236,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize image uploader
     initializeTicketFormImages();
+    
+    // Initialize tag input
+    initializeTicketTags();
     
     // Attach event listener to AI Suggestions button
     const aiBtn = document.getElementById('aiSuggestionsBtn');
@@ -886,6 +895,17 @@ function saveTicket(event) {
         return;
     }
     
+    // Get selected tags (only non-inherited tags - inherited ones are added automatically)
+    let tagIds = [];
+    if (ticketTagInput) {
+        const allSelectedTags = ticketTagInput.getTags() || [];
+        // Only include non-inherited tags (inherited tags are added automatically by backend)
+        // Filter to only include tags with tag_id (not just names)
+        tagIds = allSelectedTags
+            .filter(tag => !tag.is_inherited && tag.tag_id)
+            .map(tag => tag.tag_id);
+    }
+    
     const data = {
         listing_id: listingId ? parseInt(listingId) : null,
         issue_title: issueTitle,
@@ -895,7 +915,8 @@ function saveTicket(event) {
         priority: priority,
         category: category,
         assigned_user_id: assignedId ? parseInt(assignedId) : null,
-        due_date: dueDate || null
+        due_date: dueDate || null,
+        tag_ids: tagIds  // Include user-selected tags (for both create and update)
     };
     
     // Add recurring task fields
@@ -970,32 +991,91 @@ document.addEventListener('click', function(event) {
     }
 });
 
+async function initializeTicketTags() {
+    const container = document.getElementById('ticketTagsInput');
+    if (!container) return;
+    
+    // Get existing tags if editing
+    let existingTags = [];
+    {% if ticket %}
+    // In edit mode, load existing tags
+    try {
+        const response = await fetch(`/tickets/api/tickets/${ticketId}/tags`);
+        if (response.ok) {
+            const data = await response.json();
+            // API returns either an array directly or wrapped in {tags: [...]}
+            if (Array.isArray(data)) {
+                existingTags = data;
+            } else if (data.tags && Array.isArray(data.tags)) {
+                existingTags = data.tags;
+            }
+            console.log('Loaded existing tags:', existingTags);
+        } else {
+            console.error('Failed to load ticket tags:', response.status, response.statusText);
+        }
+    } catch (error) {
+        console.error('Error loading ticket tags:', error);
+    }
+    {% endif %}
+    
+    // Initialize TagInput with existing tags (or empty array for create mode)
+    ticketTagInput = new TagInput(container, {
+        endpoint: '/api/tags/autocomplete',
+        placeholder: 'Type to add tags...',
+        allowCreate: true,
+        existingTags: existingTags,
+        onTagsChange: (tags) => {
+            // Tags changed - no action needed, will be sent on save
+        }
+    });
+    
+    // If editing and we have a listing, also load inherited tags
+    {% if ticket %}
+    {% if ticket.listing_id %}
+    // Load inherited tags from listing (after a short delay to ensure TagInput is ready)
+    setTimeout(() => {
+        loadPropertyTags();
+    }, 100);
+    {% endif %}
+    {% endif %}
+}
+
 function loadPropertyTags() {
     const listingId = document.getElementById('listingSelect').value;
-    const container = document.getElementById('inheritedTagsDisplay');
+    
+    if (!ticketTagInput) {
+        return;
+    }
+    
+    // Get current tags
+    const currentTags = ticketTagInput.getTags() || [];
     
     if (!listingId) {
-        container.style.display = 'none';
+        // No listing selected - remove all inherited tags
+        const nonInheritedTags = currentTags.filter(tag => !tag.is_inherited);
+        ticketTagInput.setTags(nonInheritedTags);
         return;
     }
     
     fetch(`/api/listings/${listingId}/tags`)
         .then(response => response.json())
         .then(tags => {
-            if (tags.length > 0) {
-                container.style.display = 'flex';
-                container.innerHTML = '<span style="font-size: var(--text-sm); color: var(--text-tertiary); margin-right: var(--space-2);">Inherited tags:</span>';
-                renderTags(container, tags.map(t => ({...t, is_inherited: true})), {
-                    showInherited: true,
-                    onRemove: null  // Inherited tags cannot be removed
-                });
-            } else {
-                container.style.display = 'none';
-            }
+            // Remove old inherited tags and add new ones
+            const nonInheritedTags = currentTags.filter(tag => !tag.is_inherited);
+            const currentTagIds = new Set(nonInheritedTags.map(t => t.tag_id));
+            
+            // Add inherited tags (mark as inherited)
+            const inheritedTags = tags.map(tag => ({
+                ...tag,
+                is_inherited: true
+            })).filter(tag => !currentTagIds.has(tag.tag_id)); // Don't duplicate if user already added it
+            
+            // Combine: non-inherited tags first, then inherited tags
+            const allTags = [...nonInheritedTags, ...inheritedTags];
+            ticketTagInput.setTags(allTags);
         })
         .catch(error => {
             console.error('Error loading property tags:', error);
-            container.style.display = 'none';
         });
 }
 </script>

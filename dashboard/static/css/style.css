@@ -2087,6 +2087,20 @@ footer {
     background: var(--white);
 }
 
+/* Tags display and input in ticket detail - ensure two rows */
+.info-row #ticketTagsDisplay {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    width: 100%;
+    margin-bottom: 0.75rem;
+}
+
+.info-row #ticketTagInputContainer {
+    width: 100%;
+    display: block;
+}
+
 .ticket-comments {
     background: var(--white);
     border: 1px solid var(--gray-200);

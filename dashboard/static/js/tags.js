@@ -65,7 +65,11 @@ class TagInput {
             tagEl.title = 'Inherited from property';
         }
         
-        tagEl.textContent = tag.name;
+        // Wrap tag name in span for proper text truncation
+        const tagText = document.createElement('span');
+        tagText.className = 'tag-chip-text';
+        tagText.textContent = tag.name;
+        tagEl.appendChild(tagText);
         
         if (!this.options.readOnly && !tag.is_inherited) {
             const removeBtn = document.createElement('button');
@@ -272,7 +276,11 @@ function renderTags(container, tags, options = {}) {
             tagEl.title = 'Inherited from property';
         }
         
-        tagEl.textContent = tag.name;
+        // Wrap tag name in span for proper text truncation
+        const tagText = document.createElement('span');
+        tagText.className = 'tag-chip-text';
+        tagText.textContent = tag.name;
+        tagEl.appendChild(tagText);
         
         if (onRemove && !tag.is_inherited) {
             const removeBtn = document.createElement('button');
