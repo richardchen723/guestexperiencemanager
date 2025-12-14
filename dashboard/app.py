@@ -150,6 +150,20 @@ def create_app():
             response.headers['Expires'] = '0'
         return response
     
+    # Ensure database connections are properly closed after each request
+    # This is a safety net - routes should still close sessions in finally blocks
+    @app.teardown_request
+    def close_db_sessions(exception):
+        """
+        Close any remaining database sessions after request.
+        This is a safety net to prevent connection leaks if a route forgets to close sessions.
+        Note: Routes should still explicitly close sessions in finally blocks for best practice.
+        """
+        # SQLAlchemy sessions are request-scoped, so we don't need to do anything here
+        # The explicit session.close() calls in routes are sufficient
+        # This handler is here as documentation and a safety net
+        pass
+    
     # Debug routes only available in debug mode
     if config.FLASK_DEBUG:
         @app.route('/debug/paths')

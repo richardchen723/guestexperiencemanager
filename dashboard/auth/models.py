@@ -58,10 +58,14 @@ class User(Base):
         return self.role == 'owner'
 
 
+# Engine cache to prevent connection leaks
+_engine_cache = {}
+_sessionmaker_cache = {}
+
 def get_engine(db_path: str):
     """
-    Create SQLAlchemy engine for user database.
-    PostgreSQL is required - no SQLite fallback.
+    Create or retrieve cached SQLAlchemy engine for user database.
+    Uses singleton pattern to prevent connection leaks.
     
     Args:
         db_path: Ignored for PostgreSQL (kept for interface compatibility)
@@ -79,25 +83,39 @@ def get_engine(db_path: str):
     # PostgreSQL connection - use 'users' schema
     # Modify connection string to include schema search path
     if '?' in database_url:
-        database_url += "&options=-csearch_path%3Dusers,public"
+        database_url_with_schema = database_url + "&options=-csearch_path%3Dusers,public"
     else:
-        database_url += "?options=-csearch_path%3Dusers,public"
+        database_url_with_schema = database_url + "?options=-csearch_path%3Dusers,public"
     
+    # Use modified database_url as cache key
+    cache_key = database_url_with_schema
+    
+    # Return cached engine if it exists
+    if cache_key in _engine_cache:
+        return _engine_cache[cache_key]
+    
+    # Create new engine with optimized pool settings
     engine = create_engine(
-        database_url,
+        database_url_with_schema,
         echo=False,
-        pool_size=5,
-        max_overflow=2,
+        pool_size=3,           # Reduced from 5 to prevent exhaustion
+        max_overflow=1,        # Reduced from 2 to limit total connections
         pool_timeout=30,
         pool_pre_ping=True,
+        pool_recycle=3600,     # Recycle connections after 1 hour
+        pool_reset_on_return='commit',  # Reset connection state on return
         connect_args={
-            "connect_timeout": 15,  # Increased from 10 to handle slower connections
+            "connect_timeout": 15,
             "keepalives": 1,
             "keepalives_idle": 30,
             "keepalives_interval": 10,
-            "keepalives_count": 5
+            "keepalives_count": 5,
+            "application_name": "hostaway_users"  # Set application name for monitoring
         }
     )
+    
+    # Cache the engine
+    _engine_cache[cache_key] = engine
     return engine
 
 
@@ -140,11 +158,18 @@ def init_user_database():
 
 
 def get_session():
-    """Get a database session for user operations."""
+    """
+    Get a database session for user operations.
+    Uses cached engine and sessionmaker to prevent connection leaks.
+    """
     engine = get_engine(config.USERS_DATABASE_PATH)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    return session
+    
+    # Cache sessionmaker per engine to avoid recreating
+    if engine not in _sessionmaker_cache:
+        _sessionmaker_cache[engine] = sessionmaker(bind=engine)
+    
+    Session = _sessionmaker_cache[engine]
+    return Session()
 
 
 def get_user_by_email(email: str):

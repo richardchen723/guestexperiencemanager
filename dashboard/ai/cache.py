@@ -49,10 +49,14 @@ class ListingInsights(Base):
     total_messages_analyzed = Column(Integer, default=0)
 
 
+# Engine cache to prevent connection leaks
+_engine_cache = {}
+_sessionmaker_cache = {}
+
 def get_engine():
     """
-    Create SQLAlchemy engine for cache database.
-    PostgreSQL is required - no SQLite fallback.
+    Create or retrieve cached SQLAlchemy engine for cache database.
+    Uses singleton pattern to prevent connection leaks.
     """
     import os
     
@@ -66,26 +70,55 @@ def get_engine():
     
     # PostgreSQL connection - use 'cache' schema
     if '?' in database_url:
-        database_url += "&options=-csearch_path%3Dcache,public"
+        database_url_with_schema = database_url + "&options=-csearch_path%3Dcache,public"
     else:
-        database_url += "?options=-csearch_path%3Dcache,public"
+        database_url_with_schema = database_url + "?options=-csearch_path%3Dcache,public"
     
+    # Use modified database_url as cache key
+    cache_key = database_url_with_schema
+    
+    # Return cached engine if it exists
+    if cache_key in _engine_cache:
+        return _engine_cache[cache_key]
+    
+    # Create new engine with optimized pool settings
     engine = create_engine(
-        database_url,
+        database_url_with_schema,
         echo=False,
-        pool_size=5,
-        max_overflow=2,
+        pool_size=3,           # Reduced from 5 to prevent exhaustion
+        max_overflow=1,        # Reduced from 2 to limit total connections
         pool_timeout=30,
         pool_pre_ping=True,
+        pool_recycle=3600,     # Recycle connections after 1 hour
+        pool_reset_on_return='commit',  # Reset connection state on return
         connect_args={
-            "connect_timeout": 15,  # Increased from 10 to handle slower connections
+            "connect_timeout": 15,
             "keepalives": 1,
             "keepalives_idle": 30,
             "keepalives_interval": 10,
-            "keepalives_count": 5
+            "keepalives_count": 5,
+            "application_name": "hostaway_cache"  # Set application name for monitoring
         }
     )
+    
+    # Cache the engine
+    _engine_cache[cache_key] = engine
     return engine
+
+
+def _get_session():
+    """
+    Get a database session using cached engine and sessionmaker.
+    This prevents connection leaks by reusing the same sessionmaker.
+    """
+    engine = get_engine()
+    
+    # Cache sessionmaker per engine to avoid recreating
+    if engine not in _sessionmaker_cache:
+        _sessionmaker_cache[engine] = sessionmaker(bind=engine)
+    
+    Session = _sessionmaker_cache[engine]
+    return Session()
 
 
 def init_cache_db():
@@ -126,9 +159,7 @@ def get_processed_reviews(listing_id: int) -> Set[int]:
         Set of review IDs
     """
     init_cache_db()
-    engine = get_engine()
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    session = _get_session()
     
     try:
         results = session.query(ProcessedData.data_id).filter(
@@ -151,9 +182,7 @@ def get_processed_messages(listing_id: int) -> Set[int]:
         Set of message IDs
     """
     init_cache_db()
-    engine = get_engine()
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    session = _get_session()
     
     try:
         results = session.query(ProcessedData.data_id).filter(
@@ -177,9 +206,7 @@ def mark_reviews_processed(listing_id: int, review_ids: List[int]):
         return
     
     init_cache_db()
-    engine = get_engine()
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    session = _get_session()
     
     try:
         for review_id in review_ids:
@@ -212,9 +239,7 @@ def mark_messages_processed(listing_id: int, message_ids: List[int]):
         return
     
     init_cache_db()
-    engine = get_engine()
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    session = _get_session()
     
     try:
         for message_id in message_ids:
@@ -245,9 +270,7 @@ def get_cached_insights(listing_id: int) -> Optional[Dict]:
         Dictionary with insights or None if not cached
     """
     init_cache_db()
-    engine = get_engine()
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    session = _get_session()
     
     try:
         insight = session.query(ListingInsights).filter(
@@ -287,9 +310,7 @@ def get_cached_insights_batch(listing_ids: List[int]) -> Dict[int, Dict]:
         return {}
     
     init_cache_db()
-    engine = get_engine()
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    session = _get_session()
     
     try:
         insights = session.query(ListingInsights).filter(
@@ -326,9 +347,7 @@ def update_listing_insights(listing_id: int, insights: Dict, review_count: int, 
         message_count: Total number of messages analyzed
     """
     init_cache_db()
-    engine = get_engine()
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    session = _get_session()
     
     try:
         insight = ListingInsights(
@@ -357,9 +376,7 @@ def clear_listing_cache(listing_id: int):
         listing_id: The listing ID
     """
     init_cache_db()
-    engine = get_engine()
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    session = _get_session()
     
     try:
         session.query(ProcessedData).filter(

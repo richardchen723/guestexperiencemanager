@@ -502,16 +502,20 @@ class DocumentTag(Base):
 
 
 # Database connection utilities
+# Engine cache to prevent connection leaks
+_engine_cache = {}
+_sessionmaker_cache = {}
+
 def get_engine(db_path: str):
     """
-    Create SQLAlchemy engine for PostgreSQL.
-    PostgreSQL is required - no SQLite fallback.
+    Create or retrieve cached SQLAlchemy engine for PostgreSQL.
+    Uses singleton pattern to prevent connection leaks.
     
     Args:
         db_path: Ignored for PostgreSQL (kept for interface compatibility)
         
     Returns:
-        SQLAlchemy engine
+        SQLAlchemy engine (cached singleton)
     """
     import os
     
@@ -523,30 +527,51 @@ def get_engine(db_path: str):
             "Example: postgresql://user@localhost:5432/hostaway_dev"
         )
     
-    # PostgreSQL connection
-    # Connection string format: postgresql://user:password@host:port/database
+    # Use database_url as cache key to ensure one engine per database
+    cache_key = database_url
+    
+    # Return cached engine if it exists
+    if cache_key in _engine_cache:
+        return _engine_cache[cache_key]
+    
+    # Create new engine with optimized pool settings
+    # Reduced pool_size to prevent connection exhaustion
     engine = create_engine(
         database_url,
         echo=False,
-        pool_size=5,           # Small pool for 10-20 users
-        max_overflow=2,        # Minimal overflow
+        pool_size=3,           # Reduced from 5 to prevent exhaustion
+        max_overflow=1,        # Reduced from 2 to limit total connections
         pool_timeout=30,       # Prevent hanging connections
-        pool_pre_ping=True,     # Verify connections before using
+        pool_pre_ping=True,    # Verify connections before using
+        pool_recycle=3600,     # Recycle connections after 1 hour (prevents stale connections)
+        pool_reset_on_return='commit',  # Reset connection state on return
         connect_args={
-            "connect_timeout": 15,  # Increased from 10 to handle slower connections
+            "connect_timeout": 15,
             "keepalives": 1,
             "keepalives_idle": 30,
             "keepalives_interval": 10,
-            "keepalives_count": 5
+            "keepalives_count": 5,
+            "application_name": "hostaway_main"  # Set application name for monitoring
         }
     )
+    
+    # Cache the engine
+    _engine_cache[cache_key] = engine
     return engine
 
 
 def get_session(db_path: str):
-    """Create database session"""
+    """
+    Create database session using cached engine and sessionmaker.
+    Ensures proper connection pooling and prevents leaks.
+    """
     engine = get_engine(db_path)
-    Session = sessionmaker(bind=engine)
+    
+    # Cache sessionmaker per engine to avoid recreating
+    if engine not in _sessionmaker_cache:
+        _sessionmaker_cache[engine] = sessionmaker(bind=engine)
+    
+    Session = _sessionmaker_cache[engine]
     return Session()
 
 
