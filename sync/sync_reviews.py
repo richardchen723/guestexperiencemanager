@@ -390,6 +390,11 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                 if not reviews:
                     break
                 
+                # Store original API response length BEFORE filtering
+                # This is critical for pagination: we need to check the original response length,
+                # not the filtered length, to determine if there are more pages
+                original_reviews_count = len(reviews)
+                
                 # For incremental sync, filter by cutoff datetime using review submission date
                 # This is more accurate than departureDate since reviews can be submitted after departure
                 if not full_sync and cutoff_datetime:
@@ -446,8 +451,10 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                 
                 all_reviews.extend(reviews)
                 
-                # Stop if we got fewer reviews than requested (end of data)
-                if len(reviews) < PAGINATION_LIMIT:
+                # Stop if we got fewer reviews than requested from API (end of data)
+                # CRITICAL: Use original_reviews_count, not len(reviews), because reviews may have been filtered
+                # If the API returned fewer than PAGINATION_LIMIT, we've reached the end regardless of filtering
+                if original_reviews_count < PAGINATION_LIMIT:
                     break
                 
                 reviews_after = len(all_reviews)
@@ -504,6 +511,11 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                             if not reviews:
                                 break
                             
+                            # Store original API response length BEFORE filtering
+                            # This is critical for pagination: we need to check the original response length,
+                            # not the filtered length, to determine if there are more pages
+                            original_reviews_count = len(reviews)
+                            
                             # For incremental sync, filter by cutoff date and stop if we hit reviews below cutoff
                             if not full_sync and cutoff_date:
                                 filtered_reviews = []
@@ -536,7 +548,10 @@ def sync_reviews(full_sync: bool = True, listing_id: Optional[int] = None, progr
                                     break
                             
                             listing_reviews.extend(reviews)
-                            if len(reviews) < PAGINATION_LIMIT:
+                            # Stop if we got fewer reviews than requested from API (end of data)
+                            # CRITICAL: Use original_reviews_count, not len(reviews), because reviews may have been filtered
+                            # If the API returned fewer than PAGINATION_LIMIT, we've reached the end regardless of filtering
+                            if original_reviews_count < PAGINATION_LIMIT:
                                 # Last page - we're done for this listing
                                 break
                             listing_offset += PAGINATION_LIMIT
