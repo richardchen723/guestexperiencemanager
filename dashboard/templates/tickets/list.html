@@ -6,7 +6,28 @@
 <div class="tickets-page">
     <div class="tickets-header">
         <h2>Tickets</h2>
+        <div class="tickets-header-actions">
+            <div class="view-toggle">
+                <button type="button" id="viewToggleBtn" class="view-toggle-btn active" data-view="list" onclick="toggleView('list')" title="List View">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="3" y="4" width="14" height="2" rx="1" fill="currentColor"/>
+                        <rect x="3" y="9" width="14" height="2" rx="1" fill="currentColor"/>
+                        <rect x="3" y="14" width="14" height="2" rx="1" fill="currentColor"/>
+                    </svg>
+                    <span>List</span>
+                </button>
+                <button type="button" id="viewToggleBtnSwim" class="view-toggle-btn" data-view="swimlane" onclick="toggleView('swimlane')" title="Swim Lane View">
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="2" y="2" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                        <rect x="10" y="2" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                        <rect x="2" y="10" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                        <rect x="10" y="10" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                    </svg>
+                    <span>Swim Lane</span>
+                </button>
+            </div>
             <a href="/tickets/create" class="btn-primary">Create New Ticket</a>
+        </div>
     </div>
     
     <div class="tickets-search-bar">
@@ -131,6 +152,10 @@
         <!-- Tickets will be loaded here -->
     </div>
     
+    <div id="swimLaneContainer" class="swimlane-container" style="display: none;">
+        <!-- Swim lane board will be loaded here -->
+    </div>
+    
     <div id="noTickets" class="no-results" style="display: none;">
         No tickets found.
     </div>
@@ -144,6 +169,7 @@ let tagFilter = null;
 let selectedTagIds = [];
 let tagLogic = 'AND';
 let searchTimeout = null;
+let currentView = localStorage.getItem('ticketView') || 'list'; // 'list' or 'swimlane'
 
 // Load data on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -216,6 +242,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize status filter text
     updateStatusFilterText();
+    
+    // Initialize view based on saved preference
+    toggleView(currentView, false); // false = don't save to localStorage yet
 });
 
 function toggleStatusFilter() {
@@ -374,15 +403,23 @@ function loadTickets() {
             
             if (tickets.length === 0) {
                 noTickets.style.display = 'block';
+                if (currentView === 'swimlane') {
+                    document.getElementById('swimLaneContainer').innerHTML = '<div class="no-results">No tickets found.</div>';
+                }
                 return;
             }
             
             noTickets.style.display = 'none';
             
-            tickets.forEach(ticket => {
-                const card = createTicketCard(ticket);
-                container.appendChild(card);
-            });
+            // Render based on current view
+            if (currentView === 'swimlane') {
+                renderSwimLaneView(tickets);
+            } else {
+                tickets.forEach(ticket => {
+                    const card = createTicketCard(ticket);
+                    container.appendChild(card);
+                });
+            }
         })
         .catch(error => {
             loading.style.display = 'none';
@@ -535,6 +572,231 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function toggleView(view, savePreference = true) {
+    currentView = view;
+    
+    const listContainer = document.getElementById('ticketsContainer');
+    const swimLaneContainer = document.getElementById('swimLaneContainer');
+    const listBtn = document.getElementById('viewToggleBtn');
+    const swimBtn = document.getElementById('viewToggleBtnSwim');
+    
+    if (view === 'swimlane') {
+        listContainer.style.display = 'none';
+        swimLaneContainer.style.display = 'block';
+        listBtn.classList.remove('active');
+        swimBtn.classList.add('active');
+    } else {
+        listContainer.style.display = 'grid';
+        swimLaneContainer.style.display = 'none';
+        listBtn.classList.add('active');
+        swimBtn.classList.remove('active');
+    }
+    
+    if (savePreference) {
+        localStorage.setItem('ticketView', view);
+    }
+    
+    // Reload tickets to render in the correct view
+    loadTickets();
+}
+
+function renderSwimLaneView(tickets) {
+    const container = document.getElementById('swimLaneContainer');
+    container.innerHTML = '';
+    
+    // Define status order
+    const statusOrder = ['Open', 'Assigned', 'In Progress', 'Blocked', 'Resolved', 'Closed'];
+    
+    // Group tickets by assigned user and status
+    const userTickets = {};
+    const unassignedTickets = {};
+    
+    tickets.forEach(ticket => {
+        const userId = ticket.assigned_user_id || 'unassigned';
+        const userName = ticket.assigned_user_name || 'Unassigned';
+        const status = ticket.status || 'Open';
+        
+        if (userId === 'unassigned') {
+            if (!unassignedTickets[status]) {
+                unassignedTickets[status] = [];
+            }
+            unassignedTickets[status].push(ticket);
+        } else {
+            if (!userTickets[userId]) {
+                userTickets[userId] = {
+                    name: userName,
+                    tickets: {}
+                };
+            }
+            if (!userTickets[userId].tickets[status]) {
+                userTickets[userId].tickets[status] = [];
+            }
+            userTickets[userId].tickets[status].push(ticket);
+        }
+    });
+    
+    // Create table structure
+    const table = document.createElement('table');
+    table.className = 'swimlane-table';
+    
+    // Create header row with status columns
+    const headerRow = document.createElement('thead');
+    const headerTr = document.createElement('tr');
+    const userHeader = document.createElement('th');
+    userHeader.className = 'swimlane-user-header';
+    userHeader.textContent = 'User';
+    headerTr.appendChild(userHeader);
+    
+    statusOrder.forEach(status => {
+        const th = document.createElement('th');
+        th.className = `swimlane-status-header status-${status.toLowerCase().replace(' ', '-')}`;
+        th.innerHTML = `
+            <div class="status-header-content">
+                <span class="status-name">${escapeHtml(status)}</span>
+                <span class="status-count" id="count-${status}">0</span>
+            </div>
+        `;
+        headerTr.appendChild(th);
+    });
+    
+    headerRow.appendChild(headerTr);
+    table.appendChild(headerRow);
+    
+    // Create body
+    const tbody = document.createElement('tbody');
+    
+    // Add unassigned row first
+    if (Object.keys(unassignedTickets).length > 0 || Object.keys(userTickets).length === 0) {
+        const unassignedRow = createSwimLaneRow('unassigned', 'Unassigned', unassignedTickets, statusOrder);
+        tbody.appendChild(unassignedRow);
+    }
+    
+    // Add user rows
+    Object.keys(userTickets).sort().forEach(userId => {
+        const userData = userTickets[userId];
+        const row = createSwimLaneRow(userId, userData.name, userData.tickets, statusOrder);
+        tbody.appendChild(row);
+    });
+    
+    table.appendChild(tbody);
+    container.appendChild(table);
+    
+    // Update status counts
+    statusOrder.forEach(status => {
+        const count = tickets.filter(t => t.status === status).length;
+        const countEl = document.getElementById(`count-${status}`);
+        if (countEl) {
+            countEl.textContent = count;
+        }
+    });
+}
+
+function createSwimLaneRow(userId, userName, ticketsByStatus, statusOrder) {
+    const row = document.createElement('tr');
+    row.className = 'swimlane-row';
+    row.dataset.userId = userId;
+    
+    // User name cell
+    const userCell = document.createElement('td');
+    userCell.className = 'swimlane-user-cell';
+    userCell.innerHTML = `
+        <div class="swimlane-user-info">
+            <div class="swimlane-user-name">${escapeHtml(userName)}</div>
+            <div class="swimlane-user-count">${Object.values(ticketsByStatus).reduce((sum, arr) => sum + arr.length, 0)} tickets</div>
+        </div>
+    `;
+    row.appendChild(userCell);
+    
+    // Status cells
+    statusOrder.forEach(status => {
+        const cell = document.createElement('td');
+        cell.className = `swimlane-cell status-${status.toLowerCase().replace(' ', '-')}`;
+        
+        const tickets = ticketsByStatus[status] || [];
+        const cellContent = document.createElement('div');
+        cellContent.className = 'swimlane-cell-content';
+        
+        tickets.forEach(ticket => {
+            const card = createSwimLaneCard(ticket);
+            cellContent.appendChild(card);
+        });
+        
+        cell.appendChild(cellContent);
+        row.appendChild(cell);
+    });
+    
+    return row;
+}
+
+function createSwimLaneCard(ticket) {
+    const card = document.createElement('div');
+    card.className = 'swimlane-ticket-card';
+    card.dataset.ticketId = ticket.ticket_id;
+    
+    // Get listing names
+    let listingName = 'General';
+    if (ticket.listings && ticket.listings.length > 0) {
+        const listingNames = ticket.listings.map(l => 
+            l.internal_listing_name || l.name || `Listing ${l.listing_id}`
+        );
+        listingName = listingNames.join(', ');
+    } else if (ticket.listing_id) {
+        if (ticket.listing) {
+            listingName = ticket.listing.internal_listing_name || ticket.listing.name || `Listing ${ticket.listing_id}`;
+        } else {
+            const listing = allListings.find(l => l.listing_id === ticket.listing_id);
+            if (listing) {
+                listingName = listing.internal_listing_name || listing.name || `Listing ${ticket.listing_id}`;
+            } else {
+                listingName = `Listing ${ticket.listing_id}`;
+            }
+        }
+    }
+    
+    const priorityClass = ticket.priority.toLowerCase();
+    const categoryClass = ticket.category ? ticket.category.toLowerCase() : 'other';
+    const dueDate = ticket.due_date ? new Date(ticket.due_date) : null;
+    const isOverdue = dueDate && dueDate < new Date() && ticket.status !== 'Resolved' && ticket.status !== 'Closed';
+    
+    const categoryDisplay = ticket.category ? ticket.category.charAt(0).toUpperCase() + ticket.category.slice(1) : 'Other';
+    
+    // Render tags (limited for swim lane)
+    let tagsHtml = '';
+    if (ticket.tags && ticket.tags.length > 0) {
+        const displayTags = ticket.tags.slice(0, 2); // Show max 2 tags in swim lane
+        tagsHtml = '<div class="swimlane-tags">';
+        displayTags.forEach(tag => {
+            const tagStyle = tag.color ? `style="background-color: ${tag.color}; border-color: ${tag.color};" class="swimlane-tag has-color"` : 'class="swimlane-tag"';
+            tagsHtml += `<span ${tagStyle}>${escapeHtml(tag.name)}</span>`;
+        });
+        if (ticket.tags.length > 2) {
+            tagsHtml += `<span class="swimlane-tag-more">+${ticket.tags.length - 2}</span>`;
+        }
+        tagsHtml += '</div>';
+    }
+    
+    const recurringBadge = ticket.is_recurring ? 
+        `<span class="swimlane-recurring" title="Recurring task">🔄</span>` : '';
+    
+    card.innerHTML = `
+        <div class="swimlane-card-header">
+            <a href="/tickets/${ticket.ticket_id}/page" class="swimlane-card-title">${escapeHtml(ticket.title)}</a>
+            ${recurringBadge}
+        </div>
+        <div class="swimlane-card-body">
+            ${ticket.issue_title ? `<div class="swimlane-card-issue">${escapeHtml(ticket.issue_title)}</div>` : ''}
+            <div class="swimlane-card-listing">${escapeHtml(listingName)}</div>
+            ${tagsHtml}
+        </div>
+        <div class="swimlane-card-footer">
+            <span class="swimlane-priority priority-${priorityClass}">${escapeHtml(ticket.priority)}</span>
+            ${dueDate ? `<span class="swimlane-due ${isOverdue ? 'overdue' : ''}">${formatDate(dueDate)}</span>` : ''}
+        </div>
+    `;
+    
+    return card;
 }
 </script>
 {% endblock %}
