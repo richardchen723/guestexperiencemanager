@@ -69,6 +69,7 @@ class Ticket(Base):
     comments = relationship('TicketComment', back_populates='ticket', cascade='all, delete-orphan', order_by='TicketComment.created_at')
     tags = relationship('TicketTag', back_populates='ticket', cascade='all, delete-orphan')
     images = relationship('TicketImage', back_populates='ticket', cascade='all, delete-orphan', order_by='TicketImage.created_at')
+    listings = relationship('TicketListing', back_populates='ticket', cascade='all, delete-orphan')  # Many-to-many with listings
     
     def __repr__(self):
         return f"<Ticket(ticket_id={self.ticket_id}, title='{self.title}', status='{self.status}')>"
@@ -161,6 +162,28 @@ class TicketComment(Base):
             result['images'] = []
         
         return result
+
+
+class TicketListing(Base):
+    """Junction table for many-to-many relationship between tickets and listings"""
+    __tablename__ = 'ticket_listings'
+    __table_args__ = (
+        {'schema': 'tickets'} if os.getenv("DATABASE_URL") else {},
+    )
+    
+    # Foreign key references - adjust schema prefix for PostgreSQL
+    _tickets_fk_schema = 'tickets.' if os.getenv("DATABASE_URL") else ''
+    
+    ticket_id = Column(Integer, ForeignKey(f'{_tickets_fk_schema}tickets.ticket_id', ondelete='CASCADE'), primary_key=True, nullable=False, index=True)
+    # listing_id references listings table in main database (public schema) - no FK constraint since it's cross-database
+    listing_id = Column(Integer, primary_key=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    ticket = relationship('Ticket', back_populates='listings')
+    
+    def __repr__(self):
+        return f"<TicketListing(ticket_id={self.ticket_id}, listing_id={self.listing_id})>"
 
 
 class TicketTag(Base):
@@ -370,6 +393,8 @@ def init_ticket_database():
         _migrate_tickets_recurring_table(engine)
         # Migrate activity_logs table
         _migrate_activity_logs_table(engine)
+        # Migrate ticket_listings junction table
+        _migrate_ticket_listings_table(engine)
     else:
         # PostgreSQL: Migrate to make listing_id nullable
         _migrate_listing_id_nullable(engine)
@@ -377,6 +402,8 @@ def init_ticket_database():
         _migrate_tickets_recurring_table(engine)
         # Migrate activity_logs table
         _migrate_activity_logs_table(engine)
+        # Migrate ticket_listings junction table
+        _migrate_ticket_listings_table(engine)
     
     return engine
 
@@ -564,6 +591,64 @@ def _migrate_tickets_recurring_table(engine):
             pass
 
 
+def _migrate_ticket_listings_table(engine):
+    """Create ticket_listings junction table if it doesn't exist."""
+    import sqlalchemy
+    database_url = os.getenv("DATABASE_URL")
+    
+    try:
+        with engine.connect() as conn:
+            if not database_url:
+                # SQLite migration
+                result = conn.execute(sqlalchemy.text(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='ticket_listings'"
+                ))
+                if not result.fetchone():
+                    # Create table
+                    conn.execute(sqlalchemy.text("""
+                        CREATE TABLE ticket_listings (
+                            ticket_id INTEGER NOT NULL,
+                            listing_id INTEGER NOT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            PRIMARY KEY (ticket_id, listing_id),
+                            FOREIGN KEY (ticket_id) REFERENCES tickets(ticket_id) ON DELETE CASCADE
+                        )
+                    """))
+                    # Create indexes
+                    conn.execute(sqlalchemy.text("CREATE INDEX IF NOT EXISTS idx_ticket_listings_ticket ON ticket_listings(ticket_id)"))
+                    conn.execute(sqlalchemy.text("CREATE INDEX IF NOT EXISTS idx_ticket_listings_listing ON ticket_listings(listing_id)"))
+                    conn.commit()
+                    logger.info("Created ticket_listings table")
+            else:
+                # PostgreSQL migration
+                result = conn.execute(sqlalchemy.text("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = 'tickets' 
+                        AND table_name = 'ticket_listings'
+                    )
+                """))
+                if not result.scalar():
+                    # Create table
+                    conn.execute(sqlalchemy.text("""
+                        CREATE TABLE tickets.ticket_listings (
+                            ticket_id INTEGER NOT NULL,
+                            listing_id INTEGER NOT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            PRIMARY KEY (ticket_id, listing_id),
+                            FOREIGN KEY (ticket_id) REFERENCES tickets.tickets(ticket_id) ON DELETE CASCADE
+                        )
+                    """))
+                    # Create indexes
+                    conn.execute(sqlalchemy.text("CREATE INDEX IF NOT EXISTS idx_ticket_listings_ticket ON tickets.ticket_listings(ticket_id)"))
+                    conn.execute(sqlalchemy.text("CREATE INDEX IF NOT EXISTS idx_ticket_listings_listing ON tickets.ticket_listings(listing_id)"))
+                    conn.commit()
+                    logger.info("Created tickets.ticket_listings table")
+    except Exception as e:
+        logger.warning(f"Error migrating ticket_listings table: {e}")
+        # Table might already exist, ignore
+
+
 def _migrate_activity_logs_table(engine):
     """Create activity_logs table if it doesn't exist."""
     import sqlalchemy
@@ -637,7 +722,7 @@ def _safe_expunge(session, obj):
 
 
 
-def create_ticket(listing_id: int = None, issue_title: str = None, title: str = None, description: str = None,
+def create_ticket(listing_id: int = None, listing_ids: List[int] = None, issue_title: str = None, title: str = None, description: str = None,
                   assigned_user_id: int = None, status: str = 'Open', priority: str = 'Low',
                   category: str = 'other', due_date: date = None, created_by: int = None,
                   is_recurring: bool = False, frequency_value: int = None, frequency_unit: str = None,
@@ -690,31 +775,43 @@ def create_ticket(listing_id: int = None, issue_title: str = None, title: str = 
         session.flush()  # Get ticket_id without committing
         ticket_id = ticket.ticket_id
         
-        # Inherit tags from property (only if listing_id is provided)
-        if listing_id is not None:
-            listing_tags = main_session.query(ListingTag).filter(
-                ListingTag.listing_id == listing_id
-            ).all()
-            
-            for listing_tag in listing_tags:
-                ticket_tag = TicketTag(
-                    ticket_id=ticket_id,
-                    tag_id=listing_tag.tag_id,
-                    is_inherited=True
-                )
-                session.add(ticket_tag)
+        # Handle multiple listings (listing_ids takes precedence over listing_id for backward compatibility)
+        final_listing_ids = []
+        if listing_ids:
+            final_listing_ids = listing_ids
+        elif listing_id is not None:
+            final_listing_ids = [listing_id]
+        
+        # Create TicketListing entries for all selected listings
+        for lid in final_listing_ids:
+            ticket_listing = TicketListing(
+                ticket_id=ticket_id,
+                listing_id=lid
+            )
+            session.add(ticket_listing)
+        
+        # Inherit tags from all selected properties
+        existing_tag_ids = set()
+        if final_listing_ids:
+            for lid in final_listing_ids:
+                listing_tags = main_session.query(ListingTag).filter(
+                    ListingTag.listing_id == lid
+                ).all()
+                
+                for listing_tag in listing_tags:
+                    # Avoid duplicate tags if multiple listings have the same tag
+                    if listing_tag.tag_id not in existing_tag_ids:
+                        existing_tag_ids.add(listing_tag.tag_id)
+                        ticket_tag = TicketTag(
+                            ticket_id=ticket_id,
+                            tag_id=listing_tag.tag_id,
+                            is_inherited=True
+                        )
+                        session.add(ticket_tag)
         
         # Add user-selected tags (non-inherited)
         if tag_ids:
             from database.models import Tag
-            # Get existing tag IDs from inherited tags to avoid duplicates
-            existing_tag_ids = set()
-            if listing_id is not None:
-                listing_tags = main_session.query(ListingTag).filter(
-                    ListingTag.listing_id == listing_id
-                ).all()
-                existing_tag_ids = {lt.tag_id for lt in listing_tags}
-            
             for tag_id in tag_ids:
                 # Skip if tag is already inherited
                 if tag_id in existing_tag_ids:

@@ -334,7 +334,7 @@ def api_create_ticket():
     if not data:
         return jsonify({'error': 'Invalid request data'}), 400
     
-    # Validate listing_id (optional - can be None for general tickets)
+    # Validate listing_id (optional - can be None for general tickets) - kept for backward compatibility
     listing_id = None
     listing_id_raw = data.get('listing_id')
     if listing_id_raw:
@@ -342,6 +342,16 @@ def api_create_ticket():
             listing_id = int(listing_id_raw)
         except (ValueError, TypeError):
             return jsonify({'error': 'Invalid listing_id. Must be an integer or empty for general tickets.'}), 400
+    
+    # Validate listing_ids (optional - array of listing IDs for multiple listings)
+    listing_ids = data.get('listing_ids', [])
+    if not isinstance(listing_ids, list):
+        listing_ids = []
+    # Filter out invalid values and convert to integers
+    try:
+        listing_ids = [int(lid) for lid in listing_ids if lid is not None and str(lid).strip() != '']
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid listing_ids. Must be an array of integers.'}), 400
     
     issue_title = data.get('issue_title', '').strip()
     title = data.get('title', '').strip()
@@ -444,7 +454,8 @@ def api_create_ticket():
     
     try:
         ticket = create_ticket(
-            listing_id=listing_id,
+            listing_id=listing_id,  # Keep for backward compatibility
+            listing_ids=listing_ids if listing_ids else None,  # New: multiple listings
             issue_title=issue_title,
             title=title,
             description=description,

@@ -14,10 +14,11 @@
     <div class="card">
         <form id="ticketForm" onsubmit="saveTicket(event)" class="ticket-form">
             <div class="form-group">
-                <label for="listingSelect" class="form-label">Property</label>
-                <select id="listingSelect" class="form-select" onchange="loadIssues(); loadPropertyTags(); updateIssueRequired();">
-                    <option value="">General (No specific property)</option>
-                </select>
+                <label for="listingMultiSelect" class="form-label">Properties</label>
+                <div id="listingMultiSelect" class="listing-multiselect-container"></div>
+                <small style="color: var(--text-tertiary); font-size: var(--text-sm); margin-top: var(--space-1); display: block;">
+                    Select one or more properties. Leave empty for general tickets.
+                </small>
             </div>
             
             <div class="form-group">
@@ -220,6 +221,7 @@
 <script src="/static/js/tags.js"></script>
 <script src="/static/js/ticket-images.js"></script>
 <script src="/static/js/mention-handler.js"></script>
+<script src="/static/js/listing-multiselect.js"></script>
 <script>
 let allListings = [];
 let allUsers = [];
@@ -229,6 +231,7 @@ let ticketId = {% if ticket %}{{ ticket.ticket_id }}{% else %}null{% endif %};
 let ticketFormImageUploader = null;
 let pendingImages = []; // For new tickets - images to upload after ticket creation
 let ticketTagInput = null; // TagInput instance for ticket tags
+let listingMultiSelect = null; // ListingMultiSelect instance
 
 document.addEventListener('DOMContentLoaded', function() {
     loadListings();
@@ -290,27 +293,40 @@ function loadListings() {
         .then(response => response.json())
         .then(listings => {
             allListings = listings;
-            const select = document.getElementById('listingSelect');
-            listings.forEach(listing => {
-                const option = document.createElement('option');
-                option.value = listing.listing_id;
-                const displayName = listing.internal_listing_name || listing.name || `Listing ${listing.listing_id}`;
-                option.textContent = displayName;
+            
+            // Initialize multi-select component
+            const container = document.getElementById('listingMultiSelect');
+            if (container) {
+                let selectedListingIds = [];
                 {% if ticket %}
-                if (listing.listing_id === {{ ticket.listing_id }}) {
-                    option.selected = true;
+                // Edit mode - get selected listings from ticket
+                if ({{ ticket.listing_id }}) {
+                    selectedListingIds = [{{ ticket.listing_id }}];
                 }
                 {% elif listing_id %}
-                if (listing.listing_id === {{ listing_id }}) {
-                    option.selected = true;
-                }
+                // Pre-fill with provided listing_id
+                selectedListingIds = [{{ listing_id }}];
                 {% endif %}
-                select.appendChild(option);
-            });
-            {% if ticket or listing_id %}
-            loadIssues();
-            {% endif %}
-            updateIssueRequired(); // Set initial required state
+                
+                listingMultiSelect = new ListingMultiSelect(container, {
+                    listings: listings,
+                    selectedListingIds: selectedListingIds,
+                    onSelectionChange: (selectedIds) => {
+                        // Update currentListingId for backward compatibility
+                        currentListingId = selectedIds.length > 0 && selectedIds[0] !== 0 ? selectedIds[0] : null;
+                        loadIssues();
+                        loadPropertyTags();
+                        updateIssueRequired();
+                    },
+                    placeholder: 'Select properties...',
+                    allowGeneral: true
+                });
+                
+                {% if ticket or listing_id %}
+                loadIssues();
+                {% endif %}
+                updateIssueRequired();
+            }
         })
         .catch(error => console.error('Error loading listings:', error));
 }
@@ -337,13 +353,16 @@ function loadUsers() {
 }
 
 function loadIssues() {
-    const listingId = document.getElementById('listingSelect').value;
+    // Get selected listing IDs from multi-select
+    const selectedListingIds = listingMultiSelect ? listingMultiSelect.getSelectedListingIds() : [];
+    const firstListingId = selectedListingIds.length > 0 && selectedListingIds[0] !== 0 ? selectedListingIds[0] : null;
     
-    // Allow empty listingId for general tickets
-    currentListingId = listingId || null;
+    // For backward compatibility, use first selected listing or currentListingId
+    const listingId = firstListingId || currentListingId;
+    currentListingId = listingId;
     
-    if (!listingId) {
-        // For general tickets, clear issues dropdown
+    if (!listingId || listingId === 0) {
+        // For general tickets or no selection, clear issues dropdown
         document.getElementById('issueSelect').innerHTML = '<option value="">Select an issue</option>';
         updateIssueRequired();
         return;
@@ -410,8 +429,11 @@ function toggleIssueInput() {
 }
 
 function updateIssueRequired() {
-    const listingId = document.getElementById('listingSelect').value;
-    const isRequired = !!listingId;
+    // Get selected listing IDs from multi-select
+    const selectedListingIds = listingMultiSelect ? listingMultiSelect.getSelectedListingIds() : [];
+    const hasListings = selectedListingIds.length > 0 && !selectedListingIds.includes(0);
+    const isRequired = hasListings;
+    
     const select = document.getElementById('issueSelect');
     const input = document.getElementById('issueTitleInput');
     const requiredSpan = document.getElementById('issueRequired');
@@ -866,7 +888,11 @@ async function uploadPendingImages(ticketId) {
 function saveTicket(event) {
     event.preventDefault();
     
-    const listingId = document.getElementById('listingSelect').value;
+    // Get selected listing IDs from multi-select
+    const selectedListingIds = listingMultiSelect ? listingMultiSelect.getSelectedListingIds() : [];
+    const validListingIds = selectedListingIds.filter(id => id !== 0); // Exclude "General" (0)
+    const firstListingId = validListingIds.length > 0 ? validListingIds[0] : null; // For backward compatibility
+    
     const issueSelect = document.getElementById('issueSelect');
     const issueInput = document.getElementById('issueTitleInput');
     let issueTitle = issueInput.style.display !== 'none' ? issueInput.value : issueSelect.value;
@@ -885,12 +911,12 @@ function saveTicket(event) {
     }
     
     // For general tickets (no property), use title as issue_title if not provided
-    if (!listingId && !issueTitle) {
+    if (validListingIds.length === 0 && !issueTitle) {
         issueTitle = title;
     }
     
-    // Issue title is required
-    if (!issueTitle) {
+    // Issue title is required if listings are selected
+    if (validListingIds.length > 0 && !issueTitle) {
         alert('Please select an issue or enter an issue title');
         return;
     }
@@ -907,7 +933,8 @@ function saveTicket(event) {
     }
     
     const data = {
-        listing_id: listingId ? parseInt(listingId) : null,
+        listing_id: firstListingId ? parseInt(firstListingId) : null,  // Keep for backward compatibility
+        listing_ids: validListingIds.length > 0 ? validListingIds.map(id => parseInt(id)) : [],  // New: multiple listings
         issue_title: issueTitle,
         title: title,
         description: description,
@@ -1041,37 +1068,61 @@ async function initializeTicketTags() {
 }
 
 function loadPropertyTags() {
-    const listingId = document.getElementById('listingSelect').value;
-    
-    if (!ticketTagInput) {
+    if (!ticketTagInput || !listingMultiSelect) {
         return;
     }
+    
+    // Get selected listing IDs from multi-select
+    const selectedListingIds = listingMultiSelect.getSelectedListingIds();
+    const validListingIds = selectedListingIds.filter(id => id !== 0); // Exclude "General"
     
     // Get current tags
     const currentTags = ticketTagInput.getTags() || [];
     
-    if (!listingId) {
-        // No listing selected - remove all inherited tags
+    if (validListingIds.length === 0) {
+        // No listings selected - remove all inherited tags
         const nonInheritedTags = currentTags.filter(tag => !tag.is_inherited);
         ticketTagInput.setTags(nonInheritedTags);
         return;
     }
     
-    fetch(`/api/listings/${listingId}/tags`)
-        .then(response => response.json())
-        .then(tags => {
+    // Fetch tags from all selected listings
+    const tagPromises = validListingIds.map(listingId => 
+        fetch(`/api/listings/${listingId}/tags`)
+            .then(response => response.json())
+            .catch(error => {
+                console.error(`Error loading tags for listing ${listingId}:`, error);
+                return [];
+            })
+    );
+    
+    Promise.all(tagPromises)
+        .then(tagArrays => {
+            // Combine all tags from all selected listings
+            const allInheritedTags = [];
+            const seenTagIds = new Set();
+            
+            tagArrays.forEach(tags => {
+                tags.forEach(tag => {
+                    if (!seenTagIds.has(tag.tag_id)) {
+                        seenTagIds.add(tag.tag_id);
+                        allInheritedTags.push({
+                            ...tag,
+                            is_inherited: true
+                        });
+                    }
+                });
+            });
+            
             // Remove old inherited tags and add new ones
             const nonInheritedTags = currentTags.filter(tag => !tag.is_inherited);
             const currentTagIds = new Set(nonInheritedTags.map(t => t.tag_id));
             
-            // Add inherited tags (mark as inherited)
-            const inheritedTags = tags.map(tag => ({
-                ...tag,
-                is_inherited: true
-            })).filter(tag => !currentTagIds.has(tag.tag_id)); // Don't duplicate if user already added it
+            // Filter out tags that user already added manually
+            const newInheritedTags = allInheritedTags.filter(tag => !currentTagIds.has(tag.tag_id));
             
             // Combine: non-inherited tags first, then inherited tags
-            const allTags = [...nonInheritedTags, ...inheritedTags];
+            const allTags = [...nonInheritedTags, ...newInheritedTags];
             ticketTagInput.setTags(allTags);
         })
         .catch(error => {
