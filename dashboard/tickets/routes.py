@@ -943,7 +943,27 @@ def api_update_ticket(ticket_id):
                 logger = logging.getLogger(__name__)
                 logger.warning(f"Error sending notifications: {e}", exc_info=True)
             
-            return jsonify(updated_ticket.to_dict(include_comments=False))
+            # Eagerly load listings before calling to_dict() to avoid detached instance error
+            from sqlalchemy.orm import joinedload
+            session = get_session()
+            try:
+                ticket_with_listings = session.query(Ticket).options(
+                    joinedload(Ticket.assigned_user),
+                    joinedload(Ticket.creator),
+                    joinedload(Ticket.listings)
+                ).filter(Ticket.ticket_id == updated_ticket.ticket_id).first()
+                
+                if ticket_with_listings:
+                    # Access relationships to populate them
+                    _ = ticket_with_listings.assigned_user
+                    _ = ticket_with_listings.creator
+                    _ = ticket_with_listings.listings
+                    return jsonify(ticket_with_listings.to_dict(include_comments=False))
+                else:
+                    # Fallback to updated_ticket if query fails
+                    return jsonify(updated_ticket.to_dict(include_comments=False))
+            finally:
+                session.close()
         return jsonify({'error': 'Failed to update ticket'}), 500
     except Exception as e:
         import logging

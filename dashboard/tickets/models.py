@@ -104,9 +104,16 @@ class Ticket(Base):
         }
         
         # Include listing IDs from TicketListing junction table
-        if hasattr(self, 'listings') and self.listings:
-            result['listing_ids'] = [tl.listing_id for tl in self.listings]
-        else:
+        # Use try/except to handle detached instances gracefully
+        try:
+            if hasattr(self, 'listings') and self.listings:
+                # Access listings in a way that doesn't trigger lazy load if detached
+                listings_list = list(self.listings) if self.listings else []
+                result['listing_ids'] = [tl.listing_id for tl in listings_list]
+            else:
+                result['listing_ids'] = [self.listing_id] if self.listing_id else []
+        except Exception:
+            # If listings can't be accessed (detached instance), fall back to listing_id
             result['listing_ids'] = [self.listing_id] if self.listing_id else []
         
         if include_comments:
