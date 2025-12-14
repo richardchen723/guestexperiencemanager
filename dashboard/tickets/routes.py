@@ -393,13 +393,13 @@ def api_create_ticket():
         except ValueError:
             return jsonify({'error': 'Invalid due_date format. Use YYYY-MM-DD'}), 400
     
-        # Parse tag_ids (optional - user-selected tags, in addition to inherited tags)
-        tag_ids = data.get('tag_ids', [])
-        if not isinstance(tag_ids, list):
-            tag_ids = []
-        
-        # Parse recurring task fields
-        is_recurring = data.get('is_recurring', False)
+    # Parse tag_ids (optional - user-selected tags, in addition to inherited tags)
+    tag_ids = data.get('tag_ids', [])
+    if not isinstance(tag_ids, list):
+        tag_ids = []
+    
+    # Parse recurring task fields
+    is_recurring = data.get('is_recurring', False)
     frequency_value = None
     frequency_unit = None
     initial_due_date = None
