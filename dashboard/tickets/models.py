@@ -103,6 +103,12 @@ class Ticket(Base):
             'reopen_days_before_due_date': self.reopen_days_before_due_date if self.reopen_days_before_due_date is not None else 10,
         }
         
+        # Include listing IDs from TicketListing junction table
+        if hasattr(self, 'listings') and self.listings:
+            result['listing_ids'] = [tl.listing_id for tl in self.listings]
+        else:
+            result['listing_ids'] = [self.listing_id] if self.listing_id else []
+        
         if include_comments:
             result['comments'] = [comment.to_dict() for comment in self.comments]
         
@@ -866,7 +872,8 @@ def get_ticket(ticket_id: int) -> Optional[Ticket]:
         ticket = session.query(Ticket).options(
             joinedload(Ticket.assigned_user),
             joinedload(Ticket.creator),
-            joinedload(Ticket.images)
+            joinedload(Ticket.images),
+            joinedload(Ticket.listings)  # Eagerly load listings
         ).filter(Ticket.ticket_id == ticket_id).first()
         
         if ticket:
@@ -874,6 +881,7 @@ def get_ticket(ticket_id: int) -> Optional[Ticket]:
             _ = ticket.assigned_user
             _ = ticket.creator
             _ = ticket.images
+            _ = ticket.listings  # Access listings to populate them
             
             # Expunge to detach from session but keep loaded relationships
             session.expunge(ticket)
@@ -881,6 +889,8 @@ def get_ticket(ticket_id: int) -> Optional[Ticket]:
             _safe_expunge(session, ticket.creator)
             for img in ticket.images:
                 _safe_expunge(session, img)
+            for listing in ticket.listings:
+                _safe_expunge(session, listing)
         
         return ticket
     finally:

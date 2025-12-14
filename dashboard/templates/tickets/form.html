@@ -303,14 +303,61 @@ function loadListings() {
                 let selectedListingIds = [];
                 {% if ticket %}
                 // Edit mode - get selected listings from ticket
-                if ({{ ticket.listing_id }}) {
-                    selectedListingIds = [{{ ticket.listing_id }}];
-                }
+                // First try to get from API (which includes listing_ids from TicketListing)
+                fetch(`/tickets/api/tickets/${ticketId}`)
+                    .then(response => response.json())
+                    .then(ticketData => {
+                        if (ticketData.listing_ids && ticketData.listing_ids.length > 0) {
+                            selectedListingIds = ticketData.listing_ids;
+                        } else if ({{ ticket.listing_id }}) {
+                            // Fallback to old listing_id
+                            selectedListingIds = [{{ ticket.listing_id }}];
+                        }
+                        
+                        if (listingMultiSelect) {
+                            listingMultiSelect.setSelectedListingIds(selectedListingIds);
+                        } else {
+                            listingMultiSelect = new ListingMultiSelect(container, {
+                                listings: listings,
+                                selectedListingIds: selectedListingIds,
+                                onSelectionChange: (selectedIds) => {
+                                    // Update currentListingId for backward compatibility
+                                    currentListingId = selectedIds.length > 0 && selectedIds[0] !== 0 ? selectedIds[0] : null;
+                                    loadIssues();
+                                    loadPropertyTags();
+                                    updateIssueRequired();
+                                },
+                                placeholder: 'Select properties...',
+                                allowGeneral: true
+                            });
+                        }
+                        loadIssues();
+                        updateIssueRequired();
+                    })
+                    .catch(error => {
+                        console.error('Error loading ticket data:', error);
+                        // Fallback to old listing_id
+                        if ({{ ticket.listing_id }}) {
+                            selectedListingIds = [{{ ticket.listing_id }}];
+                        }
+                        listingMultiSelect = new ListingMultiSelect(container, {
+                            listings: listings,
+                            selectedListingIds: selectedListingIds,
+                            onSelectionChange: (selectedIds) => {
+                                currentListingId = selectedIds.length > 0 && selectedIds[0] !== 0 ? selectedIds[0] : null;
+                                loadIssues();
+                                loadPropertyTags();
+                                updateIssueRequired();
+                            },
+                            placeholder: 'Select properties...',
+                            allowGeneral: true
+                        });
+                        loadIssues();
+                        updateIssueRequired();
+                    });
                 {% elif listing_id %}
                 // Pre-fill with provided listing_id
                 selectedListingIds = [{{ listing_id }}];
-                {% endif %}
-                
                 listingMultiSelect = new ListingMultiSelect(container, {
                     listings: listings,
                     selectedListingIds: selectedListingIds,
@@ -324,11 +371,25 @@ function loadListings() {
                     placeholder: 'Select properties...',
                     allowGeneral: true
                 });
-                
-                {% if ticket or listing_id %}
                 loadIssues();
-                {% endif %}
                 updateIssueRequired();
+                {% else %}
+                // Create mode - no pre-selection
+                listingMultiSelect = new ListingMultiSelect(container, {
+                    listings: listings,
+                    selectedListingIds: [],
+                    onSelectionChange: (selectedIds) => {
+                        // Update currentListingId for backward compatibility
+                        currentListingId = selectedIds.length > 0 && selectedIds[0] !== 0 ? selectedIds[0] : null;
+                        loadIssues();
+                        loadPropertyTags();
+                        updateIssueRequired();
+                    },
+                    placeholder: 'Select properties...',
+                    allowGeneral: true
+                });
+                updateIssueRequired();
+                {% endif %}
             }
         })
         .catch(error => console.error('Error loading listings:', error));
@@ -721,6 +782,26 @@ function populateEditForm() {
     document.getElementById('categorySelect').value = {{ ticket.category|tojson if ticket.category else 'other'|tojson }};
     {% if ticket.due_date %}
     document.getElementById('dueDateInput').value = {{ ticket.due_date.strftime('%Y-%m-%d')|tojson }};
+    {% endif %}
+    
+    // Populate issue title
+    {% if ticket.issue_title %}
+    const issueSelect = document.getElementById('issueSelect');
+    const issueInput = document.getElementById('issueTitleInput');
+    const issueTitle = {{ ticket.issue_title|tojson }};
+    
+    // Try to set in dropdown first
+    if (issueSelect) {
+        issueSelect.value = issueTitle;
+        // If not found in dropdown, switch to manual input
+        if (issueSelect.value !== issueTitle) {
+            issueInput.value = issueTitle;
+            issueInput.style.display = 'block';
+            issueSelect.style.display = 'none';
+        }
+    } else if (issueInput) {
+        issueInput.value = issueTitle;
+    }
     {% endif %}
     
     // Populate recurring fields

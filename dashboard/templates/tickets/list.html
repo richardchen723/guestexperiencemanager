@@ -394,9 +394,16 @@ function createTicketCard(ticket) {
     const card = document.createElement('div');
     card.className = 'ticket-card';
     
-    // Try to get listing name from ticket.listing (from API), then from allListings, then fallback
+    // Get listing names - support multiple listings
     let listingName = 'General';
-    if (ticket.listing_id) {
+    if (ticket.listings && ticket.listings.length > 0) {
+        // Multiple listings - show all
+        const listingNames = ticket.listings.map(l => 
+            l.internal_listing_name || l.name || `Listing ${l.listing_id}`
+        );
+        listingName = listingNames.join(', ');
+    } else if (ticket.listing_id) {
+        // Fallback to single listing (backward compatibility)
         if (ticket.listing) {
             // Use listing info from API response (includes internal_listing_name)
             listingName = ticket.listing.internal_listing_name || ticket.listing.name || `Listing ${ticket.listing_id}`;

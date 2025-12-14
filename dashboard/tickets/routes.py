@@ -49,20 +49,44 @@ def tickets_list():
 @approved_required
 def ticket_detail_page(ticket_id):
     """Ticket detail page."""
+    from dashboard.tickets.models import TicketListing
     ticket = get_ticket(ticket_id)
     if not ticket:
         return "Ticket not found", 404
     
-    # Get listing info
+    # Get all listings associated with this ticket
     main_session = get_main_session(config.MAIN_DATABASE_PATH)
+    listings = []
     try:
-        listing = main_session.query(Listing).filter(Listing.listing_id == ticket.listing_id).first()
+        # Get listing IDs from TicketListing junction table
+        session = get_session()
+        try:
+            ticket_listings = session.query(TicketListing).filter(
+                TicketListing.ticket_id == ticket_id
+            ).all()
+            listing_ids = [tl.listing_id for tl in ticket_listings]
+            
+            if listing_ids:
+                listings = main_session.query(Listing).filter(
+                    Listing.listing_id.in_(listing_ids)
+                ).all()
+            elif ticket.listing_id:
+                # Fallback to old listing_id for backward compatibility
+                listing = main_session.query(Listing).filter(Listing.listing_id == ticket.listing_id).first()
+                if listing:
+                    listings = [listing]
+        finally:
+            session.close()
     finally:
         main_session.close()
+    
+    # For backward compatibility, also pass the first listing as 'listing'
+    listing = listings[0] if listings else None
     
     return render_template('tickets/detail.html', 
                          ticket=ticket, 
                          listing=listing,
+                         listings=listings,
                          current_user=get_current_user())
 
 
@@ -275,11 +299,38 @@ def api_list_tickets():
                             'is_inherited': tt.is_inherited
                         })
         
+        # Get all listings for tickets (from TicketListing junction table)
+        from dashboard.tickets.models import TicketListing
+        ticket_listings_map = {}
+        if ticket_ids:
+            ticket_listings = session.query(TicketListing).filter(
+                TicketListing.ticket_id.in_(ticket_ids)
+            ).all()
+            for tl in ticket_listings:
+                if tl.ticket_id not in ticket_listings_map:
+                    ticket_listings_map[tl.ticket_id] = []
+                ticket_listings_map[tl.ticket_id].append(tl.listing_id)
+        
         result = []
         for ticket in tickets:
             ticket_dict = ticket.to_dict(include_comments=False)
-            if ticket.listing_id and ticket.listing_id in listing_map:
-                ticket_dict['listing'] = listing_map[ticket.listing_id]
+            
+            # Get listings for this ticket (from junction table or fallback to listing_id)
+            listing_ids = ticket_listings_map.get(ticket.ticket_id, [])
+            if not listing_ids and ticket.listing_id:
+                listing_ids = [ticket.listing_id]
+            
+            # Include all listings in the response
+            if listing_ids:
+                ticket_listings_data = []
+                for lid in listing_ids:
+                    if lid in listing_map:
+                        ticket_listings_data.append(listing_map[lid])
+                if ticket_listings_data:
+                    ticket_dict['listings'] = ticket_listings_data
+                    # For backward compatibility, also include first listing as 'listing'
+                    ticket_dict['listing'] = ticket_listings_data[0]
+            
             ticket_dict['tags'] = ticket_tags_map.get(ticket.ticket_id, [])
             result.append(ticket_dict)
         
@@ -293,15 +344,34 @@ def api_list_tickets():
 @approved_required
 def api_get_ticket(ticket_id):
     """Get a single ticket with comments."""
+    from dashboard.tickets.models import TicketListing
     ticket = get_ticket(ticket_id)
     if not ticket:
         return jsonify({'error': 'Ticket not found'}), 404
     
-    # Get listing info
+    # Get all listings associated with this ticket
     main_session = get_main_session(config.MAIN_DATABASE_PATH)
-    listing = None
+    listings = []
     try:
-        listing = main_session.query(Listing).filter(Listing.listing_id == ticket.listing_id).first()
+        # Get listing IDs from TicketListing junction table
+        session = get_session()
+        try:
+            ticket_listings = session.query(TicketListing).filter(
+                TicketListing.ticket_id == ticket_id
+            ).all()
+            listing_ids = [tl.listing_id for tl in ticket_listings]
+            
+            if listing_ids:
+                listings = main_session.query(Listing).filter(
+                    Listing.listing_id.in_(listing_ids)
+                ).all()
+            elif ticket.listing_id:
+                # Fallback to old listing_id for backward compatibility
+                listing = main_session.query(Listing).filter(Listing.listing_id == ticket.listing_id).first()
+                if listing:
+                    listings = [listing]
+        finally:
+            session.close()
     finally:
         main_session.close()
     
@@ -310,14 +380,17 @@ def api_get_ticket(ticket_id):
     ticket_dict = ticket.to_dict(include_comments=False)
     ticket_dict['comments'] = [comment.to_dict() for comment in comments]
     
-    if listing:
-        ticket_dict['listing'] = {
-            'listing_id': listing.listing_id,
-            'name': listing.name,
-            'internal_listing_name': listing.internal_listing_name,
-            'address': listing.address,
-            'city': listing.city
-        }
+    # Include all listings
+    if listings:
+        ticket_dict['listings'] = [{
+            'listing_id': l.listing_id,
+            'name': l.name,
+            'internal_listing_name': l.internal_listing_name,
+            'address': l.address,
+            'city': l.city
+        } for l in listings]
+        # For backward compatibility, also include first listing as 'listing'
+        ticket_dict['listing'] = ticket_dict['listings'][0]
     
     return jsonify(ticket_dict)
 

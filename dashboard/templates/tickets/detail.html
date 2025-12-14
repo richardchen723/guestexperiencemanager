@@ -36,13 +36,17 @@
                     <span>{{ ticket.issue_title }}</span>
                 </div>
                 <div class="info-row">
-                    <label>Property:</label>
+                    <label>{% if listings|length > 1 %}Properties{% else %}Property{% endif %}:</label>
                     <span>
-                        {% if ticket.listing_id %}
-                        {% if listing %}
-                            <a href="/insights/{{ listing.listing_id }}">{{ listing.internal_listing_name or listing.name }}</a>
+                        {% if listings and listings|length > 0 %}
+                            {% for listing_item in listings %}
+                                <a href="/insights/{{ listing_item.listing_id }}">{{ listing_item.internal_listing_name or listing_item.name }}</a>{% if not loop.last %}, {% endif %}
+                            {% endfor %}
+                        {% elif ticket.listing_id %}
+                            {% if listing %}
+                                <a href="/insights/{{ listing.listing_id }}">{{ listing.internal_listing_name or listing.name }}</a>
                             {% else %}
-                            Listing #{{ ticket.listing_id }}
+                                Listing #{{ ticket.listing_id }}
                             {% endif %}
                         {% else %}
                         General (No specific property)
