@@ -276,8 +276,11 @@ document.addEventListener('DOMContentLoaded', function() {
     populateEditForm();
     {% elif listing_id %}
     // Pre-fill listing and issue
-    document.getElementById('listingSelect').value = {{ listing_id }};
-    loadIssues();
+    // Pre-select listing in multi-select if provided
+    if (listingMultiSelect && {{ listing_id }}) {
+        listingMultiSelect.setSelectedListingIds([{{ listing_id }}]);
+        loadIssues();
+    }
     {% if issue_title %}
     if ({{ issue_title|tojson }}) {
         setTimeout(() => {
@@ -402,8 +405,12 @@ function loadIssues() {
 function toggleIssueInput() {
     const select = document.getElementById('issueSelect');
     const input = document.getElementById('issueTitleInput');
-    const listingId = document.getElementById('listingSelect').value;
-    const isRequired = !!listingId; // Only required if property is selected
+    
+    // Get selected listing IDs from multi-select
+    const selectedListingIds = listingMultiSelect ? listingMultiSelect.getSelectedListingIds() : [];
+    const validListingIds = selectedListingIds.filter(id => id !== 0); // Exclude "General"
+    const hasListings = validListingIds.length > 0;
+    const isRequired = hasListings; // Only required if property is selected
     
     if (input.style.display === 'none') {
         // Switch to manual input
@@ -548,7 +555,11 @@ function getAISuggestions(event) {
     }
     
     // Validate inputs
-    const listingId = document.getElementById('listingSelect').value;
+    // Get selected listing IDs from multi-select
+    const selectedListingIds = listingMultiSelect ? listingMultiSelect.getSelectedListingIds() : [];
+    const validListingIds = selectedListingIds.filter(id => id !== 0); // Exclude "General"
+    const listingId = validListingIds.length > 0 ? validListingIds[0] : null; // Use first listing for AI suggestions
+    
     const issueSelect = document.getElementById('issueSelect');
     const issueInput = document.getElementById('issueTitleInput');
     
