@@ -43,7 +43,7 @@
                                 <a href="/insights/{{ listing_item.listing_id }}">{{ listing_item.internal_listing_name or listing_item.name }}</a>{% if not loop.last %}, {% endif %}
                             {% endfor %}
                         {% elif ticket.listing_id %}
-                            {% if listing %}
+                        {% if listing %}
                                 <a href="/insights/{{ listing.listing_id }}">{{ listing.internal_listing_name or listing.name }}</a>
                             {% else %}
                                 Listing #{{ ticket.listing_id }}

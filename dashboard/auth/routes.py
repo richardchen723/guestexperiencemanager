@@ -109,6 +109,7 @@ def api_get_profile():
         'email': user.email,
         'name': user.name,
         'role': user.role,
+        'is_admin': user.is_admin(),  # Add is_admin field
         'whatsapp_number': user.whatsapp_number or '',
         'whatsapp_notifications_enabled': user.whatsapp_notifications_enabled
     })

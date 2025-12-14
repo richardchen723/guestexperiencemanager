@@ -48,7 +48,10 @@ def run_all_migrations(engine=None):
             _migrate_tags_tables,
             _migrate_listings_table,
             _migrate_review_origin_column,
-            _migrate_review_filters_table
+            _migrate_review_filters_table,
+            _migrate_documents_table,
+            _migrate_document_listings_table,
+            _migrate_document_tags_table
         )
         database_url = os.getenv("DATABASE_URL")
         
@@ -64,6 +67,9 @@ def run_all_migrations(engine=None):
             _migrate_tags_tables(engine)
             _migrate_listings_table(engine)
             _migrate_review_filters_table(engine)
+            _migrate_documents_table(engine)
+            _migrate_document_listings_table(engine)
+            _migrate_document_tags_table(engine)
             # Tickets DB migrations
             from dashboard.tickets.models import (
                 _migrate_tickets_table,
@@ -82,6 +88,9 @@ def run_all_migrations(engine=None):
             _migrate_listings_table(engine)
             _migrate_review_origin_column(engine)
             _migrate_review_filters_table(engine)
+            _migrate_documents_table(engine)
+            _migrate_document_listings_table(engine)
+            _migrate_document_tags_table(engine)
             # Tickets DB migrations
             from dashboard.tickets.models import (
                 _migrate_listing_id_nullable,

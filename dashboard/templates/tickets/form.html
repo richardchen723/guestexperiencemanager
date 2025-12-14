@@ -279,7 +279,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Pre-select listing in multi-select if provided
     if (listingMultiSelect && {{ listing_id }}) {
         listingMultiSelect.setSelectedListingIds([{{ listing_id }}]);
-        loadIssues();
+    loadIssues();
     }
     {% if issue_title %}
     if ({{ issue_title|tojson }}) {
@@ -352,7 +352,7 @@ function loadListings() {
                             placeholder: 'Select properties...',
                             allowGeneral: true
                         });
-                        loadIssues();
+            loadIssues();
                         updateIssueRequired();
                     });
                 {% elif listing_id %}
@@ -389,7 +389,7 @@ function loadListings() {
                     allowGeneral: true
                 });
                 updateIssueRequired();
-                {% endif %}
+            {% endif %}
             }
         })
         .catch(error => console.error('Error loading listings:', error));
@@ -480,7 +480,7 @@ function toggleIssueInput() {
         select.removeAttribute('required');
         if (isRequired) {
             input.setAttribute('required', 'required');
-        } else {
+    } else {
             input.removeAttribute('required');
         }
     } else {

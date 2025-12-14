@@ -45,6 +45,16 @@ CONVERSATIONS_DIR = str(PROJECT_ROOT / "conversations")
 # S3 storage is no longer used - all files stored locally in conversations/ directory
 USE_S3_STORAGE = False  # Always use local filesystem
 
+# Knowledge Base Configuration
+KNOWLEDGE_DOCUMENTS_DIR = str(PROJECT_ROOT / "data" / "knowledge" / "documents")
+MAX_DOCUMENT_SIZE = 25 * 1024 * 1024  # 25 MB
+ALLOWED_DOCUMENT_TYPES = {
+    'application/pdf': 'PDF',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word',
+    'application/msword': 'Word (legacy)'
+}
+ALLOWED_DOCUMENT_EXTENSIONS = {'.pdf', '.doc', '.docx'}
+
 # Analysis time windows
 REVIEW_MONTHS = 3  # Analyze reviews from last 3 months
 MESSAGE_MONTHS = 2  # Analyze messages from last 2 months

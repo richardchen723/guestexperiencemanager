@@ -409,7 +409,7 @@ function createTicketCard(ticket) {
             listingName = ticket.listing.internal_listing_name || ticket.listing.name || `Listing ${ticket.listing_id}`;
         } else {
             // Fallback to allListings lookup
-            const listing = allListings.find(l => l.listing_id === ticket.listing_id);
+    const listing = allListings.find(l => l.listing_id === ticket.listing_id);
             if (listing) {
                 listingName = listing.internal_listing_name || listing.name || `Listing ${ticket.listing_id}`;
             } else {

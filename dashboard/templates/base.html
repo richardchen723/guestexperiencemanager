@@ -22,6 +22,7 @@
                         <a href="{{ url_for('properties') }}" {% if request.endpoint == 'properties' %}class="active"{% endif %}>Properties</a>
                         <a href="{{ url_for('tickets.tickets_list') }}" {% if 'tickets' in request.endpoint %}class="active"{% endif %}>Tickets</a>
                         <a href="{{ url_for('reviews.reviews_page') }}" {% if 'reviews' in request.endpoint %}class="active"{% endif %}>Reviews</a>
+                        <a href="{{ url_for('knowledge.knowledge_page') }}" {% if 'knowledge' in request.endpoint %}class="active"{% endif %}>Knowledge</a>
                         {% if current_user and current_user.is_admin() %}
                         <a href="{{ url_for('admin.activities_page') }}" {% if 'activities' in request.endpoint %}class="active"{% endif %}>Activities</a>
                         {% endif %}

@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+
+{% block title %}Knowledge Base{% endblock %}
+
+{% block extra_head %}
+<style>
+    .knowledge-page {
+        padding: var(--space-6);
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .knowledge-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--space-6);
+    }
+
+    .knowledge-header h1 {
+        font-size: var(--text-3xl);
+        font-weight: var(--font-bold);
+        color: var(--gray-900);
+    }
+
+    .upload-section {
+        background: var(--white);
+        border: 1px solid var(--gray-200);
+        border-radius: var(--radius);
+        padding: var(--space-6);
+        margin-bottom: var(--space-6);
+    }
+
+    .upload-section h2 {
+        font-size: var(--text-xl);
+        font-weight: var(--font-semibold);
+        margin-bottom: var(--space-4);
+        color: var(--gray-900);
+    }
+
+    .search-section {
+        background: var(--white);
+        border: 1px solid var(--gray-200);
+        border-radius: var(--radius);
+        padding: var(--space-6);
+        margin-bottom: var(--space-6);
+    }
+
+    .search-section h2 {
+        font-size: var(--text-xl);
+        font-weight: var(--font-semibold);
+        margin-bottom: var(--space-4);
+        color: var(--gray-900);
+    }
+
+    .documents-section {
+        background: var(--white);
+        border: 1px solid var(--gray-200);
+        border-radius: var(--radius);
+        padding: var(--space-6);
+    }
+
+    .documents-section h2 {
+        font-size: var(--text-xl);
+        font-weight: var(--font-semibold);
+        margin-bottom: var(--space-4);
+        color: var(--gray-900);
+    }
+
+    .documents-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: var(--space-4);
+    }
+
+    .document-card {
+        border: 1px solid var(--gray-200);
+        border-radius: var(--radius);
+        padding: var(--space-4);
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+
+    .document-card:hover {
+        box-shadow: var(--shadow-md);
+        transform: translateY(-2px);
+    }
+
+    .document-card-title {
+        font-size: var(--text-lg);
+        font-weight: var(--font-semibold);
+        color: var(--gray-900);
+        margin-bottom: var(--space-2);
+    }
+
+    .document-card-meta {
+        font-size: var(--text-sm);
+        color: var(--gray-600);
+        margin-bottom: var(--space-2);
+    }
+
+    .document-card-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-1);
+        margin-top: var(--space-2);
+    }
+
+    .tag-badge {
+        display: inline-block;
+        padding: 0.25rem 0.5rem;
+        border-radius: var(--radius-sm);
+        font-size: var(--text-xs);
+        font-weight: 500;
+        background-color: var(--primary-color);
+        color: var(--white);
+    }
+
+    .search-results {
+        margin-top: var(--space-4);
+    }
+
+    .search-result-item {
+        border: 1px solid var(--gray-200);
+        border-radius: var(--radius);
+        padding: var(--space-4);
+        margin-bottom: var(--space-3);
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .search-result-item:hover {
+        box-shadow: var(--shadow-md);
+    }
+
+    .search-result-title {
+        font-size: var(--text-lg);
+        font-weight: var(--font-semibold);
+        color: var(--gray-900);
+        margin-bottom: var(--space-2);
+    }
+
+    .search-result-snippet {
+        font-size: var(--text-sm);
+        color: var(--gray-700);
+        line-height: 1.6;
+        margin-bottom: var(--space-2);
+    }
+
+    .search-result-snippet mark {
+        background-color: var(--warning-color);
+        color: var(--gray-900);
+        padding: 0.125rem 0.25rem;
+        border-radius: 2px;
+    }
+
+    .search-result-meta {
+        font-size: var(--text-xs);
+        color: var(--gray-500);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="knowledge-page">
+    <div class="knowledge-header">
+        <h1>Knowledge Base</h1>
+    </div>
+
+    <!-- Upload Section -->
+    <div class="upload-section">
+        <h2>Upload Document</h2>
+        <div id="documentUploadContainer"></div>
+    </div>
+
+    <!-- Search Section -->
+    <div class="search-section">
+        <h2>Search Documents</h2>
+        <div id="knowledgeSearchContainer"></div>
+        <div id="searchResults" class="search-results"></div>
+    </div>
+
+    <!-- Documents List -->
+    <div class="documents-section">
+        <h2>All Documents</h2>
+        <div id="documentsList" class="documents-grid"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/listing-multiselect.js') }}"></script>
+<script src="{{ url_for('static', filename='js/tags.js') }}"></script>
+<script src="{{ url_for('static', filename='js/document-upload.js') }}"></script>
+<script src="{{ url_for('static', filename='js/knowledge-search.js') }}"></script>
+<script src="{{ url_for('static', filename='js/document-viewer.js') }}"></script>
+<script>
+    // Set global user info for document viewer and uploader
+    window.currentUserId = {{ current_user.user_id if current_user else 'null' }};
+    window.currentUserIsAdmin = {{ 'true' if current_user and current_user.is_admin() else 'false' }};
+    
+    // Initialize components when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize upload component
+        if (typeof DocumentUploader !== 'undefined') {
+            const uploadContainer = document.getElementById('documentUploadContainer');
+            if (uploadContainer) {
+                const uploader = new DocumentUploader(uploadContainer);
+            }
+        }
+
+        // Initialize search component
+        if (typeof KnowledgeSearch !== 'undefined') {
+            const searchContainer = document.getElementById('knowledgeSearchContainer');
+            if (searchContainer) {
+                const searcher = new KnowledgeSearch(searchContainer, document.getElementById('searchResults'));
+            }
+        }
+
+        // Load documents list
+        loadDocumentsList();
+    });
+
+    async function loadDocumentsList() {
+        try {
+            const response = await fetch('/knowledge/api/documents');
+            if (!response.ok) {
+                throw new Error('Failed to load documents');
+            }
+            const data = await response.json();
+            renderDocumentsList(data.documents || []);
+        } catch (error) {
+            console.error('Error loading documents:', error);
+            document.getElementById('documentsList').innerHTML = '<p>Error loading documents. Please try again.</p>';
+        }
+    }
+
+    function renderDocumentsList(documents) {
+        const container = document.getElementById('documentsList');
+        if (!container) return;
+
+        if (documents.length === 0) {
+            container.innerHTML = '<p>No documents found. Upload your first document above!</p>';
+            return;
+        }
+
+        container.innerHTML = documents.map(doc => `
+            <div class="document-card" onclick="viewDocument(${doc.document_id})">
+                <div class="document-card-title">${escapeHtml(doc.title)}</div>
+                <div class="document-card-meta">
+                    ${formatFileSize(doc.file_size)} • ${doc.mime_type.split('/')[1].toUpperCase()}
+                </div>
+                ${doc.tags && doc.tags.length > 0 ? `
+                    <div class="document-card-tags">
+                        ${doc.tags.slice(0, 3).map(tag => `
+                            <span class="tag-badge">${escapeHtml(tag.name)}</span>
+                        `).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        `).join('');
+    }
+
+    function viewDocument(documentId) {
+        if (typeof DocumentViewer !== 'undefined') {
+            DocumentViewer.open(documentId);
+        } else {
+            window.location.href = `/knowledge/api/documents/${documentId}/file`;
+        }
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+</script>
+{% endblock %}
+

@@ -6,8 +6,8 @@ SQLAlchemy ORM models for Hostaway data system.
 from sqlalchemy import create_engine, Column, Integer, String, Float, Date, DateTime, Boolean, Text, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.types import JSON
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
+from sqlalchemy.types import JSON, TypeDecorator
 from sqlalchemy.sql import func
 import sqlalchemy
 from datetime import datetime
@@ -58,6 +58,7 @@ class Listing(Base):
     conversations = relationship('Conversation', back_populates='listing')
     reviews = relationship('Review', back_populates='listing', cascade='all, delete-orphan')
     tags = relationship('ListingTag', back_populates='listing', cascade='all, delete-orphan')
+    documents = relationship('DocumentListing', back_populates='listing', cascade='all, delete-orphan')
     
     def get_amenities_list(self):
         """Parse amenities JSON string to list"""
@@ -401,6 +402,7 @@ class Tag(Base):
     
     # Relationships
     listing_tags = relationship('ListingTag', back_populates='tag', cascade='all, delete-orphan')
+    document_tags = relationship('DocumentTag', back_populates='tag', cascade='all, delete-orphan')
     
     def __repr__(self):
         return f"<Tag(tag_id={self.tag_id}, name='{self.name}')>"
@@ -439,6 +441,64 @@ class ListingTag(Base):
     
     def __repr__(self):
         return f"<ListingTag(listing_id={self.listing_id}, tag_id={self.tag_id})>"
+
+
+class Document(Base):
+    """Document model for knowledge base"""
+    __tablename__ = 'documents'
+    
+    document_id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String, nullable=False)  # User-provided or filename
+    file_name = Column(String, nullable=False)  # Original filename
+    file_path = Column(String, nullable=False)  # Relative path on filesystem
+    file_size = Column(Integer, nullable=False)  # Bytes
+    mime_type = Column(String, nullable=False)  # application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document
+    file_hash = Column(String, nullable=True)  # SHA256 hash for duplicate detection
+    content_text = Column(Text, nullable=True)  # Extracted text content
+    is_admin_only = Column(Boolean, default=False, nullable=False)  # True = visible/searchable by admins only, False = all users
+    uploaded_by = Column(Integer, nullable=False, index=True)  # FK to users.users.user_id (cross-schema, no FK constraint)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    listings = relationship('DocumentListing', back_populates='document', cascade='all, delete-orphan')
+    tags = relationship('DocumentTag', back_populates='document', cascade='all, delete-orphan')
+    
+    def __repr__(self):
+        return f"<Document(document_id={self.document_id}, title='{self.title}')>"
+
+
+class DocumentListing(Base):
+    """Junction table for many-to-many relationship between documents and listings"""
+    __tablename__ = 'document_listings'
+    
+    document_id = Column(Integer, ForeignKey('documents.document_id', ondelete='CASCADE'), primary_key=True, nullable=False, index=True)
+    listing_id = Column(Integer, ForeignKey('listings.listing_id', ondelete='CASCADE'), primary_key=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    document = relationship('Document', back_populates='listings')
+    listing = relationship('Listing', back_populates='documents')
+    
+    def __repr__(self):
+        return f"<DocumentListing(document_id={self.document_id}, listing_id={self.listing_id})>"
+
+
+class DocumentTag(Base):
+    """Junction table for many-to-many relationship between documents and tags"""
+    __tablename__ = 'document_tags'
+    
+    document_id = Column(Integer, ForeignKey('documents.document_id', ondelete='CASCADE'), primary_key=True, nullable=False, index=True)
+    tag_id = Column(Integer, ForeignKey('tags.tag_id', ondelete='CASCADE'), primary_key=True, nullable=False, index=True)
+    is_inherited = Column(Boolean, default=False, nullable=False)  # True if inherited from listing
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    document = relationship('Document', back_populates='tags')
+    tag = relationship('Tag', back_populates='document_tags')
+    
+    def __repr__(self):
+        return f"<DocumentTag(document_id={self.document_id}, tag_id={self.tag_id}, is_inherited={self.is_inherited})>"
 
 
 # Database connection utilities
@@ -780,6 +840,173 @@ def _migrate_review_origin_column(engine):
                     conn.rollback()
                     # Column might already exist, ignore
                     pass
+
+
+def _migrate_documents_table(engine):
+    """Create documents table if it doesn't exist"""
+    import os
+    database_url = os.getenv("DATABASE_URL")
+    
+    with engine.connect() as conn:
+        if not database_url:
+            # SQLite migration
+            result = conn.execute(sqlalchemy.text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='documents'"
+            ))
+            if result.fetchone():
+                return  # Table already exists
+            
+            # Table will be created by create_all, but we ensure it exists
+            # create_all will handle it
+            return
+        else:
+            # PostgreSQL migration
+            result = conn.execute(sqlalchemy.text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'documents'
+                )
+            """))
+            if result.scalar():
+                return  # Table already exists
+            
+            # Create documents table
+            conn.execute(sqlalchemy.text("""
+                CREATE TABLE documents (
+                    document_id SERIAL PRIMARY KEY,
+                    title VARCHAR NOT NULL,
+                    file_name VARCHAR NOT NULL,
+                    file_path VARCHAR NOT NULL,
+                    file_size INTEGER NOT NULL,
+                    mime_type VARCHAR NOT NULL,
+                    file_hash VARCHAR,
+                    content_text TEXT,
+                    is_admin_only BOOLEAN NOT NULL DEFAULT FALSE,
+                    uploaded_by INTEGER NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            
+            # Create indexes
+            conn.execute(sqlalchemy.text("CREATE INDEX idx_documents_created_at ON documents(created_at)"))
+            conn.execute(sqlalchemy.text("CREATE INDEX idx_documents_file_hash ON documents(file_hash)"))
+            conn.execute(sqlalchemy.text("CREATE INDEX idx_documents_is_admin_only ON documents(is_admin_only)"))
+            conn.execute(sqlalchemy.text("CREATE INDEX idx_documents_uploaded_by ON documents(uploaded_by)"))
+            
+            # Add tsvector column for full-text search
+            conn.execute(sqlalchemy.text("ALTER TABLE documents ADD COLUMN content_tsvector tsvector"))
+            
+            # Create GIN index for full-text search
+            conn.execute(sqlalchemy.text("""
+                CREATE INDEX idx_documents_content_tsvector 
+                ON documents USING GIN(content_tsvector)
+            """))
+            
+            # Create trigger to auto-update tsvector
+            conn.execute(sqlalchemy.text("""
+                CREATE TRIGGER documents_tsvector_update 
+                BEFORE INSERT OR UPDATE ON documents
+                FOR EACH ROW EXECUTE FUNCTION 
+                tsvector_update_trigger(content_tsvector, 'pg_catalog.english', content_text)
+            """))
+            
+            conn.commit()
+            logger.info("Created documents table with full-text search support")
+
+
+def _migrate_document_listings_table(engine):
+    """Create document_listings junction table if it doesn't exist"""
+    import os
+    database_url = os.getenv("DATABASE_URL")
+    
+    with engine.connect() as conn:
+        if not database_url:
+            # SQLite migration
+            result = conn.execute(sqlalchemy.text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='document_listings'"
+            ))
+            if result.fetchone():
+                return  # Table already exists
+            return  # create_all will handle it
+        else:
+            # PostgreSQL migration
+            result = conn.execute(sqlalchemy.text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'document_listings'
+                )
+            """))
+            if result.scalar():
+                return  # Table already exists
+            
+            # Create document_listings table
+            conn.execute(sqlalchemy.text("""
+                CREATE TABLE document_listings (
+                    document_id INTEGER NOT NULL,
+                    listing_id INTEGER NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (document_id, listing_id),
+                    FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+                    FOREIGN KEY (listing_id) REFERENCES listings(listing_id) ON DELETE CASCADE
+                )
+            """))
+            
+            # Create indexes
+            conn.execute(sqlalchemy.text("CREATE INDEX idx_document_listings_document ON document_listings(document_id)"))
+            conn.execute(sqlalchemy.text("CREATE INDEX idx_document_listings_listing ON document_listings(listing_id)"))
+            
+            conn.commit()
+            logger.info("Created document_listings table")
+
+
+def _migrate_document_tags_table(engine):
+    """Create document_tags junction table if it doesn't exist"""
+    import os
+    database_url = os.getenv("DATABASE_URL")
+    
+    with engine.connect() as conn:
+        if not database_url:
+            # SQLite migration
+            result = conn.execute(sqlalchemy.text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='document_tags'"
+            ))
+            if result.fetchone():
+                return  # Table already exists
+            return  # create_all will handle it
+        else:
+            # PostgreSQL migration
+            result = conn.execute(sqlalchemy.text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'document_tags'
+                )
+            """))
+            if result.scalar():
+                return  # Table already exists
+            
+            # Create document_tags table
+            conn.execute(sqlalchemy.text("""
+                CREATE TABLE document_tags (
+                    document_id INTEGER NOT NULL,
+                    tag_id INTEGER NOT NULL,
+                    is_inherited BOOLEAN NOT NULL DEFAULT FALSE,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (document_id, tag_id),
+                    FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+                    FOREIGN KEY (tag_id) REFERENCES tags(tag_id) ON DELETE CASCADE
+                )
+            """))
+            
+            # Create indexes
+            conn.execute(sqlalchemy.text("CREATE INDEX idx_document_tags_document ON document_tags(document_id)"))
+            conn.execute(sqlalchemy.text("CREATE INDEX idx_document_tags_tag ON document_tags(tag_id)"))
+            
+            conn.commit()
+            logger.info("Created document_tags table")
 
 
 def _migrate_review_filters_table(engine):
