@@ -1938,7 +1938,7 @@ footer {
     background: var(--white);
     border: 1px solid var(--gray-200);
     border-radius: var(--radius);
-    overflow: hidden;
+    overflow: visible;
     transition: all 0.2s ease;
 }
 
@@ -2032,6 +2032,7 @@ footer {
 .modern-filter-dropdown[style*="display: block"],
 .modern-filter-dropdown[style*="display:block"] {
     display: block !important;
+    opacity: 1 !important;
     animation: slideDown 0.2s ease;
 }
 
