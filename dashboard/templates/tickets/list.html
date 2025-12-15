@@ -420,36 +420,19 @@ function updateStatusFilterText() {
 }
 
 function toggleListingFilter(event) {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:toggleListingFilter:423',message:'Function called',data:{hasEvent:!!event},timestamp:Date.now(),sessionId:'debug-session',runId:'dropdown-debug',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     if (event) {
         event.stopPropagation();
     }
     const dropdown = document.getElementById('listingFilterDropdown');
     const trigger = document.getElementById('listingFilterTrigger');
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:toggleListingFilter:429',message:'Elements found',data:{dropdownFound:!!dropdown,triggerFound:!!trigger},timestamp:Date.now(),sessionId:'debug-session',runId:'dropdown-debug',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
-    
     if (dropdown && trigger) {
         const isOpen = dropdown.style.display !== 'none' && dropdown.style.display !== '';
-        const computedStyle = window.getComputedStyle(dropdown);
-        const parentCard = dropdown.closest('.filter-card');
-        const parentComputed = parentCard ? window.getComputedStyle(parentCard) : null;
         
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:toggleListingFilter:435',message:'Before toggle state',data:{isOpen,displayStyle:dropdown.style.display,computedDisplay:computedStyle.display,computedVisibility:computedStyle.visibility,computedOpacity:computedStyle.opacity,computedZIndex:computedStyle.zIndex,parentOverflow:parentComputed?.overflow,parentZIndex:parentComputed?.zIndex,dropdownTop:computedStyle.top,dropdownLeft:computedStyle.left,dropdownPosition:computedStyle.position},timestamp:Date.now(),sessionId:'debug-session',runId:'dropdown-debug',hypothesisId:'B,C,D,E'})}).catch(()=>{});
-        // #endregion
         
         dropdown.style.display = isOpen ? 'none' : 'block';
         trigger.classList.toggle('active', !isOpen);
         
-        // #region agent log
-        const afterComputed = window.getComputedStyle(dropdown);
-        fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:toggleListingFilter:442',message:'After toggle state',data:{newDisplay:dropdown.style.display,computedDisplay:afterComputed.display,computedVisibility:afterComputed.visibility,computedOpacity:afterComputed.opacity,computedZIndex:afterComputed.zIndex,dropdownRect:dropdown.getBoundingClientRect(),parentRect:parentCard?.getBoundingClientRect()},timestamp:Date.now(),sessionId:'debug-session',runId:'dropdown-debug',hypothesisId:'B,C,D,E'})}).catch(()=>{});
-        // #endregion
         
         // Ensure listings are loaded if dropdown is opening
         if (!isOpen && allListings.length === 0) {

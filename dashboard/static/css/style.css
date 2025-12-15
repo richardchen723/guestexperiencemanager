@@ -1848,7 +1848,12 @@ footer {
     border: 1px solid var(--gray-200);
     border-radius: var(--radius-lg);
     box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-    overflow: hidden;
+    overflow: visible;
+}
+
+/* Ensure header maintains border radius without clipping */
+.tickets-filters-modern .filters-header {
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
 .filters-header {
