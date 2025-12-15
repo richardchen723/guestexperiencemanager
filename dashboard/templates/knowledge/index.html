@@ -213,7 +213,7 @@
         if (typeof KnowledgeSearch !== 'undefined') {
             const searchContainer = document.getElementById('knowledgeSearchContainer');
             if (searchContainer) {
-                const searcher = new KnowledgeSearch(searchContainer, document.getElementById('searchResults'));
+                window.knowledgeSearcher = new KnowledgeSearch(searchContainer, document.getElementById('searchResults'));
             }
         }
 
@@ -221,9 +221,23 @@
         loadDocumentsList();
     });
 
-    async function loadDocumentsList() {
+    async function loadDocumentsList(selectedListingIds, selectedTagIds) {
         try {
-            const response = await fetch('/knowledge/api/documents');
+            const params = new URLSearchParams();
+            
+            if (selectedListingIds && selectedListingIds.length > 0) {
+                params.append('listing_ids', selectedListingIds.join(','));
+            }
+            
+            if (selectedTagIds && selectedTagIds.length > 0) {
+                params.append('tag_ids', selectedTagIds.join(','));
+            }
+            
+            const url = params.toString() 
+                ? `/knowledge/api/documents?${params.toString()}`
+                : '/knowledge/api/documents';
+            
+            const response = await fetch(url);
             if (!response.ok) {
                 throw new Error('Failed to load documents');
             }

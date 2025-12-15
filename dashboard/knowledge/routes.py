@@ -216,7 +216,9 @@ def api_list_documents():
     if not current_user:
         return jsonify({'error': 'Authentication required'}), 401
     
+    # Support both singular listing_id (backward compatibility) and plural listing_ids
     listing_id = request.args.get('listing_id', type=int)
+    listing_ids_param = request.args.get('listing_ids', '')
     tag_ids_param = request.args.get('tag_ids', '')
     search_query = request.args.get('search', '').strip()
     page = request.args.get('page', 1, type=int)
@@ -238,19 +240,29 @@ def api_list_documents():
         if not current_user.is_admin():
             query = query.filter(Document.is_admin_only == False)
         
-        # Filter by listing
+        # Parse listing IDs - support both singular (backward compat) and plural
+        listing_ids = []
         if listing_id:
-            query = query.join(DocumentListing).filter(
-                DocumentListing.listing_id == listing_id
-            )
+            listing_ids = [listing_id]
+        elif listing_ids_param:
+            listing_ids = [int(lid) for lid in listing_ids_param.split(',') if lid.strip() and lid.strip().isdigit()]
         
-        # Filter by tags
+        # Filter by listings (if any selected)
+        if listing_ids:
+            query = query.join(DocumentListing).filter(
+                DocumentListing.listing_id.in_(listing_ids)
+            ).distinct()
+        
+        # Parse tag IDs
+        tag_ids = []
         if tag_ids_param:
-            tag_ids = [int(tid) for tid in tag_ids_param.split(',') if tid.strip()]
-            if tag_ids:
-                query = query.join(DocumentTag).filter(
-                    DocumentTag.tag_id.in_(tag_ids)
-                ).distinct()
+            tag_ids = [int(tid) for tid in tag_ids_param.split(',') if tid.strip() and tid.strip().isdigit()]
+        
+        # Filter by tags (if any selected) - AND logic: must match both listings AND tags if both are provided
+        if tag_ids:
+            query = query.join(DocumentTag).filter(
+                DocumentTag.tag_id.in_(tag_ids)
+            ).distinct()
         
         # Text search (simple LIKE search for now, full-text search in separate endpoint)
         if search_query:
@@ -460,9 +472,32 @@ def api_search_documents():
     if not query_text:
         return jsonify({'error': 'Search query is required'}), 400
     
+    # Support both singular listing_id (backward compatibility) and plural listing_ids
     listing_id = data.get('listing_id')
+    listing_ids = data.get('listing_ids', [])
     tag_ids = data.get('tag_ids', [])
     limit = data.get('limit', 50)
+    
+    # Normalize listing_ids - support both singular and plural
+    if listing_id:
+        listing_ids = [listing_id] if not listing_ids else listing_ids
+    elif not listing_ids:
+        listing_ids = []
+    
+    # Ensure listing_ids and tag_ids are lists of integers
+    if isinstance(listing_ids, str):
+        listing_ids = [int(lid) for lid in listing_ids.split(',') if lid.strip() and lid.strip().isdigit()]
+    elif not isinstance(listing_ids, list):
+        listing_ids = []
+    else:
+        listing_ids = [int(lid) for lid in listing_ids if lid]
+    
+    if isinstance(tag_ids, str):
+        tag_ids = [int(tid) for tid in tag_ids.split(',') if tid.strip() and tid.strip().isdigit()]
+    elif not isinstance(tag_ids, list):
+        tag_ids = []
+    else:
+        tag_ids = [int(tid) for tid in tag_ids if tid]
     
     session = get_main_session(MAIN_DATABASE_PATH)
     
@@ -495,16 +530,16 @@ def api_search_documents():
             if not current_user.is_admin():
                 sql_query += " AND d.is_admin_only = false"
             
-            # Add listing filter
-            if listing_id:
-                sql_query += """
+            # Add listing filter (support multiple listings)
+            if listing_ids:
+                listing_ids_str = ','.join(str(lid) for lid in listing_ids)
+                sql_query += f"""
                     AND EXISTS (
                         SELECT 1 FROM document_listings dl 
                         WHERE dl.document_id = d.document_id 
-                        AND dl.listing_id = :listing_id
+                        AND dl.listing_id IN ({listing_ids_str})
                     )
                 """
-                params['listing_id'] = listing_id
             
             # Add tag filter
             if tag_ids:
@@ -538,13 +573,13 @@ def api_search_documents():
             if not current_user.is_admin():
                 query = query.filter(Document.is_admin_only == False)
             
-            # Add listing filter
-            if listing_id:
+            # Add listing filter (support multiple listings) - AND logic with tags
+            if listing_ids:
                 query = query.join(DocumentListing).filter(
-                    DocumentListing.listing_id == listing_id
-                )
+                    DocumentListing.listing_id.in_(listing_ids)
+                ).distinct()
             
-            # Add tag filter
+            # Add tag filter - AND logic: must match both listings AND tags if both are provided
             if tag_ids:
                 query = query.join(DocumentTag).filter(
                     DocumentTag.tag_id.in_(tag_ids)
