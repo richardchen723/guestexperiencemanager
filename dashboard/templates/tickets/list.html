@@ -852,14 +852,36 @@ function updateActiveFilters() {
         activeFilters.forEach(filter => {
             const chip = document.createElement('span');
             chip.className = 'active-filter-chip';
-            chip.innerHTML = `
-                <span class="active-filter-label">${escapeHtml(filter.label)}</span>
-                <button type="button" class="active-filter-chip-remove" onclick="removeActiveFilter('${filter.type}', '${escapeHtml(filter.value)}')">
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M9 3L3 9M3 3L9 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-                    </svg>
-                </button>
-            `;
+            
+            const label = document.createElement('span');
+            label.className = 'active-filter-label';
+            label.textContent = filter.label;
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'active-filter-chip-remove';
+            removeBtn.setAttribute('data-filter-type', filter.type);
+            removeBtn.setAttribute('data-filter-value', filter.value);
+            removeBtn.addEventListener('click', function() {
+                removeActiveFilter(filter.type, filter.value);
+            });
+            
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('width', '12');
+            svg.setAttribute('height', '12');
+            svg.setAttribute('viewBox', '0 0 12 12');
+            svg.setAttribute('fill', 'none');
+            
+            const path1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path1.setAttribute('d', 'M9 3L3 9M3 3L9 9');
+            path1.setAttribute('stroke', 'currentColor');
+            path1.setAttribute('stroke-width', '1.5');
+            path1.setAttribute('stroke-linecap', 'round');
+            svg.appendChild(path1);
+            
+            removeBtn.appendChild(svg);
+            chip.appendChild(label);
+            chip.appendChild(removeBtn);
             chipsContainer.appendChild(chip);
         });
     } else {
