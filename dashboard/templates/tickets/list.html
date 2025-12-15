@@ -45,122 +45,211 @@
         </div>
     </div>
     
-    <div class="tickets-filters">
-        <div class="filter-group filter-group-listing">
-            <label for="listingFilterTrigger">Listing:</label>
-            <div class="listing-filter-wrapper">
-                <button type="button" id="listingFilterTrigger" class="listing-filter-trigger" onclick="toggleListingFilter()">
-                    <span id="listingFilterText">All Listings</span>
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="listing-filter-arrow">
-                        <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
-                <div id="listingFilterDropdown" class="listing-filter-dropdown" style="display: none;">
-                    <div class="listing-filter-header">
-                        <span class="listing-filter-title">Filter by Listing</span>
-                        <div class="listing-filter-actions">
-                            <button type="button" onclick="selectAllListings()" class="listing-filter-action-link">Select All</button>
-                            <button type="button" onclick="deselectAllListings()" class="listing-filter-action-link">Clear</button>
+    <!-- Active Filters Bar -->
+    <div id="activeFiltersBar" class="active-filters-bar" style="display: none;">
+        <div class="active-filters-content">
+            <div class="active-filters-label">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M2 4H14M2 8H14M2 12H14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                <span>Active Filters</span>
+            </div>
+            <div id="activeFiltersChips" class="active-filters-chips"></div>
+            <button type="button" onclick="clearAllFilters()" class="clear-all-filters-btn">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M10 4L4 10M4 4L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                Clear All
+            </button>
+        </div>
+    </div>
+    
+    <!-- Modern Filter Panel -->
+    <div class="tickets-filters-modern">
+        <div class="filters-header">
+            <button type="button" id="filtersToggleBtn" class="filters-toggle-btn" onclick="toggleFiltersPanel()">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M3 4.5H15M3 9H15M3 13.5H15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                <span>Filters</span>
+                <svg id="filtersToggleArrow" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="toggle-arrow">
+                    <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
+        </div>
+        
+        <div id="filtersPanel" class="filters-panel" style="display: block;">
+            <div class="filters-grid">
+                <!-- Property Filter -->
+                <div class="filter-card">
+                    <div class="filter-card-header">
+                        <div class="filter-card-title">
+                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M3 3H15V15H3V3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M3 6H15M6 3V15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            <span>Property</span>
                         </div>
                     </div>
-                    <div class="listing-filter-options" id="listingFilterOptions">
-                        <label class="listing-filter-option">
-                            <input type="checkbox" class="listing-checkbox" value="0">
-                            <span class="listing-checkbox-custom"></span>
-                            <span class="listing-filter-label">General (No Property)</span>
-                        </label>
+                    <div class="filter-card-body">
+                        <div class="listing-filter-wrapper">
+                            <button type="button" id="listingFilterTrigger" class="modern-filter-trigger" onclick="toggleListingFilter()">
+                                <span id="listingFilterText">All Properties</span>
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="filter-arrow">
+                                    <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                            <div id="listingFilterDropdown" class="modern-filter-dropdown" style="display: none;">
+                                <div class="modern-filter-dropdown-header">
+                                    <span>Select Properties</span>
+                                    <div class="modern-filter-actions">
+                                        <button type="button" onclick="selectAllListings()" class="filter-action-btn">All</button>
+                                        <button type="button" onclick="deselectAllListings()" class="filter-action-btn">None</button>
+                                    </div>
+                                </div>
+                                <div class="modern-filter-options" id="listingFilterOptions">
+                                    <label class="modern-filter-option">
+                                        <input type="checkbox" class="listing-checkbox" value="0">
+                                        <span class="modern-checkbox-custom"></span>
+                                        <span>General (No Property)</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="selectedListingsDisplay" class="selected-listings-display"></div>
+                    </div>
+                </div>
+                
+                <!-- Status Filter -->
+                <div class="filter-card">
+                    <div class="filter-card-header">
+                        <div class="filter-card-title">
+                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.5"/>
+                                <path d="M9 5V9L12 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            <span>Status</span>
+                        </div>
+                    </div>
+                    <div class="filter-card-body">
+                        <div class="status-filter-wrapper">
+                            <button type="button" id="statusFilterTrigger" class="modern-filter-trigger" onclick="toggleStatusFilter()">
+                                <span id="statusFilterText">All Statuses</span>
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="filter-arrow">
+                                    <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                            <div id="statusFilterDropdown" class="modern-filter-dropdown" style="display: none;">
+                                <div class="modern-filter-dropdown-header">
+                                    <span>Select Statuses</span>
+                                    <div class="modern-filter-actions">
+                                        <button type="button" onclick="selectAllStatuses()" class="filter-action-btn">All</button>
+                                        <button type="button" onclick="deselectAllStatuses()" class="filter-action-btn">None</button>
+                                    </div>
+                                </div>
+                                <div class="modern-filter-options">
+                                    <label class="modern-filter-option">
+                                        <input type="checkbox" class="status-checkbox" value="Open" checked>
+                                        <span class="modern-checkbox-custom"></span>
+                                        <span>Open</span>
+                                    </label>
+                                    <label class="modern-filter-option">
+                                        <input type="checkbox" class="status-checkbox" value="Assigned" checked>
+                                        <span class="modern-checkbox-custom"></span>
+                                        <span>Assigned</span>
+                                    </label>
+                                    <label class="modern-filter-option">
+                                        <input type="checkbox" class="status-checkbox" value="In Progress" checked>
+                                        <span class="modern-checkbox-custom"></span>
+                                        <span>In Progress</span>
+                                    </label>
+                                    <label class="modern-filter-option">
+                                        <input type="checkbox" class="status-checkbox" value="Blocked" checked>
+                                        <span class="modern-checkbox-custom"></span>
+                                        <span>Blocked</span>
+                                    </label>
+                                    <label class="modern-filter-option">
+                                        <input type="checkbox" class="status-checkbox" value="Resolved" checked>
+                                        <span class="modern-checkbox-custom"></span>
+                                        <span>Resolved</span>
+                                    </label>
+                                    <label class="modern-filter-option">
+                                        <input type="checkbox" class="status-checkbox" value="Closed" checked>
+                                        <span class="modern-checkbox-custom"></span>
+                                        <span>Closed</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Assigned To Filter -->
+                <div class="filter-card">
+                    <div class="filter-card-header">
+                        <div class="filter-card-title">
+                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="9" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/>
+                                <path d="M3 15C3 12.5 5.5 10.5 9 10.5C12.5 10.5 15 12.5 15 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                            <span>Assigned To</span>
+                        </div>
+                    </div>
+                    <div class="filter-card-body">
+                        <select id="filterAssigned" class="modern-select">
+                            <option value="">All Users</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- Priority Filter -->
+                <div class="filter-card">
+                    <div class="filter-card-header">
+                        <div class="filter-card-title">
+                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M9 2L11.5 7H16.5L12.5 10.5L14 16L9 13L4 16L5.5 10.5L1.5 7H6.5L9 2Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            <span>Priority</span>
+                        </div>
+                    </div>
+                    <div class="filter-card-body">
+                        <select id="filterPriority" class="modern-select">
+                            <option value="">All Priorities</option>
+                            <option value="Low">Low</option>
+                            <option value="Medium">Medium</option>
+                            <option value="High">High</option>
+                            <option value="Critical">Critical</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- Category Filter -->
+                <div class="filter-card">
+                    <div class="filter-card-header">
+                        <div class="filter-card-title">
+                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M3 3H8V8H3V3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M10 3H15V8H10V3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M3 10H8V15H3V10Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M10 10H15V15H10V10Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            <span>Category</span>
+                        </div>
+                    </div>
+                    <div class="filter-card-body">
+                        <select id="filterCategory" class="modern-select">
+                            <option value="">All Categories</option>
+                            <option value="cleaning">Cleaning</option>
+                            <option value="maintenance">Maintenance</option>
+                            <option value="online">Online</option>
+                            <option value="technology">Technology</option>
+                            <option value="review management">Review Management</option>
+                            <option value="other">Other</option>
+                        </select>
                     </div>
                 </div>
             </div>
-            <div id="selectedListingsDisplay" class="selected-listings-display"></div>
         </div>
-        
-        <div class="filter-group">
-            <label for="filterAssigned">Assigned To:</label>
-            <select id="filterAssigned">
-                <option value="">All Users</option>
-            </select>
-        </div>
-        
-        <div class="filter-group filter-group-status">
-            <label for="statusFilterTrigger">Status:</label>
-            <div class="status-filter-wrapper">
-                <button type="button" id="statusFilterTrigger" class="status-filter-trigger" onclick="toggleStatusFilter()">
-                    <span id="statusFilterText">All Statuses</span>
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="status-filter-arrow">
-                        <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
-                <div id="statusFilterDropdown" class="status-filter-dropdown" style="display: none;">
-                    <div class="status-filter-header">
-                        <span class="status-filter-title">Filter by Status</span>
-                        <div class="status-filter-actions">
-                            <button type="button" onclick="selectAllStatuses()" class="status-filter-action-link">Select All</button>
-                            <button type="button" onclick="deselectAllStatuses()" class="status-filter-action-link">Clear</button>
-                        </div>
-                    </div>
-                    <div class="status-filter-options">
-                        <label class="status-filter-option">
-                            <input type="checkbox" class="status-checkbox" value="Open" checked>
-                            <span class="status-checkbox-custom"></span>
-                            <span class="status-filter-label">Open</span>
-                        </label>
-                        <label class="status-filter-option">
-                            <input type="checkbox" class="status-checkbox" value="Assigned" checked>
-                            <span class="status-checkbox-custom"></span>
-                            <span class="status-filter-label">Assigned</span>
-                        </label>
-                        <label class="status-filter-option">
-                            <input type="checkbox" class="status-checkbox" value="In Progress" checked>
-                            <span class="status-checkbox-custom"></span>
-                            <span class="status-filter-label">In Progress</span>
-                        </label>
-                        <label class="status-filter-option">
-                            <input type="checkbox" class="status-checkbox" value="Blocked" checked>
-                            <span class="status-checkbox-custom"></span>
-                            <span class="status-filter-label">Blocked</span>
-                        </label>
-                        <label class="status-filter-option">
-                            <input type="checkbox" class="status-checkbox" value="Resolved" checked>
-                            <span class="status-checkbox-custom"></span>
-                            <span class="status-filter-label">Resolved</span>
-                        </label>
-                        <label class="status-filter-option">
-                            <input type="checkbox" class="status-checkbox" value="Closed" checked>
-                            <span class="status-checkbox-custom"></span>
-                            <span class="status-filter-label">Closed</span>
-                        </label>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="filter-group">
-            <label for="filterPriority">Priority:</label>
-            <select id="filterPriority">
-                <option value="">All Priorities</option>
-                <option value="Low">Low</option>
-                <option value="Medium">Medium</option>
-                <option value="High">High</option>
-                <option value="Critical">Critical</option>
-            </select>
-        </div>
-        
-        <div class="filter-group">
-            <label for="filterCategory">Category:</label>
-            <select id="filterCategory">
-                <option value="">All Categories</option>
-                <option value="cleaning">Cleaning</option>
-                <option value="maintenance">Maintenance</option>
-                <option value="online">Online</option>
-                <option value="technology">Technology</option>
-                <option value="review management">Review Management</option>
-                <option value="other">Other</option>
-            </select>
-        </div>
-        
-        <button onclick="applyFilters()" class="btn-secondary">Apply Filters</button>
-        <button onclick="clearFilters()" class="btn-secondary">Clear</button>
     </div>
     
     <div id="tagFilterContainer" class="tag-filter" style="margin-top: 1rem;"></div>
@@ -212,6 +301,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.status-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', function() {
             updateStatusFilterText();
+            updateActiveFilters();
             loadTickets();
         });
     });
@@ -282,16 +372,31 @@ document.addEventListener('DOMContentLoaded', function() {
     toggleView(currentView, false); // false = don't save to localStorage yet
 });
 
+function toggleFiltersPanel() {
+    const panel = document.getElementById('filtersPanel');
+    const arrow = document.getElementById('filtersToggleArrow');
+    const btn = document.getElementById('filtersToggleBtn');
+    const isOpen = panel && panel.style.display !== 'none';
+    
+    if (panel) {
+        panel.style.display = isOpen ? 'none' : 'block';
+    }
+    if (arrow) {
+        arrow.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+    }
+    if (btn) {
+        btn.classList.toggle('active', !isOpen);
+    }
+}
+
 function toggleStatusFilter() {
     const dropdown = document.getElementById('statusFilterDropdown');
     const trigger = document.getElementById('statusFilterTrigger');
     
-    if (dropdown.style.display === 'none') {
-        dropdown.style.display = 'block';
-        trigger.classList.add('active');
-    } else {
-        dropdown.style.display = 'none';
-        trigger.classList.remove('active');
+    if (dropdown && trigger) {
+        const isOpen = dropdown.style.display !== 'none';
+        dropdown.style.display = isOpen ? 'none' : 'block';
+        trigger.classList.toggle('active', !isOpen);
     }
 }
 
@@ -308,6 +413,7 @@ function updateStatusFilterText() {
     } else {
         textElement.textContent = `${checkboxes.length} Selected`;
     }
+    updateActiveFilters();
 }
 
 function toggleListingFilter() {
@@ -344,12 +450,14 @@ function updateListingFilterText() {
 function selectAllListings() {
     document.querySelectorAll('.listing-checkbox').forEach(cb => cb.checked = true);
     updateListingFilterText();
+    updateActiveFilters();
     loadTickets();
 }
 
 function deselectAllListings() {
     document.querySelectorAll('.listing-checkbox').forEach(cb => cb.checked = false);
     updateListingFilterText();
+    updateActiveFilters();
     loadTickets();
 }
 
@@ -625,12 +733,14 @@ function applyFilters() {
 function selectAllStatuses() {
     document.querySelectorAll('.status-checkbox').forEach(cb => cb.checked = true);
     updateStatusFilterText();
+    updateActiveFilters();
     loadTickets();
 }
 
 function deselectAllStatuses() {
     document.querySelectorAll('.status-checkbox').forEach(cb => cb.checked = false);
     updateStatusFilterText();
+    updateActiveFilters();
     loadTickets();
 }
 
@@ -649,7 +759,113 @@ function clearSearch() {
     }
 }
 
-function clearFilters() {
+function updateActiveFilters() {
+    const activeBar = document.getElementById('activeFiltersBar');
+    const chipsContainer = document.getElementById('activeFiltersChips');
+    if (!activeBar || !chipsContainer) return;
+    
+    chipsContainer.innerHTML = '';
+    const activeFilters = [];
+    
+    // Check listing filters
+    const listingCheckboxes = document.querySelectorAll('.listing-checkbox:checked');
+    if (listingCheckboxes.length > 0) {
+        listingCheckboxes.forEach(cb => {
+            let label = '';
+            if (cb.value === '0') {
+                label = 'General (No Property)';
+            } else {
+                const listing = allListings.find(l => l.listing_id == cb.value);
+                label = listing ? (listing.internal_listing_name || listing.name || `Listing ${listing.listing_id}`) : 'Unknown';
+            }
+            activeFilters.push({ type: 'listing', value: cb.value, label: label });
+        });
+    }
+    
+    // Check status filters
+    const statusCheckboxes = document.querySelectorAll('.status-checkbox:checked');
+    if (statusCheckboxes.length > 0 && statusCheckboxes.length < 6) {
+        statusCheckboxes.forEach(cb => {
+            activeFilters.push({ type: 'status', value: cb.value, label: cb.value });
+        });
+    }
+    
+    // Check assigned user
+    const assignedId = document.getElementById('filterAssigned').value;
+    if (assignedId) {
+        const assignedSelect = document.getElementById('filterAssigned');
+        const selectedOption = assignedSelect.options[assignedSelect.selectedIndex];
+        activeFilters.push({ type: 'assigned', value: assignedId, label: selectedOption.text });
+    }
+    
+    // Check priority
+    const priority = document.getElementById('filterPriority').value;
+    if (priority) {
+        activeFilters.push({ type: 'priority', value: priority, label: priority });
+    }
+    
+    // Check category
+    const category = document.getElementById('filterCategory').value;
+    if (category) {
+        activeFilters.push({ type: 'category', value: category, label: category.charAt(0).toUpperCase() + category.slice(1) });
+    }
+    
+    // Check search
+    const searchQuery = document.getElementById('searchInput').value.trim();
+    if (searchQuery) {
+        activeFilters.push({ type: 'search', value: searchQuery, label: `Search: "${searchQuery}"` });
+    }
+    
+    // Display active filters
+    if (activeFilters.length > 0) {
+        activeBar.style.display = 'block';
+        activeFilters.forEach(filter => {
+            const chip = document.createElement('span');
+            chip.className = 'active-filter-chip';
+            chip.innerHTML = `
+                <span class="active-filter-label">${escapeHtml(filter.label)}</span>
+                <button type="button" class="active-filter-chip-remove" onclick="removeActiveFilter('${filter.type}', '${escapeHtml(filter.value)}')">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M9 3L3 9M3 3L9 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            `;
+            chipsContainer.appendChild(chip);
+        });
+    } else {
+        activeBar.style.display = 'none';
+    }
+}
+
+function removeActiveFilter(type, value) {
+    if (type === 'listing') {
+        const checkbox = document.querySelector(`.listing-checkbox[value="${value}"]`);
+        if (checkbox) {
+            checkbox.checked = false;
+            updateListingFilterText();
+        }
+    } else if (type === 'status') {
+        const checkbox = document.querySelector(`.status-checkbox[value="${value}"]`);
+        if (checkbox) {
+            checkbox.checked = false;
+            updateStatusFilterText();
+        }
+    } else if (type === 'assigned') {
+        document.getElementById('filterAssigned').value = '';
+    } else if (type === 'priority') {
+        document.getElementById('filterPriority').value = '';
+    } else if (type === 'category') {
+        document.getElementById('filterCategory').value = '';
+    } else if (type === 'search') {
+        document.getElementById('searchInput').value = '';
+        const clearBtn = document.getElementById('clearSearchBtn');
+        if (clearBtn) clearBtn.style.display = 'none';
+    }
+    updateActiveFilters();
+    loadTickets();
+}
+
+function clearAllFilters() {
     // Clear listing filter
     document.querySelectorAll('.listing-checkbox').forEach(cb => cb.checked = false);
     updateListingFilterText();
@@ -665,7 +881,12 @@ function clearFilters() {
     }
     selectedTagIds = [];
     tagLogic = 'AND';
+    updateActiveFilters();
     loadTickets();
+}
+
+function clearFilters() {
+    clearAllFilters();
 }
 
 function formatDate(date) {

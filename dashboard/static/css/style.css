@@ -1591,17 +1591,9 @@ footer {
     height: 18px;
 }
 
+/* Legacy filter styles - keeping for backward compatibility */
 .tickets-filters {
-    display: flex;
-    gap: 1.5rem;
-    margin-bottom: 2rem;
-    padding: 1.5rem;
-    background: linear-gradient(to bottom, var(--white), var(--gray-50));
-    border: 1px solid var(--gray-200);
-    border-radius: var(--radius-lg);
-    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-    flex-wrap: wrap;
-    align-items: flex-start;
+    display: none; /* Hide old filter bar */
 }
 
 .filter-group {
@@ -2010,6 +2002,81 @@ footer {
     border: solid white;
     border-width: 0 2px 2px 0;
     transform: rotate(45deg);
+}
+
+.listing-filter-label {
+    font-size: 0.875rem;
+    color: var(--gray-700);
+    user-select: none;
+    flex: 1;
+}
+
+/* Selected Listings Display */
+.selected-listings-display {
+    display: none;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--gray-200);
+}
+
+.selected-listing-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    background: var(--primary-color);
+    color: var(--white);
+    border-radius: 9999px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.4;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.1);
+}
+
+.selected-listing-chip:hover {
+    background: var(--primary-dark);
+    box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.15);
+    transform: translateY(-1px);
+}
+
+.selected-listing-chip-remove {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: var(--white);
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.selected-listing-chip-remove:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.1);
+}
+
+/* Modernize filter buttons */
+.tickets-filters .btn-secondary {
+    padding: 0.625rem 1.25rem;
+    border-radius: var(--radius);
+    font-weight: 500;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.tickets-filters .btn-secondary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.1);
 }
 
 .listing-filter-label {
