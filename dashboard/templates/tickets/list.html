@@ -67,7 +67,7 @@
     <!-- Modern Filter Panel -->
     <div class="tickets-filters-modern">
         <div class="filters-header">
-            <button type="button" id="filtersToggleBtn" class="filters-toggle-btn" onclick="toggleFiltersPanel()">
+            <button type="button" id="filtersToggleBtn" class="filters-toggle-btn active" onclick="toggleFiltersPanel()">
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M3 4.5H15M3 9H15M3 13.5H15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                 </svg>
@@ -93,7 +93,7 @@
                     </div>
                     <div class="filter-card-body">
                         <div class="listing-filter-wrapper">
-                            <button type="button" id="listingFilterTrigger" class="modern-filter-trigger" onclick="toggleListingFilter()">
+                            <button type="button" id="listingFilterTrigger" class="modern-filter-trigger" onclick="toggleListingFilter(event)">
                                 <span id="listingFilterText">All Properties</span>
                                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="filter-arrow">
                                     <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -133,7 +133,7 @@
                     </div>
                     <div class="filter-card-body">
                         <div class="status-filter-wrapper">
-                            <button type="button" id="statusFilterTrigger" class="modern-filter-trigger" onclick="toggleStatusFilter()">
+                            <button type="button" id="statusFilterTrigger" class="modern-filter-trigger" onclick="toggleStatusFilter(event)">
                                 <span id="statusFilterText">All Statuses</span>
                                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="filter-arrow">
                                     <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -340,9 +340,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Close dropdowns when clicking outside
     document.addEventListener('click', function(event) {
         // Close status filter dropdown
-        const statusWrapper = document.querySelector('.status-filter-wrapper');
         const statusDropdown = document.getElementById('statusFilterDropdown');
         const statusTrigger = document.getElementById('statusFilterTrigger');
+        const statusWrapper = statusTrigger ? statusTrigger.closest('.status-filter-wrapper') : null;
         
         if (statusWrapper && statusDropdown && statusTrigger && 
             !statusWrapper.contains(event.target) && 
@@ -352,9 +352,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Close listing filter dropdown
-        const listingWrapper = document.querySelector('.listing-filter-wrapper');
         const listingDropdown = document.getElementById('listingFilterDropdown');
         const listingTrigger = document.getElementById('listingFilterTrigger');
+        const listingWrapper = listingTrigger ? listingTrigger.closest('.listing-filter-wrapper') : null;
         
         if (listingWrapper && listingDropdown && listingTrigger && 
             !listingWrapper.contains(event.target) && 
@@ -389,12 +389,15 @@ function toggleFiltersPanel() {
     }
 }
 
-function toggleStatusFilter() {
+function toggleStatusFilter(event) {
+    if (event) {
+        event.stopPropagation();
+    }
     const dropdown = document.getElementById('statusFilterDropdown');
     const trigger = document.getElementById('statusFilterTrigger');
     
     if (dropdown && trigger) {
-        const isOpen = dropdown.style.display !== 'none';
+        const isOpen = dropdown.style.display !== 'none' && dropdown.style.display !== '';
         dropdown.style.display = isOpen ? 'none' : 'block';
         trigger.classList.toggle('active', !isOpen);
     }
@@ -416,12 +419,15 @@ function updateStatusFilterText() {
     updateActiveFilters();
 }
 
-function toggleListingFilter() {
+function toggleListingFilter(event) {
+    if (event) {
+        event.stopPropagation();
+    }
     const dropdown = document.getElementById('listingFilterDropdown');
     const trigger = document.getElementById('listingFilterTrigger');
     
     if (dropdown && trigger) {
-        const isOpen = dropdown.style.display !== 'none';
+        const isOpen = dropdown.style.display !== 'none' && dropdown.style.display !== '';
         dropdown.style.display = isOpen ? 'none' : 'block';
         trigger.classList.toggle('active', !isOpen);
     }
