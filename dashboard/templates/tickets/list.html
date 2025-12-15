@@ -321,6 +321,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 clearTimeout(searchTimeout);
             }
             
+            // Update active filters immediately (no debounce for UI feedback)
+            updateActiveFilters();
+            
             // Set new timeout for debounced search
             searchTimeout = setTimeout(function() {
                 loadTickets();
@@ -334,6 +337,32 @@ document.addEventListener('DOMContentLoaded', function() {
         
         searchInput.addEventListener('blur', function() {
             this.parentElement.classList.remove('focused');
+        });
+    }
+    
+    // Add change listeners to select dropdowns
+    const filterAssigned = document.getElementById('filterAssigned');
+    const filterPriority = document.getElementById('filterPriority');
+    const filterCategory = document.getElementById('filterCategory');
+    
+    if (filterAssigned) {
+        filterAssigned.addEventListener('change', function() {
+            updateActiveFilters();
+            loadTickets();
+        });
+    }
+    
+    if (filterPriority) {
+        filterPriority.addEventListener('change', function() {
+            updateActiveFilters();
+            loadTickets();
+        });
+    }
+    
+    if (filterCategory) {
+        filterCategory.addEventListener('change', function() {
+            updateActiveFilters();
+            loadTickets();
         });
     }
     
@@ -428,11 +457,8 @@ function toggleListingFilter(event) {
     
     if (dropdown && trigger) {
         const isOpen = dropdown.style.display !== 'none' && dropdown.style.display !== '';
-        
-        
         dropdown.style.display = isOpen ? 'none' : 'block';
         trigger.classList.toggle('active', !isOpen);
-        
         
         // Ensure listings are loaded if dropdown is opening
         if (!isOpen && allListings.length === 0) {
@@ -506,6 +532,7 @@ function loadListings() {
             generalCheckbox.value = '0';
             generalCheckbox.addEventListener('change', function() {
                 updateListingFilterText();
+                updateActiveFilters();
                 loadTickets();
             });
             
@@ -531,6 +558,7 @@ function loadListings() {
                 checkbox.value = listing.listing_id;
                 checkbox.addEventListener('change', function() {
                     updateListingFilterText();
+                    updateActiveFilters();
                     loadTickets();
                 });
                 
