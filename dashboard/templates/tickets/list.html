@@ -485,17 +485,37 @@ function loadListings() {
                 return;
             }
             
-            // Clear existing options except "General"
-            const generalOption = optionsContainer.querySelector('.listing-filter-option');
+            // Clear existing options and rebuild with "General" option first
             optionsContainer.innerHTML = '';
-            if (generalOption) {
-                optionsContainer.appendChild(generalOption);
-            }
+            
+            // Add "General (No Property)" option
+            const generalLabel = document.createElement('label');
+            generalLabel.className = 'modern-filter-option';
+            
+            const generalCheckbox = document.createElement('input');
+            generalCheckbox.type = 'checkbox';
+            generalCheckbox.className = 'listing-checkbox';
+            generalCheckbox.value = '0';
+            generalCheckbox.addEventListener('change', function() {
+                updateListingFilterText();
+                loadTickets();
+            });
+            
+            const generalCustomCheckbox = document.createElement('span');
+            generalCustomCheckbox.className = 'modern-checkbox-custom';
+            
+            const generalLabelText = document.createElement('span');
+            generalLabelText.textContent = 'General (No Property)';
+            
+            generalLabel.appendChild(generalCheckbox);
+            generalLabel.appendChild(generalCustomCheckbox);
+            generalLabel.appendChild(generalLabelText);
+            optionsContainer.appendChild(generalLabel);
             
             // Add listings as checkboxes
             allListings.forEach(listing => {
                 const label = document.createElement('label');
-                label.className = 'listing-filter-option';
+                label.className = 'modern-filter-option';
                 
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
@@ -507,10 +527,9 @@ function loadListings() {
                 });
                 
                 const customCheckbox = document.createElement('span');
-                customCheckbox.className = 'listing-checkbox-custom';
+                customCheckbox.className = 'modern-checkbox-custom';
                 
                 const labelText = document.createElement('span');
-                labelText.className = 'listing-filter-label';
                 labelText.textContent = listing.internal_listing_name || listing.name || `Listing ${listing.listing_id}`;
                 
                 label.appendChild(checkbox);
