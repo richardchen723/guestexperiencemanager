@@ -430,6 +430,11 @@ function toggleListingFilter(event) {
         const isOpen = dropdown.style.display !== 'none' && dropdown.style.display !== '';
         dropdown.style.display = isOpen ? 'none' : 'block';
         trigger.classList.toggle('active', !isOpen);
+        
+        // Ensure listings are loaded if dropdown is opening
+        if (!isOpen && allListings.length === 0) {
+            loadListings();
+        }
     }
 }
 
