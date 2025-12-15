@@ -150,7 +150,8 @@ def ticket_edit_form(ticket_id):
 @approved_required
 def api_list_tickets():
     """Get list of tickets with optional filters including tags."""
-    listing_id = request.args.get('listing_id', type=int)
+    listing_id = request.args.get('listing_id', type=int)  # Legacy single listing_id
+    listing_ids_param = request.args.get('listing_ids', type=str)  # Comma-separated listing IDs
     assigned_user_id = request.args.get('assigned_user_id', type=int)
     status_param = request.args.get('status', type=str)  # Can be comma-separated
     priority = request.args.get('priority', type=str)
@@ -199,13 +200,54 @@ def api_list_tickets():
                     # No tags found, return empty result
                     return jsonify([])
         
-        # Apply other filters
-        if listing_id:
-            # Handle "General" tickets - if listing_id is 0 or "general", show tickets with NULL listing_id
-            if listing_id == 0 or str(listing_id).lower() == 'general':
-                query = query.filter(Ticket.listing_id.is_(None))
-            else:
-                query = query.filter(Ticket.listing_id == listing_id)
+        # Apply listing filters - support multiple listing IDs
+        listing_ids_to_filter = []
+        if listing_ids_param:
+            # Parse comma-separated listing IDs
+            listing_ids_to_filter = [lid.strip() for lid in listing_ids_param.split(',') if lid.strip()]
+        elif listing_id is not None:
+            # Legacy support: single listing_id
+            listing_ids_to_filter = [str(listing_id)]
+        
+        if listing_ids_to_filter:
+            from dashboard.tickets.models import TicketListing
+            
+            # Parse listing IDs (handle "0" or "general" for NULL listing_id)
+            parsed_listing_ids = []
+            include_general = False
+            for lid_str in listing_ids_to_filter:
+                lid_str = lid_str.strip()
+                if lid_str == '0' or lid_str.lower() == 'general':
+                    include_general = True
+                else:
+                    try:
+                        parsed_listing_ids.append(int(lid_str))
+                    except ValueError:
+                        continue
+            
+            # Build conditions for tickets matching any of the selected listings
+            conditions = []
+            
+            # If "General" is selected, include tickets with NULL listing_id
+            if include_general:
+                conditions.append(Ticket.listing_id.is_(None))
+            
+            # If specific listing IDs are selected, find tickets associated with them
+            if parsed_listing_ids:
+                # Tickets with listing_id matching any of the selected IDs (legacy support)
+                conditions.append(Ticket.listing_id.in_(parsed_listing_ids))
+                
+                # Tickets associated via TicketListing junction table
+                ticket_ids_with_listings = session.query(TicketListing.ticket_id).filter(
+                    TicketListing.listing_id.in_(parsed_listing_ids)
+                ).distinct().all()
+                if ticket_ids_with_listings:
+                    ticket_ids_list = [row[0] for row in ticket_ids_with_listings]
+                    conditions.append(Ticket.ticket_id.in_(ticket_ids_list))
+            
+            # Apply filter: ticket matches if ANY condition is true
+            if conditions:
+                query = query.filter(or_(*conditions))
         if assigned_user_id:
             query = query.filter(Ticket.assigned_user_id == assigned_user_id)
         if status_param:

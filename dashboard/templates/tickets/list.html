@@ -46,12 +46,32 @@
     </div>
     
     <div class="tickets-filters">
-        <div class="filter-group">
-            <label for="filterListing">Listing:</label>
-            <select id="filterListing">
-                <option value="">All Listings</option>
-                <option value="0">General (No Property)</option>
-            </select>
+        <div class="filter-group filter-group-listing">
+            <label for="listingFilterTrigger">Listing:</label>
+            <div class="listing-filter-wrapper">
+                <button type="button" id="listingFilterTrigger" class="listing-filter-trigger" onclick="toggleListingFilter()">
+                    <span id="listingFilterText">All Listings</span>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="listing-filter-arrow">
+                        <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+                <div id="listingFilterDropdown" class="listing-filter-dropdown" style="display: none;">
+                    <div class="listing-filter-header">
+                        <span class="listing-filter-title">Filter by Listing</span>
+                        <div class="listing-filter-actions">
+                            <button type="button" onclick="selectAllListings()" class="listing-filter-action-link">Select All</button>
+                            <button type="button" onclick="deselectAllListings()" class="listing-filter-action-link">Clear</button>
+                        </div>
+                    </div>
+                    <div class="listing-filter-options" id="listingFilterOptions">
+                        <label class="listing-filter-option">
+                            <input type="checkbox" class="listing-checkbox" value="0">
+                            <span class="listing-checkbox-custom"></span>
+                            <span class="listing-filter-label">General (No Property)</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
         </div>
         
         <div class="filter-group">
@@ -226,22 +246,36 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Close dropdown when clicking outside
+    // Close dropdowns when clicking outside
     document.addEventListener('click', function(event) {
-        const wrapper = document.querySelector('.status-filter-wrapper');
-        const dropdown = document.getElementById('statusFilterDropdown');
-        const trigger = document.getElementById('statusFilterTrigger');
+        // Close status filter dropdown
+        const statusWrapper = document.querySelector('.status-filter-wrapper');
+        const statusDropdown = document.getElementById('statusFilterDropdown');
+        const statusTrigger = document.getElementById('statusFilterTrigger');
         
-        if (wrapper && dropdown && trigger && 
-            !wrapper.contains(event.target) && 
-            dropdown.style.display !== 'none') {
-            dropdown.style.display = 'none';
-            trigger.classList.remove('active');
+        if (statusWrapper && statusDropdown && statusTrigger && 
+            !statusWrapper.contains(event.target) && 
+            statusDropdown.style.display !== 'none') {
+            statusDropdown.style.display = 'none';
+            statusTrigger.classList.remove('active');
+        }
+        
+        // Close listing filter dropdown
+        const listingWrapper = document.querySelector('.listing-filter-wrapper');
+        const listingDropdown = document.getElementById('listingFilterDropdown');
+        const listingTrigger = document.getElementById('listingFilterTrigger');
+        
+        if (listingWrapper && listingDropdown && listingTrigger && 
+            !listingWrapper.contains(event.target) && 
+            listingDropdown.style.display !== 'none') {
+            listingDropdown.style.display = 'none';
+            listingTrigger.classList.remove('active');
         }
     });
     
-    // Initialize status filter text
+    // Initialize filter text
     updateStatusFilterText();
+    updateListingFilterText();
     
     // Initialize view based on saved preference
     toggleView(currentView, false); // false = don't save to localStorage yet
@@ -275,13 +309,50 @@ function updateStatusFilterText() {
     }
 }
 
-function loadListings() {
-    const select = document.getElementById('filterListing');
-    if (!select) {
-        console.error('filterListing select element not found');
-        return;
-    }
+function toggleListingFilter() {
+    const dropdown = document.getElementById('listingFilterDropdown');
+    const trigger = document.getElementById('listingFilterTrigger');
     
+    if (dropdown && trigger) {
+        const isOpen = dropdown.style.display !== 'none';
+        dropdown.style.display = isOpen ? 'none' : 'block';
+        trigger.classList.toggle('active', !isOpen);
+    }
+}
+
+function updateListingFilterText() {
+    const checkboxes = document.querySelectorAll('.listing-checkbox:checked');
+    const textElement = document.getElementById('listingFilterText');
+    if (!textElement) return;
+    
+    if (checkboxes.length === 0) {
+        textElement.textContent = 'All Listings';
+    } else if (checkboxes.length === 1) {
+        const checkbox = checkboxes[0];
+        if (checkbox.value === '0') {
+            textElement.textContent = 'General (No Property)';
+        } else {
+            const listing = allListings.find(l => l.listing_id == checkbox.value);
+            textElement.textContent = listing ? (listing.internal_listing_name || listing.name || `Listing ${listing.listing_id}`) : 'Selected';
+        }
+    } else {
+        textElement.textContent = `${checkboxes.length} Selected`;
+    }
+}
+
+function selectAllListings() {
+    document.querySelectorAll('.listing-checkbox').forEach(cb => cb.checked = true);
+    updateListingFilterText();
+    loadTickets();
+}
+
+function deselectAllListings() {
+    document.querySelectorAll('.listing-checkbox').forEach(cb => cb.checked = false);
+    updateListingFilterText();
+    loadTickets();
+}
+
+function loadListings() {
     fetch('/api/listings')
         .then(response => {
             if (!response.ok) {
@@ -291,18 +362,46 @@ function loadListings() {
         })
         .then(listings => {
             allListings = listings || [];
-            // Clear existing options except "All Listings"
-            while (select.options.length > 1) {
-                select.remove(1);
+            
+            // Populate listing filter dropdown
+            const optionsContainer = document.getElementById('listingFilterOptions');
+            if (!optionsContainer) {
+                console.error('listingFilterOptions container not found');
+                return;
             }
             
-            // Add listings
+            // Clear existing options except "General"
+            const generalOption = optionsContainer.querySelector('.listing-filter-option');
+            optionsContainer.innerHTML = '';
+            if (generalOption) {
+                optionsContainer.appendChild(generalOption);
+            }
+            
+            // Add listings as checkboxes
             allListings.forEach(listing => {
-                const option = document.createElement('option');
-                option.value = listing.listing_id;
-                const displayName = listing.internal_listing_name || listing.name || `Listing ${listing.listing_id}`;
-                option.textContent = displayName;
-                select.appendChild(option);
+                const label = document.createElement('label');
+                label.className = 'listing-filter-option';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'listing-checkbox';
+                checkbox.value = listing.listing_id;
+                checkbox.addEventListener('change', function() {
+                    updateListingFilterText();
+                    loadTickets();
+                });
+                
+                const customCheckbox = document.createElement('span');
+                customCheckbox.className = 'listing-checkbox-custom';
+                
+                const labelText = document.createElement('span');
+                labelText.className = 'listing-filter-label';
+                labelText.textContent = listing.internal_listing_name || listing.name || `Listing ${listing.listing_id}`;
+                
+                label.appendChild(checkbox);
+                label.appendChild(customCheckbox);
+                label.appendChild(labelText);
+                optionsContainer.appendChild(label);
             });
             
             console.log(`Loaded ${allListings.length} listings`);
@@ -310,11 +409,14 @@ function loadListings() {
         .catch(error => {
             console.error('Error loading listings:', error);
             // Show error to user
-            const errorMsg = document.createElement('div');
-            errorMsg.className = 'error';
-            errorMsg.textContent = 'Failed to load listings. Please refresh the page.';
-            errorMsg.style.margin = '0.5rem 0';
-            select.parentElement.appendChild(errorMsg);
+            const optionsContainer = document.getElementById('listingFilterOptions');
+            if (optionsContainer) {
+                const errorMsg = document.createElement('div');
+                errorMsg.className = 'error';
+                errorMsg.textContent = 'Failed to load listings. Please refresh the page.';
+                errorMsg.style.margin = '0.5rem 0';
+                optionsContainer.appendChild(errorMsg);
+            }
         });
 }
 
@@ -369,7 +471,9 @@ function loadTickets() {
     container.innerHTML = '';
     
     const params = new URLSearchParams();
-    const listingId = document.getElementById('filterListing').value;
+    // Get selected listing IDs from checkboxes
+    const listingCheckboxes = document.querySelectorAll('.listing-checkbox:checked');
+    const selectedListingIds = Array.from(listingCheckboxes).map(cb => cb.value);
     const assignedId = document.getElementById('filterAssigned').value;
     const statusCheckboxes = document.querySelectorAll('.status-checkbox:checked');
     const selectedStatuses = Array.from(statusCheckboxes).map(cb => cb.value);
@@ -377,7 +481,10 @@ function loadTickets() {
     const category = document.getElementById('filterCategory').value;
     const searchQuery = document.getElementById('searchInput').value.trim();
     
-    if (listingId) params.append('listing_id', listingId);
+    // Add listing filter - send as comma-separated listing_ids
+    if (selectedListingIds.length > 0) {
+        params.append('listing_ids', selectedListingIds.join(','));
+    }
     if (assignedId) params.append('assigned_user_id', assignedId);
     if (selectedStatuses.length > 0) {
         // Send multiple status values as comma-separated string
@@ -542,7 +649,9 @@ function clearSearch() {
 }
 
 function clearFilters() {
-    document.getElementById('filterListing').value = '';
+    // Clear listing filter
+    document.querySelectorAll('.listing-checkbox').forEach(cb => cb.checked = false);
+    updateListingFilterText();
     document.getElementById('filterAssigned').value = '';
     // Select all statuses by default
     document.querySelectorAll('.status-checkbox').forEach(cb => cb.checked = true);
