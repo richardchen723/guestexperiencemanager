@@ -4105,6 +4105,9 @@ footer {
     cursor: pointer;
     transition: all 0.2s;
     box-shadow: var(--shadow-sm);
+    max-width: 100%;
+    min-height: auto;
+    word-wrap: break-word;
 }
 
 .swimlane-ticket-card:hover {
@@ -4128,6 +4131,12 @@ footer {
     text-decoration: none;
     flex: 1;
     line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
 }
 
 .swimlane-card-title:hover {
@@ -4150,6 +4159,7 @@ footer {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    max-width: 100%;
 }
 
 .swimlane-card-listing {
@@ -4159,6 +4169,8 @@ footer {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    max-width: 100%;
+    display: block;
 }
 
 .swimlane-tags {

@@ -735,13 +735,16 @@ function createSwimLaneCard(ticket) {
     card.className = 'swimlane-ticket-card';
     card.dataset.ticketId = ticket.ticket_id;
     
-    // Get listing names
+    // Get listing names - limit to first listing for swim lane to keep cards compact
     let listingName = 'General';
     if (ticket.listings && ticket.listings.length > 0) {
-        const listingNames = ticket.listings.map(l => 
-            l.internal_listing_name || l.name || `Listing ${l.listing_id}`
-        );
-        listingName = listingNames.join(', ');
+        // For swim lane, show only the first listing to keep cards compact
+        const firstListing = ticket.listings[0];
+        listingName = firstListing.internal_listing_name || firstListing.name || `Listing ${firstListing.listing_id}`;
+        // If there are more listings, add a count indicator
+        if (ticket.listings.length > 1) {
+            listingName += ` (+${ticket.listings.length - 1})`;
+        }
     } else if (ticket.listing_id) {
         if (ticket.listing) {
             listingName = ticket.listing.internal_listing_name || ticket.listing.name || `Listing ${ticket.listing_id}`;
