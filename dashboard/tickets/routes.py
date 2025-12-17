@@ -125,9 +125,12 @@ def ticket_edit_form(ticket_id):
     if not current_user:
         return redirect(url_for('auth.login'))
     
-    if (ticket.created_by != current_user.user_id and 
-        ticket.assigned_user_id != current_user.user_id and 
-        not current_user.is_admin()):
+    # Allow if user is creator, assigned user, or admin
+    is_creator = ticket.created_by == current_user.user_id
+    is_assigned = ticket.assigned_user_id is not None and ticket.assigned_user_id == current_user.user_id
+    is_admin = current_user.is_admin()
+    
+    if not (is_creator or is_assigned or is_admin):
         return "You don't have permission to edit this ticket", 403
     
     # Get all listings for dropdown
@@ -694,9 +697,12 @@ def api_update_ticket(ticket_id):
         return jsonify({'error': 'Ticket not found'}), 404
     
     # Check permissions: creator, assigned user, or admin can edit
-    if (ticket.created_by != current_user.user_id and 
-        ticket.assigned_user_id != current_user.user_id and 
-        not current_user.is_admin()):
+    # Allow if user is creator, assigned user, or admin
+    is_creator = ticket.created_by == current_user.user_id
+    is_assigned = ticket.assigned_user_id is not None and ticket.assigned_user_id == current_user.user_id
+    is_admin = current_user.is_admin()
+    
+    if not (is_creator or is_assigned or is_admin):
         return jsonify({'error': 'Permission denied'}), 403
     
     data = request.get_json()
@@ -1467,9 +1473,11 @@ def api_upload_ticket_image(ticket_id):
             return jsonify({'error': 'Ticket not found'}), 404
         
         # Check permissions (creator, assignee, or admin)
-        if not (current_user.is_admin() or 
-                ticket.created_by == current_user.user_id or 
-                ticket.assigned_user_id == current_user.user_id):
+        is_creator = ticket.created_by == current_user.user_id
+        is_assigned = ticket.assigned_user_id is not None and ticket.assigned_user_id == current_user.user_id
+        is_admin = current_user.is_admin()
+        
+        if not (is_creator or is_assigned or is_admin):
             return jsonify({'error': 'Permission denied'}), 403
         
         # Check if file was uploaded
@@ -1617,10 +1625,13 @@ def api_delete_ticket_image(ticket_id, image_id):
         if not ticket:
             return jsonify({'error': 'Ticket not found'}), 404
         
-        if not (current_user.is_admin() or 
-                ticket.created_by == current_user.user_id or 
-                ticket.assigned_user_id == current_user.user_id or
-                ticket_image.uploaded_by == current_user.user_id):
+        # Check permissions (creator, assignee, uploader, or admin)
+        is_creator = ticket.created_by == current_user.user_id
+        is_assigned = ticket.assigned_user_id is not None and ticket.assigned_user_id == current_user.user_id
+        is_uploader = ticket_image.uploaded_by == current_user.user_id
+        is_admin = current_user.is_admin()
+        
+        if not (is_creator or is_assigned or is_uploader or is_admin):
             return jsonify({'error': 'Permission denied'}), 403
         
         # Delete files
