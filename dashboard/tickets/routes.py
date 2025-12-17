@@ -160,6 +160,7 @@ def api_list_tickets():
     tags_param = request.args.get('tags', '')
     tag_logic = request.args.get('tag_logic', 'AND').upper()  # AND or OR
     search_query = request.args.get('search', type=str)
+    past_due = request.args.get('past_due', type=str)  # 'true' or 'false' as string
     
     # Normalize issue_title (trim whitespace)
     if issue_title:
@@ -259,6 +260,18 @@ def api_list_tickets():
             query = query.filter(Ticket.priority == priority)
         if category:
             query = query.filter(Ticket.category == category)
+        
+        # Filter past due tickets
+        if past_due and past_due.lower() == 'true':
+            today = date.today()
+            # Past due: due_date < today AND status not in ['Resolved', 'Closed']
+            query = query.filter(
+                and_(
+                    Ticket.due_date.isnot(None),
+                    Ticket.due_date < today,
+                    ~Ticket.status.in_(['Resolved', 'Closed'])
+                )
+            )
         
         # Apply text search if provided
         if search_query:
