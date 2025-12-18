@@ -1,0 +1,120 @@
+/* ============================================
+   Mobile Knowledge Base Styles
+   ============================================ */
+
+@media (max-width: 767px) {
+    .knowledge-page {
+        padding: var(--mobile-space-4);
+    }
+    
+    .knowledge-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--mobile-space-3);
+        margin-bottom: var(--mobile-space-4);
+    }
+    
+    .knowledge-header h1 {
+        font-size: var(--mobile-text-2xl);
+    }
+    
+    .upload-section,
+    .search-section,
+    .documents-section {
+        padding: var(--mobile-space-4);
+        margin-bottom: var(--mobile-space-4);
+    }
+    
+    .upload-section h2,
+    .search-section h2,
+    .documents-section h2 {
+        font-size: var(--mobile-text-xl);
+        margin-bottom: var(--mobile-space-3);
+    }
+    
+    /* Document Cards - Full Width */
+    .documents-grid {
+        display: flex;
+        flex-direction: column;
+        gap: var(--mobile-space-3);
+    }
+    
+    .document-card {
+        width: 100%;
+        padding: var(--mobile-space-4);
+        min-height: var(--touch-target-comfortable);
+    }
+    
+    .document-card:active {
+        transform: scale(0.98);
+    }
+    
+    .document-card-title {
+        font-size: var(--mobile-text-lg);
+        margin-bottom: var(--mobile-space-2);
+    }
+    
+    .document-card-meta {
+        font-size: var(--mobile-text-sm);
+        margin-bottom: var(--mobile-space-2);
+    }
+    
+    .document-card-tags {
+        gap: var(--mobile-space-1);
+        margin-top: var(--mobile-space-2);
+    }
+    
+    .tag-badge {
+        font-size: var(--mobile-text-xs);
+        padding: var(--mobile-space-1) var(--mobile-space-2);
+    }
+    
+    /* Search Results */
+    .search-results {
+        margin-top: var(--mobile-space-4);
+    }
+    
+    .search-result-item {
+        padding: var(--mobile-space-4);
+        margin-bottom: var(--mobile-space-3);
+        min-height: var(--touch-target-comfortable);
+    }
+    
+    .search-result-item:active {
+        transform: scale(0.98);
+    }
+    
+    .search-result-title {
+        font-size: var(--mobile-text-lg);
+        margin-bottom: var(--mobile-space-2);
+    }
+    
+    .search-result-snippet {
+        font-size: var(--mobile-text-sm);
+        line-height: 1.6;
+        margin-bottom: var(--mobile-space-2);
+    }
+    
+    /* Search Input */
+    .knowledge-search-input {
+        width: 100%;
+        min-height: var(--touch-target-comfortable);
+        padding: var(--mobile-space-3) var(--mobile-space-4);
+        font-size: var(--mobile-text-base);
+    }
+    
+    /* Filter Chips */
+    .filter-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--mobile-space-2);
+        margin-top: var(--mobile-space-3);
+    }
+    
+    .filter-chip {
+        padding: var(--mobile-space-2) var(--mobile-space-3);
+        font-size: var(--mobile-text-sm);
+        min-height: var(--touch-target-min);
+    }
+}
+

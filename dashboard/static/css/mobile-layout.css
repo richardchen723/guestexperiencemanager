@@ -1,0 +1,354 @@
+/* ============================================
+   Mobile Layout System
+   Navigation & App Shell
+   ============================================ */
+
+/* ============================================
+   Mobile Bottom Navigation
+   ============================================ */
+
+.mobile-bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 64px;
+    background: var(--white);
+    border-top: 1px solid var(--border-light);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+    z-index: var(--z-mobile-nav);
+    padding-bottom: var(--safe-area-bottom);
+    display: none; /* Hidden by default, shown on mobile via media query */
+}
+
+@media (max-width: 767px) {
+    .mobile-bottom-nav {
+        display: block;
+    }
+}
+
+.mobile-bottom-nav-list {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    height: 100%;
+    padding: 0 var(--mobile-space-2);
+}
+
+.mobile-bottom-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    min-height: var(--touch-target-min);
+    padding: var(--mobile-space-1) var(--mobile-space-2);
+    text-decoration: none;
+    color: var(--text-tertiary);
+    transition: color var(--mobile-transition-base);
+    position: relative;
+    gap: var(--mobile-space-1);
+}
+
+.mobile-bottom-nav-item:active {
+    background: var(--bg-hover);
+    border-radius: var(--radius);
+}
+
+.mobile-bottom-nav-item.active {
+    color: var(--primary-color);
+}
+
+.mobile-bottom-nav-item.active .mobile-bottom-nav-icon {
+    color: var(--primary-color);
+}
+
+.mobile-bottom-nav-icon {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-tertiary);
+    transition: color var(--mobile-transition-base);
+}
+
+.mobile-bottom-nav-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.mobile-bottom-nav-label {
+    font-size: var(--mobile-text-xs);
+    font-weight: var(--font-medium);
+    line-height: 1;
+}
+
+.mobile-bottom-nav-badge {
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    background: var(--error-color);
+    color: var(--white);
+    font-size: 10px;
+    font-weight: var(--font-bold);
+    padding: 2px 6px;
+    border-radius: var(--radius-full);
+    min-width: 18px;
+    text-align: center;
+    line-height: 1.4;
+}
+
+/* ============================================
+   Mobile More Menu
+   ============================================ */
+
+.mobile-more-menu {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-mobile-sheet);
+    display: none;
+    align-items: flex-end;
+}
+
+.mobile-more-menu-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    animation: fadeIn var(--mobile-transition-base);
+}
+
+.mobile-more-menu-content {
+    position: relative;
+    width: 100%;
+    max-height: 80vh;
+    background: var(--white);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: var(--elevation-5);
+    z-index: 1;
+    animation: slideUp var(--mobile-transition-slow);
+    display: flex;
+    flex-direction: column;
+    max-height: 80vh;
+    overflow: hidden;
+}
+
+.mobile-more-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--mobile-space-4) var(--mobile-space-6);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.mobile-more-menu-header h3 {
+    font-size: var(--mobile-text-xl);
+    font-weight: var(--font-semibold);
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.mobile-more-menu-close {
+    background: none;
+    border: none;
+    padding: var(--mobile-space-2);
+    color: var(--text-secondary);
+    cursor: pointer;
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius);
+    transition: background var(--mobile-transition-base);
+}
+
+.mobile-more-menu-close:active {
+    background: var(--bg-hover);
+}
+
+.mobile-more-menu-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--mobile-space-2) 0;
+}
+
+.mobile-more-menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--mobile-space-4);
+    padding: var(--mobile-space-4) var(--mobile-space-6);
+    text-decoration: none;
+    color: var(--text-primary);
+    min-height: var(--touch-target-comfortable);
+    transition: background var(--mobile-transition-base);
+}
+
+.mobile-more-menu-item:active {
+    background: var(--bg-hover);
+}
+
+.mobile-more-menu-icon {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+}
+
+.mobile-more-menu-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+/* Desktop: No sidebar - using existing top navigation */
+
+/* ============================================
+   App Shell Layout Adjustments
+   ============================================ */
+
+/* Mobile: Add padding for bottom nav */
+@media (max-width: 767px) {
+    main {
+        padding-bottom: 80px !important;
+    }
+    
+    /* Hide desktop header nav on mobile */
+    .header-nav {
+        display: none;
+    }
+    
+    /* Adjust header for mobile */
+    header {
+        padding: var(--mobile-space-3) var(--mobile-space-4);
+    }
+    
+    .header-content {
+        padding: 0;
+    }
+    
+    .header-logo {
+        font-size: var(--mobile-text-lg);
+    }
+}
+
+/* Desktop: Keep existing top navigation */
+@media (min-width: 768px) {
+    /* Show desktop header nav */
+    .header-nav {
+        display: flex;
+    }
+    
+    /* Ensure no sidebar padding */
+    main {
+        padding-left: 0 !important;
+    }
+}
+
+/* ============================================
+   Animations
+   ============================================ */
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(100%);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+/* ============================================
+   Page Header Pattern
+   ============================================ */
+
+.page-header {
+    padding: var(--mobile-space-4) var(--mobile-space-4) var(--mobile-space-6);
+    border-bottom: 1px solid var(--border-light);
+    background: var(--white);
+    margin-bottom: var(--mobile-space-4);
+}
+
+.page-header h1 {
+    font-size: var(--mobile-text-2xl);
+    font-weight: var(--font-bold);
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.page-header p {
+    font-size: var(--mobile-text-sm);
+    color: var(--text-secondary);
+    margin: var(--mobile-space-2) 0 0;
+}
+
+@media (min-width: 768px) {
+    .page-header {
+        padding: var(--space-6);
+        margin-bottom: var(--space-6);
+    }
+    
+    .page-header h1 {
+        font-size: var(--text-3xl);
+    }
+}
+
+/* ============================================
+   Sticky Action Bars
+   ============================================ */
+
+.sticky-actions {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--white);
+    border-top: 1px solid var(--border-light);
+    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+    padding: var(--mobile-space-4);
+    z-index: var(--z-fixed);
+    padding-bottom: calc(var(--mobile-space-4) + var(--safe-area-bottom));
+}
+
+@media (max-width: 767px) {
+    .sticky-actions {
+        bottom: 64px; /* Above bottom nav */
+        padding-bottom: var(--mobile-space-4);
+    }
+    
+    .sticky-actions.has-bottom-nav {
+        bottom: 64px;
+    }
+}
+
+@media (min-width: 768px) {
+    .sticky-actions {
+        position: sticky;
+        bottom: 0;
+        margin-top: var(--space-6);
+        border-radius: var(--radius-lg);
+    }
+}
+
+.sticky-actions .btn-full {
+    width: 100%;
+    min-height: var(--touch-target-comfortable);
+}
+

@@ -1,0 +1,193 @@
+/* ============================================
+   Mobile Reviews Styles
+   ============================================ */
+
+@media (max-width: 767px) {
+    .reviews-page {
+        padding: var(--mobile-space-4);
+    }
+    
+    .reviews-header {
+        margin-bottom: var(--mobile-space-4);
+    }
+    
+    .reviews-header h2 {
+        font-size: var(--mobile-text-2xl);
+        margin-bottom: var(--mobile-space-2);
+    }
+    
+    .reviews-section {
+        margin-bottom: var(--mobile-space-6);
+    }
+    
+    .section-header {
+        margin-bottom: var(--mobile-space-4);
+    }
+    
+    .section-header h3 {
+        font-size: var(--mobile-text-xl);
+        margin-bottom: var(--mobile-space-1);
+    }
+    
+    .section-description {
+        font-size: var(--mobile-text-sm);
+        color: var(--text-secondary);
+    }
+    
+    /* Review Cards - Full Width */
+    .reviews-container {
+        display: flex;
+        flex-direction: column;
+        gap: var(--mobile-space-3);
+    }
+    
+    .review-card {
+        background: var(--white);
+        border: 1px solid var(--border-light);
+        border-radius: var(--radius-lg);
+        padding: var(--mobile-space-4);
+        box-shadow: var(--elevation-1);
+        transition: box-shadow var(--mobile-transition-base);
+    }
+    
+    .review-card:active {
+        box-shadow: var(--elevation-2);
+    }
+    
+    .review-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: var(--mobile-space-3);
+        gap: var(--mobile-space-2);
+    }
+    
+    .review-card-title {
+        font-size: var(--mobile-text-lg);
+        font-weight: var(--font-semibold);
+        color: var(--text-primary);
+        flex: 1;
+    }
+    
+    .review-rating {
+        display: flex;
+        align-items: center;
+        gap: var(--mobile-space-1);
+        font-size: var(--mobile-text-base);
+        font-weight: var(--font-semibold);
+    }
+    
+    .review-stars {
+        display: flex;
+        gap: 2px;
+    }
+    
+    .review-card-body {
+        margin-bottom: var(--mobile-space-3);
+    }
+    
+    .review-text {
+        font-size: var(--mobile-text-base);
+        color: var(--text-primary);
+        line-height: 1.6;
+        margin-bottom: var(--mobile-space-2);
+    }
+    
+    .review-text-truncated {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    
+    .review-expand-btn {
+        background: none;
+        border: none;
+        color: var(--primary-color);
+        font-size: var(--mobile-text-sm);
+        font-weight: var(--font-medium);
+        padding: var(--mobile-space-1) 0;
+        cursor: pointer;
+        text-decoration: underline;
+    }
+    
+    .review-card-meta {
+        display: flex;
+        flex-direction: column;
+        gap: var(--mobile-space-2);
+        font-size: var(--mobile-text-sm);
+        color: var(--text-secondary);
+        padding-top: var(--mobile-space-3);
+        border-top: 1px solid var(--border-light);
+    }
+    
+    .review-meta-item {
+        display: flex;
+        align-items: center;
+        gap: var(--mobile-space-2);
+    }
+    
+    /* Filter/Sort Button */
+    .reviews-filter-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--mobile-space-2);
+        width: 100%;
+        padding: var(--mobile-space-3) var(--mobile-space-4);
+        margin-bottom: var(--mobile-space-4);
+        background: var(--white);
+        border: 1px solid var(--border-medium);
+        border-radius: var(--radius);
+        font-size: var(--mobile-text-base);
+        font-weight: var(--font-medium);
+        color: var(--text-primary);
+        cursor: pointer;
+        min-height: var(--touch-target-comfortable);
+    }
+    
+    /* Bad Review Filter Cards */
+    .filter-card {
+        background: var(--white);
+        border: 1px solid var(--border-light);
+        border-radius: var(--radius-lg);
+        padding: var(--mobile-space-4);
+        margin-bottom: var(--mobile-space-3);
+    }
+    
+    .filter-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: var(--mobile-space-3);
+    }
+    
+    .filter-card-title {
+        font-size: var(--mobile-text-lg);
+        font-weight: var(--font-semibold);
+        color: var(--text-primary);
+    }
+    
+    .filter-card-actions {
+        display: flex;
+        gap: var(--mobile-space-2);
+    }
+    
+    .filter-card-body {
+        font-size: var(--mobile-text-sm);
+        color: var(--text-secondary);
+        margin-bottom: var(--mobile-space-3);
+    }
+    
+    .filter-card-footer {
+        display: flex;
+        gap: var(--mobile-space-2);
+    }
+    
+    .filter-card-footer .btn {
+        flex: 1;
+        min-height: var(--touch-target-min);
+        font-size: var(--mobile-text-sm);
+    }
+}
+

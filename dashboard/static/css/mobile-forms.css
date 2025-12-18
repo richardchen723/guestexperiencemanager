@@ -1,0 +1,148 @@
+/* ============================================
+   Mobile Form Styles
+   ============================================ */
+
+/* Form Stepper Progress */
+.form-stepper-progress {
+    margin-bottom: var(--mobile-space-6);
+    padding: var(--mobile-space-4);
+    background: var(--white);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+}
+
+.form-stepper-progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--gray-200);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+    margin-bottom: var(--mobile-space-2);
+}
+
+.form-stepper-progress-fill {
+    height: 100%;
+    background: var(--primary-color);
+    border-radius: var(--radius-full);
+    transition: width var(--mobile-transition-slow);
+}
+
+.form-stepper-progress-text {
+    font-size: var(--mobile-text-sm);
+    font-weight: var(--font-medium);
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+/* Mobile Form Enhancements */
+@media (max-width: 767px) {
+    .ticket-form-page {
+        padding: var(--mobile-space-4);
+    }
+    
+    .ticket-form {
+        background: var(--white);
+        border-radius: var(--radius-lg);
+        padding: var(--mobile-space-4);
+    }
+    
+    .form-group {
+        margin-bottom: var(--mobile-space-6);
+    }
+    
+    .form-label {
+        display: block;
+        font-size: var(--mobile-text-sm);
+        font-weight: var(--font-medium);
+        color: var(--text-primary);
+        margin-bottom: var(--mobile-space-2);
+    }
+    
+    .form-input,
+    .form-select,
+    .form-textarea {
+        width: 100%;
+        min-height: var(--touch-target-min);
+        padding: var(--mobile-space-3) var(--mobile-space-4);
+        font-size: var(--mobile-text-base);
+        border: 1px solid var(--border-medium);
+        border-radius: var(--radius);
+        background: var(--white);
+        color: var(--text-primary);
+        transition: border-color var(--mobile-transition-base);
+    }
+    
+    .form-input:focus,
+    .form-select:focus,
+    .form-textarea:focus {
+        outline: none;
+        border-color: var(--primary-500);
+        box-shadow: 0 0 0 3px var(--primary-100);
+    }
+    
+    .form-input-error {
+        border-color: var(--error-color) !important;
+        box-shadow: 0 0 0 3px var(--error-100) !important;
+    }
+    
+    .form-textarea {
+        min-height: 120px;
+        resize: vertical;
+    }
+    
+    .form-row {
+        display: flex;
+        flex-direction: column;
+        gap: var(--mobile-space-4);
+    }
+    
+    /* Step breaks - hidden on mobile (used for step detection) */
+    .step-break {
+        display: none;
+    }
+    
+    /* Form actions - hidden on mobile (replaced by sticky actions) */
+    .form-actions.desktop-only {
+        display: none;
+    }
+}
+
+/* Desktop: Show form actions, hide sticky */
+@media (min-width: 768px) {
+    .form-actions.desktop-only {
+        display: flex;
+    }
+    
+    .sticky-actions.mobile-only {
+        display: none !important;
+    }
+}
+
+/* Input error states */
+.mobile-form-error {
+    display: flex;
+    align-items: center;
+    gap: var(--mobile-space-1);
+    font-size: var(--mobile-text-sm);
+    color: var(--error-color);
+    margin-top: var(--mobile-space-1);
+}
+
+.mobile-form-error::before {
+    content: '⚠';
+    font-size: var(--mobile-text-base);
+}
+
+/* Input success states */
+.form-input-success {
+    border-color: var(--success-color) !important;
+    box-shadow: 0 0 0 3px var(--success-100) !important;
+}
+
+.form-input-success::after {
+    content: '✓';
+    position: absolute;
+    right: var(--mobile-space-3);
+    color: var(--success-color);
+}
+

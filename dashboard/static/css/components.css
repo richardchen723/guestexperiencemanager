@@ -475,15 +475,21 @@
    ============================================ */
 
 /* Tag Chips - Modern Design */
-.tag-chip {
+/* Unified tag style - used by both .tag-chip and .tag-badge */
+.tag-chip,
+.tag-badge {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-1);
-    padding: 0.375rem 0.75rem;
-    font-size: 0.8125rem;
+    height: 30px;
+    gap: 0;
+    padding-left: 0.75rem;
+    padding-right: 0.25rem;
+    padding-top: 0;
+    padding-bottom: 0;
+    font-size: 0.875rem;
     font-weight: 500;
-    line-height: 1.4;
-    border-radius: 1rem;
+    line-height: 1;
+    border-radius: 9999px;
     background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
     color: #374151;
     border: 1px solid #e5e7eb;
@@ -505,9 +511,12 @@
     vertical-align: middle;
     flex-shrink: 1;
     min-width: 0;
+    line-height: 1;
+    margin-right: 0.375rem; /* 6px - explicit spacing between label and remove button */
 }
 
-.tag-chip::before {
+.tag-chip::before,
+.tag-badge::before {
     content: '';
     position: absolute;
     top: 0;
@@ -518,23 +527,30 @@
     pointer-events: none;
 }
 
-.tag-chip:hover {
+.tag-chip:hover,
+.tag-badge:hover {
     transform: translateY(-1px);
     box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.1);
     border-color: #d1d5db;
 }
 
-.tag-chip.has-color {
+.tag-chip.has-color,
+.tag-badge.has-color,
+.tag-badge[style*="background-color"] {
     color: #ffffff;
     border-color: transparent;
     box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.15);
 }
 
-.tag-chip.has-color::before {
+.tag-chip.has-color::before,
+.tag-badge.has-color::before,
+.tag-badge[style*="background-color"]::before {
     background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 100%);
 }
 
-.tag-chip.has-color:hover {
+.tag-chip.has-color:hover,
+.tag-badge.has-color:hover,
+.tag-badge[style*="background-color"]:hover {
     box-shadow: 0 4px 6px 0 rgba(0, 0, 0, 0.2);
     filter: brightness(1.05);
 }
@@ -554,39 +570,62 @@
 }
 
 .tag-chip-remove {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 18px;
-    height: 18px;
-    margin-left: 0.375rem;
+    width: 32px;
+    height: 32px;
+    margin: 0;
     padding: 0;
-    background: rgba(0, 0, 0, 0.08);
+    background: transparent;
     border: none;
-    border-radius: 50%;
     color: currentColor;
     cursor: pointer;
     transition: all 0.15s ease;
     font-size: 0.875rem;
     line-height: 1;
     font-weight: 600;
+    flex-shrink: 0;
+    /* Visible circle via pseudo-element */
+}
+
+.tag-chip-remove::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 18px;
+    height: 18px;
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 50%;
+    transition: all 0.15s ease;
     opacity: 0.8;
 }
 
-.tag-chip-remove:hover {
+.tag-chip-remove:hover::before {
     opacity: 1;
     background: rgba(239, 68, 68, 0.15);
+}
+
+.tag-chip-remove:hover {
     color: #ef4444;
-    transform: scale(1.1);
+}
+
+.tag-chip.has-color .tag-chip-remove::before {
+    background: rgba(255, 255, 255, 0.25);
 }
 
 .tag-chip.has-color .tag-chip-remove {
-    background: rgba(255, 255, 255, 0.25);
     color: #ffffff;
 }
 
-.tag-chip.has-color .tag-chip-remove:hover {
+.tag-chip.has-color .tag-chip-remove:hover::before {
     background: rgba(255, 255, 255, 0.4);
+}
+
+.tag-chip.has-color .tag-chip-remove:hover {
     color: #ffffff;
 }
 

@@ -1,0 +1,450 @@
+/* ============================================
+   Mobile Components
+   Bottom Sheets, Cards, etc.
+   ============================================ */
+
+/* ============================================
+   Bottom Sheet Component
+   ============================================ */
+
+.bottom-sheet {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-mobile-sheet);
+    display: none;
+    align-items: flex-end;
+    pointer-events: none;
+}
+
+.bottom-sheet.open {
+    pointer-events: auto;
+}
+
+.bottom-sheet-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    transition: opacity var(--mobile-transition-slow);
+}
+
+.bottom-sheet.open .bottom-sheet-overlay {
+    opacity: 1;
+}
+
+.bottom-sheet-content {
+    position: relative;
+    width: 100%;
+    background: var(--white);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: var(--elevation-5);
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    max-height: 80vh;
+    overflow: hidden;
+    transform: translateY(100%);
+    transition: transform var(--mobile-transition-slow);
+    pointer-events: auto;
+}
+
+.bottom-sheet.open .bottom-sheet-content {
+    transform: translateY(0);
+}
+
+.bottom-sheet-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--mobile-space-4) var(--mobile-space-6);
+    border-bottom: 1px solid var(--border-light);
+    flex-shrink: 0;
+}
+
+.bottom-sheet-title {
+    font-size: var(--mobile-text-xl);
+    font-weight: var(--font-semibold);
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.bottom-sheet-close {
+    background: none;
+    border: none;
+    padding: var(--mobile-space-2);
+    color: var(--text-secondary);
+    cursor: pointer;
+    min-width: var(--touch-target-min);
+    min-height: var(--touch-target-min);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius);
+    transition: background var(--mobile-transition-base);
+}
+
+.bottom-sheet-close:active {
+    background: var(--bg-hover);
+}
+
+.bottom-sheet-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--mobile-space-4) var(--mobile-space-6);
+    -webkit-overflow-scrolling: touch;
+}
+
+.bottom-sheet-footer {
+    display: flex;
+    gap: var(--mobile-space-3);
+    padding: var(--mobile-space-4) var(--mobile-space-6);
+    border-top: 1px solid var(--border-light);
+    flex-shrink: 0;
+    background: var(--white);
+}
+
+.bottom-sheet-footer .btn {
+    flex: 1;
+    min-height: var(--touch-target-comfortable);
+}
+
+/* Desktop: Center modal instead of bottom sheet */
+@media (min-width: 768px) {
+    .bottom-sheet {
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .bottom-sheet-content {
+        max-width: 600px;
+        width: 90%;
+        max-height: 90vh;
+        border-radius: var(--radius-lg);
+        transform: scale(0.95);
+    }
+    
+    .bottom-sheet.open .bottom-sheet-content {
+        transform: scale(1);
+    }
+}
+
+/* ============================================
+   Mobile Card Components
+   ============================================ */
+
+.mobile-card {
+    background: var(--white);
+    border-radius: var(--radius-lg);
+    padding: var(--mobile-space-4);
+    margin-bottom: var(--mobile-space-3);
+    box-shadow: var(--elevation-1);
+    border: 1px solid var(--border-light);
+    transition: box-shadow var(--mobile-transition-base);
+}
+
+.mobile-card:active {
+    box-shadow: var(--elevation-2);
+}
+
+.mobile-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: var(--mobile-space-3);
+    gap: var(--mobile-space-2);
+}
+
+.mobile-card-title {
+    font-size: var(--mobile-text-lg);
+    font-weight: var(--font-semibold);
+    color: var(--text-primary);
+    margin: 0;
+    flex: 1;
+}
+
+.mobile-card-body {
+    color: var(--text-secondary);
+    font-size: var(--mobile-text-base);
+    line-height: 1.6;
+}
+
+.mobile-card-footer {
+    display: flex;
+    align-items: center;
+    gap: var(--mobile-space-2);
+    margin-top: var(--mobile-space-3);
+    padding-top: var(--mobile-space-3);
+    border-top: 1px solid var(--border-light);
+    flex-wrap: wrap;
+}
+
+.mobile-card-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--mobile-space-2);
+    font-size: var(--mobile-text-sm);
+    color: var(--text-tertiary);
+    flex-wrap: wrap;
+}
+
+/* ============================================
+   Mobile List Items
+   ============================================ */
+
+.mobile-list-item {
+    display: flex;
+    align-items: center;
+    gap: var(--mobile-space-4);
+    padding: var(--mobile-space-4);
+    background: var(--white);
+    border-bottom: 1px solid var(--border-light);
+    min-height: var(--touch-target-comfortable);
+    text-decoration: none;
+    color: var(--text-primary);
+    transition: background var(--mobile-transition-base);
+}
+
+.mobile-list-item:active {
+    background: var(--bg-hover);
+}
+
+.mobile-list-item:last-child {
+    border-bottom: none;
+}
+
+.mobile-list-item-content {
+    flex: 1;
+    min-width: 0; /* Allow text truncation */
+}
+
+.mobile-list-item-title {
+    font-size: var(--mobile-text-base);
+    font-weight: var(--font-medium);
+    color: var(--text-primary);
+    margin: 0 0 var(--mobile-space-1);
+}
+
+.mobile-list-item-subtitle {
+    font-size: var(--mobile-text-sm);
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.mobile-list-item-action {
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+}
+
+/* ============================================
+   Mobile Badges & Chips
+   ============================================ */
+
+.mobile-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--mobile-space-1) var(--mobile-space-2);
+    font-size: var(--mobile-text-xs);
+    font-weight: var(--font-medium);
+    border-radius: var(--radius-full);
+    line-height: 1;
+}
+
+.mobile-badge-primary {
+    background: var(--primary-100);
+    color: var(--primary-700);
+}
+
+.mobile-badge-success {
+    background: var(--success-100);
+    color: var(--success-700);
+}
+
+.mobile-badge-warning {
+    background: var(--warning-100);
+    color: var(--warning-700);
+}
+
+.mobile-badge-error {
+    background: var(--error-100);
+    color: var(--error-700);
+}
+
+.mobile-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--mobile-space-2);
+    padding: var(--mobile-space-2) var(--mobile-space-3);
+    background: var(--gray-100);
+    color: var(--text-primary);
+    border-radius: var(--radius-full);
+    font-size: var(--mobile-text-sm);
+    font-weight: var(--font-medium);
+}
+
+.mobile-chip-remove {
+    background: none;
+    border: none;
+    padding: 0;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-full);
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: background var(--mobile-transition-base);
+}
+
+.mobile-chip-remove:active {
+    background: var(--gray-200);
+}
+
+/* ============================================
+   Mobile Empty States
+   ============================================ */
+
+.mobile-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--mobile-space-12) var(--mobile-space-4);
+    text-align: center;
+}
+
+.mobile-empty-state-icon {
+    width: 64px;
+    height: 64px;
+    margin-bottom: var(--mobile-space-4);
+    color: var(--text-tertiary);
+    opacity: 0.5;
+}
+
+.mobile-empty-state-title {
+    font-size: var(--mobile-text-xl);
+    font-weight: var(--font-semibold);
+    color: var(--text-primary);
+    margin: 0 0 var(--mobile-space-2);
+}
+
+.mobile-empty-state-message {
+    font-size: var(--mobile-text-base);
+    color: var(--text-secondary);
+    margin: 0 0 var(--mobile-space-6);
+    max-width: 320px;
+}
+
+.mobile-empty-state-action {
+    min-height: var(--touch-target-comfortable);
+}
+
+/* ============================================
+   Mobile Loading Skeletons
+   ============================================ */
+
+.mobile-skeleton {
+    background: linear-gradient(
+        90deg,
+        var(--gray-200) 0%,
+        var(--gray-100) 50%,
+        var(--gray-200) 100%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s ease-in-out infinite;
+    border-radius: var(--radius);
+}
+
+@keyframes skeleton-loading {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+.mobile-skeleton-text {
+    height: 1em;
+    margin-bottom: var(--mobile-space-2);
+}
+
+.mobile-skeleton-title {
+    height: 1.5em;
+    width: 60%;
+    margin-bottom: var(--mobile-space-3);
+}
+
+.mobile-skeleton-card {
+    height: 120px;
+    margin-bottom: var(--mobile-space-3);
+}
+
+.mobile-skeleton-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-full);
+}
+
+/* ============================================
+   Mobile Form Enhancements
+   ============================================ */
+
+.mobile-form-group {
+    margin-bottom: var(--mobile-space-6);
+}
+
+.mobile-form-label {
+    display: block;
+    font-size: var(--mobile-text-sm);
+    font-weight: var(--font-medium);
+    color: var(--text-primary);
+    margin-bottom: var(--mobile-space-2);
+}
+
+.mobile-form-input {
+    width: 100%;
+    min-height: var(--touch-target-min);
+    padding: var(--mobile-space-3) var(--mobile-space-4);
+    font-size: var(--mobile-text-base);
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius);
+    background: var(--white);
+    color: var(--text-primary);
+    transition: border-color var(--mobile-transition-base);
+}
+
+.mobile-form-input:focus {
+    outline: none;
+    border-color: var(--primary-500);
+    box-shadow: 0 0 0 3px var(--primary-100);
+}
+
+.mobile-form-input:disabled {
+    background: var(--gray-100);
+    color: var(--text-disabled);
+    cursor: not-allowed;
+}
+
+.mobile-form-error {
+    font-size: var(--mobile-text-sm);
+    color: var(--error-color);
+    margin-top: var(--mobile-space-1);
+    display: flex;
+    align-items: center;
+    gap: var(--mobile-space-1);
+}
+
+.mobile-form-help {
+    font-size: var(--mobile-text-sm);
+    color: var(--text-tertiary);
+    margin-top: var(--mobile-space-1);
+}
+
