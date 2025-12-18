@@ -136,9 +136,8 @@ function createReviewCard(review) {
         }).join('')
         : '';
     
-    // Review text preview (first 150 chars for more compact cards)
+    // Review text - display full text, let CSS handle truncation
     const reviewText = review.review_text || 'No review text';
-    const reviewPreview = reviewText.length > 150 ? reviewText.substring(0, 150) + '...' : reviewText;
     
     // Review date
     const reviewDate = review.review_date ? new Date(review.review_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A';
@@ -168,8 +167,7 @@ function createReviewCard(review) {
             </div>
         </div>
         <div class="review-card-body">
-            <p class="review-text ${reviewText.length > 150 ? 'review-text-truncated' : ''}" data-full-text="${escapeHtml(reviewText)}" data-is-expanded="false">${escapeHtml(reviewPreview)}</p>
-            ${reviewText.length > 150 ? `<button class="review-expand-btn" onclick="toggleReviewText(this)">Read more</button>` : ''}
+            <p class="review-text">${escapeHtml(reviewText)}</p>
             ${tagsHtml ? `<div class="review-tags">${tagsHtml}</div>` : ''}
         </div>
     `;

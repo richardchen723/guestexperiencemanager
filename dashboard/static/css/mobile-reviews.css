@@ -109,24 +109,11 @@
         color: var(--text-primary);
         line-height: 1.6;
         margin-bottom: var(--mobile-space-2);
-    }
-    
-    .review-text-truncated {
         display: -webkit-box;
-        -webkit-line-clamp: 3;
+        -webkit-line-clamp: 4;
         -webkit-box-orient: vertical;
         overflow: hidden;
-    }
-    
-    .review-expand-btn {
-        background: none;
-        border: none;
-        color: var(--primary-color);
-        font-size: var(--mobile-text-sm);
-        font-weight: var(--font-medium);
-        padding: var(--mobile-space-1) 0;
-        cursor: pointer;
-        text-decoration: underline;
+        text-overflow: ellipsis;
     }
     
     .review-card-meta {
