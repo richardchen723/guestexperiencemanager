@@ -2,16 +2,24 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
     <title>{% block title %}Hostaway Insights Dashboard{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-layout.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-components.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-tickets.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-ticket-detail.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-forms.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-reviews.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-knowledge.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tickets.css') }}">
     {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body data-is-admin="{% if current_user and current_user.is_admin() %}true{% else %}false{% endif %}">
     <div class="container">
         <header>
             <div class="header-content">
@@ -71,6 +79,12 @@
     </div>
     
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/mobile-nav.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/components/BottomSheet.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/components/FilterSheet.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/components/EmptyState.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/components/LoadingSkeleton.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/mobile-forms.js') }}"></script>
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>

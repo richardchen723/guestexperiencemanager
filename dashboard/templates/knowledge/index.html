@@ -266,9 +266,10 @@
                 </div>
                 ${doc.tags && doc.tags.length > 0 ? `
                     <div class="document-card-tags">
-                        ${doc.tags.slice(0, 3).map(tag => `
-                            <span class="tag-badge">${escapeHtml(tag.name)}</span>
-                        `).join('')}
+                        ${doc.tags.slice(0, 3).map(tag => {
+                            const tagStyle = tag.color ? `style="background-color: ${tag.color}; border-color: ${tag.color};" class="tag-chip has-color"` : 'class="tag-chip"';
+                            return `<span ${tagStyle}>${escapeHtml(tag.name)}</span>`;
+                        }).join('')}
                     </div>
                 ` : ''}
             </div>

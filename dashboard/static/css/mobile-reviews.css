@@ -86,6 +86,24 @@
         margin-bottom: var(--mobile-space-3);
     }
     
+    /* Review tags - unified style */
+    .review-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--mobile-space-2);
+        margin-top: var(--mobile-space-3);
+        padding-top: var(--mobile-space-3);
+        border-top: 1px solid var(--border-light);
+    }
+    
+    .review-tags .tag-chip,
+    .review-tags .tag-badge {
+        font-size: var(--mobile-text-xs);
+        padding: var(--mobile-space-2) var(--mobile-space-3);
+        min-height: var(--touch-target-min);
+        margin: 0;
+    }
+    
     .review-text {
         font-size: var(--mobile-text-base);
         color: var(--text-primary);

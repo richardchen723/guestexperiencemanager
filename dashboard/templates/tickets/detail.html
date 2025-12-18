@@ -17,7 +17,7 @@
                 {% endif %}
             </div>
         </div>
-        <div class="ticket-actions">
+        <div class="ticket-actions desktop-only">
             {% if current_user.user_id == ticket.created_by or current_user.user_id == ticket.assigned_user_id or current_user.is_admin() %}
             <a href="{{ url_for('tickets.ticket_edit_form', ticket_id=ticket.ticket_id) }}" class="btn-secondary">Edit</a>
             {% endif %}
@@ -30,7 +30,8 @@
     <div class="ticket-detail-content">
         <div class="ticket-info">
             <div class="info-section">
-                <h3>Details</h3>
+                <h3 onclick="toggleSection(this)">Details</h3>
+                <div class="info-section-content">
                 <div class="info-row">
                     <label>Issue:</label>
                     <span>{{ ticket.issue_title }}</span>
@@ -143,6 +144,7 @@
                 <div class="info-row">
                     <label>Images:</label>
                     <div id="ticketImagesContainer"></div>
+                </div>
                 </div>
             </div>
         </div>

@@ -5,7 +5,7 @@
 {% block content %}
 <div class="dashboard-page">
     <!-- Header -->
-    <div class="dashboard-header">
+    <div class="page-header">
         <h1>Dashboard</h1>
         <p class="dashboard-subtitle">Welcome back, {{ current_user.name or current_user.email }}</p>
     </div>
@@ -53,7 +53,7 @@
                 <h2>Top Priority Tickets Assigned to Me</h2>
                 <a href="/tickets?assigned_user_id={{ current_user.user_id }}" class="btn-link">View All</a>
             </div>
-            <div id="myTicketsList" class="tickets-list">
+            <div id="myTicketsList" class="tickets-list dashboard-tickets-list">
                 <!-- Tickets loaded via JavaScript -->
             </div>
             <div id="noTickets" class="empty-state" style="display: none;">
@@ -74,11 +74,16 @@
             </div>
         </div>
         
-        <!-- Quick Actions -->
-        <div class="dashboard-actions">
+        <!-- Quick Actions (Desktop) -->
+        <div class="dashboard-actions desktop-only">
             <a href="/tickets/create" class="btn btn-primary">Create New Ticket</a>
             <a href="/tickets?assigned_user_id={{ current_user.user_id }}" class="btn btn-secondary">View All My Tickets</a>
         </div>
+    </div>
+    
+    <!-- Sticky Action Bar (Mobile) -->
+    <div class="sticky-actions mobile-only">
+        <a href="/tickets/create" class="btn btn-primary btn-full">Create New Ticket</a>
     </div>
 </div>
 {% endblock %}

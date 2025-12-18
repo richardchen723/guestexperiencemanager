@@ -64,9 +64,12 @@
         margin-top: var(--mobile-space-2);
     }
     
-    .tag-badge {
+    /* Unified tag style - use tag-chip */
+    .tag-badge,
+    .tag-chip {
         font-size: var(--mobile-text-xs);
-        padding: var(--mobile-space-1) var(--mobile-space-2);
+        padding: var(--mobile-space-2) var(--mobile-space-3);
+        min-height: var(--touch-target-min);
     }
     
     /* Search Results */

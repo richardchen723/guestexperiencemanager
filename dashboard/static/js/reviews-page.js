@@ -128,9 +128,12 @@ function createReviewCard(review) {
     const emptyStars = Math.max(0, Math.min(5, 5 - filledStars)); // Clamp between 0 and 5
     const stars = '★'.repeat(filledStars) + '☆'.repeat(emptyStars);
     
-    // Tags
+    // Tags - unified style with tag-chip
     const tagsHtml = review.tags && review.tags.length > 0
-        ? review.tags.map(tag => `<span class="tag-badge" style="background-color: ${tag.color || '#6b7280'}; color: ${tag.color ? '#ffffff' : '#ffffff'}">${escapeHtml(tag.name)}</span>`).join('')
+        ? review.tags.map(tag => {
+            const tagStyle = tag.color ? `style="background-color: ${tag.color}; border-color: ${tag.color};" class="tag-chip has-color"` : 'class="tag-chip"';
+            return `<span ${tagStyle}>${escapeHtml(tag.name)}</span>`;
+        }).join('')
         : '';
     
     // Review text preview (first 150 chars for more compact cards)
@@ -165,7 +168,8 @@ function createReviewCard(review) {
             </div>
         </div>
         <div class="review-card-body">
-            <p class="review-text">${escapeHtml(reviewPreview)}</p>
+            <p class="review-text ${reviewText.length > 150 ? 'review-text-truncated' : ''}" data-full-text="${escapeHtml(reviewText)}" data-is-expanded="false">${escapeHtml(reviewPreview)}</p>
+            ${reviewText.length > 150 ? `<button class="review-expand-btn" onclick="toggleReviewText(this)">Read more</button>` : ''}
             ${tagsHtml ? `<div class="review-tags">${tagsHtml}</div>` : ''}
         </div>
     `;

@@ -162,9 +162,12 @@
         margin-top: var(--mobile-space-2);
     }
     
-    .tag-chip {
+    /* Unified tag style for mobile */
+    .tag-chip,
+    .tag-badge {
         font-size: var(--mobile-text-xs);
-        padding: var(--mobile-space-1) var(--mobile-space-2);
+        padding: var(--mobile-space-2) var(--mobile-space-3);
+        min-height: var(--touch-target-min);
     }
 }
 
