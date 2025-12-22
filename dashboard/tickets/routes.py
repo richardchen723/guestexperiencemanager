@@ -164,6 +164,7 @@ def api_list_tickets():
     tag_logic = request.args.get('tag_logic', 'AND').upper()  # AND or OR
     search_query = request.args.get('search', type=str)
     past_due = request.args.get('past_due', type=str)  # 'true' or 'false' as string
+    recurring = request.args.get('recurring', type=str)  # 'true' or 'false' as string
     
     # Normalize issue_title (trim whitespace)
     if issue_title:
@@ -275,6 +276,10 @@ def api_list_tickets():
                     ~Ticket.status.in_(['Resolved', 'Closed'])
                 )
             )
+        
+        # Filter recurring tickets
+        if recurring and recurring.lower() == 'true':
+            query = query.filter(Ticket.is_recurring == True)
         
         # Apply text search if provided
         if search_query:

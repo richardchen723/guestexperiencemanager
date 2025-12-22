@@ -277,6 +277,26 @@
                         </label>
                     </div>
                 </div>
+                
+                <!-- Re-occurring Filter -->
+                <div class="filter-card">
+                    <div class="filter-card-header">
+                        <div class="filter-card-title">
+                            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M9 2L9.5 6.5L14 7L9.5 7.5L9 12L8.5 7.5L4 7L8.5 6.5L9 2Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2"/>
+                            </svg>
+                            <span>Re-occurring</span>
+                        </div>
+                    </div>
+                    <div class="filter-card-body">
+                        <label class="modern-filter-option" style="cursor: pointer; padding: 0.5rem 0;">
+                            <input type="checkbox" id="filterRecurring" class="recurring-checkbox" style="display: none;">
+                            <span class="modern-checkbox-custom"></span>
+                            <span>Show only re-occurring tickets</span>
+                        </label>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -399,6 +419,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const filterPastDue = document.getElementById('filterPastDue');
     if (filterPastDue) {
         filterPastDue.addEventListener('change', function() {
+            updateActiveFilters();
+            loadTickets();
+        });
+    }
+    
+    // Add change listener for recurring checkbox
+    const filterRecurring = document.getElementById('filterRecurring');
+    if (filterRecurring) {
+        filterRecurring.addEventListener('change', function() {
             updateActiveFilters();
             loadTickets();
         });
@@ -688,6 +717,7 @@ function loadTickets() {
     const priority = document.getElementById('filterPriority').value;
     const category = document.getElementById('filterCategory').value;
     const pastDue = document.getElementById('filterPastDue').checked;
+    const recurring = document.getElementById('filterRecurring').checked;
     const searchQuery = document.getElementById('searchInput').value.trim();
     
     // Add listing filter - send as comma-separated listing_ids
@@ -702,6 +732,7 @@ function loadTickets() {
     if (priority) params.append('priority', priority);
     if (category) params.append('category', category);
     if (pastDue) params.append('past_due', 'true');
+    if (recurring) params.append('recurring', 'true');
     if (searchQuery) params.append('search', searchQuery);
     
     // Add tag filters
@@ -917,6 +948,12 @@ function updateActiveFilters() {
         activeFilters.push({ type: 'past_due', value: 'true', label: 'Past Due' });
     }
     
+    // Check recurring
+    const recurring = document.getElementById('filterRecurring');
+    if (recurring && recurring.checked) {
+        activeFilters.push({ type: 'recurring', value: 'true', label: 'Re-occurring' });
+    }
+    
     // Check search
     const searchQuery = document.getElementById('searchInput').value.trim();
     if (searchQuery) {
@@ -987,6 +1024,8 @@ function removeActiveFilter(type, value) {
         document.getElementById('filterCategory').value = '';
     } else if (type === 'past_due') {
         document.getElementById('filterPastDue').checked = false;
+    } else if (type === 'recurring') {
+        document.getElementById('filterRecurring').checked = false;
     } else if (type === 'search') {
         document.getElementById('searchInput').value = '';
         const clearBtn = document.getElementById('clearSearchBtn');
@@ -1007,6 +1046,7 @@ function clearAllFilters() {
     document.getElementById('filterPriority').value = '';
     document.getElementById('filterCategory').value = '';
     document.getElementById('filterPastDue').checked = false;
+    document.getElementById('filterRecurring').checked = false;
     clearSearch();
     if (tagFilter) {
         tagFilter.clear();
