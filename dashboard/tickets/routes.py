@@ -2246,7 +2246,7 @@ def api_serve_image(image_id):
                 'sessionId': 'debug-session',
                 'runId': 'run1',
                 'hypothesisId': 'C',
-                'location': 'routes.py:2089',
+                'location': 'routes.py:2238',
                 'message': 'BEFORE query - serving image request',
                 'data': {
                     'image_id': image_id
@@ -2254,35 +2254,8 @@ def api_serve_image(image_id):
                 'timestamp': int(__import__('time').time() * 1000)
             }) + '\n')
         # #endregion
-        # Try ticket image first
-        ticket_image = session.query(TicketImage).filter(TicketImage.image_id == image_id).first()
-        if ticket_image:
-            file_path = Path(config.TICKET_IMAGES_DIR) / ticket_image.file_path
-            # #region agent log
-            with open(config.DEBUG_LOG_PATH, 'a') as f:
-                f.write(json.dumps({
-                    'sessionId': 'debug-session',
-                    'runId': 'run1',
-                    'hypothesisId': 'C',
-                    'location': 'routes.py:2093',
-                    'message': 'Found ticket_image',
-                    'data': {
-                        'image_id': image_id,
-                        'file_path': str(ticket_image.file_path),
-                        'full_path': str(file_path),
-                        'exists': file_path.exists()
-                    },
-                    'timestamp': int(__import__('time').time() * 1000)
-                }) + '\n')
-            # #endregion
-            if file_path.exists():
-                return send_from_directory(
-                    str(file_path.parent),
-                    file_path.name,
-                    mimetype=ticket_image.mime_type
-                )
-        
-        # Try comment image
+        # CRITICAL FIX: Check CommentImage FIRST to avoid conflicts when same image_id exists in both tables
+        # This fixes the bug where comment images show ticket images when image_ids overlap
         comment_image = session.query(CommentImage).filter(CommentImage.image_id == image_id).first()
         # #region agent log
         with open(config.DEBUG_LOG_PATH, 'a') as f:
@@ -2290,7 +2263,7 @@ def api_serve_image(image_id):
                 'sessionId': 'debug-session',
                 'runId': 'run1',
                 'hypothesisId': 'C',
-                'location': 'routes.py:2102',
+                'location': 'routes.py:2244',
                 'message': 'Query result for comment_image',
                 'data': {
                     'image_id': image_id,
@@ -2309,7 +2282,7 @@ def api_serve_image(image_id):
                     'sessionId': 'debug-session',
                     'runId': 'run1',
                     'hypothesisId': 'C',
-                    'location': 'routes.py:2104',
+                    'location': 'routes.py:2250',
                     'message': 'Serving comment_image',
                     'data': {
                         'image_id': image_id,
@@ -2328,6 +2301,34 @@ def api_serve_image(image_id):
                     mimetype=comment_image.mime_type
                 )
         
+        # Try ticket image if comment image not found
+        ticket_image = session.query(TicketImage).filter(TicketImage.image_id == image_id).first()
+        if ticket_image:
+            file_path = Path(config.TICKET_IMAGES_DIR) / ticket_image.file_path
+            # #region agent log
+            with open(config.DEBUG_LOG_PATH, 'a') as f:
+                f.write(json.dumps({
+                    'sessionId': 'debug-session',
+                    'runId': 'run1',
+                    'hypothesisId': 'C',
+                    'location': 'routes.py:2265',
+                    'message': 'Found ticket_image',
+                    'data': {
+                        'image_id': image_id,
+                        'file_path': str(ticket_image.file_path),
+                        'full_path': str(file_path),
+                        'exists': file_path.exists()
+                    },
+                    'timestamp': int(__import__('time').time() * 1000)
+                }) + '\n')
+            # #endregion
+            if file_path.exists():
+                return send_from_directory(
+                    str(file_path.parent),
+                    file_path.name,
+                    mimetype=ticket_image.mime_type
+                )
+        
         return jsonify({'error': 'Image not found'}), 404
     finally:
         session.close()
@@ -2339,11 +2340,12 @@ def api_serve_thumbnail(image_id):
     """Serve a thumbnail image file."""
     session = get_session()
     try:
-        # Try ticket image first
-        ticket_image = session.query(TicketImage).filter(TicketImage.image_id == image_id).first()
-        if ticket_image:
+        # CRITICAL FIX: Check CommentImage FIRST to avoid conflicts when same image_id exists in both tables
+        # This fixes the bug where comment image thumbnails show ticket image thumbnails when image_ids overlap
+        comment_image = session.query(CommentImage).filter(CommentImage.image_id == image_id).first()
+        if comment_image:
             # For large files, thumbnail_path might be same as file_path
-            thumb_path_str = ticket_image.thumbnail_path or ticket_image.file_path
+            thumb_path_str = comment_image.thumbnail_path or comment_image.file_path
             thumb_path = Path(config.TICKET_IMAGES_DIR) / thumb_path_str
             if thumb_path.exists():
                 return send_from_directory(
@@ -2352,11 +2354,11 @@ def api_serve_thumbnail(image_id):
                     mimetype='image/jpeg'
                 )
         
-        # Try comment image
-        comment_image = session.query(CommentImage).filter(CommentImage.image_id == image_id).first()
-        if comment_image:
+        # Try ticket image if comment image not found
+        ticket_image = session.query(TicketImage).filter(TicketImage.image_id == image_id).first()
+        if ticket_image:
             # For large files, thumbnail_path might be same as file_path
-            thumb_path_str = comment_image.thumbnail_path or comment_image.file_path
+            thumb_path_str = ticket_image.thumbnail_path or ticket_image.file_path
             thumb_path = Path(config.TICKET_IMAGES_DIR) / thumb_path_str
             if thumb_path.exists():
                 return send_from_directory(
