@@ -1287,33 +1287,6 @@ def api_get_comments(ticket_id):
         return jsonify({'error': 'Ticket not found'}), 404
     
     comments = get_ticket_comments(ticket_id)
-    # #region agent log
-    import json
-    with open(config.DEBUG_LOG_PATH, 'a') as f:
-        for comment in comments:
-            images_data = []
-            if comment.images:
-                for img in comment.images:
-                    images_data.append({
-                        'image_id': img.image_id,
-                        'file_path': img.file_path,
-                        'comment_id': img.comment_id
-                    })
-            f.write(json.dumps({
-                'sessionId': 'debug-session',
-                'runId': 'run1',
-                'hypothesisId': 'D',
-                'location': 'routes.py:1289',
-                'message': 'Comments loaded - images for comment',
-                'data': {
-                    'ticket_id': ticket_id,
-                    'comment_id': comment.comment_id,
-                    'images_count': len(comment.images) if comment.images else 0,
-                    'images': images_data
-                },
-                'timestamp': int(__import__('time').time() * 1000)
-            }) + '\n')
-    # #endregion
     return jsonify([comment.to_dict() for comment in comments])
 
 
@@ -1937,46 +1910,9 @@ def api_upload_comment_image(comment_id):
         file.seek(0)
         
         # Save and optimize image
-        # #region agent log
-        import json
-        with open(config.DEBUG_LOG_PATH, 'a') as f:
-            f.write(json.dumps({
-                'sessionId': 'debug-session',
-                'runId': 'run1',
-                'hypothesisId': 'B',
-                'location': 'routes.py:1912',
-                'message': 'BEFORE save_uploaded_image - file details',
-                'data': {
-                    'comment_id': comment_id,
-                    'filename': file.filename,
-                    'content_type': file.content_type,
-                    'file_size': file.content_length if hasattr(file, 'content_length') else None
-                },
-                'timestamp': int(__import__('time').time() * 1000)
-            }) + '\n')
-        # #endregion
         file_path, file_name, width, height, thumbnail_path = save_uploaded_image(
             file, config.TICKET_IMAGES_DIR, f'comments/{comment_id}'
         )
-        # #region agent log
-        with open(config.DEBUG_LOG_PATH, 'a') as f:
-            f.write(json.dumps({
-                'sessionId': 'debug-session',
-                'runId': 'run1',
-                'hypothesisId': 'B',
-                'location': 'routes.py:1915',
-                'message': 'AFTER save_uploaded_image - file saved',
-                'data': {
-                    'file_path': file_path,
-                    'file_name': file_name,
-                    'width': width,
-                    'height': height,
-                    'thumbnail_path': thumbnail_path,
-                    'full_path_exists': str((__import__('pathlib').Path(config.TICKET_IMAGES_DIR) / file_path).exists())
-                },
-                'timestamp': int(__import__('time').time() * 1000)
-            }) + '\n')
-        # #endregion
         
         # Log image upload details for debugging
         logger.info(
@@ -2004,44 +1940,8 @@ def api_upload_comment_image(comment_id):
             uploaded_by=current_user.user_id
         )
         session.add(comment_image)
-        # #region agent log
-        import json
-        with open(config.DEBUG_LOG_PATH, 'a') as f:
-            f.write(json.dumps({
-                'sessionId': 'debug-session',
-                'runId': 'run1',
-                'hypothesisId': 'A',
-                'location': 'routes.py:1942',
-                'message': 'BEFORE commit - comment_image object state',
-                'data': {
-                    'comment_id': comment_id,
-                    'file_path': file_path,
-                    'file_name': file_name,
-                    'image_id_before_commit': getattr(comment_image, 'image_id', None),
-                    'uploaded_by': current_user.user_id
-                },
-                'timestamp': int(__import__('time').time() * 1000)
-            }) + '\n')
-        # #endregion
         session.commit()
         image_id = comment_image.image_id
-        # #region agent log
-        with open(config.DEBUG_LOG_PATH, 'a') as f:
-            f.write(json.dumps({
-                'sessionId': 'debug-session',
-                'runId': 'run1',
-                'hypothesisId': 'A',
-                'location': 'routes.py:1944',
-                'message': 'AFTER commit - image_id retrieved',
-                'data': {
-                    'image_id': image_id,
-                    'comment_id': comment_id,
-                    'file_path': file_path,
-                    'image_id_type': str(type(image_id))
-                },
-                'timestamp': int(__import__('time').time() * 1000)
-            }) + '\n')
-        # #endregion
         
         # Log the created image_id for debugging
         logger.info(
@@ -2051,43 +1951,9 @@ def api_upload_comment_image(comment_id):
         
         # Re-query with eager loading to get relationships
         from sqlalchemy.orm import joinedload
-        # #region agent log
-        with open(config.DEBUG_LOG_PATH, 'a') as f:
-            f.write(json.dumps({
-                'sessionId': 'debug-session',
-                'runId': 'run1',
-                'hypothesisId': 'A',
-                'location': 'routes.py:1954',
-                'message': 'BEFORE re-query - querying by image_id',
-                'data': {
-                    'image_id': image_id,
-                    'comment_id': comment_id
-                },
-                'timestamp': int(__import__('time').time() * 1000)
-            }) + '\n')
-        # #endregion
         comment_image = session.query(CommentImage).options(
             joinedload(CommentImage.uploader)
         ).filter(CommentImage.image_id == image_id).first()
-        # #region agent log
-        with open(config.DEBUG_LOG_PATH, 'a') as f:
-            f.write(json.dumps({
-                'sessionId': 'debug-session',
-                'runId': 'run1',
-                'hypothesisId': 'A',
-                'location': 'routes.py:1956',
-                'message': 'AFTER re-query - comment_image retrieved',
-                'data': {
-                    'image_id': image_id,
-                    'retrieved_image_id': comment_image.image_id if comment_image else None,
-                    'retrieved_file_path': comment_image.file_path if comment_image else None,
-                    'retrieved_comment_id': comment_image.comment_id if comment_image else None,
-                    'query_found': comment_image is not None,
-                    'file_path_match': comment_image.file_path == file_path if comment_image else False
-                },
-                'timestamp': int(__import__('time').time() * 1000)
-            }) + '\n')
-        # #endregion
         
         if comment_image:
             # Access relationship while session is open
@@ -2099,24 +1965,6 @@ def api_upload_comment_image(comment_id):
         
         # Log the returned image data
         image_dict = comment_image.to_dict()
-        # #region agent log
-        with open(config.DEBUG_LOG_PATH, 'a') as f:
-            f.write(json.dumps({
-                'sessionId': 'debug-session',
-                'runId': 'run1',
-                'hypothesisId': 'A',
-                'location': 'routes.py:1967',
-                'message': 'BEFORE return - image_dict prepared',
-                'data': {
-                    'image_id': image_dict.get('image_id'),
-                    'file_path': image_dict.get('file_path'),
-                    'comment_id': image_dict.get('comment_id'),
-                    'original_file_path': file_path,
-                    'match': image_dict.get('file_path') == file_path
-                },
-                'timestamp': int(__import__('time').time() * 1000)
-            }) + '\n')
-        # #endregion
         logger.info(
             f"Returning comment image: image_id={image_dict.get('image_id')}, file_path={image_dict.get('file_path')}",
             extra={'image_id': image_dict.get('image_id'), 'comment_id': comment_id, 'file_path': image_dict.get('file_path')}
@@ -2239,61 +2087,11 @@ def api_serve_image(image_id):
     """Serve an image file."""
     session = get_session()
     try:
-        # #region agent log
-        import json
-        with open(config.DEBUG_LOG_PATH, 'a') as f:
-            f.write(json.dumps({
-                'sessionId': 'debug-session',
-                'runId': 'run1',
-                'hypothesisId': 'C',
-                'location': 'routes.py:2238',
-                'message': 'BEFORE query - serving image request',
-                'data': {
-                    'image_id': image_id
-                },
-                'timestamp': int(__import__('time').time() * 1000)
-            }) + '\n')
-        # #endregion
         # CRITICAL FIX: Check CommentImage FIRST to avoid conflicts when same image_id exists in both tables
         # This fixes the bug where comment images show ticket images when image_ids overlap
         comment_image = session.query(CommentImage).filter(CommentImage.image_id == image_id).first()
-        # #region agent log
-        with open(config.DEBUG_LOG_PATH, 'a') as f:
-            f.write(json.dumps({
-                'sessionId': 'debug-session',
-                'runId': 'run1',
-                'hypothesisId': 'C',
-                'location': 'routes.py:2244',
-                'message': 'Query result for comment_image',
-                'data': {
-                    'image_id': image_id,
-                    'found': comment_image is not None,
-                    'file_path': str(comment_image.file_path) if comment_image else None,
-                    'comment_id': comment_image.comment_id if comment_image else None
-                },
-                'timestamp': int(__import__('time').time() * 1000)
-            }) + '\n')
-        # #endregion
         if comment_image:
             file_path = Path(config.TICKET_IMAGES_DIR) / comment_image.file_path
-            # #region agent log
-            with open(config.DEBUG_LOG_PATH, 'a') as f:
-                f.write(json.dumps({
-                    'sessionId': 'debug-session',
-                    'runId': 'run1',
-                    'hypothesisId': 'C',
-                    'location': 'routes.py:2250',
-                    'message': 'Serving comment_image',
-                    'data': {
-                        'image_id': image_id,
-                        'file_path': str(comment_image.file_path),
-                        'full_path': str(file_path),
-                        'exists': file_path.exists(),
-                        'comment_id': comment_image.comment_id
-                    },
-                    'timestamp': int(__import__('time').time() * 1000)
-                }) + '\n')
-            # #endregion
             if file_path.exists():
                 return send_from_directory(
                     str(file_path.parent),
@@ -2305,23 +2103,6 @@ def api_serve_image(image_id):
         ticket_image = session.query(TicketImage).filter(TicketImage.image_id == image_id).first()
         if ticket_image:
             file_path = Path(config.TICKET_IMAGES_DIR) / ticket_image.file_path
-            # #region agent log
-            with open(config.DEBUG_LOG_PATH, 'a') as f:
-                f.write(json.dumps({
-                    'sessionId': 'debug-session',
-                    'runId': 'run1',
-                    'hypothesisId': 'C',
-                    'location': 'routes.py:2265',
-                    'message': 'Found ticket_image',
-                    'data': {
-                        'image_id': image_id,
-                        'file_path': str(ticket_image.file_path),
-                        'full_path': str(file_path),
-                        'exists': file_path.exists()
-                    },
-                    'timestamp': int(__import__('time').time() * 1000)
-                }) + '\n')
-            # #endregion
             if file_path.exists():
                 return send_from_directory(
                     str(file_path.parent),
