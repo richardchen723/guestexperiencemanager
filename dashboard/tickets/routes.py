@@ -1287,6 +1287,33 @@ def api_get_comments(ticket_id):
         return jsonify({'error': 'Ticket not found'}), 404
     
     comments = get_ticket_comments(ticket_id)
+    # #region agent log
+    import json
+    with open(config.DEBUG_LOG_PATH, 'a') as f:
+        for comment in comments:
+            images_data = []
+            if comment.images:
+                for img in comment.images:
+                    images_data.append({
+                        'image_id': img.image_id,
+                        'file_path': img.file_path,
+                        'comment_id': img.comment_id
+                    })
+            f.write(json.dumps({
+                'sessionId': 'debug-session',
+                'runId': 'run1',
+                'hypothesisId': 'D',
+                'location': 'routes.py:1289',
+                'message': 'Comments loaded - images for comment',
+                'data': {
+                    'ticket_id': ticket_id,
+                    'comment_id': comment.comment_id,
+                    'images_count': len(comment.images) if comment.images else 0,
+                    'images': images_data
+                },
+                'timestamp': int(__import__('time').time() * 1000)
+            }) + '\n')
+    # #endregion
     return jsonify([comment.to_dict() for comment in comments])
 
 
