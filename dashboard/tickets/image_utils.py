@@ -289,6 +289,25 @@ def save_uploaded_image(file: FileStorage, base_dir: str, subfolder: str) -> Tup
     # For HEIC/HEIF, keep the original extension so PIL can identify it
     # The processing functions will convert it to JPEG
     unique_filename = f"{uuid.uuid4().hex}{file_ext}"
+    # #region agent log
+    import json
+    from dashboard.config import DEBUG_LOG_PATH
+    with open(DEBUG_LOG_PATH, 'a') as f:
+        f.write(json.dumps({
+            'sessionId': 'debug-session',
+            'runId': 'run1',
+            'hypothesisId': 'B',
+            'location': 'image_utils.py:291',
+            'message': 'Generated unique filename',
+            'data': {
+                'unique_filename': unique_filename,
+                'file_ext': file_ext,
+                'subfolder': subfolder,
+                'upload_dir': str(upload_dir)
+            },
+            'timestamp': int(__import__('time').time() * 1000)
+        }) + '\n')
+    # #endregion
     temp_path = upload_dir / f"temp_{unique_filename}"
     
     # Save original file temporarily (with original extension for HEIC files)
@@ -383,6 +402,27 @@ def save_uploaded_image(file: FileStorage, base_dir: str, subfolder: str) -> Tup
     # Get relative paths for database storage
     relative_path = f"images/{subfolder}/{Path(optimized_path).name}"
     relative_thumbnail_path = f"images/{subfolder}/{Path(thumbnail_path).name}"
+    # #region agent log
+    import json
+    from dashboard.config import DEBUG_LOG_PATH
+    with open(DEBUG_LOG_PATH, 'a') as f:
+        f.write(json.dumps({
+            'sessionId': 'debug-session',
+            'runId': 'run1',
+            'hypothesisId': 'B',
+            'location': 'image_utils.py:384',
+            'message': 'AFTER processing - returning paths',
+            'data': {
+                'relative_path': relative_path,
+                'relative_thumbnail_path': relative_thumbnail_path,
+                'optimized_path': optimized_path,
+                'thumbnail_path': thumbnail_path,
+                'subfolder': subfolder,
+                'final_filename': Path(optimized_path).name
+            },
+            'timestamp': int(__import__('time').time() * 1000)
+        }) + '\n')
+    # #endregion
     
     # Clean up temp file if it's different from optimized
     if temp_path.exists() and str(temp_path) != optimized_path:
