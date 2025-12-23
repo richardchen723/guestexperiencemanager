@@ -124,23 +124,128 @@
                     Make this a recurring task
                 </label>
                 <div id="recurringFieldsContainer" style="display: none; margin-top: var(--space-3); padding: var(--space-4); background: var(--bg-secondary); border-radius: var(--radius-md);">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="frequencyValueInput" class="form-label">Frequency</label>
-                            <div style="display: flex; gap: var(--space-2); align-items: center;">
-                                <input type="number" id="frequencyValueInput" class="form-input" min="1" placeholder="30" style="width: 100px;">
-                                <select id="frequencyUnitSelect" class="form-select" style="flex: 1;">
-                                    <option value="days">Days</option>
-                                    <option value="months">Months</option>
-                                </select>
+                    <div class="form-group">
+                        <label for="recurrenceTypeSelect" class="form-label">Recurrence Type</label>
+                        <select id="recurrenceTypeSelect" class="form-select" onchange="toggleRecurrenceType()">
+                            <option value="frequency">Frequency-based (every N days/months)</option>
+                            <option value="weekly">Weekly (specific days of week)</option>
+                            <option value="monthly">Monthly (specific day of month)</option>
+                            <option value="quarterly">Quarterly (specific day of quarter month)</option>
+                            <option value="annual">Annual (specific dates each year)</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Frequency-based fields -->
+                    <div id="frequencyFields" class="recurrence-type-fields">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="frequencyValueInput" class="form-label">Frequency</label>
+                                <div style="display: flex; gap: var(--space-2); align-items: center;">
+                                    <input type="number" id="frequencyValueInput" class="form-input" min="1" placeholder="30" style="width: 100px;">
+                                    <select id="frequencyUnitSelect" class="form-select" style="flex: 1;">
+                                        <option value="days">Days</option>
+                                        <option value="months">Months</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
+                    </div>
+                    
+                    <!-- Weekly fields -->
+                    <div id="weeklyFields" class="recurrence-type-fields" style="display: none;">
                         <div class="form-group">
-                            <label for="reopenDaysInput" class="form-label">Reopen Days Before Due Date</label>
-                            <input type="number" id="reopenDaysInput" class="form-input" min="0" value="10" placeholder="10">
-                            <small style="color: var(--text-tertiary); font-size: var(--text-sm);">Number of days before due date to automatically reopen</small>
+                            <label class="form-label">Days of Week</label>
+                            <div style="display: flex; flex-wrap: wrap; gap: var(--space-2);">
+                                <label style="display: flex; align-items: center; gap: var(--space-1); cursor: pointer;">
+                                    <input type="checkbox" class="weekday-checkbox" value="0">
+                                    <span>Monday</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: var(--space-1); cursor: pointer;">
+                                    <input type="checkbox" class="weekday-checkbox" value="1">
+                                    <span>Tuesday</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: var(--space-1); cursor: pointer;">
+                                    <input type="checkbox" class="weekday-checkbox" value="2">
+                                    <span>Wednesday</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: var(--space-1); cursor: pointer;">
+                                    <input type="checkbox" class="weekday-checkbox" value="3">
+                                    <span>Thursday</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: var(--space-1); cursor: pointer;">
+                                    <input type="checkbox" class="weekday-checkbox" value="4">
+                                    <span>Friday</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: var(--space-1); cursor: pointer;">
+                                    <input type="checkbox" class="weekday-checkbox" value="5">
+                                    <span>Saturday</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: var(--space-1); cursor: pointer;">
+                                    <input type="checkbox" class="weekday-checkbox" value="6">
+                                    <span>Sunday</span>
+                                </label>
+                            </div>
                         </div>
                     </div>
+                    
+                    <!-- Monthly fields -->
+                    <div id="monthlyFields" class="recurrence-type-fields" style="display: none;">
+                        <div class="form-group">
+                            <label for="monthDayInput" class="form-label">Day of Month</label>
+                            <input type="number" id="monthDayInput" class="form-input" min="1" max="31" placeholder="15">
+                            <small style="color: var(--text-tertiary); font-size: var(--text-sm);">Day of the month (1-31). Invalid dates (e.g., Feb 30) will be adjusted.</small>
+                        </div>
+                    </div>
+                    
+                    <!-- Quarterly fields -->
+                    <div id="quarterlyFields" class="recurrence-type-fields" style="display: none;">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="quarterMonthSelect" class="form-label">Month of Quarter</label>
+                                <select id="quarterMonthSelect" class="form-select">
+                                    <option value="1">1st month of quarter</option>
+                                    <option value="2">2nd month of quarter</option>
+                                    <option value="3">3rd month of quarter</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="quarterDayInput" class="form-label">Day of Month</label>
+                                <input type="number" id="quarterDayInput" class="form-input" min="1" max="31" placeholder="10">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Annual fields -->
+                    <div id="annualFields" class="recurrence-type-fields" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label">Annual Dates</label>
+                            <div id="annualDatesList" style="margin-bottom: var(--space-2);"></div>
+                            <div style="display: flex; gap: var(--space-2); align-items: center;">
+                                <input type="month" id="annualDateMonthInput" style="flex: 1;">
+                                <input type="number" id="annualDateDayInput" class="form-input" min="1" max="31" placeholder="Day" style="width: 100px;">
+                                <button type="button" onclick="addAnnualDate()" class="btn btn-secondary">Add Date</button>
+                            </div>
+                            <small style="color: var(--text-tertiary); font-size: var(--text-sm);">Add one or more dates that occur annually (e.g., April 10, October 15)</small>
+                        </div>
+                    </div>
+                    
+                    <!-- Common fields for all recurrence types -->
+                    <div class="form-group" style="margin-top: var(--space-3); border-top: 1px solid var(--border-color); padding-top: var(--space-3);">
+                        <label for="reopenDaysInput" class="form-label">Reopen Days Before Due Date</label>
+                        <input type="number" id="reopenDaysInput" class="form-input" min="0" value="10" placeholder="10">
+                        <small style="color: var(--text-tertiary); font-size: var(--text-sm);">Number of days before due date to automatically reopen</small>
+                    </div>
+                    
+                    <!-- Recurrence preview -->
+                    <div id="recurrencePreview" style="margin-top: var(--space-3); padding: var(--space-3); background: var(--bg-primary); border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+                        <div style="font-size: var(--text-sm); color: var(--text-secondary);">
+                            <strong>Preview:</strong> <span id="recurrencePreviewText">Configure recurrence settings to see preview</span>
+                        </div>
+                        <div style="font-size: var(--text-sm); color: var(--text-secondary); margin-top: var(--space-1);">
+                            <strong>Next occurrence:</strong> <span id="recurrenceNextDate">-</span>
+                        </div>
+                    </div>
+                    
                     {% if ticket and ticket.is_recurring %}
                     <div class="form-group" style="margin-top: var(--space-3);">
                         <label>
@@ -762,13 +867,207 @@ function closeSuggestionsModal() {
     if (loading) loading.style.display = 'flex';
 }
 
+let annualDates = []; // Store annual dates as {month, day} objects
+
 function toggleRecurringFields() {
     const checkbox = document.getElementById('isRecurringCheckbox');
     const container = document.getElementById('recurringFieldsContainer');
     if (checkbox.checked) {
         container.style.display = 'block';
+        toggleRecurrenceType(); // Initialize recurrence type display
+        updateRecurrencePreview();
     } else {
         container.style.display = 'none';
+    }
+}
+
+function toggleRecurrenceType() {
+    const recurrenceType = document.getElementById('recurrenceTypeSelect').value;
+    
+    // Hide all recurrence type fields
+    document.querySelectorAll('.recurrence-type-fields').forEach(el => {
+        el.style.display = 'none';
+    });
+    
+    // Show the selected type's fields
+    if (recurrenceType === 'frequency') {
+        document.getElementById('frequencyFields').style.display = 'block';
+    } else if (recurrenceType === 'weekly') {
+        document.getElementById('weeklyFields').style.display = 'block';
+    } else if (recurrenceType === 'monthly') {
+        document.getElementById('monthlyFields').style.display = 'block';
+    } else if (recurrenceType === 'quarterly') {
+        document.getElementById('quarterlyFields').style.display = 'block';
+    } else if (recurrenceType === 'annual') {
+        document.getElementById('annualFields').style.display = 'block';
+    }
+    
+    updateRecurrencePreview();
+}
+
+function addAnnualDate() {
+    const monthInput = document.getElementById('annualDateMonthInput');
+    const dayInput = document.getElementById('annualDateDayInput');
+    
+    if (!monthInput.value || !dayInput.value) {
+        alert('Please select a month and enter a day');
+        return;
+    }
+    
+    const monthStr = monthInput.value; // Format: YYYY-MM
+    const month = parseInt(monthStr.split('-')[1]);
+    const day = parseInt(dayInput.value);
+    
+    if (isNaN(month) || month < 1 || month > 12) {
+        alert('Invalid month');
+        return;
+    }
+    
+    if (isNaN(day) || day < 1 || day > 31) {
+        alert('Day must be between 1 and 31');
+        return;
+    }
+    
+    if (day < 1 || day > 31) {
+        alert('Day must be between 1 and 31');
+        return;
+    }
+    
+    // Check for duplicates
+    if (annualDates.some(d => d.month === month && d.day === day)) {
+        alert('This date is already added');
+        return;
+    }
+    
+    annualDates.push({month, day});
+    annualDates.sort((a, b) => {
+        if (a.month !== b.month) return a.month - b.month;
+        return a.day - b.day;
+    });
+    
+    renderAnnualDatesList();
+    monthInput.value = '';
+    dayInput.value = '';
+    updateRecurrencePreview();
+}
+
+function removeAnnualDate(month, day) {
+    annualDates = annualDates.filter(d => !(d.month === month && d.day === day));
+    renderAnnualDatesList();
+    updateRecurrencePreview();
+}
+
+function renderAnnualDatesList() {
+    const container = document.getElementById('annualDatesList');
+    if (!container) return;
+    
+    if (annualDates.length === 0) {
+        container.innerHTML = '<div style="color: var(--text-tertiary); font-size: var(--text-sm);">No dates added yet</div>';
+        return;
+    }
+    
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                        'July', 'August', 'September', 'October', 'November', 'December'];
+    
+    container.innerHTML = annualDates.map(({month, day}) => {
+        const monthName = monthNames[month - 1];
+        const suffix = day % 10 === 1 && day !== 11 ? 'st' : 
+                      day % 10 === 2 && day !== 12 ? 'nd' : 
+                      day % 10 === 3 && day !== 13 ? 'rd' : 'th';
+        return `
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2); background: var(--bg-primary); border-radius: var(--radius-sm); margin-bottom: var(--space-1);">
+                <span>${monthName} ${day}${suffix}</span>
+                <button type="button" onclick="removeAnnualDate(${month}, ${day})" style="background: none; border: none; color: var(--error); cursor: pointer; font-size: 1.2em;">×</button>
+            </div>
+        `;
+    }).join('');
+}
+
+function updateRecurrencePreview() {
+    const previewText = document.getElementById('recurrencePreviewText');
+    const nextDateText = document.getElementById('recurrenceNextDate');
+    
+    if (!previewText || !nextDateText) return;
+    
+    const isRecurring = document.getElementById('isRecurringCheckbox').checked;
+    if (!isRecurring) {
+        previewText.textContent = 'Enable recurring task to see preview';
+        nextDateText.textContent = '-';
+        return;
+    }
+    
+    const recurrenceType = document.getElementById('recurrenceTypeSelect').value;
+    const dueDate = document.getElementById('dueDateInput').value;
+    
+    let description = '';
+    let nextDate = '-';
+    
+    if (recurrenceType === 'frequency') {
+        const value = document.getElementById('frequencyValueInput').value;
+        const unit = document.getElementById('frequencyUnitSelect').value;
+        if (value && unit) {
+            const unitName = value === '1' ? (unit === 'days' ? 'day' : 'month') : (unit === 'days' ? 'days' : 'months');
+            description = `Every ${value} ${unitName}`;
+        }
+    } else if (recurrenceType === 'weekly') {
+        const checked = Array.from(document.querySelectorAll('.weekday-checkbox:checked')).map(cb => parseInt(cb.value));
+        if (checked.length > 0) {
+            const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+            const selectedDays = checked.map(i => dayNames[i]);
+            if (selectedDays.length === 1) {
+                description = `Every ${selectedDays[0]}`;
+            } else if (selectedDays.length === 2) {
+                description = `Every ${selectedDays[0]} and ${selectedDays[1]}`;
+            } else {
+                description = `Every ${selectedDays.slice(0, -1).join(', ')}, and ${selectedDays[selectedDays.length - 1]}`;
+            }
+        }
+    } else if (recurrenceType === 'monthly') {
+        const day = document.getElementById('monthDayInput').value;
+        if (day) {
+            const suffix = day % 10 === 1 && day !== 11 ? 'st' : 
+                          day % 10 === 2 && day !== 12 ? 'nd' : 
+                          day % 10 === 3 && day !== 13 ? 'rd' : 'th';
+            description = `Every ${day}${suffix} of the month`;
+        }
+    } else if (recurrenceType === 'quarterly') {
+        const quarterMonth = document.getElementById('quarterMonthSelect').value;
+        const quarterDay = document.getElementById('quarterDayInput').value;
+        if (quarterMonth && quarterDay) {
+            const monthNames = ['1st', '2nd', '3rd'];
+            const monthName = monthNames[parseInt(quarterMonth) - 1] || `${quarterMonth}th`;
+            const suffix = quarterDay % 10 === 1 && quarterDay !== 11 ? 'st' : 
+                          quarterDay % 10 === 2 && quarterDay !== 12 ? 'nd' : 
+                          quarterDay % 10 === 3 && quarterDay !== 13 ? 'rd' : 'th';
+            description = `Every ${quarterDay}${suffix} of the ${monthName} month of each quarter`;
+        }
+    } else if (recurrenceType === 'annual') {
+        if (annualDates.length > 0) {
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                              'July', 'August', 'September', 'October', 'November', 'December'];
+            const formatted = annualDates.map(({month, day}) => {
+                const suffix = day % 10 === 1 && day !== 11 ? 'st' : 
+                              day % 10 === 2 && day !== 12 ? 'nd' : 
+                              day % 10 === 3 && day !== 13 ? 'rd' : 'th';
+                return `${monthNames[month - 1]} ${day}${suffix}`;
+            });
+            if (formatted.length === 1) {
+                description = `Every ${formatted[0]}`;
+            } else if (formatted.length === 2) {
+                description = `Every ${formatted[0]} and ${formatted[1]}`;
+            } else {
+                description = `Every ${formatted.slice(0, -1).join(', ')}, and ${formatted[formatted.length - 1]}`;
+            }
+        }
+    }
+    
+    previewText.textContent = description || 'Configure recurrence settings';
+    
+    // Calculate next occurrence (simplified - would need actual date calculation)
+    if (dueDate && description) {
+        nextDateText.textContent = 'Calculated on save';
+    } else {
+        nextDateText.textContent = '-';
     }
 }
 
@@ -811,17 +1110,111 @@ function populateEditForm() {
     {% if ticket.is_recurring %}
     document.getElementById('isRecurringCheckbox').checked = true;
     toggleRecurringFields();
-    {% if ticket.frequency_value %}
-    document.getElementById('frequencyValueInput').value = {{ ticket.frequency_value }};
-    {% endif %}
-    {% if ticket.frequency_unit %}
-    document.getElementById('frequencyUnitSelect').value = {{ ticket.frequency_unit|tojson }};
-    {% endif %}
+    
+    // Set recurrence type (default to 'frequency' for backward compatibility)
+    const recurrenceType = {{ (ticket.recurrence_type or 'frequency')|tojson }};
+    document.getElementById('recurrenceTypeSelect').value = recurrenceType;
+    toggleRecurrenceType();
+    
+    if (recurrenceType === 'frequency') {
+        {% if ticket.frequency_value %}
+        document.getElementById('frequencyValueInput').value = {{ ticket.frequency_value }};
+        {% endif %}
+        {% if ticket.frequency_unit %}
+        document.getElementById('frequencyUnitSelect').value = {{ ticket.frequency_unit|tojson }};
+        {% endif %}
+    } else if (recurrenceType === 'weekly') {
+        {% if ticket.recurrence_weekdays %}
+        const weekdays = {{ ticket.recurrence_weekdays|tojson }};
+        if (typeof weekdays === 'string') {
+            // Parse comma-separated or JSON string
+            try {
+                const parsed = JSON.parse(weekdays);
+                if (Array.isArray(parsed)) {
+                    parsed.forEach(w => {
+                        const cb = document.querySelector(`.weekday-checkbox[value="${w}"]`);
+                        if (cb) cb.checked = true;
+                    });
+                } else {
+                    weekdays.split(',').forEach(w => {
+                        const cb = document.querySelector(`.weekday-checkbox[value="${w.trim()}"]`);
+                        if (cb) cb.checked = true;
+                    });
+                }
+            } catch {
+                weekdays.split(',').forEach(w => {
+                    const cb = document.querySelector(`.weekday-checkbox[value="${w.trim()}"]`);
+                    if (cb) cb.checked = true;
+                });
+            }
+        } else if (Array.isArray(weekdays)) {
+            weekdays.forEach(w => {
+                const cb = document.querySelector(`.weekday-checkbox[value="${w}"]`);
+                if (cb) cb.checked = true;
+            });
+        }
+        {% endif %}
+    } else if (recurrenceType === 'monthly') {
+        {% if ticket.recurrence_month_day %}
+        document.getElementById('monthDayInput').value = {{ ticket.recurrence_month_day }};
+        {% endif %}
+    } else if (recurrenceType === 'quarterly') {
+        {% if ticket.recurrence_quarter_month %}
+        document.getElementById('quarterMonthSelect').value = {{ ticket.recurrence_quarter_month }};
+        {% endif %}
+        {% if ticket.recurrence_quarter_day %}
+        document.getElementById('quarterDayInput').value = {{ ticket.recurrence_quarter_day }};
+        {% endif %}
+    } else if (recurrenceType === 'annual') {
+        {% if ticket.recurrence_annual_dates %}
+        const annualDatesStr = {{ ticket.recurrence_annual_dates|tojson }};
+        if (typeof annualDatesStr === 'string') {
+            try {
+                const parsed = JSON.parse(annualDatesStr);
+                if (Array.isArray(parsed)) {
+                    annualDates = parsed.map(item => {
+                        if (typeof item === 'string') {
+                            const [month, day] = item.split('-').map(Number);
+                            return {month, day};
+                        }
+                        return item;
+                    });
+                } else {
+                    annualDatesStr.split(',').forEach(item => {
+                        const [month, day] = item.trim().split('-').map(Number);
+                        if (month && day) annualDates.push({month, day});
+                    });
+                }
+            } catch {
+                annualDatesStr.split(',').forEach(item => {
+                    const [month, day] = item.trim().split('-').map(Number);
+                    if (month && day) annualDates.push({month, day});
+                });
+            }
+        }
+        renderAnnualDatesList();
+        {% endif %}
+    }
+    
     {% if ticket.reopen_days_before_due_date %}
     document.getElementById('reopenDaysInput').value = {{ ticket.reopen_days_before_due_date }};
     {% endif %}
+    
+    updateRecurrencePreview();
     {% endif %}
     {% endif %}
+    
+    // Add event listeners for preview updates
+    document.getElementById('recurrenceTypeSelect').addEventListener('change', updateRecurrencePreview);
+    document.getElementById('frequencyValueInput').addEventListener('input', updateRecurrencePreview);
+    document.getElementById('frequencyUnitSelect').addEventListener('change', updateRecurrencePreview);
+    document.querySelectorAll('.weekday-checkbox').forEach(cb => {
+        cb.addEventListener('change', updateRecurrencePreview);
+    });
+    document.getElementById('monthDayInput').addEventListener('input', updateRecurrencePreview);
+    document.getElementById('quarterMonthSelect').addEventListener('change', updateRecurrencePreview);
+    document.getElementById('quarterDayInput').addEventListener('input', updateRecurrencePreview);
+    document.getElementById('dueDateInput').addEventListener('change', updateRecurrencePreview);
 }
 
 function initializeTicketFormImages() {
@@ -1044,23 +1437,82 @@ function saveTicket(event) {
     // Add recurring task fields
     const isRecurring = document.getElementById('isRecurringCheckbox').checked;
     if (isRecurring) {
-        const frequencyValue = document.getElementById('frequencyValueInput').value;
-        const frequencyUnit = document.getElementById('frequencyUnitSelect').value;
+        const recurrenceType = document.getElementById('recurrenceTypeSelect').value;
         const reopenDays = document.getElementById('reopenDaysInput').value;
         
-        if (!frequencyValue || !frequencyUnit) {
-            alert('Please enter frequency value and unit for recurring tasks');
-            return;
-        }
-        
         data.is_recurring = true;
-        data.frequency_value = parseInt(frequencyValue);
-        data.frequency_unit = frequencyUnit;
+        data.recurrence_type = recurrenceType;
         data.reopen_days_before_due_date = reopenDays ? parseInt(reopenDays) : 10;
         
         // Set initial_due_date to due_date if provided
         if (dueDate) {
             data.initial_due_date = dueDate;
+        }
+        
+        // Set fields based on recurrence type
+        if (recurrenceType === 'frequency') {
+            const frequencyValue = document.getElementById('frequencyValueInput').value;
+            const frequencyUnit = document.getElementById('frequencyUnitSelect').value;
+            
+            if (!frequencyValue || !frequencyUnit) {
+                alert('Please enter frequency value and unit for frequency-based recurring tasks');
+                return;
+            }
+            
+            data.frequency_value = parseInt(frequencyValue);
+            data.frequency_unit = frequencyUnit;
+        } else if (recurrenceType === 'weekly') {
+            const checkedWeekdays = Array.from(document.querySelectorAll('.weekday-checkbox:checked'))
+                .map(cb => parseInt(cb.value));
+            
+            if (checkedWeekdays.length === 0) {
+                alert('Please select at least one day of the week for weekly recurring tasks');
+                return;
+            }
+            
+            data.recurrence_weekdays = checkedWeekdays.join(',');
+        } else if (recurrenceType === 'monthly') {
+            const monthDay = document.getElementById('monthDayInput').value;
+            
+            if (!monthDay) {
+                alert('Please enter a day of the month for monthly recurring tasks');
+                return;
+            }
+            
+            const day = parseInt(monthDay);
+            if (day < 1 || day > 31) {
+                alert('Day of month must be between 1 and 31');
+                return;
+            }
+            
+            data.recurrence_month_day = day;
+        } else if (recurrenceType === 'quarterly') {
+            const quarterMonth = document.getElementById('quarterMonthSelect').value;
+            const quarterDay = document.getElementById('quarterDayInput').value;
+            
+            if (!quarterMonth || !quarterDay) {
+                alert('Please select month of quarter and enter day for quarterly recurring tasks');
+                return;
+            }
+            
+            const day = parseInt(quarterDay);
+            if (day < 1 || day > 31) {
+                alert('Day must be between 1 and 31');
+                return;
+            }
+            
+            data.recurrence_quarter_month = parseInt(quarterMonth);
+            data.recurrence_quarter_day = day;
+        } else if (recurrenceType === 'annual') {
+            if (annualDates.length === 0) {
+                alert('Please add at least one annual date for annual recurring tasks');
+                return;
+            }
+            
+            // Format as "MM-DD,MM-DD"
+            data.recurrence_annual_dates = annualDates.map(d => 
+                `${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`
+            ).join(',');
         }
         
         {% if ticket %}

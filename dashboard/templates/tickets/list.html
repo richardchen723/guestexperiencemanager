@@ -826,8 +826,40 @@ function createTicketCard(ticket) {
     }
     
     // Check if recurring
-    const recurringBadge = ticket.is_recurring ? 
-        `<span class="status-badge" style="background: #6366f1; color: white; font-size: 10px; padding: 2px 6px;" title="Recurring task">🔄 Recurring</span>` : '';
+    let recurringBadge = '';
+    let nextOccurrenceHtml = '';
+    if (ticket.is_recurring) {
+        const recurrenceType = ticket.recurrence_type || 'frequency';
+        const icons = {
+            'frequency': '🔄',
+            'weekly': '📅',
+            'monthly': '📆',
+            'quarterly': '📊',
+            'annual': '🗓️'
+        };
+        const icon = icons[recurrenceType] || '🔄';
+        const typeNames = {
+            'frequency': 'Frequency',
+            'weekly': 'Weekly',
+            'monthly': 'Monthly',
+            'quarterly': 'Quarterly',
+            'annual': 'Annual'
+        };
+        const typeName = typeNames[recurrenceType] || 'Recurring';
+        recurringBadge = `<span class="status-badge" style="background: #6366f1; color: white; font-size: 10px; padding: 2px 6px;" title="${typeName} recurring task">${icon} ${typeName}</span>`;
+        
+        // Display next occurrence date if available
+        if (ticket.next_occurrence_date) {
+            try {
+                const nextOccurrenceDate = new Date(ticket.next_occurrence_date);
+                if (!isNaN(nextOccurrenceDate.getTime())) {
+                    nextOccurrenceHtml = `<span class="ticket-next-occurrence" style="font-size: 0.875rem; color: #6366f1; font-weight: 500;">Next: ${formatDate(nextOccurrenceDate)}</span>`;
+                }
+            } catch (e) {
+                console.error('Error parsing next_occurrence_date:', e, ticket.next_occurrence_date);
+            }
+        }
+    }
     
     card.innerHTML = `
         <div class="ticket-card-header">
@@ -847,6 +879,7 @@ function createTicketCard(ticket) {
             <div class="ticket-meta">
                 ${ticket.assigned_user_name ? `<span class="ticket-assigned">Assigned to: ${escapeHtml(ticket.assigned_user_name)}</span>` : '<span class="ticket-assigned">Unassigned</span>'}
                 ${dueDate ? `<span class="ticket-due ${isOverdue ? 'overdue' : ''}">Due: ${formatDate(dueDate)}</span>` : ''}
+                ${nextOccurrenceHtml}
             </div>
         </div>
         <div class="ticket-card-footer">
@@ -1283,8 +1316,40 @@ function createSwimLaneCard(ticket) {
         tagsHtml += '</div>';
     }
     
-    const recurringBadge = ticket.is_recurring ? 
-        `<span class="swimlane-recurring" title="Recurring task">🔄</span>` : '';
+    let recurringBadge = '';
+    let nextOccurrenceHtml = '';
+    if (ticket.is_recurring) {
+        const recurrenceType = ticket.recurrence_type || 'frequency';
+        const icons = {
+            'frequency': '🔄',
+            'weekly': '📅',
+            'monthly': '📆',
+            'quarterly': '📊',
+            'annual': '🗓️'
+        };
+        const icon = icons[recurrenceType] || '🔄';
+        const typeNames = {
+            'frequency': 'Frequency',
+            'weekly': 'Weekly',
+            'monthly': 'Monthly',
+            'quarterly': 'Quarterly',
+            'annual': 'Annual'
+        };
+        const typeName = typeNames[recurrenceType] || 'Recurring';
+        recurringBadge = `<span class="swimlane-recurring" title="${typeName} recurring task">${icon}</span>`;
+        
+        // Display next occurrence date if available
+        if (ticket.next_occurrence_date) {
+            try {
+                const nextOccurrenceDate = new Date(ticket.next_occurrence_date);
+                if (!isNaN(nextOccurrenceDate.getTime())) {
+                    nextOccurrenceHtml = `<span class="swimlane-next-occurrence" style="font-size: 0.75rem; color: #6366f1; font-weight: 500;">Next: ${formatDate(nextOccurrenceDate)}</span>`;
+                }
+            } catch (e) {
+                console.error('Error parsing next_occurrence_date:', e, ticket.next_occurrence_date);
+            }
+        }
+    }
     
     card.innerHTML = `
         <div class="swimlane-card-header">
@@ -1299,6 +1364,7 @@ function createSwimLaneCard(ticket) {
         <div class="swimlane-card-footer">
             <span class="swimlane-priority priority-${priorityClass}">${escapeHtml(ticket.priority)}</span>
             ${dueDate ? `<span class="swimlane-due ${isOverdue ? 'overdue' : ''}">${formatDate(dueDate)}</span>` : ''}
+            ${nextOccurrenceHtml}
         </div>
     `;
     

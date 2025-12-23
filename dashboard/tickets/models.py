@@ -63,6 +63,14 @@ class Ticket(Base):
     recurring_admin_id = Column(Integer, ForeignKey(f'{_users_fk_schema}users.user_id'), nullable=True)  # Admin to assign on reopen
     reopen_days_before_due_date = Column(Integer, nullable=True, default=10)  # Days before due date to reopen
     
+    # Enhanced recurrence type fields
+    recurrence_type = Column(String, nullable=True, default='frequency')  # 'frequency', 'weekly', 'monthly', 'quarterly', 'annual'
+    recurrence_weekdays = Column(Text, nullable=True)  # Comma-separated weekday numbers (0=Monday, 6=Sunday) or JSON array
+    recurrence_month_day = Column(Integer, nullable=True)  # Day of month (1-31) for monthly recurrence
+    recurrence_quarter_month = Column(Integer, nullable=True)  # Which month of quarter (1, 2, or 3) for quarterly recurrence
+    recurrence_quarter_day = Column(Integer, nullable=True)  # Day of month (1-31) for quarterly recurrence
+    recurrence_annual_dates = Column(Text, nullable=True)  # Comma-separated "MM-DD" format (e.g., "04-10,10-15") or JSON array
+    
     # Relationships
     assigned_user = relationship('User', foreign_keys=[assigned_user_id])
     creator = relationship('User', foreign_keys=[created_by])
@@ -101,6 +109,12 @@ class Ticket(Base):
             'initial_due_date': self.initial_due_date.isoformat() if self.initial_due_date else None,
             'recurring_admin_id': self.recurring_admin_id,
             'reopen_days_before_due_date': self.reopen_days_before_due_date if self.reopen_days_before_due_date is not None else 10,
+            'recurrence_type': self.recurrence_type if self.recurrence_type else ('frequency' if self.is_recurring else None),
+            'recurrence_weekdays': self.recurrence_weekdays,
+            'recurrence_month_day': self.recurrence_month_day,
+            'recurrence_quarter_month': self.recurrence_quarter_month,
+            'recurrence_quarter_day': self.recurrence_quarter_day,
+            'recurrence_annual_dates': self.recurrence_annual_dates,
         }
         
         # Include listing IDs from TicketListing junction table
@@ -404,6 +418,8 @@ def init_ticket_database():
         _migrate_image_tables(engine)
         # Migrate recurring fields to tickets table
         _migrate_tickets_recurring_table(engine)
+        # Migrate enhanced recurrence type fields
+        _migrate_recurrence_types_table(engine)
         # Migrate activity_logs table
         _migrate_activity_logs_table(engine)
         # Migrate ticket_listings junction table
@@ -413,6 +429,8 @@ def init_ticket_database():
         _migrate_listing_id_nullable(engine)
         # Migrate recurring fields to tickets table
         _migrate_tickets_recurring_table(engine)
+        # Migrate enhanced recurrence type fields
+        _migrate_recurrence_types_table(engine)
         # Migrate activity_logs table
         _migrate_activity_logs_table(engine)
         # Migrate ticket_listings junction table
@@ -604,6 +622,107 @@ def _migrate_tickets_recurring_table(engine):
             pass
 
 
+def _migrate_recurrence_types_table(engine):
+    """Add enhanced recurrence type columns to tickets table if they don't exist"""
+    import sqlalchemy
+    database_url = os.getenv("DATABASE_URL")
+    
+    with engine.connect() as conn:
+        if not database_url:
+            # SQLite migration
+            # Check if tickets table exists
+            result = conn.execute(sqlalchemy.text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='tickets'"
+            ))
+            if not result.fetchone():
+                return  # Table doesn't exist, create_all will handle it
+            
+            # Get existing columns
+            result = conn.execute(sqlalchemy.text("PRAGMA table_info(tickets)"))
+            existing_columns = {row[1] for row in result.fetchall()}
+            
+            # Add columns if missing (idempotent)
+            columns_to_add = [
+                ('recurrence_type', 'TEXT DEFAULT \'frequency\''),
+                ('recurrence_weekdays', 'TEXT'),
+                ('recurrence_month_day', 'INTEGER'),
+                ('recurrence_quarter_month', 'INTEGER'),
+                ('recurrence_quarter_day', 'INTEGER'),
+                ('recurrence_annual_dates', 'TEXT'),
+            ]
+            
+            for col_name, col_type in columns_to_add:
+                if col_name not in existing_columns:
+                    try:
+                        conn.execute(sqlalchemy.text(f"ALTER TABLE tickets ADD COLUMN {col_name} {col_type}"))
+                        conn.commit()
+                    except Exception as e:
+                        conn.rollback()
+                        # Column might already exist, ignore
+                        pass
+            
+            # Set default recurrence_type for existing recurring tickets
+            try:
+                conn.execute(sqlalchemy.text("""
+                    UPDATE tickets 
+                    SET recurrence_type = 'frequency' 
+                    WHERE is_recurring = 1 AND (recurrence_type IS NULL OR recurrence_type = '')
+                """))
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                pass
+        else:
+            # PostgreSQL migration
+            # Check if tickets table exists
+            result = conn.execute(sqlalchemy.text(
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'tickets' AND table_name = 'tickets')"
+            ))
+            if not result.scalar():
+                return  # Table doesn't exist, create_all will handle it
+            
+            # Check and add columns
+            columns_to_add = [
+                ('recurrence_type', 'VARCHAR DEFAULT \'frequency\''),
+                ('recurrence_weekdays', 'TEXT'),
+                ('recurrence_month_day', 'INTEGER'),
+                ('recurrence_quarter_month', 'INTEGER'),
+                ('recurrence_quarter_day', 'INTEGER'),
+                ('recurrence_annual_dates', 'TEXT'),
+            ]
+            
+            for col_name, col_type in columns_to_add:
+                # Check if column exists
+                result = conn.execute(sqlalchemy.text("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.columns 
+                        WHERE table_schema = 'tickets' 
+                        AND table_name = 'tickets' 
+                        AND column_name = :col_name
+                    )
+                """), {'col_name': col_name})
+                if not result.scalar():
+                    try:
+                        conn.execute(sqlalchemy.text(f"ALTER TABLE tickets.tickets ADD COLUMN {col_name} {col_type}"))
+                        conn.commit()
+                    except Exception as e:
+                        conn.rollback()
+                        # Column might already exist, ignore
+                        pass
+            
+            # Set default recurrence_type for existing recurring tickets
+            try:
+                conn.execute(sqlalchemy.text("""
+                    UPDATE tickets.tickets 
+                    SET recurrence_type = 'frequency' 
+                    WHERE is_recurring = TRUE AND (recurrence_type IS NULL OR recurrence_type = '')
+                """))
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                pass
+
+
 def _migrate_ticket_listings_table(engine):
     """Create ticket_listings junction table if it doesn't exist."""
     import sqlalchemy
@@ -740,7 +859,10 @@ def create_ticket(listing_id: int = None, listing_ids: List[int] = None, issue_t
                   category: str = 'other', due_date: date = None, created_by: int = None,
                   is_recurring: bool = False, frequency_value: int = None, frequency_unit: str = None,
                   initial_due_date: date = None, recurring_admin_id: int = None,
-                  reopen_days_before_due_date: int = None, tag_ids: List[int] = None) -> Ticket:
+                  reopen_days_before_due_date: int = None, tag_ids: List[int] = None,
+                  recurrence_type: str = None, recurrence_weekdays: str = None,
+                  recurrence_month_day: int = None, recurrence_quarter_month: int = None,
+                  recurrence_quarter_day: int = None, recurrence_annual_dates: str = None) -> Ticket:
     """Create a new ticket and inherit tags from the property (if listing_id is provided).
     
     For general tickets (listing_id=None), issue_title can be None and will default to title.
@@ -765,6 +887,13 @@ def create_ticket(listing_id: int = None, listing_ids: List[int] = None, issue_t
     main_session = get_main_session(config.MAIN_DATABASE_PATH)
     
     try:
+        # Determine recurrence_type (default to 'frequency' for backward compatibility)
+        if is_recurring and not recurrence_type:
+            if frequency_value or frequency_unit:
+                recurrence_type = 'frequency'
+            else:
+                recurrence_type = 'frequency'  # Default fallback
+        
         ticket = Ticket(
             listing_id=listing_id,
             issue_title=issue_title,
@@ -782,7 +911,13 @@ def create_ticket(listing_id: int = None, listing_ids: List[int] = None, issue_t
             frequency_unit=frequency_unit,
             initial_due_date=initial_due_date,
             recurring_admin_id=recurring_admin_id,
-            reopen_days_before_due_date=reopen_days_before_due_date if reopen_days_before_due_date is not None else 10
+            reopen_days_before_due_date=reopen_days_before_due_date if reopen_days_before_due_date is not None else 10,
+            recurrence_type=recurrence_type,
+            recurrence_weekdays=recurrence_weekdays,
+            recurrence_month_day=recurrence_month_day,
+            recurrence_quarter_month=recurrence_quarter_month,
+            recurrence_quarter_day=recurrence_quarter_day,
+            recurrence_annual_dates=recurrence_annual_dates
         )
         session.add(ticket)
         session.flush()  # Get ticket_id without committing

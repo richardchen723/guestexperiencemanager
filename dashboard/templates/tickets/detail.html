@@ -102,20 +102,47 @@
                 {% if ticket.is_recurring %}
                 <div class="info-row" style="background: var(--bg-secondary); padding: var(--space-3); border-radius: var(--radius-md); margin-top: var(--space-3);">
                     <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);">
-                        <span style="font-weight: 600;">🔄 Recurring Task</span>
+                        {% set recurrence_type = ticket.recurrence_type or 'frequency' %}
+                        {% if recurrence_type == 'frequency' %}
+                            <span style="font-weight: 600;">🔄 Recurring Task</span>
+                        {% elif recurrence_type == 'weekly' %}
+                            <span style="font-weight: 600;">📅 Weekly Recurring Task</span>
+                        {% elif recurrence_type == 'monthly' %}
+                            <span style="font-weight: 600;">📆 Monthly Recurring Task</span>
+                        {% elif recurrence_type == 'quarterly' %}
+                            <span style="font-weight: 600;">📊 Quarterly Recurring Task</span>
+                        {% elif recurrence_type == 'annual' %}
+                            <span style="font-weight: 600;">🗓️ Annual Recurring Task</span>
+                        {% else %}
+                            <span style="font-weight: 600;">🔄 Recurring Task</span>
+                        {% endif %}
                         <span id="recurringStatusBadge" class="status-badge" style="background: {% if ticket.is_recurring_active %}var(--success){% else %}var(--text-tertiary){% endif %}; color: white; font-size: var(--text-xs); padding: 2px 8px;">
                             {% if ticket.is_recurring_active %}Active{% else %}Inactive{% endif %}
                         </span>
                     </div>
                     <div style="font-size: var(--text-sm); color: var(--text-secondary); margin-bottom: var(--space-2);">
-                        Recurs every {{ ticket.frequency_value }} {{ ticket.frequency_unit }}
+                        <strong>Pattern:</strong> 
+                        {% if recurrence_description %}
+                            {{ recurrence_description }}
+                        {% else %}
+                            {% if recurrence_type == 'frequency' %}
+                                Every {{ ticket.frequency_value }} {{ ticket.frequency_unit }}
+                            {% else %}
+                                Recurring task (pattern not configured)
+                            {% endif %}
+                        {% endif %}
                     </div>
                     <div style="font-size: var(--text-sm); color: var(--text-secondary); margin-bottom: var(--space-2);">
                         Reopens {{ ticket.reopen_days_before_due_date or 10 }} days before due date
                     </div>
                     {% if ticket.initial_due_date %}
-                    <div style="font-size: var(--text-sm); color: var(--text-secondary);">
+                    <div style="font-size: var(--text-sm); color: var(--text-secondary); margin-bottom: var(--space-2);">
                         Initial due date: {{ ticket.initial_due_date.strftime('%Y-%m-%d') }}
+                    </div>
+                    {% endif %}
+                    {% if next_occurrence_date %}
+                    <div style="font-size: var(--text-sm); color: var(--text-secondary); margin-bottom: var(--space-2); font-weight: 600;">
+                        <span style="color: var(--primary);">Next occurrence:</span> {{ next_occurrence_date.strftime('%Y-%m-%d') }}
                     </div>
                     {% endif %}
                     <div style="margin-top: var(--space-3);">

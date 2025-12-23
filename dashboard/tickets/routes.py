@@ -5,6 +5,7 @@ Ticket API routes.
 
 import sys
 import os
+import logging
 from datetime import datetime, date
 from flask import Blueprint, render_template, jsonify, request, redirect, url_for
 
@@ -83,11 +84,32 @@ def ticket_detail_page(ticket_id):
     # For backward compatibility, also pass the first listing as 'listing'
     listing = listings[0] if listings else None
     
+    # Format recurrence description for display and calculate next occurrence
+    recurrence_description = None
+    next_occurrence_date = None
+    if ticket.is_recurring:
+        from dashboard.tickets.recurrence_utils import format_recurrence_description
+        from dashboard.tickets.recurring_tasks import get_next_occurrence_date
+        recurrence_type = ticket.recurrence_type or 'frequency'
+        recurrence_config = {
+            'frequency_value': ticket.frequency_value,
+            'frequency_unit': ticket.frequency_unit,
+            'recurrence_weekdays': ticket.recurrence_weekdays,
+            'recurrence_month_day': ticket.recurrence_month_day,
+            'recurrence_quarter_month': ticket.recurrence_quarter_month,
+            'recurrence_quarter_day': ticket.recurrence_quarter_day,
+            'recurrence_annual_dates': ticket.recurrence_annual_dates,
+        }
+        recurrence_description = format_recurrence_description(recurrence_type, recurrence_config)
+        next_occurrence_date = get_next_occurrence_date(ticket)
+    
     return render_template('tickets/detail.html', 
                          ticket=ticket, 
                          listing=listing,
                          listings=listings,
-                         current_user=get_current_user())
+                         current_user=get_current_user(),
+                         recurrence_description=recurrence_description,
+                         next_occurrence_date=next_occurrence_date)
 
 
 @tickets_bp.route('/create')
@@ -395,6 +417,14 @@ def api_list_tickets():
                     ticket_dict['listing'] = ticket_listings_data[0]
             
             ticket_dict['tags'] = ticket_tags_map.get(ticket.ticket_id, [])
+            
+            # Calculate next occurrence date for recurring tickets
+            if ticket.is_recurring:
+                from dashboard.tickets.recurring_tasks import get_next_occurrence_date
+                next_occurrence = get_next_occurrence_date(ticket)
+                if next_occurrence:
+                    ticket_dict['next_occurrence_date'] = next_occurrence.isoformat()
+            
             result.append(ticket_dict)
         
         return jsonify(result)
@@ -536,35 +566,120 @@ def api_create_ticket():
     
     # Parse recurring task fields
     is_recurring = data.get('is_recurring', False)
+    recurrence_type = data.get('recurrence_type', None)
     frequency_value = None
     frequency_unit = None
     initial_due_date = None
     recurring_admin_id = None
     reopen_days_before_due_date = None
     
+    # Enhanced recurrence fields
+    recurrence_weekdays = None
+    recurrence_month_day = None
+    recurrence_quarter_month = None
+    recurrence_quarter_day = None
+    recurrence_annual_dates = None
+    
     if is_recurring:
-        frequency_value_raw = data.get('frequency_value')
-        frequency_unit_raw = data.get('frequency_unit')
-        reopen_days_raw = data.get('reopen_days_before_due_date')
+        # Determine recurrence type (default to 'frequency' for backward compatibility)
+        if not recurrence_type:
+            # If frequency_value is provided, assume frequency type
+            if data.get('frequency_value') or data.get('frequency_unit'):
+                recurrence_type = 'frequency'
+            else:
+                return jsonify({'error': 'recurrence_type is required for recurring tasks'}), 400
+        else:
+            recurrence_type = recurrence_type.lower()
         
-        # Validate frequency
-        if frequency_value_raw:
+        # Validate recurrence_type
+        valid_types = ['frequency', 'weekly', 'monthly', 'quarterly', 'annual']
+        if recurrence_type not in valid_types:
+            return jsonify({'error': f'recurrence_type must be one of: {", ".join(valid_types)}'}), 400
+        
+        # Validate based on recurrence type
+        from dashboard.tickets.recurrence_utils import validate_recurrence_config
+        
+        config = {}
+        if recurrence_type == 'frequency':
+            frequency_value_raw = data.get('frequency_value')
+            frequency_unit_raw = data.get('frequency_unit')
+            
+            if frequency_value_raw:
+                try:
+                    frequency_value = int(frequency_value_raw)
+                    if frequency_value <= 0:
+                        return jsonify({'error': 'frequency_value must be greater than 0'}), 400
+                except (ValueError, TypeError):
+                    return jsonify({'error': 'Invalid frequency_value. Must be an integer.'}), 400
+            
+            if frequency_unit_raw:
+                if frequency_unit_raw not in ['days', 'months']:
+                    return jsonify({'error': 'Invalid frequency_unit. Must be "days" or "months".'}), 400
+                frequency_unit = frequency_unit_raw
+            
+            if not frequency_value or not frequency_unit:
+                return jsonify({'error': 'frequency_value and frequency_unit are required for frequency recurrence'}), 400
+            
+            config['frequency_value'] = frequency_value
+            config['frequency_unit'] = frequency_unit
+        
+        elif recurrence_type == 'weekly':
+            recurrence_weekdays = data.get('recurrence_weekdays')
+            if not recurrence_weekdays:
+                return jsonify({'error': 'recurrence_weekdays is required for weekly recurrence'}), 400
+            config['recurrence_weekdays'] = recurrence_weekdays
+        
+        elif recurrence_type == 'monthly':
+            recurrence_month_day_raw = data.get('recurrence_month_day')
+            if recurrence_month_day_raw is None:
+                return jsonify({'error': 'recurrence_month_day is required for monthly recurrence'}), 400
             try:
-                frequency_value = int(frequency_value_raw)
-                if frequency_value <= 0:
-                    return jsonify({'error': 'frequency_value must be greater than 0'}), 400
+                recurrence_month_day = int(recurrence_month_day_raw)
+                if recurrence_month_day < 1 or recurrence_month_day > 31:
+                    return jsonify({'error': 'recurrence_month_day must be between 1 and 31'}), 400
             except (ValueError, TypeError):
-                return jsonify({'error': 'Invalid frequency_value. Must be an integer.'}), 400
+                return jsonify({'error': 'Invalid recurrence_month_day. Must be an integer.'}), 400
+            config['recurrence_month_day'] = recurrence_month_day
         
-        if frequency_unit_raw:
-            if frequency_unit_raw not in ['days', 'months']:
-                return jsonify({'error': 'Invalid frequency_unit. Must be "days" or "months".'}), 400
-            frequency_unit = frequency_unit_raw
+        elif recurrence_type == 'quarterly':
+            recurrence_quarter_month_raw = data.get('recurrence_quarter_month')
+            recurrence_quarter_day_raw = data.get('recurrence_quarter_day')
+            
+            if recurrence_quarter_month_raw is None:
+                return jsonify({'error': 'recurrence_quarter_month is required for quarterly recurrence'}), 400
+            if recurrence_quarter_day_raw is None:
+                return jsonify({'error': 'recurrence_quarter_day is required for quarterly recurrence'}), 400
+            
+            try:
+                recurrence_quarter_month = int(recurrence_quarter_month_raw)
+                if recurrence_quarter_month < 1 or recurrence_quarter_month > 3:
+                    return jsonify({'error': 'recurrence_quarter_month must be 1, 2, or 3'}), 400
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Invalid recurrence_quarter_month. Must be an integer.'}), 400
+            
+            try:
+                recurrence_quarter_day = int(recurrence_quarter_day_raw)
+                if recurrence_quarter_day < 1 or recurrence_quarter_day > 31:
+                    return jsonify({'error': 'recurrence_quarter_day must be between 1 and 31'}), 400
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Invalid recurrence_quarter_day. Must be an integer.'}), 400
+            
+            config['recurrence_quarter_month'] = recurrence_quarter_month
+            config['recurrence_quarter_day'] = recurrence_quarter_day
         
-        if not frequency_value or not frequency_unit:
-            return jsonify({'error': 'frequency_value and frequency_unit are required for recurring tasks'}), 400
+        elif recurrence_type == 'annual':
+            recurrence_annual_dates = data.get('recurrence_annual_dates')
+            if not recurrence_annual_dates:
+                return jsonify({'error': 'recurrence_annual_dates is required for annual recurrence'}), 400
+            config['recurrence_annual_dates'] = recurrence_annual_dates
+        
+        # Validate the configuration
+        is_valid, error_msg = validate_recurrence_config(recurrence_type, config)
+        if not is_valid:
+            return jsonify({'error': error_msg}), 400
         
         # Validate reopen_days_before_due_date
+        reopen_days_raw = data.get('reopen_days_before_due_date')
         if reopen_days_raw is not None:
             try:
                 reopen_days_before_due_date = int(reopen_days_raw)
@@ -607,7 +722,13 @@ def api_create_ticket():
             initial_due_date=initial_due_date,
             recurring_admin_id=recurring_admin_id,
             reopen_days_before_due_date=reopen_days_before_due_date,
-            tag_ids=tag_ids  # User-selected tags (in addition to inherited tags)
+            tag_ids=tag_ids,  # User-selected tags (in addition to inherited tags)
+            recurrence_type=recurrence_type,
+            recurrence_weekdays=recurrence_weekdays,
+            recurrence_month_day=recurrence_month_day,
+            recurrence_quarter_month=recurrence_quarter_month,
+            recurrence_quarter_day=recurrence_quarter_day,
+            recurrence_annual_dates=recurrence_annual_dates
         )
         
         # Get the ticket again with relationships loaded to avoid lazy loading issues
@@ -814,6 +935,80 @@ def api_update_ticket(ticket_id):
                         return jsonify({'error': 'Invalid recurring_admin_id. Must be an integer.'}), 400
                 else:
                     update_data['recurring_admin_id'] = None
+            
+            # Handle enhanced recurrence type fields
+            if 'recurrence_type' in data:
+                recurrence_type = data['recurrence_type'].lower() if data['recurrence_type'] else None
+                valid_types = ['frequency', 'weekly', 'monthly', 'quarterly', 'annual']
+                if recurrence_type and recurrence_type not in valid_types:
+                    return jsonify({'error': f'recurrence_type must be one of: {", ".join(valid_types)}'}), 400
+                if recurrence_type:
+                    update_data['recurrence_type'] = recurrence_type
+                elif not recurrence_type and is_recurring:
+                    # Default to 'frequency' if not specified but recurring is enabled
+                    update_data['recurrence_type'] = 'frequency'
+            
+            # Validate and update recurrence fields based on type
+            if 'recurrence_type' in update_data or 'recurrence_type' in data:
+                current_recurrence_type = update_data.get('recurrence_type', ticket.recurrence_type or 'frequency')
+                
+                # Build config for validation
+                config = {}
+                if current_recurrence_type == 'frequency':
+                    if 'frequency_value' in data:
+                        config['frequency_value'] = update_data.get('frequency_value', ticket.frequency_value)
+                    if 'frequency_unit' in data:
+                        config['frequency_unit'] = update_data.get('frequency_unit', ticket.frequency_unit)
+                elif current_recurrence_type == 'weekly':
+                    if 'recurrence_weekdays' in data:
+                        update_data['recurrence_weekdays'] = data['recurrence_weekdays']
+                        config['recurrence_weekdays'] = data['recurrence_weekdays']
+                elif current_recurrence_type == 'monthly':
+                    if 'recurrence_month_day' in data:
+                        recurrence_month_day_raw = data['recurrence_month_day']
+                        if recurrence_month_day_raw is not None:
+                            try:
+                                recurrence_month_day = int(recurrence_month_day_raw)
+                                if recurrence_month_day < 1 or recurrence_month_day > 31:
+                                    return jsonify({'error': 'recurrence_month_day must be between 1 and 31'}), 400
+                                update_data['recurrence_month_day'] = recurrence_month_day
+                                config['recurrence_month_day'] = recurrence_month_day
+                            except (ValueError, TypeError):
+                                return jsonify({'error': 'Invalid recurrence_month_day. Must be an integer.'}), 400
+                elif current_recurrence_type == 'quarterly':
+                    if 'recurrence_quarter_month' in data:
+                        recurrence_quarter_month_raw = data['recurrence_quarter_month']
+                        if recurrence_quarter_month_raw is not None:
+                            try:
+                                recurrence_quarter_month = int(recurrence_quarter_month_raw)
+                                if recurrence_quarter_month < 1 or recurrence_quarter_month > 3:
+                                    return jsonify({'error': 'recurrence_quarter_month must be 1, 2, or 3'}), 400
+                                update_data['recurrence_quarter_month'] = recurrence_quarter_month
+                                config['recurrence_quarter_month'] = recurrence_quarter_month
+                            except (ValueError, TypeError):
+                                return jsonify({'error': 'Invalid recurrence_quarter_month. Must be an integer.'}), 400
+                    if 'recurrence_quarter_day' in data:
+                        recurrence_quarter_day_raw = data['recurrence_quarter_day']
+                        if recurrence_quarter_day_raw is not None:
+                            try:
+                                recurrence_quarter_day = int(recurrence_quarter_day_raw)
+                                if recurrence_quarter_day < 1 or recurrence_quarter_day > 31:
+                                    return jsonify({'error': 'recurrence_quarter_day must be between 1 and 31'}), 400
+                                update_data['recurrence_quarter_day'] = recurrence_quarter_day
+                                config['recurrence_quarter_day'] = recurrence_quarter_day
+                            except (ValueError, TypeError):
+                                return jsonify({'error': 'Invalid recurrence_quarter_day. Must be an integer.'}), 400
+                elif current_recurrence_type == 'annual':
+                    if 'recurrence_annual_dates' in data:
+                        update_data['recurrence_annual_dates'] = data['recurrence_annual_dates']
+                        config['recurrence_annual_dates'] = data['recurrence_annual_dates']
+                
+                # Validate the configuration if we have enough data
+                if config:
+                    from dashboard.tickets.recurrence_utils import validate_recurrence_config
+                    is_valid, error_msg = validate_recurrence_config(current_recurrence_type, config)
+                    if not is_valid:
+                        return jsonify({'error': error_msg}), 400
     
     if 'is_recurring_active' in data:
         update_data['is_recurring_active'] = bool(data['is_recurring_active'])
