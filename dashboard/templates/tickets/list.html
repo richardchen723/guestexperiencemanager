@@ -457,7 +457,7 @@ function applyFiltersFromUrl() {
     
     // Apply assigned_user_id filter
     // Note: loadUsers() should have already set this, but we verify/ensure it's set here
-    const assignedUserIdParam = urlParams.get('assigned_user_id');
+    // assignedUserIdParam was already declared above, so we just use it here
     if (assignedUserIdParam) {
         const assignedSelect = document.getElementById('filterAssigned');
         // #region agent log
