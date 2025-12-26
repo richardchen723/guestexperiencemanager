@@ -414,6 +414,8 @@ function applyFiltersFromUrl() {
             const checkbox = document.querySelector(`.priority-checkbox[value="${priority}"]`);
             if (checkbox) {
                 checkbox.checked = true;
+            } else {
+                console.warn(`Priority checkbox not found for value: ${priority}`);
             }
         });
         updatePriorityFilterText();
@@ -471,8 +473,13 @@ document.addEventListener('DOMContentLoaded', function() {
         updateListingFilterText();
         updatePriorityFilterText();
         
-        // Load tickets with applied filters
-        loadTickets();
+        // Use requestAnimationFrame to ensure DOM is updated before loading tickets
+        requestAnimationFrame(() => {
+            // Small delay to ensure checkboxes are fully updated
+            setTimeout(() => {
+                loadTickets();
+            }, 50);
+        });
     }).catch(() => {
         // Even if users fail to load, still apply other filters and load tickets
         applyFiltersFromUrl();
@@ -482,7 +489,13 @@ document.addEventListener('DOMContentLoaded', function() {
         updateListingFilterText();
         updatePriorityFilterText();
         
-        loadTickets();
+        // Use requestAnimationFrame to ensure DOM is updated before loading tickets
+        requestAnimationFrame(() => {
+            // Small delay to ensure checkboxes are fully updated
+            setTimeout(() => {
+                loadTickets();
+            }, 50);
+        });
     });
     
     // Add change listeners to status checkboxes
@@ -923,6 +936,10 @@ function loadTickets() {
     const selectedStatuses = Array.from(statusCheckboxes).map(cb => cb.value);
     const priorityCheckboxes = document.querySelectorAll('.priority-checkbox:checked');
     const selectedPriorities = Array.from(priorityCheckboxes).map(cb => cb.value);
+    
+    // Debug: Log selected priorities
+    console.log('Selected priorities from checkboxes:', selectedPriorities);
+    
     const category = document.getElementById('filterCategory').value;
     const pastDue = document.getElementById('filterPastDue').checked;
     const recurring = document.getElementById('filterRecurring').checked;
@@ -942,6 +959,9 @@ function loadTickets() {
     if (selectedPriorities.length > 0) {
         // Send multiple priority values as comma-separated string
         params.append('priority', selectedPriorities.join(','));
+        console.log('Adding priority filter to API request:', selectedPriorities.join(','));
+    } else {
+        console.log('No priorities selected - will show all tickets');
     }
     if (category) params.append('category', category);
     if (pastDue) params.append('past_due', 'true');
