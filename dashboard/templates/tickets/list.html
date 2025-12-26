@@ -447,6 +447,22 @@ function applyFiltersFromUrl() {
             recurringCheckbox.checked = true;
         }
     }
+    
+    // Apply assigned_user_id filter
+    // Note: This will be set again in loadUsers() after users are loaded,
+    // but we set it here too in case loadUsers() hasn't completed yet
+    const assignedUserIdParam = urlParams.get('assigned_user_id');
+    if (assignedUserIdParam) {
+        const assignedSelect = document.getElementById('filterAssigned');
+        if (assignedSelect) {
+            // Try to set it immediately if the option exists
+            const option = assignedSelect.querySelector(`option[value="${assignedUserIdParam}"]`);
+            if (option) {
+                assignedSelect.value = assignedUserIdParam;
+            }
+            // If option doesn't exist yet, it will be set in loadUsers()
+        }
+    }
 }
 
 // Load data on page load
@@ -937,8 +953,9 @@ function loadTickets() {
     const priorityCheckboxes = document.querySelectorAll('.priority-checkbox:checked');
     const selectedPriorities = Array.from(priorityCheckboxes).map(cb => cb.value);
     
-    // Debug: Log selected priorities
+    // Debug: Log selected priorities and assigned user
     console.log('Selected priorities from checkboxes:', selectedPriorities);
+    console.log('Assigned user ID from dropdown:', assignedId);
     
     const category = document.getElementById('filterCategory').value;
     const pastDue = document.getElementById('filterPastDue').checked;
@@ -951,7 +968,12 @@ function loadTickets() {
     if (selectedListingIds.length > 0) {
         params.append('listing_ids', selectedListingIds.join(','));
     }
-    if (assignedId) params.append('assigned_user_id', assignedId);
+    if (assignedId) {
+        params.append('assigned_user_id', assignedId);
+        console.log('Adding assigned_user_id filter to API request:', assignedId);
+    } else {
+        console.log('No assigned_user_id selected - will show all users\' tickets');
+    }
     if (selectedStatuses.length > 0) {
         // Send multiple status values as comma-separated string
         params.append('status', selectedStatuses.join(','));
