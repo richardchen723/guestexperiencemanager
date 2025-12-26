@@ -1086,6 +1086,13 @@ function loadTickets() {
     if (selectedStatuses.length > 0) {
         // Send multiple status values as comma-separated string
         params.append('status', selectedStatuses.join(','));
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:1086',message:'loadTickets adding status filter',data:{selectedStatuses,statusParam:selectedStatuses.join(',')},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+    } else {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:1090',message:'loadTickets NO status filter',data:{selectedStatuses},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
     }
     if (selectedPriorities.length > 0) {
         // Send multiple priority values as comma-separated string
@@ -1111,10 +1118,21 @@ function loadTickets() {
         }
     }
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:1114',message:'loadTickets API request',data:{apiUrl:`/tickets/api/tickets?${params.toString()}`,paramsString:params.toString()},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
+    
     fetch(`/tickets/api/tickets?${params.toString()}`)
         .then(response => response.json())
         .then(tickets => {
             loading.style.display = 'none';
+            
+            // #region agent log
+            const ticketIds = tickets.map(t => t.ticket_id);
+            const ticketStatuses = tickets.map(t => ({id: t.ticket_id, status: t.status}));
+            const duplicateIds = ticketIds.filter((id, index) => ticketIds.indexOf(id) !== index);
+            fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:1118',message:'loadTickets API response',data:{ticketCount:tickets.length,ticketIds,ticketStatuses,duplicateIds,hasDuplicates:duplicateIds.length>0},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'D'})}).catch(()=>{});
+            // #endregion
             
             if (tickets.length === 0) {
                 noTickets.style.display = 'block';
@@ -1126,11 +1144,28 @@ function loadTickets() {
             
             noTickets.style.display = 'none';
             
+            // Deduplicate tickets by ticket_id before rendering
+            const seenIds = new Set();
+            const uniqueTickets = tickets.filter(ticket => {
+                if (seenIds.has(ticket.ticket_id)) {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:1132',message:'loadTickets duplicate ticket filtered',data:{ticketId:ticket.ticket_id,status:ticket.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'E'})}).catch(()=>{});
+                    // #endregion
+                    return false;
+                }
+                seenIds.add(ticket.ticket_id);
+                return true;
+            });
+            
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:1140',message:'loadTickets after deduplication',data:{originalCount:tickets.length,uniqueCount:uniqueTickets.length,removedCount:tickets.length-uniqueTickets.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'E'})}).catch(()=>{});
+            // #endregion
+            
             // Render based on current view
             if (currentView === 'swimlane') {
-                renderSwimLaneView(tickets);
+                renderSwimLaneView(uniqueTickets);
             } else {
-            tickets.forEach(ticket => {
+            uniqueTickets.forEach(ticket => {
                 const card = createTicketCard(ticket);
                 container.appendChild(card);
             });
