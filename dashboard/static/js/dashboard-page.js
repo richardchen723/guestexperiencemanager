@@ -262,6 +262,64 @@ function createTicketCard(ticket) {
     return card;
 }
 
+// Store current user ID (set in template)
+const CURRENT_USER_ID = window.CURRENT_USER_ID || null;
+
+// Build tickets page URL with filters
+function buildTicketsUrl(filters) {
+    const params = new URLSearchParams();
+    if (CURRENT_USER_ID) {
+        params.append('assigned_user_id', CURRENT_USER_ID);
+    }
+    
+    if (filters.status) {
+        params.append('status', filters.status.join(','));
+    }
+    if (filters.priority) {
+        params.append('priority', filters.priority.join(','));
+    }
+    if (filters.past_due) {
+        params.append('past_due', 'true');
+    }
+    if (filters.due_days) {
+        params.append('due_days', filters.due_days);
+    }
+    
+    return `/tickets?${params.toString()}`;
+}
+
+// Navigation functions for dashboard cards
+function navigateToMyTickets() {
+    const url = buildTicketsUrl({ 
+        status: ['Open', 'Assigned', 'In Progress', 'Blocked'] 
+    });
+    window.location.href = url;
+}
+
+function navigateToDueThisWeek() {
+    const url = buildTicketsUrl({ 
+        status: ['Open', 'Assigned', 'In Progress', 'Blocked'], 
+        due_days: 7 
+    });
+    window.location.href = url;
+}
+
+function navigateToOverdue() {
+    const url = buildTicketsUrl({ 
+        status: ['Open', 'Assigned', 'In Progress', 'Blocked'], 
+        past_due: true 
+    });
+    window.location.href = url;
+}
+
+function navigateToHighPriority() {
+    const url = buildTicketsUrl({ 
+        status: ['Open', 'Assigned', 'In Progress', 'Blocked'], 
+        priority: ['High', 'Critical'] 
+    });
+    window.location.href = url;
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', loadDashboard);
 
