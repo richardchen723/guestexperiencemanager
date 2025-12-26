@@ -18,7 +18,7 @@ from dashboard.tickets.models import (
     get_tickets, update_ticket, delete_ticket, add_ticket_comment, get_ticket_comments, delete_ticket_comment,
     init_ticket_database, TICKET_CATEGORIES
 )
-from dashboard.tickets.recurring_tasks import process_recurring_tasks
+from dashboard.tickets.recurring_tasks import process_recurring_tasks, get_next_occurrence_date, get_admin_user
 from dashboard.tickets.image_utils import save_uploaded_image
 from pathlib import Path
 from flask import send_from_directory
@@ -89,7 +89,6 @@ def ticket_detail_page(ticket_id):
     next_occurrence_date = None
     if ticket.is_recurring:
         from dashboard.tickets.recurrence_utils import format_recurrence_description
-        from dashboard.tickets.recurring_tasks import get_next_occurrence_date
         recurrence_type = ticket.recurrence_type or 'frequency'
         recurrence_config = {
             'frequency_value': ticket.frequency_value,
@@ -283,7 +282,12 @@ def api_list_tickets():
             if statuses:
                 query = query.filter(Ticket.status.in_(statuses))
         if priority:
-            query = query.filter(Ticket.priority == priority)
+            # Support multiple priorities (comma-separated)
+            priorities = [p.strip() for p in priority.split(',') if p.strip()]
+            if len(priorities) == 1:
+                query = query.filter(Ticket.priority == priorities[0])
+            elif len(priorities) > 1:
+                query = query.filter(Ticket.priority.in_(priorities))
         if category:
             query = query.filter(Ticket.category == category)
         
@@ -420,10 +424,15 @@ def api_list_tickets():
             
             # Calculate next occurrence date for recurring tickets
             if ticket.is_recurring:
-                from dashboard.tickets.recurring_tasks import get_next_occurrence_date
-                next_occurrence = get_next_occurrence_date(ticket)
-                if next_occurrence:
-                    ticket_dict['next_occurrence_date'] = next_occurrence.isoformat()
+                try:
+                    next_occurrence = get_next_occurrence_date(ticket)
+                    if next_occurrence:
+                        ticket_dict['next_occurrence_date'] = next_occurrence.isoformat()
+                except Exception as e:
+                    # Log error but don't break the API response
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Error calculating next occurrence for ticket {ticket.ticket_id}: {e}", exc_info=True)
             
             result.append(ticket_dict)
         
@@ -695,7 +704,6 @@ def api_create_ticket():
             initial_due_date = due_date
         
         # Find admin user for assignment
-        from dashboard.tickets.recurring_tasks import get_admin_user
         admin_user = get_admin_user()
         if admin_user:
             recurring_admin_id = admin_user.user_id
