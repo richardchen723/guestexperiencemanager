@@ -466,11 +466,22 @@ document.addEventListener('DOMContentLoaded', function() {
         // Apply filters from URL parameters after users are loaded
         applyFiltersFromUrl();
         
+        // Update filter text displays after applying filters
+        updateStatusFilterText();
+        updateListingFilterText();
+        updatePriorityFilterText();
+        
         // Load tickets with applied filters
         loadTickets();
     }).catch(() => {
         // Even if users fail to load, still apply other filters and load tickets
         applyFiltersFromUrl();
+        
+        // Update filter text displays after applying filters
+        updateStatusFilterText();
+        updateListingFilterText();
+        updatePriorityFilterText();
+        
         loadTickets();
     });
     
@@ -587,9 +598,21 @@ document.addEventListener('DOMContentLoaded', function() {
             listingDropdown.style.display = 'none';
             listingTrigger.classList.remove('active');
         }
+        
+        // Close priority filter dropdown
+        const priorityDropdown = document.getElementById('priorityFilterDropdown');
+        const priorityTrigger = document.getElementById('priorityFilterTrigger');
+        const priorityWrapper = priorityTrigger ? priorityTrigger.closest('.priority-filter-wrapper') : null;
+        
+        if (priorityWrapper && priorityDropdown && priorityTrigger && 
+            !priorityWrapper.contains(event.target) && 
+            priorityDropdown.style.display !== 'none') {
+            priorityDropdown.style.display = 'none';
+            priorityTrigger.classList.remove('active');
+        }
     });
     
-    // Initialize filter text
+    // Initialize filter text (will be updated again after URL filters are applied)
     updateStatusFilterText();
     updateListingFilterText();
     updatePriorityFilterText();
@@ -643,6 +666,53 @@ function updateStatusFilterText() {
         textElement.textContent = `${checkboxes.length} Selected`;
     }
     updateActiveFilters();
+}
+
+function togglePriorityFilter(event) {
+    if (event) {
+        event.stopPropagation();
+    }
+    const dropdown = document.getElementById('priorityFilterDropdown');
+    const trigger = document.getElementById('priorityFilterTrigger');
+    
+    if (dropdown && trigger) {
+        const isOpen = dropdown.style.display !== 'none' && dropdown.style.display !== '';
+        dropdown.style.display = isOpen ? 'none' : 'block';
+        trigger.classList.toggle('active', !isOpen);
+    }
+}
+
+function updatePriorityFilterText() {
+    const checkboxes = document.querySelectorAll('.priority-checkbox:checked');
+    const textElement = document.getElementById('priorityFilterText');
+    if (!textElement) return;
+    
+    if (checkboxes.length === 0) {
+        textElement.textContent = 'No Priorities';
+    } else if (checkboxes.length === 4) {
+        textElement.textContent = 'All Priorities';
+    } else if (checkboxes.length === 1) {
+        textElement.textContent = checkboxes[0].value;
+    } else {
+        // Show selected priorities as comma-separated list
+        const selectedValues = Array.from(checkboxes).map(cb => cb.value).join(', ');
+        textElement.textContent = selectedValues;
+    }
+    updateActiveFilters();
+}
+
+function selectAllPriorities() {
+    document.querySelectorAll('.priority-checkbox').forEach(cb => cb.checked = true);
+    updatePriorityFilterText();
+    updateActiveFilters();
+    loadTickets();
+}
+
+function deselectAllPriorities() {
+    document.querySelectorAll('.priority-checkbox').forEach(cb => cb.checked = false);
+    updatePriorityFilterText();
+    updateActiveFilters();
+    loadTickets();
 }
 
 function toggleListingFilter(event) {
