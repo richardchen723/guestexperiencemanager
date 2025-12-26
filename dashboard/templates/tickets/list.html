@@ -379,6 +379,74 @@ let tagLogic = 'AND';
 let searchTimeout = null;
 let currentView = localStorage.getItem('ticketView') || 'list'; // 'list' or 'swimlane'
 
+// Function to apply filters from URL parameters
+function applyFiltersFromUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    
+    // Apply status filter (comma-separated)
+    const statusParam = urlParams.get('status');
+    if (statusParam) {
+        const statuses = statusParam.split(',').map(s => s.trim());
+        // First uncheck all status checkboxes
+        document.querySelectorAll('.status-checkbox').forEach(cb => {
+            cb.checked = false;
+        });
+        // Then check the ones from URL
+        statuses.forEach(status => {
+            const checkbox = document.querySelector(`.status-checkbox[value="${status}"]`);
+            if (checkbox) {
+                checkbox.checked = true;
+            }
+        });
+        updateStatusFilterText();
+    }
+    
+    // Apply priority filter (comma-separated)
+    const priorityParam = urlParams.get('priority');
+    if (priorityParam) {
+        const priorities = priorityParam.split(',').map(p => p.trim());
+        // First uncheck all priority checkboxes
+        document.querySelectorAll('.priority-checkbox').forEach(cb => {
+            cb.checked = false;
+        });
+        // Then check the ones from URL
+        priorities.forEach(priority => {
+            const checkbox = document.querySelector(`.priority-checkbox[value="${priority}"]`);
+            if (checkbox) {
+                checkbox.checked = true;
+            }
+        });
+        updatePriorityFilterText();
+    }
+    
+    // Apply past_due filter
+    const pastDueParam = urlParams.get('past_due');
+    if (pastDueParam === 'true') {
+        const pastDueCheckbox = document.getElementById('filterPastDue');
+        if (pastDueCheckbox) {
+            pastDueCheckbox.checked = true;
+        }
+    }
+    
+    // Apply due_days filter
+    const dueDaysParam = urlParams.get('due_days');
+    if (dueDaysParam) {
+        const dueDaysInput = document.getElementById('filterDueDays');
+        if (dueDaysInput) {
+            dueDaysInput.value = dueDaysParam;
+        }
+    }
+    
+    // Apply recurring filter
+    const recurringParam = urlParams.get('recurring');
+    if (recurringParam === 'true') {
+        const recurringCheckbox = document.getElementById('filterRecurring');
+        if (recurringCheckbox) {
+            recurringCheckbox.checked = true;
+        }
+    }
+}
+
 // Load data on page load
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize tag filter
@@ -392,8 +460,19 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     loadListings();
-    loadUsers();
-    loadTickets();
+    
+    // Load users first, then apply filters from URL, then load tickets
+    loadUsers().then(() => {
+        // Apply filters from URL parameters after users are loaded
+        applyFiltersFromUrl();
+        
+        // Load tickets with applied filters
+        loadTickets();
+    }).catch(() => {
+        // Even if users fail to load, still apply other filters and load tickets
+        applyFiltersFromUrl();
+        loadTickets();
+    });
     
     // Add change listeners to status checkboxes
     document.querySelectorAll('.status-checkbox').forEach(checkbox => {
@@ -712,10 +791,10 @@ function loadUsers() {
     const select = document.getElementById('filterAssigned');
     if (!select) {
         console.error('filterAssigned select element not found');
-        return;
+        return Promise.resolve();
     }
     
-    fetch('/tickets/api/users')
+    return fetch('/tickets/api/users')
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -738,6 +817,13 @@ function loadUsers() {
             });
             
             console.log(`Loaded ${allUsers.length} users`);
+            
+            // Apply assigned_user_id filter from URL after users are loaded
+            const urlParams = new URLSearchParams(window.location.search);
+            const assignedUserId = urlParams.get('assigned_user_id');
+            if (assignedUserId && select.querySelector(`option[value="${assignedUserId}"]`)) {
+                select.value = assignedUserId;
+            }
         })
         .catch(error => {
             console.error('Error loading users:', error);

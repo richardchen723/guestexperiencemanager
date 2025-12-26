@@ -25,22 +25,22 @@
     <div id="dashboardContent" style="display: none;">
         <!-- Statistics Cards -->
         <div class="dashboard-stats-grid">
-            <div class="stat-card">
+            <div class="stat-card stat-card-clickable" id="statCardMyTickets" onclick="navigateToMyTickets()">
                 <div class="stat-icon">📋</div>
                 <div class="stat-value" id="statTotalAssigned">-</div>
                 <div class="stat-label">My Tickets</div>
             </div>
-            <div class="stat-card">
+            <div class="stat-card stat-card-clickable" id="statCardDueThisWeek" onclick="navigateToDueThisWeek()">
                 <div class="stat-icon">📅</div>
                 <div class="stat-value" id="statDueThisWeek">-</div>
                 <div class="stat-label">Due This Week</div>
             </div>
-            <div class="stat-card stat-card-warning">
+            <div class="stat-card stat-card-warning stat-card-clickable" id="statCardOverdue" onclick="navigateToOverdue()">
                 <div class="stat-icon">⚠️</div>
                 <div class="stat-value" id="statOverdue">-</div>
                 <div class="stat-label">Overdue</div>
             </div>
-            <div class="stat-card stat-card-danger">
+            <div class="stat-card stat-card-danger stat-card-clickable" id="statCardHighPriority" onclick="navigateToHighPriority()">
                 <div class="stat-icon">🔥</div>
                 <div class="stat-value" id="statHighPriority">-</div>
                 <div class="stat-label">High Priority</div>
@@ -90,6 +90,10 @@
 
 {% block extra_scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+    // Set current user ID for dashboard navigation
+    window.CURRENT_USER_ID = {{ current_user.user_id if current_user.user_id else 'null' }};
+</script>
 <script src="{{ url_for('static', filename='js/dashboard-page.js') }}"></script>
 {% endblock %}
 
