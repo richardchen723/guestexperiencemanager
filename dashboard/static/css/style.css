@@ -2196,6 +2196,11 @@ footer {
     z-index: 1;
 }
 
+.priority-filter-wrapper {
+    position: relative;
+    z-index: 1;
+}
+
 /* Status Filter Dropdown Styles */
 .filter-group-status {
     position: relative;
