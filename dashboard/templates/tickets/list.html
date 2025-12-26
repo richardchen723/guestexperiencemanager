@@ -381,7 +381,14 @@ let currentView = localStorage.getItem('ticketView') || 'list'; // 'list' or 'sw
 
 // Function to apply filters from URL parameters
 function applyFiltersFromUrl() {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:383',message:'applyFiltersFromUrl entry',data:{url:window.location.href},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     const urlParams = new URLSearchParams(window.location.search);
+    // #region agent log
+    const assignedUserIdParam = urlParams.get('assigned_user_id');
+    fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:386',message:'URL assigned_user_id param',data:{assignedUserIdParam,allParams:Object.fromEntries(urlParams)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     
     // Apply status filter (comma-separated)
     const statusParam = urlParams.get('status');
@@ -449,20 +456,37 @@ function applyFiltersFromUrl() {
     }
     
     // Apply assigned_user_id filter
-    // Note: This will be set again in loadUsers() after users are loaded,
-    // but we set it here too in case loadUsers() hasn't completed yet
+    // Note: loadUsers() should have already set this, but we verify/ensure it's set here
     const assignedUserIdParam = urlParams.get('assigned_user_id');
     if (assignedUserIdParam) {
         const assignedSelect = document.getElementById('filterAssigned');
+        // #region agent log
+        const optionCount = assignedSelect ? assignedSelect.options.length : 0;
+        const currentValue = assignedSelect ? assignedSelect.value : 'N/A';
+        fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:451',message:'applyFiltersFromUrl before setting assigned_user_id',data:{assignedUserIdParam,optionCount,currentValue,hasSelect:!!assignedSelect},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         if (assignedSelect) {
-            // Try to set it immediately if the option exists
-            const option = assignedSelect.querySelector(`option[value="${assignedUserIdParam}"]`);
+            // Try to set it - check both exact match and loose equality (for string/number mismatch)
+            const option = assignedSelect.querySelector(`option[value="${assignedUserIdParam}"]`) || 
+                          Array.from(assignedSelect.options).find(opt => opt.value == assignedUserIdParam);
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:458',message:'applyFiltersFromUrl option lookup',data:{assignedUserIdParam,optionFound:!!option,optionValue:option?option.value:null},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
             if (option) {
                 assignedSelect.value = assignedUserIdParam;
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:462',message:'applyFiltersFromUrl set value',data:{assignedUserIdParam,newValue:assignedSelect.value,verified:assignedSelect.value==assignedUserIdParam},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                // #endregion
+            } else {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:466',message:'applyFiltersFromUrl option not found',data:{assignedUserIdParam,optionCount,allValues:Array.from(assignedSelect.options).map(o=>o.value)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+                // #endregion
             }
-            // If option doesn't exist yet, it will be set in loadUsers()
         }
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:469',message:'applyFiltersFromUrl exit',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
 }
 
 // Load data on page load
@@ -481,9 +505,37 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load users first, then apply filters from URL, then load tickets
     loadUsers().then(() => {
+        // #region agent log
+        const selectAfterLoad = document.getElementById('filterAssigned');
+        const urlParamsCheck = new URLSearchParams(window.location.search);
+        fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:504',message:'loadUsers.then callback entry',data:{dropdownValue:selectAfterLoad?selectAfterLoad.value:'N/A',urlParam:urlParamsCheck.get('assigned_user_id')},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        
+        // Ensure assigned_user_id is set from URL (loadUsers() should have set it, but double-check)
+        const urlParams = new URLSearchParams(window.location.search);
+        const assignedUserId = urlParams.get('assigned_user_id');
+        if (assignedUserId && selectAfterLoad) {
+            // Verify the value is set correctly
+            if (selectAfterLoad.value !== assignedUserId) {
+                // Try to set it again
+                const option = selectAfterLoad.querySelector(`option[value="${assignedUserId}"]`) || 
+                              Array.from(selectAfterLoad.options).find(opt => opt.value == assignedUserId);
+                if (option) {
+                    selectAfterLoad.value = assignedUserId;
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:512',message:'re-set assigned_user_id in then callback',data:{assignedUserId,valueAfter:selectAfterLoad.value},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                    // #endregion
+                }
+            }
+        }
+        
         // Apply filters from URL parameters after users are loaded
         applyFiltersFromUrl();
         
+        // #region agent log
+        const selectAfterApply = document.getElementById('filterAssigned');
+        fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:522',message:'after applyFiltersFromUrl',data:{dropdownValue:selectAfterApply?selectAfterApply.value:'N/A'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         // Update filter text displays after applying filters
         updateStatusFilterText();
         updateListingFilterText();
@@ -493,6 +545,10 @@ document.addEventListener('DOMContentLoaded', function() {
         requestAnimationFrame(() => {
             // Small delay to ensure checkboxes are fully updated
             setTimeout(() => {
+                // #region agent log
+                const selectBeforeLoad = document.getElementById('filterAssigned');
+                fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:533',message:'before loadTickets call',data:{dropdownValue:selectBeforeLoad?selectBeforeLoad.value:'N/A'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
                 loadTickets();
             }, 50);
         });
@@ -920,8 +976,29 @@ function loadUsers() {
             // Apply assigned_user_id filter from URL after users are loaded
             const urlParams = new URLSearchParams(window.location.search);
             const assignedUserId = urlParams.get('assigned_user_id');
-            if (assignedUserId && select.querySelector(`option[value="${assignedUserId}"]`)) {
-                select.value = assignedUserId;
+            // #region agent log
+            const optionBefore = select.querySelector(`option[value="${assignedUserId}"]`);
+            const valueBefore = select.value;
+            fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:953',message:'loadUsers before setting assigned_user_id',data:{assignedUserId,optionFound:!!optionBefore,valueBefore,optionCount:select.options.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            if (assignedUserId) {
+                // Try to find the option - check both string and number comparison
+                const option = select.querySelector(`option[value="${assignedUserId}"]`) || 
+                              Array.from(select.options).find(opt => opt.value == assignedUserId);
+                if (option) {
+                    select.value = assignedUserId;
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:962',message:'loadUsers set assigned_user_id',data:{assignedUserId,valueAfter:select.value,verified:select.value==assignedUserId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                    // #endregion
+                } else {
+                    // #region agent log
+                    fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:967',message:'loadUsers option not found',data:{assignedUserId,optionCount:select.options.length,allValues:Array.from(select.options).map(o=>o.value)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                    // #endregion
+                }
+            } else {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:970',message:'loadUsers no assigned_user_id param',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
             }
         })
         .catch(error => {
@@ -947,7 +1024,33 @@ function loadTickets() {
     // Get selected listing IDs from checkboxes
     const listingCheckboxes = document.querySelectorAll('.listing-checkbox:checked');
     const selectedListingIds = Array.from(listingCheckboxes).map(cb => cb.value);
-    const assignedId = document.getElementById('filterAssigned').value;
+    const assignedSelect = document.getElementById('filterAssigned');
+    let assignedId = assignedSelect ? assignedSelect.value : '';
+    
+    // Fallback: If dropdown value is empty but URL has assigned_user_id, use URL parameter
+    // This handles the case where loadTickets() is called before the dropdown value is set
+    if (!assignedId) {
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlAssignedId = urlParams.get('assigned_user_id');
+        if (urlAssignedId) {
+            assignedId = urlAssignedId;
+            // Try to set the dropdown value if the option exists
+            if (assignedSelect) {
+                const option = assignedSelect.querySelector(`option[value="${urlAssignedId}"]`) || 
+                              Array.from(assignedSelect.options).find(opt => opt.value == urlAssignedId);
+                if (option) {
+                    assignedSelect.value = urlAssignedId;
+                }
+            }
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:1000',message:'loadTickets fallback to URL param',data:{assignedIdFromUrl:urlAssignedId,assignedIdAfterFallback:assignedId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+        }
+    }
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:1007',message:'loadTickets read assignedId',data:{assignedId,hasSelect:!!assignedSelect,optionCount:assignedSelect?assignedSelect.options.length:0,selectedIndex:assignedSelect?assignedSelect.selectedIndex:-1,dropdownValue:assignedSelect?assignedSelect.value:''},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     const statusCheckboxes = document.querySelectorAll('.status-checkbox:checked');
     const selectedStatuses = Array.from(statusCheckboxes).map(cb => cb.value);
     const priorityCheckboxes = document.querySelectorAll('.priority-checkbox:checked');
@@ -971,8 +1074,14 @@ function loadTickets() {
     if (assignedId) {
         params.append('assigned_user_id', assignedId);
         console.log('Adding assigned_user_id filter to API request:', assignedId);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:972',message:'loadTickets adding assigned_user_id to params',data:{assignedId,paramsString:params.toString()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
     } else {
         console.log('No assigned_user_id selected - will show all users\' tickets');
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/419cb636-be32-4678-b8ff-ab9ca4e53e0b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'list.html:975',message:'loadTickets NO assigned_user_id in params',data:{assignedId,paramsString:params.toString()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
     }
     if (selectedStatuses.length > 0) {
         // Send multiple status values as comma-separated string
