@@ -378,6 +378,7 @@ let selectedTagIds = [];
 let tagLogic = 'AND';
 let searchTimeout = null;
 let currentView = localStorage.getItem('ticketView') || 'list'; // 'list' or 'swimlane'
+let isInitialLoad = true; // Track if we're on initial page load
 
 // Function to apply filters from URL parameters
 function applyFiltersFromUrl() {
@@ -526,6 +527,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // Small delay to ensure checkboxes are fully updated
             setTimeout(() => {
                 loadTickets();
+                // Mark initial load as complete after first load
+                isInitialLoad = false;
             }, 50);
         });
     });
@@ -533,6 +536,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add change listeners to status checkboxes
     document.querySelectorAll('.status-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', function() {
+            isInitialLoad = false; // Mark that user has manually changed filters
             updateStatusFilterText();
             updateActiveFilters();
             loadTickets();
@@ -579,6 +583,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     if (filterAssigned) {
         filterAssigned.addEventListener('change', function() {
+            isInitialLoad = false; // Mark that user has manually changed filters
             updateActiveFilters();
             loadTickets();
         });
@@ -971,9 +976,10 @@ function loadTickets() {
     const assignedSelect = document.getElementById('filterAssigned');
     let assignedId = assignedSelect ? assignedSelect.value : '';
     
-    // Fallback: If dropdown value is empty but URL has assigned_user_id, use URL parameter
-    // This handles the case where loadTickets() is called before the dropdown value is set
-    if (!assignedId) {
+    // Fallback: Only use URL parameter during initial page load
+    // This handles the case where loadTickets() is called before the dropdown value is set on initial load
+    // But prevents applying URL filters when user manually changes filters
+    if (!assignedId && isInitialLoad) {
         const urlParams = new URLSearchParams(window.location.search);
         const urlAssignedId = urlParams.get('assigned_user_id');
         if (urlAssignedId) {
