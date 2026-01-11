@@ -994,8 +994,37 @@ function loadTickets() {
             }
         }
     }
-    const statusCheckboxes = document.querySelectorAll('.status-checkbox:checked');
-    const selectedStatuses = Array.from(statusCheckboxes).map(cb => cb.value);
+    // Always check URL parameter first - it's the source of truth when navigating from dashboard
+    // This prevents showing Resolved/Closed tickets when URL explicitly filters them out
+    const urlParams = new URLSearchParams(window.location.search);
+    const statusParam = urlParams.get('status');
+    let selectedStatuses;
+    
+    if (statusParam) {
+        // URL has status filter - use it (this is what dashboard navigation sets)
+        selectedStatuses = statusParam.split(',').map(s => s.trim());
+        // Ensure Resolved and Closed are never included when URL explicitly filters them out
+        selectedStatuses = selectedStatuses.filter(s => s !== 'Resolved' && s !== 'Closed');
+    } else {
+        // No URL parameter - during initial load, default to active statuses only
+        // (don't use checkboxes as they might be in default state with Resolved/Closed checked)
+        if (isInitialLoad) {
+            selectedStatuses = ['Open', 'Assigned', 'In Progress', 'Blocked'];
+        } else {
+            // After initial load, user has interacted with filters - use checkboxes
+            const statusCheckboxes = document.querySelectorAll('.status-checkbox:checked');
+            selectedStatuses = Array.from(statusCheckboxes).map(cb => cb.value);
+            
+            // If no checkboxes checked, default to active statuses only
+            if (selectedStatuses.length === 0) {
+                selectedStatuses = ['Open', 'Assigned', 'In Progress', 'Blocked'];
+            }
+        }
+    }
+    
+    // Final safeguard: always exclude Resolved and Closed
+    selectedStatuses = selectedStatuses.filter(s => s !== 'Resolved' && s !== 'Closed');
+    
     const priorityCheckboxes = document.querySelectorAll('.priority-checkbox:checked');
     const selectedPriorities = Array.from(priorityCheckboxes).map(cb => cb.value);
     

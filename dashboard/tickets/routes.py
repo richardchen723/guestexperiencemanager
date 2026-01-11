@@ -6,7 +6,7 @@ Ticket API routes.
 import sys
 import os
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from flask import Blueprint, render_template, jsonify, request, redirect, url_for
 
 # Add parent directories to path
@@ -186,6 +186,7 @@ def api_list_tickets():
     search_query = request.args.get('search', type=str)
     past_due = request.args.get('past_due', type=str)  # 'true' or 'false' as string
     recurring = request.args.get('recurring', type=str)  # 'true' or 'false' as string
+    due_days = request.args.get('due_days', type=int)  # Number of days for due date filter
     
     # Normalize issue_title (trim whitespace)
     if issue_title:
@@ -279,6 +280,8 @@ def api_list_tickets():
         if status_param:
             # Support multiple statuses (comma-separated)
             statuses = [s.strip() for s in status_param.split(',') if s.strip()]
+            # Ensure Resolved and Closed are never included when explicitly filtered out
+            statuses = [s for s in statuses if s not in ['Resolved', 'Closed']]
             if statuses:
                 query = query.filter(Ticket.status.in_(statuses))
         if priority:
@@ -299,6 +302,20 @@ def api_list_tickets():
                 and_(
                     Ticket.due_date.isnot(None),
                     Ticket.due_date < today,
+                    ~Ticket.status.in_(['Resolved', 'Closed'])
+                )
+            )
+        
+        # Filter tickets due within N days
+        if due_days and due_days > 0:
+            today = date.today()
+            week_end = today + timedelta(days=due_days)
+            # Due within N days: due_date >= today AND due_date <= (today + N days) AND status not in ['Resolved', 'Closed']
+            query = query.filter(
+                and_(
+                    Ticket.due_date.isnot(None),
+                    Ticket.due_date >= today,
+                    Ticket.due_date <= week_end,
                     ~Ticket.status.in_(['Resolved', 'Closed'])
                 )
             )
