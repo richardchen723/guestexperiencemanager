@@ -39,9 +39,7 @@ data "aws_ami" "ubuntu_22_04_arm64" {
     name   = "virtualization-type"
     values = ["hvm"]
   }
-}
-
-# VPC and subnet data sources for EC2
+}# VPC and subnet data sources for EC2
 data "aws_vpc" "default" {
   count   = var.vpc_id == "" ? 1 : 0
   default = true
@@ -54,4 +52,3 @@ data "aws_subnets" "default" {
     values = [data.aws_vpc.default[0].id]
   }
 }
-

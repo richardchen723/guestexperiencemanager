@@ -205,6 +205,14 @@ function initializeListingTags(listingId, tags) {
     // Initialize tag input (hidden by default)
     const inputContainer = document.getElementById(`tagsInput-${listingId}`);
     if (inputContainer && !listingTagInputs[listingId]) {
+        // Temporarily show container to ensure input is properly initialized
+        const wasHidden = inputContainer.style.display === 'none';
+        if (wasHidden) {
+            inputContainer.style.display = 'block';
+            inputContainer.style.visibility = 'hidden';
+            inputContainer.style.position = 'absolute';
+        }
+        
         listingTagInputs[listingId] = new TagInput(inputContainer, {
             existingTags: tags,
             onTagsChange: (newTags) => {
@@ -217,6 +225,13 @@ function initializeListingTags(listingId, tags) {
                 }
             }
         });
+        
+        // Restore original state
+        if (wasHidden) {
+            inputContainer.style.display = 'none';
+            inputContainer.style.visibility = '';
+            inputContainer.style.position = '';
+        }
     }
 }
 
@@ -233,11 +248,52 @@ function toggleTagEdit(listingId) {
             editBtn.textContent = isEditing ? '+ Add' : 'Done';
         }
         
-        // Focus input when showing
-        if (!isEditing && listingTagInputs[listingId] && listingTagInputs[listingId].input) {
-            setTimeout(() => {
-                listingTagInputs[listingId].input.focus();
-            }, 100);
+        // Focus input when showing - ensure it's accessible
+        if (!isEditing) {
+            // Ensure container is visible first
+            inputContainer.style.visibility = 'visible';
+            inputContainer.style.opacity = '1';
+            
+            // Use requestAnimationFrame to ensure DOM is updated
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    const tagInput = listingTagInputs[listingId];
+                    if (tagInput) {
+                        // If input doesn't exist, re-render the TagInput
+                        if (!tagInput.input) {
+                            const existingTags = window.listingTagsMap[listingId] || [];
+                            tagInput.setTags(existingTags);
+                        }
+                        
+                        // Now focus the input
+                        if (tagInput.input) {
+                            const input = tagInput.input;
+                            // Ensure input is visible and accessible
+                            input.style.pointerEvents = 'auto';
+                            input.style.visibility = 'visible';
+                            input.style.opacity = '1';
+                            input.disabled = false;
+                            input.readOnly = false;
+                            // Remove any attributes that might block input
+                            input.removeAttribute('disabled');
+                            input.removeAttribute('readonly');
+                            // Ensure input is in viewport and focusable
+                            input.tabIndex = 0;
+                            // Focus the input - use multiple attempts to ensure it works
+                            try {
+                                input.focus();
+                                // Also trigger a click to ensure it's interactive
+                                input.click();
+                            } catch (e) {
+                                console.warn('Could not focus input:', e);
+                                // Fallback: scroll to input and try again
+                                input.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                                setTimeout(() => input.focus(), 100);
+                            }
+                        }
+                    }
+                }, 100);
+            });
         }
     }
 }
