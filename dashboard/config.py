@@ -79,6 +79,17 @@ if not SECRET_KEY:
             "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
         )
 
+# API Key Configuration
+# Used to hash and verify API keys (defaults to SECRET_KEY if not set)
+API_KEY_SECRET = os.getenv("API_KEY_SECRET") or SECRET_KEY
+# Service user identity for API key access
+API_SERVICE_EMAIL = os.getenv("API_SERVICE_EMAIL", "api-service@hostaway.local")
+API_SERVICE_NAME = os.getenv("API_SERVICE_NAME", "API Service")
+
+# API Key Configuration
+# Used to hash and verify API keys (defaults to SECRET_KEY if not set)
+API_KEY_SECRET = os.getenv("API_KEY_SECRET") or SECRET_KEY
+
 # Google OAuth Configuration
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")

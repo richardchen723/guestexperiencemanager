@@ -5,6 +5,7 @@ Authentication decorators for route protection.
 
 from functools import wraps
 from flask import redirect, url_for, request, jsonify
+from dashboard.auth.api_keys import authenticate_request_api_key
 from dashboard.auth.session import get_current_user, is_logged_in, is_approved, is_admin
 
 
@@ -24,6 +25,11 @@ def approved_required(f):
     """Decorator to require approved user account."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Allow API key auth for API routes
+        if _is_api_request():
+            if authenticate_request_api_key():
+                return f(*args, **kwargs)
+        
         if not is_logged_in():
             if request.is_json or request.path.startswith('/api/'):
                 return jsonify({'error': 'Authentication required'}), 401
@@ -42,6 +48,11 @@ def admin_required(f):
     """Decorator to require admin or owner role."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Allow API key auth for API routes
+        if _is_api_request():
+            if authenticate_request_api_key():
+                return f(*args, **kwargs)
+        
         if not is_logged_in():
             if request.is_json or request.path.startswith('/api/'):
                 return jsonify({'error': 'Authentication required'}), 401
@@ -70,3 +81,9 @@ def check_user_access():
         return False, 'Account approval required'
     
     return True, None
+
+
+def _is_api_request() -> bool:
+    """Return True when the current request targets an API endpoint."""
+    path = request.path or ""
+    return "/api/" in path or path.endswith("/api")

@@ -57,6 +57,23 @@ class User(Base):
         """Check if user is the owner."""
         return self.role == 'owner'
 
+class ApiKey(Base):
+    """API key model for third-party access."""
+    __tablename__ = 'api_keys'
+    __table_args__ = (
+        {'schema': 'users'} if os.getenv("DATABASE_URL") else {},
+    )
+    
+    api_key_id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=True)
+    key_prefix = Column(String(16), nullable=False, index=True)
+    key_hash = Column(String(128), nullable=False, unique=True, index=True)
+    created_by = Column(Integer, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_used_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+
 
 # Engine cache to prevent connection leaks
 _engine_cache = {}
@@ -211,6 +228,32 @@ def create_user(email: str, name: str = None, picture_url: str = None,
             google_id=google_id,
             role=role,
             is_approved=is_approved
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        return user
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+
+def get_or_create_service_user():
+    """Get or create the API service user."""
+    from dashboard.config import API_SERVICE_EMAIL, API_SERVICE_NAME
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.email == API_SERVICE_EMAIL).first()
+        if user:
+            return user
+        
+        user = User(
+            email=API_SERVICE_EMAIL,
+            name=API_SERVICE_NAME,
+            role='admin',
+            is_approved=True
         )
         session.add(user)
         session.commit()

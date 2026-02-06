@@ -218,6 +218,10 @@ setup_logging(log_file="logs/sync.log")
 ## Notes
 
 - **Photos**: Only URLs and metadata are stored, not downloaded images
+
+## Third-Party API
+
+API documentation is available in `docs/api.md`. API key authentication is supported for all API endpoints.
 - **Current State**: Only current state is stored, not historical changes
 - **Idempotent**: Safe to run multiple times
 - **Database**: Uses SQLite with WAL mode for better concurrency

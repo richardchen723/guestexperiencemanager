@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hostaway Messages API</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f3ee;
+        --ink: #1e1b16;
+        --muted: #6a5d4f;
+        --accent: #1f5a52;
+        --panel: #fffaf2;
+        --border: #e6ded3;
+        --code: #f2e9db;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+        background: var(--bg);
+        color: var(--ink);
+        line-height: 1.6;
+      }
+      header {
+        padding: 48px 24px 24px;
+        background: linear-gradient(135deg, #e9dfd2, #f7f3ee);
+        border-bottom: 1px solid var(--border);
+      }
+      header h1 {
+        margin: 0 0 8px;
+        font-size: 36px;
+        letter-spacing: 0.4px;
+      }
+      header p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+      }
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 32px 24px 64px;
+      }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px 22px;
+        margin-bottom: 20px;
+        box-shadow: 0 6px 18px rgba(30, 27, 22, 0.05);
+      }
+      h2 {
+        margin: 0 0 10px;
+        font-size: 22px;
+        color: var(--accent);
+      }
+      h3 {
+        margin: 16px 0 8px;
+        font-size: 18px;
+      }
+      code, pre {
+        font-family: "IBM Plex Mono", "SFMono-Regular", ui-monospace, monospace;
+        background: var(--code);
+        border-radius: 6px;
+      }
+      code { padding: 2px 6px; }
+      pre { padding: 12px 14px; overflow-x: auto; }
+      .muted { color: var(--muted); }
+      .endpoint {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #e2ecea;
+        color: #164943;
+        font-weight: 600;
+        font-size: 12px;
+        margin-right: 8px;
+      }
+      .mono { font-family: "IBM Plex Mono", "SFMono-Regular", ui-monospace, monospace; }
+      ul { margin: 8px 0 0 18px; padding: 0; }
+      li { margin: 4px 0; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Hostaway Messages API</h1>
+      <p>Third‑party integration reference for the Hostaway Messages dashboard.</p>
+    </header>
+    <main>
+      <section>
+        <h2>Basics</h2>
+        <p><strong>Base URL:</strong> use the same host and port as this app.</p>
+        <p><strong>Authentication:</strong> send an API key with each request.</p>
+        <pre><code>X-API-Key: &lt;your_api_key&gt;
+Authorization: Bearer &lt;your_api_key&gt;</code></pre>
+        <p class="muted">Errors return JSON: <code>{"error":"message"}</code></p>
+        <h3>Example</h3>
+        <pre><code>curl -H "X-API-Key: &lt;your_api_key&gt;" \
+  http://127.0.0.1:5001/api/listings</code></pre>
+      </section>
+
+      <section>
+        <h2>API Key Management (Admin)</h2>
+        <p>Create and revoke API keys used by third parties.</p>
+        <ul>
+          <li><span class="endpoint">GET</span><code>/admin/api/api-keys</code> — list keys (metadata only).</li>
+          <li><span class="endpoint">POST</span><code>/admin/api/api-keys</code> — create key. Body: <code>{"name":"Partner"}</code>.</li>
+          <li><span class="endpoint">POST</span><code>/admin/api/api-keys/{api_key_id}/revoke</code> — revoke key.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Health</h2>
+        <p>Use this to verify the service is alive and can reach the database.</p>
+        <ul>
+          <li><span class="endpoint">GET</span><code>/health</code> — returns status and timestamp.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Listings, Insights, Tags</h2>
+        <p>Listings and AI insights are read‑only. Tags are editable and can be attached to listings.</p>
+        <ul>
+          <li><span class="endpoint">GET</span><code>/api/listings</code> — list all listings. Query: <code>tags</code>, <code>tag_logic</code>.</li>
+          <li><span class="endpoint">GET</span><code>/api/insights/{listing_id}</code> — insights for a listing. Query: <code>refresh=true</code> to re‑run analysis.</li>
+          <li><span class="endpoint">GET</span><code>/api/tags</code> — list tags and usage counts.</li>
+          <li><span class="endpoint">POST</span><code>/api/tags</code> — create tag. Body: <code>{"name":"pool","color":"#00AAFF"}</code>.</li>
+          <li><span class="endpoint">DELETE</span><code>/api/tags/{tag_id}</code> — delete tag.</li>
+          <li><span class="endpoint">GET</span><code>/api/tags/autocomplete</code> — suggestions. Query: <code>q</code>.</li>
+          <li><span class="endpoint">GET</span><code>/api/listings/{listing_id}/tags</code> — list tags on listing.</li>
+          <li><span class="endpoint">POST</span><code>/api/listings/{listing_id}/tags</code> — add tags. Body: <code>{"tags":["dock","pet-friendly"]}</code>.</li>
+          <li><span class="endpoint">DELETE</span><code>/api/listings/{listing_id}/tags/{tag_id}</code> — remove tag from listing.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Dashboard</h2>
+        <p>Single endpoint used by the UI to hydrate the dashboard.</p>
+        <ul>
+          <li><span class="endpoint">GET</span><code>/dashboard/api/data</code> — dashboard cards and summaries. Query: <code>ticket_limit</code>, <code>occupancy_months</code>.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Tickets</h2>
+        <p>Full read/write ticketing API. Supports filters, tags, comments, images, and recurring tasks.</p>
+        <ul>
+          <li><span class="endpoint">GET</span><code>/tickets/api/tickets</code> — list tickets. Query: <code>listing_id</code>, <code>listing_ids</code>, <code>assigned_user_id</code>, <code>status</code>, <code>priority</code>, <code>category</code>, <code>issue_title</code>, <code>tags</code>, <code>tag_logic</code>, <code>search</code>, <code>past_due</code>, <code>recurring</code>, <code>due_days</code>.</li>
+          <li><span class="endpoint">GET</span><code>/tickets/api/tickets/{ticket_id}</code> — ticket with comments.</li>
+          <li><span class="endpoint">POST</span><code>/tickets/api/tickets</code> — create ticket. Body includes <code>title</code>, <code>issue_title</code>, optional <code>listing_id</code> or <code>listing_ids</code>.</li>
+          <li><span class="endpoint">PUT</span><code>/tickets/api/tickets/{ticket_id}</code> — update ticket fields.</li>
+          <li><span class="endpoint">DELETE</span><code>/tickets/api/tickets/{ticket_id}</code> — delete ticket (admin only).</li>
+          <li><span class="endpoint">GET</span><code>/tickets/api/tickets/{ticket_id}/comments</code> — list comments.</li>
+          <li><span class="endpoint">POST</span><code>/tickets/api/tickets/{ticket_id}/comments</code> — add comment. Body: <code>{"comment_text":"..."}</code>.</li>
+          <li><span class="endpoint">DELETE</span><code>/tickets/api/tickets/{ticket_id}/comments/{comment_id}</code> — delete comment.</li>
+          <li><span class="endpoint">POST</span><code>/tickets/api/tickets/suggest</code> — AI suggestion. Body: <code>{"listing_id":123,"issue_title":"...","issue_details":"..."}</code>.</li>
+          <li><span class="endpoint">GET</span><code>/tickets/api/listings/{listing_id}/issues</code> — list issues from insights.</li>
+          <li><span class="endpoint">GET</span><code>/tickets/api/users</code> — list approved users for assignment.</li>
+          <li><span class="endpoint">GET</span><code>/tickets/api/tickets/{ticket_id}/tags</code> — list tags on ticket.</li>
+          <li><span class="endpoint">POST</span><code>/tickets/api/tickets/{ticket_id}/tags</code> — add tags. Body: <code>{"tags":["hvac","vendor"]}</code>.</li>
+          <li><span class="endpoint">DELETE</span><code>/tickets/api/tickets/{ticket_id}/tags/{tag_id}</code> — remove tag from ticket.</li>
+        </ul>
+        <h3>Images</h3>
+        <p>Upload with <code>multipart/form-data</code> field name <code>image</code>.</p>
+        <ul>
+          <li><span class="endpoint">POST</span><code>/tickets/api/tickets/{ticket_id}/images</code> — upload ticket image.</li>
+          <li><span class="endpoint">GET</span><code>/tickets/api/tickets/{ticket_id}/images</code> — list ticket images.</li>
+          <li><span class="endpoint">DELETE</span><code>/tickets/api/tickets/{ticket_id}/images/{image_id}</code> — delete ticket image.</li>
+          <li><span class="endpoint">POST</span><code>/tickets/api/comments/{comment_id}/images</code> — upload comment image.</li>
+          <li><span class="endpoint">GET</span><code>/tickets/api/comments/{comment_id}/images</code> — list comment images.</li>
+          <li><span class="endpoint">DELETE</span><code>/tickets/api/comments/{comment_id}/images/{image_id}</code> — delete comment image.</li>
+          <li><span class="endpoint">GET</span><code>/tickets/api/images/{image_id}</code> — fetch image file.</li>
+          <li><span class="endpoint">GET</span><code>/tickets/api/images/{image_id}/thumbnail</code> — fetch thumbnail.</li>
+          <li><span class="endpoint">POST</span><code>/tickets/api/recurring/process</code> — process recurring tasks (admin only).</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Reviews</h2>
+        <p>Review filters are scoped to the current user. You can list unresponded reviews and saved filters.</p>
+        <ul>
+          <li><span class="endpoint">GET</span><code>/reviews/api/unresponded</code> — unresponded reviews. Query: <code>tag_ids</code>.</li>
+          <li><span class="endpoint">GET</span><code>/reviews/api/filters</code> — list saved filters.</li>
+          <li><span class="endpoint">POST</span><code>/reviews/api/filters</code> — create filter. Body: <code>{"name":"Low ratings","tag_ids":[1,2],"max_rating":4,"months_back":3}</code>.</li>
+          <li><span class="endpoint">PUT</span><code>/reviews/api/filters/{filter_id}</code> — update filter.</li>
+          <li><span class="endpoint">DELETE</span><code>/reviews/api/filters/{filter_id}</code> — delete filter.</li>
+          <li><span class="endpoint">GET</span><code>/reviews/api/filters/{filter_id}/reviews</code> — get reviews. Query: <code>sort_by</code>, <code>sort_order</code>.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Knowledge Base</h2>
+        <p>Upload and manage documents, attach listings and tags, and perform search.</p>
+        <ul>
+          <li><span class="endpoint">POST</span><code>/knowledge/api/documents</code> — upload document. Multipart fields: <code>document</code>, <code>title</code>, <code>listing_ids</code>, <code>tag_names</code>, <code>is_admin_only</code>.</li>
+          <li><span class="endpoint">GET</span><code>/knowledge/api/documents</code> — list documents. Query: <code>listing_id</code>, <code>listing_ids</code>, <code>tag_ids</code>, <code>search</code>, <code>page</code>, <code>per_page</code>.</li>
+          <li><span class="endpoint">GET</span><code>/knowledge/api/documents/{document_id}</code> — document metadata.</li>
+          <li><span class="endpoint">GET</span><code>/knowledge/api/documents/{document_id}/file</code> — download or view. Query: <code>download=true</code>.</li>
+          <li><span class="endpoint">POST</span><code>/knowledge/api/documents/search</code> — search. Body: <code>{"query":"heater reset","listing_ids":[1],"tag_ids":[3],"limit":50}</code>.</li>
+          <li><span class="endpoint">PUT</span><code>/knowledge/api/documents/{document_id}</code> — update metadata.</li>
+          <li><span class="endpoint">DELETE</span><code>/knowledge/api/documents/{document_id}</code> — delete document.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Sync</h2>
+        <p>Trigger and monitor sync runs.</p>
+        <ul>
+          <li><span class="endpoint">GET</span><code>/sync/api/history</code> — list recent sync runs.</li>
+          <li><span class="endpoint">GET</span><code>/sync/api/running-status</code> — running syncs.</li>
+          <li><span class="endpoint">GET</span><code>/sync/api/job/{job_id}/detail</code> — job detail.</li>
+          <li><span class="endpoint">GET</span><code>/sync/api/{sync_run_id}/detail</code> — run detail.</li>
+          <li><span class="endpoint">POST</span><code>/sync/api/full</code> — trigger full sync.</li>
+          <li><span class="endpoint">POST</span><code>/sync/api/incremental</code> — trigger incremental sync.</li>
+          <li><span class="endpoint">GET</span><code>/sync/api/status/{job_id}</code> — status by job id.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Users and Auth</h2>
+        <p>User profile and admin user management APIs.</p>
+        <ul>
+          <li><span class="endpoint">GET</span><code>/auth/api/profile</code> — current user profile.</li>
+          <li><span class="endpoint">PUT</span><code>/auth/api/profile</code> — update profile fields.</li>
+          <li><span class="endpoint">GET</span><code>/admin/api/users</code> — list users (admin only).</li>
+          <li><span class="endpoint">POST</span><code>/admin/api/users/{user_id}/approve</code> — approve user.</li>
+          <li><span class="endpoint">POST</span><code>/admin/api/users/{user_id}/revoke</code> — revoke user.</li>
+          <li><span class="endpoint">POST</span><code>/admin/api/users/{user_id}/role</code> — update role.</li>
+          <li><span class="endpoint">DELETE</span><code>/admin/api/users/{user_id}</code> — delete user.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Activities</h2>
+        <p>Admin reporting and audit trails.</p>
+        <ul>
+          <li><span class="endpoint">GET</span><code>/admin/api/activities</code> — query activity logs.</li>
+          <li><span class="endpoint">GET</span><code>/admin/api/activities/reports/ticket-metrics</code> — ticket metrics report.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

@@ -3,7 +3,7 @@
 Session management for user authentication.
 """
 
-from flask import session
+from flask import session, g
 from dashboard.auth.models import get_user_by_id, update_last_login
 
 
@@ -22,6 +22,9 @@ def logout_user():
 
 def get_current_user():
     """Get the current logged-in user."""
+    if getattr(g, "api_user", None):
+        return g.api_user
+    
     if not session.get('logged_in'):
         return None
     

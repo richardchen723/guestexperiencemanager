@@ -41,7 +41,7 @@ os.chdir(project_root)
 # Now we can safely import other modules
 import logging
 from datetime import datetime
-from flask import Flask, url_for
+from flask import Flask, url_for, render_template
 import sqlalchemy
 
 import dashboard.config as config
@@ -199,6 +199,11 @@ def create_app():
     @app.errorhandler(403)
     def forbidden(error):
         return "Access forbidden", 403
+
+    # API documentation (public)
+    @app.route('/api-docs')
+    def api_docs():
+        return render_template('api-docs.html')
     
     return app
 

@@ -5,6 +5,7 @@ Admin user management routes.
 
 import sys
 import os
+from datetime import datetime
 from flask import Blueprint, render_template, jsonify, request
 
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -13,9 +14,10 @@ sys.path.insert(0, project_root)
 from dashboard.auth.decorators import admin_required
 from dashboard.auth.models import (
     get_all_users, get_user_by_id, approve_user, revoke_user,
-    update_user_role, delete_user
+    update_user_role, delete_user, ApiKey, get_session
 )
 from dashboard.auth.session import get_current_user
+from dashboard.auth.api_keys import create_api_key
 
 # Create blueprint
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin', template_folder='../templates')
@@ -162,6 +164,72 @@ def api_delete_user(user_id):
             return jsonify({'error': 'Failed to delete user'}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@admin_bp.route('/api/api-keys', methods=['GET'])
+@admin_required
+def api_list_api_keys():
+    """List API keys (admin only)."""
+    session = get_session()
+    try:
+        keys = session.query(ApiKey).order_by(ApiKey.created_at.desc()).all()
+        result = []
+        for key in keys:
+            result.append({
+                'api_key_id': key.api_key_id,
+                'name': key.name,
+                'key_prefix': key.key_prefix,
+                'created_by': key.created_by,
+                'created_at': key.created_at.isoformat() if key.created_at else None,
+                'last_used_at': key.last_used_at.isoformat() if key.last_used_at else None,
+                'revoked_at': key.revoked_at.isoformat() if key.revoked_at else None,
+                'is_active': key.is_active
+            })
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
+
+
+@admin_bp.route('/api/api-keys', methods=['POST'])
+@admin_required
+def api_create_api_key():
+    """Create a new API key (admin only)."""
+    current_user = get_current_user()
+    data = request.get_json() or {}
+    name = data.get('name')
+    
+    try:
+        raw_key = create_api_key(name=name, created_by=current_user.user_id if current_user else None)
+        return jsonify({
+            'api_key': raw_key,
+            'name': name,
+            'created_at': datetime.utcnow().isoformat()
+        }), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_bp.route('/api/api-keys/<int:api_key_id>/revoke', methods=['POST'])
+@admin_required
+def api_revoke_api_key(api_key_id):
+    """Revoke an API key (admin only)."""
+    session = get_session()
+    try:
+        key = session.query(ApiKey).filter(ApiKey.api_key_id == api_key_id).first()
+        if not key:
+            return jsonify({'error': 'API key not found'}), 404
+        
+        key.is_active = False
+        key.revoked_at = datetime.utcnow()
+        session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        session.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
 
 
 def register_admin_routes(app):
