@@ -15,8 +15,8 @@ class ImageUploader {
             uploadEndpoint: options.uploadEndpoint || '',
             deleteEndpoint: options.deleteEndpoint || '',
             listEndpoint: options.listEndpoint || '',
-            imageServeUrl: options.imageServeUrl || '/tickets/api/images',
-            thumbnailUrl: options.thumbnailUrl || '/tickets/api/images',
+            imageServeUrl: options.imageServeUrl || options.deleteEndpoint || '/tickets/api/images',
+            thumbnailUrl: options.thumbnailUrl || options.deleteEndpoint || '/tickets/api/images',
             onUploadComplete: options.onUploadComplete || (() => {}),
             onDeleteComplete: options.onDeleteComplete || (() => {}),
             maxFiles: options.maxFiles || 10,
@@ -386,4 +386,3 @@ class ImageUploader {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { ImageUploader };
 }
-

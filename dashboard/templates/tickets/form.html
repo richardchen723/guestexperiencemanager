@@ -1227,8 +1227,8 @@ function initializeTicketFormImages() {
             uploadEndpoint: `/tickets/api/tickets/${ticketId}/images`,
             deleteEndpoint: `/tickets/api/tickets/${ticketId}/images`,
             listEndpoint: `/tickets/api/tickets/${ticketId}/images`,
-            imageServeUrl: '/tickets/api/images',
-            thumbnailUrl: '/tickets/api/images',
+            imageServeUrl: `/tickets/api/tickets/${ticketId}/images`,
+            thumbnailUrl: `/tickets/api/tickets/${ticketId}/images`,
             maxFiles: 10,
             maxFileSize: 2 * 1024 * 1024
         });

@@ -6,7 +6,8 @@ Authentication routes.
 import sys
 import os
 import re
-from flask import Blueprint, render_template, redirect, url_for, jsonify, request
+import logging
+from flask import Blueprint, render_template, redirect, url_for, jsonify, request, current_app
 
 # Add parent directories to path
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,6 +19,7 @@ from dashboard.auth.oauth import handle_google_callback
 from dashboard.auth.models import get_session
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
+logger = logging.getLogger(__name__)
 
 
 @auth_bp.route('/login')
@@ -30,6 +32,14 @@ def login():
         elif user:
             return redirect(url_for('auth.pending_approval'))
     
+    # If the Google blueprint was not registered (missing dependency/config), fail with clear guidance.
+    if 'google' not in current_app.blueprints:
+        return (
+            "Google OAuth is unavailable. Install dashboard dependencies "
+            "(including Flask-Dance) and configure GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET.",
+            503
+        )
+
     # Redirect to Google OAuth
     try:
         from flask_dance.contrib.google import google
@@ -38,9 +48,15 @@ def login():
         else:
             # Already authorized, handle callback
             return handle_google_callback()
+    except ImportError:
+        return (
+            "Google OAuth dependency missing (Flask-Dance). "
+            "Install dashboard requirements and restart the app.",
+            503
+        )
     except Exception as e:
-        # If Google OAuth is not configured, show error
-        return f"Google OAuth not configured. Error: {e}", 500
+        logger.error(f"Error during Google OAuth login redirect: {e}", exc_info=True)
+        return "Google OAuth login failed. Please contact admin.", 500
 
 
 @auth_bp.route('/google/callback')

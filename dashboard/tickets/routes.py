@@ -1833,10 +1833,33 @@ def api_get_ticket_images(ticket_id):
         session.close()
 
 
-@tickets_bp.route('/api/tickets/<int:ticket_id>/images/<int:image_id>', methods=['DELETE'])
+@tickets_bp.route('/api/tickets/<int:ticket_id>/images/<int:image_id>', methods=['GET', 'DELETE'])
 @approved_required
 def api_delete_ticket_image(ticket_id, image_id):
-    """Delete an image from a ticket."""
+    """Serve or delete an image from a ticket."""
+    if request.method == 'GET':
+        session = get_session()
+        try:
+            ticket_image = session.query(TicketImage).filter(
+                TicketImage.image_id == image_id,
+                TicketImage.ticket_id == ticket_id
+            ).first()
+
+            if not ticket_image:
+                return jsonify({'error': 'Image not found'}), 404
+
+            file_path = Path(config.TICKET_IMAGES_DIR) / ticket_image.file_path
+            if not file_path.exists():
+                return jsonify({'error': 'Image file not found'}), 404
+
+            return send_from_directory(
+                str(file_path.parent),
+                file_path.name,
+                mimetype=ticket_image.mime_type
+            )
+        finally:
+            session.close()
+
     session = get_session()
     current_user = get_current_user()
     
@@ -1882,6 +1905,34 @@ def api_delete_ticket_image(ticket_id, image_id):
     except Exception as e:
         session.rollback()
         return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
+
+
+@tickets_bp.route('/api/tickets/<int:ticket_id>/images/<int:image_id>/thumbnail', methods=['GET'])
+@approved_required
+def api_serve_ticket_thumbnail(ticket_id, image_id):
+    """Serve a thumbnail image file scoped to a ticket."""
+    session = get_session()
+    try:
+        ticket_image = session.query(TicketImage).filter(
+            TicketImage.image_id == image_id,
+            TicketImage.ticket_id == ticket_id
+        ).first()
+
+        if not ticket_image:
+            return jsonify({'error': 'Thumbnail not found'}), 404
+
+        thumb_path_str = ticket_image.thumbnail_path or ticket_image.file_path
+        thumb_path = Path(config.TICKET_IMAGES_DIR) / thumb_path_str
+        if not thumb_path.exists():
+            return jsonify({'error': 'Thumbnail file not found'}), 404
+
+        return send_from_directory(
+            str(thumb_path.parent),
+            thumb_path.name,
+            mimetype='image/jpeg'
+        )
     finally:
         session.close()
 
@@ -2057,10 +2108,33 @@ def api_get_comment_images(comment_id):
         session.close()
 
 
-@tickets_bp.route('/api/comments/<int:comment_id>/images/<int:image_id>', methods=['DELETE'])
+@tickets_bp.route('/api/comments/<int:comment_id>/images/<int:image_id>', methods=['GET', 'DELETE'])
 @approved_required
 def api_delete_comment_image(comment_id, image_id):
-    """Delete an image from a comment."""
+    """Serve or delete an image from a comment."""
+    if request.method == 'GET':
+        session = get_session()
+        try:
+            comment_image = session.query(CommentImage).filter(
+                CommentImage.image_id == image_id,
+                CommentImage.comment_id == comment_id
+            ).first()
+
+            if not comment_image:
+                return jsonify({'error': 'Image not found'}), 404
+
+            file_path = Path(config.TICKET_IMAGES_DIR) / comment_image.file_path
+            if not file_path.exists():
+                return jsonify({'error': 'Image file not found'}), 404
+
+            return send_from_directory(
+                str(file_path.parent),
+                file_path.name,
+                mimetype=comment_image.mime_type
+            )
+        finally:
+            session.close()
+
     session = get_session()
     current_user = get_current_user()
     
@@ -2102,6 +2176,34 @@ def api_delete_comment_image(comment_id, image_id):
     except Exception as e:
         session.rollback()
         return jsonify({'error': str(e)}), 500
+    finally:
+        session.close()
+
+
+@tickets_bp.route('/api/comments/<int:comment_id>/images/<int:image_id>/thumbnail', methods=['GET'])
+@approved_required
+def api_serve_comment_thumbnail(comment_id, image_id):
+    """Serve a thumbnail image file scoped to a comment."""
+    session = get_session()
+    try:
+        comment_image = session.query(CommentImage).filter(
+            CommentImage.image_id == image_id,
+            CommentImage.comment_id == comment_id
+        ).first()
+
+        if not comment_image:
+            return jsonify({'error': 'Thumbnail not found'}), 404
+
+        thumb_path_str = comment_image.thumbnail_path or comment_image.file_path
+        thumb_path = Path(config.TICKET_IMAGES_DIR) / thumb_path_str
+        if not thumb_path.exists():
+            return jsonify({'error': 'Thumbnail file not found'}), 404
+
+        return send_from_directory(
+            str(thumb_path.parent),
+            thumb_path.name,
+            mimetype='image/jpeg'
+        )
     finally:
         session.close()
 

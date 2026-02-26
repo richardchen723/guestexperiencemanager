@@ -167,9 +167,13 @@ Authorization: Bearer &lt;your_api_key&gt;</code></pre>
         <ul>
           <li><span class="endpoint">POST</span><code>/tickets/api/tickets/{ticket_id}/images</code> — upload ticket image.</li>
           <li><span class="endpoint">GET</span><code>/tickets/api/tickets/{ticket_id}/images</code> — list ticket images.</li>
+          <li><span class="endpoint">GET</span><code>/tickets/api/tickets/{ticket_id}/images/{image_id}</code> — fetch ticket image file (scoped).</li>
+          <li><span class="endpoint">GET</span><code>/tickets/api/tickets/{ticket_id}/images/{image_id}/thumbnail</code> — fetch ticket thumbnail (scoped).</li>
           <li><span class="endpoint">DELETE</span><code>/tickets/api/tickets/{ticket_id}/images/{image_id}</code> — delete ticket image.</li>
           <li><span class="endpoint">POST</span><code>/tickets/api/comments/{comment_id}/images</code> — upload comment image.</li>
           <li><span class="endpoint">GET</span><code>/tickets/api/comments/{comment_id}/images</code> — list comment images.</li>
+          <li><span class="endpoint">GET</span><code>/tickets/api/comments/{comment_id}/images/{image_id}</code> — fetch comment image file (scoped).</li>
+          <li><span class="endpoint">GET</span><code>/tickets/api/comments/{comment_id}/images/{image_id}/thumbnail</code> — fetch comment thumbnail (scoped).</li>
           <li><span class="endpoint">DELETE</span><code>/tickets/api/comments/{comment_id}/images/{image_id}</code> — delete comment image.</li>
           <li><span class="endpoint">GET</span><code>/tickets/api/images/{image_id}</code> — fetch image file.</li>
           <li><span class="endpoint">GET</span><code>/tickets/api/images/{image_id}/thumbnail</code> — fetch thumbnail.</li>

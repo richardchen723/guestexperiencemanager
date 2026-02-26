@@ -446,9 +446,9 @@ function createCommentElement(comment, ticketId) {
             console.log('Comment image:', img);
             imagesHtml += `
                 <div class="comment-image-item">
-                    <img src="/tickets/api/images/${img.image_id}/thumbnail" 
+                    <img src="/tickets/api/comments/${comment.comment_id}/images/${img.image_id}/thumbnail" 
                          alt="${escapeHtml(img.file_name || 'Image')}"
-                         onclick="showImageLightbox(${img.image_id})"
+                         onclick="showImageLightbox(${comment.comment_id}, ${img.image_id})"
                          class="comment-image-thumb"
                          onerror="console.error('Failed to load image ${img.image_id}'); this.style.display='none';">
                 </div>
@@ -486,13 +486,13 @@ function createCommentElement(comment, ticketId) {
     return div;
 }
 
-function showImageLightbox(imageId) {
+function showImageLightbox(commentId, imageId) {
     const lightbox = document.createElement('div');
     lightbox.className = 'image-lightbox';
     lightbox.innerHTML = `
         <div class="lightbox-content">
             <button class="lightbox-close">×</button>
-            <img src="/tickets/api/images/${imageId}" alt="Image">
+            <img src="/tickets/api/comments/${commentId}/images/${imageId}" alt="Image">
         </div>
     `;
     
@@ -879,8 +879,8 @@ function initializeTicketImages(ticketId) {
             uploadEndpoint: `/tickets/api/tickets/${ticketId}/images`,
             deleteEndpoint: `/tickets/api/tickets/${ticketId}/images`,
             listEndpoint: `/tickets/api/tickets/${ticketId}/images`,
-            imageServeUrl: '/tickets/api/images',
-            thumbnailUrl: '/tickets/api/images',
+            imageServeUrl: `/tickets/api/tickets/${ticketId}/images`,
+            thumbnailUrl: `/tickets/api/tickets/${ticketId}/images`,
             maxFiles: 10,
             maxFileSize: 2 * 1024 * 1024,
             onUploadComplete: (imageData) => {
