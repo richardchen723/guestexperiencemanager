@@ -32,6 +32,9 @@
                         <a href="{{ url_for('reviews.reviews_page') }}" {% if 'reviews' in request.endpoint %}class="active"{% endif %}>Reviews</a>
                         <a href="{{ url_for('knowledge.knowledge_page') }}" {% if 'knowledge' in request.endpoint %}class="active"{% endif %}>Knowledge</a>
                         {% if current_user and current_user.is_admin() %}
+                        <a href="{{ url_for('bookkeeping.bookkeeping_page') }}" {% if 'bookkeeping' in request.endpoint %}class="active"{% endif %}>Bookkeeping</a>
+                        {% endif %}
+                        {% if current_user and current_user.is_admin() %}
                         <a href="{{ url_for('admin.activities_page') }}" {% if 'activities' in request.endpoint %}class="active"{% endif %}>Activities</a>
                         {% endif %}
                         <a href="{{ url_for('sync.sync_history_page') }}" {% if 'sync' in request.endpoint %}class="active"{% endif %}>Sync</a>
@@ -88,4 +91,3 @@
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>
-

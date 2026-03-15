@@ -47,6 +47,7 @@ class MobileNavigation {
         
         if (isAdmin) {
             moreItems.push(
+                { id: 'bookkeeping', label: 'Bookkeeping', icon: 'activity', url: '/bookkeeping/' },
                 { id: 'activities', label: 'Activities', icon: 'activity', url: '/admin/activities' },
                 { id: 'sync', label: 'Sync', icon: 'sync', url: '/sync/history' },
                 { id: 'admin', label: 'Admin', icon: 'admin', url: '/admin/users' }
@@ -335,4 +336,3 @@ if (document.readyState === 'loading') {
 } else {
     window.mobileNav = new MobileNavigation();
 }
-

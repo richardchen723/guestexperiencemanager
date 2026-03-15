@@ -5,8 +5,9 @@ User database models and utilities.
 
 import sys
 import os
+import json
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, Text, UniqueConstraint, text
 import sqlalchemy
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
@@ -73,6 +74,39 @@ class ApiKey(Base):
     last_used_at = Column(DateTime, nullable=True)
     revoked_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
+
+
+class UserGoogleDriveCredential(Base):
+    """Stored Google Drive OAuth credential for a user-authorized workflow."""
+
+    __tablename__ = 'user_google_drive_credentials'
+    __table_args__ = (
+        UniqueConstraint('user_id', name='uq_user_google_drive_credentials_user_id'),
+        {'schema': 'users'} if os.getenv("DATABASE_URL") else {},
+    )
+
+    google_drive_credential_id = Column(Integer, primary_key=True, autoincrement=True)
+    _users_schema = 'users.' if os.getenv("DATABASE_URL") else ''
+    user_id = Column(Integer, ForeignKey(f'{_users_schema}users.user_id', ondelete='CASCADE'), nullable=False, index=True)
+    google_email = Column(String, nullable=True)
+    access_token = Column(Text, nullable=False)
+    refresh_token = Column(Text, nullable=True)
+    token_uri = Column(String, nullable=False, default='https://oauth2.googleapis.com/token')
+    scopes_json = Column(Text, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user = relationship('User', foreign_keys=[user_id])
+
+    def scopes(self):
+        if not self.scopes_json:
+            return []
+        try:
+            value = json.loads(self.scopes_json)
+        except Exception:
+            return []
+        return value if isinstance(value, list) else []
 
 
 # Engine cache to prevent connection leaks
@@ -369,6 +403,73 @@ def delete_user(user_id: int):
             session.commit()
             return True
         return False
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+
+def get_google_drive_credential_for_user(user_id: int):
+    """Get the stored Google Drive credential for a user."""
+    session = get_session()
+    try:
+        return session.query(UserGoogleDriveCredential).filter(
+            UserGoogleDriveCredential.user_id == user_id
+        ).first()
+    finally:
+        session.close()
+
+
+def save_google_drive_credential(
+    user_id: int,
+    *,
+    access_token: str,
+    refresh_token: str = None,
+    token_uri: str = 'https://oauth2.googleapis.com/token',
+    scopes = None,
+    expires_at: datetime = None,
+    google_email: str = None,
+):
+    """Create or update a user's Google Drive credential."""
+    session = get_session()
+    try:
+        credential = session.query(UserGoogleDriveCredential).filter(
+            UserGoogleDriveCredential.user_id == user_id
+        ).first()
+        if not credential:
+            credential = UserGoogleDriveCredential(user_id=user_id)
+            session.add(credential)
+
+        credential.access_token = access_token
+        if refresh_token:
+            credential.refresh_token = refresh_token
+        credential.token_uri = token_uri or 'https://oauth2.googleapis.com/token'
+        credential.scopes_json = json.dumps(list(scopes or []))
+        credential.expires_at = expires_at
+        credential.google_email = google_email
+        session.commit()
+        session.refresh(credential)
+        return credential
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+
+def delete_google_drive_credential_for_user(user_id: int):
+    """Delete a user's stored Google Drive credential."""
+    session = get_session()
+    try:
+        credential = session.query(UserGoogleDriveCredential).filter(
+            UserGoogleDriveCredential.user_id == user_id
+        ).first()
+        if not credential:
+            return False
+        session.delete(credential)
+        session.commit()
+        return True
     except Exception as e:
         session.rollback()
         raise e

@@ -1,0 +1,1787 @@
+{% extends "base.html" %}
+
+{% block title %}Cotton Candy Bookkeeping{% endblock %}
+
+{% block extra_head %}
+<style>
+    .bk-page {
+        padding: 0.9rem 1rem 1rem;
+        background: #f3f4f6;
+        min-height: calc(100vh - 70px);
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .bk-page * {
+        box-sizing: border-box;
+    }
+
+    .bk-shell {
+        display: grid;
+        gap: 0.75rem;
+        min-height: calc(100vh - 110px);
+    }
+
+    .bk-topbar,
+    .bk-stepbar,
+    .bk-sheet-area,
+    .bk-taskpane,
+    .bk-modal-dialog {
+        background: #ffffff;
+        border: 1px solid #d1d5db;
+        border-radius: 10px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    }
+
+    .bk-topbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(360px, 520px);
+        gap: 1rem;
+        align-items: start;
+        padding: 1rem 1.05rem;
+    }
+
+    .bk-topbar-main,
+    .bk-topbar-side {
+        display: grid;
+        gap: 0.9rem;
+        min-width: 0;
+    }
+
+    .bk-topbar-main {
+        align-content: start;
+    }
+
+    .bk-topbar-side {
+        justify-items: stretch;
+    }
+
+    .bk-brand {
+        display: flex;
+        gap: 0.85rem;
+        align-items: center;
+        min-width: 0;
+    }
+
+    .bk-brand-mark {
+        width: 2.65rem;
+        height: 2.65rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        background: linear-gradient(180deg, #2e7d32 0%, #1f6b2a 100%);
+        color: #ffffff;
+        font-size: 0.95rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+    }
+
+    .bk-brand-copy {
+        min-width: 0;
+    }
+
+    .bk-caption {
+        color: #6b7280;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .bk-title {
+        margin-top: 0.15rem;
+        color: #111827;
+        font-size: 1.1rem;
+        font-weight: 700;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .bk-subtitle {
+        margin-top: 0.15rem;
+        color: #6b7280;
+        font-size: 0.87rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .bk-switchers {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.8rem;
+        padding: 0.95rem 1rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: linear-gradient(180deg, #fbfcfd 0%, #f7f9fb 100%);
+    }
+
+    .bk-switcher {
+        display: grid;
+        gap: 0.3rem;
+        color: #374151;
+        font-size: 0.77rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+    }
+
+    .bk-switcher select {
+        width: 100%;
+        padding: 0.65rem 0.8rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #f9fafb;
+        color: #111827;
+        font: inherit;
+    }
+
+    .bk-topbar-actions {
+        display: flex;
+        gap: 0.6rem;
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        align-items: center;
+    }
+
+    .bk-drive-summary {
+        display: grid;
+        gap: 0.35rem;
+        padding: 0.95rem 1rem;
+        border: 1px solid #d8dee6;
+        border-radius: 10px;
+        background: linear-gradient(180deg, #fbfcfd 0%, #f5f8fb 100%);
+        text-align: left;
+    }
+
+    .bk-drive-summary-title {
+        color: #111827;
+        font-size: 1rem;
+        font-weight: 700;
+    }
+
+    .bk-drive-summary-meta {
+        color: #6b7280;
+        font-size: 0.88rem;
+        line-height: 1.45;
+    }
+
+    .bk-drive-summary-actions {
+        display: flex;
+        gap: 0.55rem;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-top: 0.2rem;
+    }
+
+    .bk-drive-identity {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.38rem 0.62rem;
+        border-radius: 999px;
+        background: #e8f5ec;
+        color: #1f6b2a;
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+
+    .bk-export-status {
+        display: none;
+        gap: 0.55rem;
+        padding: 0.95rem 1rem;
+        border: 1px solid #bfdbfe;
+        border-radius: 10px;
+        background: linear-gradient(180deg, #eff6ff 0%, #eef8f0 100%);
+        color: #1e3a8a;
+    }
+
+    .bk-export-status.is-visible {
+        display: grid;
+    }
+
+    .bk-export-status-title {
+        color: #1d4ed8;
+        font-size: 0.95rem;
+        font-weight: 700;
+    }
+
+    .bk-export-status-copy {
+        color: #475569;
+        font-size: 0.86rem;
+        line-height: 1.45;
+    }
+
+    .bk-export-status-track {
+        height: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.22);
+    }
+
+    .bk-export-status-fill {
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, #2563eb 0%, #60a5fa 35%, #22c55e 100%);
+        background-size: 220% 100%;
+        animation: bk-export-progress 1.2s linear infinite;
+    }
+
+    @keyframes bk-export-progress {
+        0% {
+            background-position: 200% 0;
+        }
+        100% {
+            background-position: -40% 0;
+        }
+    }
+
+    .bk-stepbar {
+        display: grid;
+        gap: 0.7rem;
+        padding: 0.8rem 1rem 0.9rem;
+    }
+
+    .bk-stepbar-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: start;
+    }
+
+    .bk-stepbar-copy {
+        display: grid;
+        gap: 0.15rem;
+    }
+
+    .bk-stepbar-title {
+        color: #111827;
+        font-size: 1rem;
+        font-weight: 700;
+    }
+
+    .bk-stepbar-meta {
+        color: #6b7280;
+        font-size: 0.87rem;
+        line-height: 1.45;
+    }
+
+    .bk-eyebrow {
+        color: #217346;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .bk-workspace-pill,
+    .bk-badge,
+    .bk-step-status,
+    .bk-sheet-status {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.3rem;
+        padding: 0.28rem 0.58rem;
+        border-radius: 999px;
+        background: #eef8f0;
+        color: #217346;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .bk-progress-track {
+        height: 6px;
+        border-radius: 999px;
+        background: #e5e7eb;
+        overflow: hidden;
+    }
+
+    .bk-progress-fill {
+        width: 0;
+        height: 100%;
+        background: linear-gradient(90deg, #217346 0%, #2e8b57 100%);
+        transition: width 160ms ease;
+    }
+
+    .bk-step-list {
+        display: flex;
+        gap: 0.55rem;
+        overflow-x: auto;
+        padding-bottom: 0.15rem;
+    }
+
+    .bk-step-link {
+        min-width: 132px;
+        display: grid;
+        gap: 0.18rem;
+        padding: 0.65rem 0.75rem;
+        border: 1px solid #d1d5db;
+        border-radius: 9px;
+        background: #f9fafb;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+        flex: 0 0 auto;
+    }
+
+    .bk-step-link.is-active {
+        border-color: #217346;
+        background: #eef8f0;
+    }
+
+    .bk-step-link.is-complete {
+        border-color: #9fd2a7;
+    }
+
+    .bk-step-link-index {
+        width: 1.55rem;
+        height: 1.55rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        background: #d1fae5;
+        color: #166534;
+        font-size: 0.8rem;
+        font-weight: 700;
+    }
+
+    .bk-step-label {
+        color: #111827;
+        font-size: 0.84rem;
+        font-weight: 700;
+    }
+
+    .bk-step-copy {
+        display: none;
+    }
+
+    .bk-main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 360px;
+        gap: 0.75rem;
+        min-height: 0;
+        align-items: start;
+    }
+
+    .bk-sheet-area {
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr) auto;
+        min-height: 72vh;
+        overflow: hidden;
+    }
+
+    .bk-sheet-header {
+        display: grid;
+        gap: 0.7rem;
+        padding: 0.85rem 1rem 0.75rem;
+        border-bottom: 1px solid #e5e7eb;
+        background: #f9fafb;
+    }
+
+    .bk-sheet-header-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.85rem;
+        align-items: start;
+    }
+
+    .bk-sheet-title {
+        margin-top: 0.14rem;
+        color: #111827;
+        font-size: 1rem;
+        font-weight: 700;
+    }
+
+    .bk-sheet-copy {
+        margin-top: 0.18rem;
+        color: #6b7280;
+        font-size: 0.86rem;
+        line-height: 1.4;
+    }
+
+    .bk-sheet-header-actions {
+        display: flex;
+        gap: 0.55rem;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    .bk-summary-strip {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 0.55rem;
+    }
+
+    .bk-summary-cell {
+        padding: 0.65rem 0.7rem;
+        border: 1px solid #dbe1e8;
+        border-radius: 8px;
+        background: #ffffff;
+    }
+
+    .bk-summary-label {
+        color: #6b7280;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+
+    .bk-summary-value {
+        margin-top: 0.26rem;
+        color: #111827;
+        font-size: 1.04rem;
+        font-weight: 700;
+    }
+
+    .bk-summary-caption {
+        margin-top: 0.32rem;
+        color: #6b7280;
+        font-size: 0.78rem;
+        line-height: 1.4;
+    }
+
+    .bk-formula-row {
+        display: grid;
+        grid-template-columns: 110px minmax(0, 1fr) auto;
+        gap: 0.6rem;
+        align-items: center;
+        padding: 0.65rem 1rem;
+        border-bottom: 1px solid #e5e7eb;
+        background: #f3f4f6;
+    }
+
+    .bk-name-box {
+        padding: 0.58rem 0.7rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #374151;
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+
+    .bk-formula-value {
+        min-height: 2.45rem;
+        display: flex;
+        align-items: center;
+        padding: 0.58rem 0.75rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #4b5563;
+        font-size: 0.85rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .bk-sheet-grid-inner {
+        min-height: 0;
+        overflow: auto;
+        background: #ffffff;
+    }
+
+    .bk-sheet-table,
+    .bk-mapping-table {
+        width: 100%;
+        min-width: 900px;
+        border-collapse: collapse;
+        table-layout: auto;
+    }
+
+    .bk-sheet-table th,
+    .bk-sheet-table td,
+    .bk-mapping-table th,
+    .bk-mapping-table td {
+        padding: 0.6rem 0.7rem;
+        border-right: 1px solid #eef2f7;
+        border-bottom: 1px solid #eef2f7;
+        text-align: left;
+        vertical-align: top;
+        font-size: 0.84rem;
+        color: #111827;
+        background: #ffffff;
+    }
+
+    .bk-sheet-table th,
+    .bk-mapping-table th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #f3f4f6;
+        color: #4b5563;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+
+    .bk-sheet-table tbody tr {
+        cursor: pointer;
+    }
+
+    .bk-sheet-table tbody tr:hover td {
+        background: #f8fafc;
+    }
+
+    .bk-sheet-table tbody tr.is-selected td {
+        background: #edf7ee;
+    }
+
+    .bk-sheet-table tbody tr.needs-review td {
+        background: #fff7d6;
+    }
+
+    .bk-sheet-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        align-items: center;
+        padding: 0.55rem 0.75rem 0;
+        border-top: 1px solid #e5e7eb;
+        background: #f3f4f6;
+    }
+
+    .bk-sheet-tabs {
+        display: flex;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+    }
+
+    .bk-tab {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2rem;
+        padding: 0.44rem 0.88rem;
+        border: 1px solid #d1d5db;
+        border-bottom: none;
+        border-radius: 8px 8px 0 0;
+        background: #e5e7eb;
+        color: #374151;
+        font-size: 0.83rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .bk-tab.is-active {
+        background: #ffffff;
+        color: #111827;
+        border-color: #cbd5e1;
+    }
+
+    .bk-sheet-empty,
+    .bk-empty {
+        padding: 1rem;
+        border: 1px dashed #cbd5e1;
+        border-radius: 8px;
+        color: #6b7280;
+        font-size: 0.88rem;
+        line-height: 1.5;
+        background: #f9fafb;
+        text-align: center;
+    }
+
+    .bk-taskpane {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        min-height: 72vh;
+        overflow: hidden;
+    }
+
+    .bk-taskpane-tabs {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 1px;
+        padding: 1px;
+        background: #d1d5db;
+    }
+
+    .bk-taskpane-tab {
+        padding: 0.7rem 0.55rem;
+        border: none;
+        background: #f3f4f6;
+        color: #4b5563;
+        font-size: 0.8rem;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .bk-taskpane-tab.is-active {
+        background: #ffffff;
+        color: #217346;
+    }
+
+    .bk-taskpane-body {
+        overflow: hidden;
+        position: relative;
+    }
+
+    .bk-pane {
+        display: none;
+        height: 100%;
+        overflow: auto;
+        padding: 0.9rem;
+    }
+
+    .bk-pane.is-active {
+        display: grid;
+        gap: 0.85rem;
+        align-content: start;
+    }
+
+    .bk-context-card {
+        display: grid;
+        gap: 0.85rem;
+        padding: 0.9rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 9px;
+        background: #ffffff;
+    }
+
+    .bk-context-head,
+    .bk-panel-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        align-items: start;
+    }
+
+    .bk-context-head h3,
+    .bk-panel-head h2,
+    .bk-card h3 {
+        margin: 0;
+        color: #111827;
+        font-size: 1rem;
+    }
+
+    .bk-panel-head {
+        display: grid;
+        gap: 0.2rem;
+    }
+
+    .bk-panel-head p {
+        margin: 0;
+        color: #6b7280;
+        font-size: 0.9rem;
+        line-height: 1.5;
+    }
+
+    .bk-card {
+        display: grid;
+        gap: 0.8rem;
+        padding: 0.95rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 9px;
+        background: #f9fafb;
+    }
+
+    .bk-form-grid {
+        display: grid;
+        gap: 0.8rem;
+    }
+
+    .bk-form-grid.two-col,
+    .bk-inline-editor-grid {
+        display: grid;
+        gap: 0.75rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .bk-inline-editor-grid.full {
+        grid-template-columns: 1fr;
+    }
+
+    .bk-form-grid label,
+    .bk-inline-editor label,
+    .bk-upload-block label {
+        display: grid;
+        gap: 0.35rem;
+        color: #374151;
+        font-size: 0.83rem;
+        font-weight: 600;
+    }
+
+    .bk-form-grid input,
+    .bk-form-grid textarea,
+    .bk-form-grid select,
+    .bk-inline-editor input,
+    .bk-inline-editor textarea,
+    .bk-inline-editor select,
+    .bk-upload-block input,
+    .bk-upload-block textarea,
+    .bk-upload-block select {
+        width: 100%;
+        padding: 0.72rem 0.78rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #111827;
+        font: inherit;
+    }
+
+    .bk-form-grid textarea,
+    .bk-inline-editor textarea,
+    .bk-upload-block textarea {
+        min-height: 104px;
+        resize: vertical;
+    }
+
+    .bk-form-actions,
+    .bk-inline-actions {
+        display: flex;
+        gap: 0.65rem;
+        flex-wrap: wrap;
+    }
+
+    .bk-list,
+    .bk-upload-list,
+    .bk-chat-list,
+    .bk-proposal-list {
+        display: grid;
+        gap: 0.65rem;
+    }
+
+    .bk-list-item,
+    .bk-upload-item,
+    .bk-chat-item,
+    .bk-proposal-item {
+        padding: 0.82rem 0.9rem;
+        border: 1px solid #dbe1e8;
+        border-radius: 8px;
+        background: #ffffff;
+    }
+
+    .bk-list-item {
+        cursor: pointer;
+    }
+
+    .bk-list-item.is-active {
+        border-color: #84cc91;
+        background: #edf7ee;
+    }
+
+    .bk-list-item strong,
+    .bk-upload-item strong,
+    .bk-proposal-item strong {
+        color: #111827;
+    }
+
+    .bk-list-item span,
+    .bk-upload-item p,
+    .bk-chat-item p,
+    .bk-proposal-item p {
+        margin: 0.35rem 0 0;
+        color: #6b7280;
+        font-size: 0.85rem;
+        line-height: 1.48;
+    }
+
+    .bk-chat-item.user {
+        background: #eef8f0;
+    }
+
+    .bk-inline-editor {
+        display: grid;
+        gap: 0.8rem;
+    }
+
+    .bk-evidence-preview {
+        display: grid;
+        gap: 0.8rem;
+    }
+
+    .bk-evidence-preview iframe,
+    .bk-evidence-preview img {
+        width: 100%;
+        min-height: 260px;
+        border: 1px solid #dbe1e8;
+        border-radius: 8px;
+        background: #ffffff;
+    }
+
+    .bk-upload-status {
+        display: none;
+        gap: 0.45rem;
+        padding: 0.8rem;
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        background: #eff6ff;
+        color: #1d4ed8;
+    }
+
+    .bk-upload-status.is-visible {
+        display: grid;
+    }
+
+    .bk-upload-status-track {
+        height: 8px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.28);
+        overflow: hidden;
+    }
+
+    .bk-upload-status-fill {
+        width: 0;
+        height: 100%;
+        background: linear-gradient(90deg, #2563eb 0%, #217346 100%);
+        transition: width 120ms linear;
+    }
+
+    .bk-stage-upload-list {
+        display: grid;
+        gap: 0.65rem;
+        margin-top: 0.75rem;
+    }
+
+    .bk-stage-upload-toolbar {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        align-items: center;
+        padding: 0.82rem 0.9rem;
+        border: 1px solid #dbe1e8;
+        border-radius: 8px;
+        background: #ffffff;
+    }
+
+    .bk-stage-upload-toolbar p {
+        margin: 0.35rem 0 0;
+        color: #6b7280;
+        font-size: 0.85rem;
+        line-height: 1.48;
+    }
+
+    .bk-stage-upload-item {
+        display: grid;
+        gap: 0.55rem;
+        padding: 0.82rem 0.9rem;
+        border: 1px solid #dbe1e8;
+        border-radius: 8px;
+        background: #ffffff;
+    }
+
+    .bk-stage-upload-item-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        align-items: start;
+    }
+
+    .bk-upload-thumbnail-button {
+        display: block;
+        padding: 0;
+        border: none;
+        background: none;
+        cursor: pointer;
+        text-align: left;
+    }
+
+    .bk-upload-thumbnail {
+        display: block;
+        width: min(240px, 100%);
+        max-height: 180px;
+        object-fit: cover;
+        border: 1px solid #dbe1e8;
+        border-radius: 8px;
+        background: #f8fafc;
+    }
+
+    .bk-upload-thumbnail.is-compact {
+        width: min(180px, 100%);
+        max-height: 128px;
+    }
+
+    .bk-upload-thumbnail-placeholder {
+        width: min(240px, 100%);
+        min-height: 116px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.8rem;
+        border: 1px solid #dbe1e8;
+        border-radius: 8px;
+        background: #f8fafc;
+        color: #4b5563;
+        font-size: 0.82rem;
+        font-weight: 700;
+        text-align: center;
+        line-height: 1.45;
+    }
+
+    .bk-upload-thumbnail-placeholder.is-compact {
+        width: min(180px, 100%);
+        min-height: 96px;
+    }
+
+    .bk-upload-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: fit-content;
+        padding: 0.2rem 0.5rem;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        background: #e5e7eb;
+        color: #374151;
+    }
+
+    .bk-upload-badge.is-queued,
+    .bk-upload-badge.is-processing {
+        background: #dbeafe;
+        color: #1d4ed8;
+    }
+
+    .bk-upload-badge.is-processed,
+    .bk-upload-badge.is-stored {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .bk-upload-badge.is-failed {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+
+    .bk-mapping-table-wrap {
+        overflow: auto;
+        border: 1px solid #dbe1e8;
+        border-radius: 8px;
+        background: #ffffff;
+    }
+
+    .bk-channel-grid {
+        display: grid;
+        gap: 0.75rem;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+
+    .bk-channel-option {
+        display: flex;
+        gap: 0.7rem;
+        align-items: center;
+        padding: 0.75rem 0.85rem;
+        border: 1px solid #dbe1e8;
+        border-radius: 8px;
+        background: #ffffff;
+        cursor: pointer;
+    }
+
+    .bk-channel-option input {
+        width: auto;
+        margin: 0;
+    }
+
+    .bk-channel-option strong {
+        display: block;
+        color: #111827;
+        font-size: 0.92rem;
+    }
+
+    .bk-channel-option span {
+        display: block;
+        color: #6b7280;
+        font-size: 0.78rem;
+        line-height: 1.4;
+    }
+
+    .bk-channel-saved {
+        display: grid;
+        gap: 0.75rem;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+
+    .bk-channel-saved-item {
+        display: grid;
+        gap: 0.3rem;
+        padding: 0.8rem 0.9rem;
+        border: 1px solid #dbe1e8;
+        border-radius: 8px;
+        background: #ffffff;
+    }
+
+    .bk-channel-saved-item strong {
+        color: #111827;
+        font-size: 0.94rem;
+    }
+
+    .bk-channel-saved-item span {
+        color: #6b7280;
+        font-size: 0.8rem;
+        line-height: 1.45;
+    }
+
+    .bk-channel-status-list {
+        display: grid;
+        gap: 0.55rem;
+    }
+
+    .bk-channel-status-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: center;
+        padding: 0.75rem 0.85rem;
+        border: 1px solid #dbe1e8;
+        border-radius: 8px;
+        background: #ffffff;
+    }
+
+    .bk-channel-status-copy {
+        display: grid;
+        gap: 0.2rem;
+    }
+
+    .bk-channel-status-copy strong {
+        color: #111827;
+        font-size: 0.92rem;
+    }
+
+    .bk-channel-status-copy span {
+        color: #6b7280;
+        font-size: 0.8rem;
+        line-height: 1.45;
+    }
+
+    .bk-channel-state {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 96px;
+        padding: 0.32rem 0.65rem;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .bk-channel-state.uploaded,
+    .bk-channel-state.captured {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .bk-channel-state.missing {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+
+    .bk-channel-state.unexpected {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .bk-modal {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: rgba(15, 23, 42, 0.42);
+        z-index: 1200;
+    }
+
+    .bk-modal.is-open {
+        display: flex;
+    }
+
+    .bk-modal-dialog {
+        width: min(1120px, calc(100vw - 2rem));
+        max-height: calc(100vh - 2rem);
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        overflow: hidden;
+    }
+
+    .bk-modal-head,
+    .bk-modal-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.85rem;
+        align-items: center;
+        padding: 0.9rem 1rem;
+        border-bottom: 1px solid #e5e7eb;
+        background: #f9fafb;
+    }
+
+    .bk-modal-footer {
+        border-top: 1px solid #e5e7eb;
+        border-bottom: none;
+    }
+
+    .bk-modal-head h2 {
+        margin: 0.18rem 0 0;
+        color: #111827;
+        font-size: 1.08rem;
+    }
+
+    .bk-modal-head p {
+        margin: 0.15rem 0 0;
+        color: #6b7280;
+        font-size: 0.87rem;
+        line-height: 1.45;
+    }
+
+    .bk-modal-body {
+        overflow: auto;
+        padding: 1rem;
+        background: #ffffff;
+    }
+
+    .bk-step-panel {
+        display: none;
+        gap: 0.9rem;
+    }
+
+    .bk-step-panel.is-active {
+        display: grid;
+    }
+
+    .bk-modal-grid {
+        display: grid;
+        gap: 0.9rem;
+        grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+    }
+
+    .bk-modal-stack {
+        display: grid;
+        gap: 0.9rem;
+        align-content: start;
+    }
+
+    .bk-export-grid {
+        display: grid;
+        gap: 0.9rem;
+        grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+        align-items: start;
+    }
+
+    .bk-export-stack {
+        display: grid;
+        gap: 0.9rem;
+        align-content: start;
+    }
+
+    .bk-export-archive-card {
+        display: grid;
+        gap: 0.85rem;
+    }
+
+    .bk-export-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.7rem;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    @media (max-width: 1380px) {
+        .bk-main {
+            grid-template-columns: minmax(0, 1fr) 320px;
+        }
+
+        .bk-summary-strip {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+    }
+
+    @media (max-width: 1120px) {
+        .bk-topbar,
+        .bk-main,
+        .bk-modal-grid,
+        .bk-export-grid,
+        .bk-form-grid.two-col,
+        .bk-inline-editor-grid,
+        .bk-summary-strip,
+        .bk-switchers {
+            grid-template-columns: 1fr;
+        }
+
+        .bk-topbar {
+            grid-template-columns: 1fr;
+        }
+
+        .bk-topbar-actions,
+        .bk-export-actions {
+            justify-content: flex-start;
+        }
+
+        .bk-sheet-header-top,
+        .bk-stepbar-top,
+        .bk-formula-row,
+        .bk-sheet-footer,
+        .bk-modal-head,
+        .bk-modal-footer {
+            grid-template-columns: 1fr;
+            display: grid;
+        }
+
+        .bk-taskpane {
+            min-height: auto;
+        }
+
+        .bk-sheet-area {
+            min-height: 60vh;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bk-page" data-current-user-name="{{ (current_user.name or current_user.email or '')|e }}">
+    <div class="bk-shell">
+        <section class="bk-topbar">
+            <div class="bk-topbar-main">
+                <div class="bk-brand">
+                    <div class="bk-brand-mark">CC</div>
+                    <div class="bk-brand-copy">
+                        <div class="bk-caption">Cotton Candy Bookkeeping</div>
+                        <div id="workspaceTitle" class="bk-title">No workspace selected</div>
+                        <div id="workspaceSubtitle" class="bk-subtitle">Choose a portfolio and month to start the live spreadsheet.</div>
+                    </div>
+                </div>
+
+                <div class="bk-switchers">
+                    <label class="bk-switcher">Portfolio
+                        <select id="portfolioQuickSwitch">
+                            <option value="">Choose portfolio</option>
+                        </select>
+                    </label>
+                    <label class="bk-switcher">Month
+                        <select id="periodQuickSwitch">
+                            <option value="">Choose month</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+
+            <div class="bk-topbar-side">
+                <div class="bk-drive-summary">
+                    <div class="bk-caption">Evidence archive</div>
+                    <div id="driveStatusTitle" class="bk-drive-summary-title">Not connected</div>
+                    <div id="driveStatusMeta" class="bk-drive-summary-meta">Connect Google Drive so exports can upload evidence and embed receipt links.</div>
+                    <div class="bk-drive-summary-actions">
+                        <div id="driveIdentityBadge" class="bk-drive-identity" hidden>Google Drive connected</div>
+                        <button id="connectDriveBtn" class="btn btn-secondary" type="button">Connect Drive</button>
+                        <button id="disconnectDriveBtn" class="btn btn-secondary" type="button" hidden>Disconnect Drive</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="bk-stepbar">
+            <div class="bk-stepbar-top">
+                <div class="bk-stepbar-copy">
+                    <div id="stepperProgressLabel" class="bk-eyebrow">Step 1 of 7</div>
+                    <div id="stepperCurrentTitle" class="bk-stepbar-title">Portfolio and listings</div>
+                    <div id="stepperProgressMeta" class="bk-stepbar-meta">Select a Cotton Candy portfolio and define workbook listing names before you begin.</div>
+                </div>
+                <div id="stepperRecommendedAction" class="bk-workspace-pill">Create or select a portfolio</div>
+            </div>
+            <div class="bk-progress-track">
+                <div id="stepperProgressFill" class="bk-progress-fill"></div>
+            </div>
+            <div id="stepperNav" class="bk-step-list">
+                {% for step in [
+                    (1, 'Portfolio'),
+                    (2, 'Month'),
+                    (3, 'Revenue'),
+                    (4, 'Expenses'),
+                    (5, 'Corroboration'),
+                    (6, 'Review'),
+                    (7, 'Export')
+                ] %}
+                <button class="bk-step-link{% if loop.first %} is-active{% endif %}" type="button" data-step-target="{{ step[0] }}">
+                    <span class="bk-step-link-index">{{ step[0] }}</span>
+                    <span class="bk-step-label">{{ step[1] }}</span>
+                    <span class="bk-step-copy">{{ step[1] }}</span>
+                    <span class="bk-step-status">Waiting</span>
+                </button>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="bk-main">
+            <main class="bk-sheet-area">
+                <div class="bk-sheet-header">
+                    <div class="bk-sheet-header-top">
+                        <div>
+                            <div class="bk-caption">Live workbook</div>
+                            <div id="sheetMetaSummary" class="bk-sheet-title">Spreadsheet tabs appear here as soon as a month is active.</div>
+                            <div class="bk-sheet-copy">The workbook is the primary working surface. Revenue and expense rows update it immediately.</div>
+                        </div>
+                        <div class="bk-sheet-header-actions">
+                            <span id="workspaceStatusPill" class="bk-workspace-pill">Draft</span>
+                            <span id="sheetStatusBadge" class="bk-sheet-status">No sheet selected</span>
+                        </div>
+                    </div>
+
+                    <div class="bk-summary-strip">
+                        <div class="bk-summary-cell">
+                            <div class="bk-summary-label">Revenue coverage</div>
+                            <div id="metricRevenueCoverage" class="bk-summary-value">0 / 6</div>
+                        </div>
+                        <div class="bk-summary-cell">
+                            <div class="bk-summary-label">Owner revenue</div>
+                            <div id="metricOwnerRevenue" class="bk-summary-value">$0.00</div>
+                        </div>
+                        <div class="bk-summary-cell">
+                            <div class="bk-summary-label">Owner expenses</div>
+                            <div id="metricOwnerExpenses" class="bk-summary-value">$0.00</div>
+                        </div>
+                        <div class="bk-summary-cell">
+                            <div class="bk-summary-label">Review queue</div>
+                            <div id="metricReviewQueue" class="bk-summary-value">0</div>
+                        </div>
+                        <div class="bk-summary-cell">
+                            <div class="bk-summary-label">Corroboration</div>
+                            <div id="metricCorroboration" class="bk-summary-value">0 / 0</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bk-formula-row">
+                    <div class="bk-name-box">Sheet info</div>
+                    <div id="sheetMeta" class="bk-formula-value">Select a workspace to begin.</div>
+                    <button id="addSheetRowBtn" class="btn btn-secondary" type="button">Add row</button>
+                </div>
+
+                <div id="sheetGridContainer" class="bk-sheet-grid-inner">
+                    <div class="bk-sheet-empty">Select a portfolio and month to load the live bookkeeping spreadsheet.</div>
+                </div>
+
+                <div class="bk-sheet-footer">
+                    <div id="sheetTabs" class="bk-sheet-tabs"></div>
+                    <div class="bk-caption">Workbook tabs update from the live workspace.</div>
+                </div>
+            </main>
+
+            <aside class="bk-taskpane">
+                <div class="bk-taskpane-tabs">
+                    <button class="bk-taskpane-tab is-active" type="button" data-context-tab="editor">Editor</button>
+                    <button class="bk-taskpane-tab" type="button" data-context-tab="evidence">Evidence</button>
+                    <button class="bk-taskpane-tab" type="button" data-context-tab="copilot">Copilot</button>
+                </div>
+
+                <div class="bk-taskpane-body">
+                    <section class="bk-pane is-active" data-context-panel="editor">
+                        <div class="bk-context-card">
+                            <div class="bk-context-head">
+                                <h3>Row editor</h3>
+                                <span id="selectionBadge" class="bk-badge">No row selected</span>
+                            </div>
+                            <div id="rowEditor" class="bk-inline-editor">
+                                <div class="bk-empty">Select a revenue or expense row from the spreadsheet to edit it here.</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="bk-pane" data-context-panel="evidence">
+                        <div class="bk-context-card">
+                            <div class="bk-context-head">
+                                <h3>Evidence preview</h3>
+                            </div>
+                            <div id="evidencePreview" class="bk-evidence-preview">
+                                <div class="bk-empty">Select a row to see its linked upload, preview, and metadata.</div>
+                            </div>
+                        </div>
+
+                        <div class="bk-context-card">
+                            <div class="bk-context-head">
+                                <h3>Workspace uploads</h3>
+                                <span id="uploadCountBadge" class="bk-badge">0</span>
+                            </div>
+                            <div id="uploadsList" class="bk-upload-list">
+                                <div class="bk-empty">Workspace uploads will appear here.</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="bk-pane" data-context-panel="copilot">
+                        <div class="bk-context-card">
+                            <div class="bk-context-head">
+                                <h3>Bookkeeping copilot</h3>
+                            </div>
+                            <div id="chatList" class="bk-chat-list">
+                                <div class="bk-empty">Select a workspace to start the conversation.</div>
+                            </div>
+                            <form id="assistantForm" class="bk-inline-editor">
+                                <label>Message
+                                    <textarea id="assistantMessageInput" placeholder="Ask how a number was derived, what evidence is still missing, or why a row was flagged."></textarea>
+                                </label>
+                                <div class="bk-inline-actions">
+                                    <button class="btn btn-primary" type="submit">Send</button>
+                                </div>
+                            </form>
+                        </div>
+                    </section>
+                </div>
+            </aside>
+        </section>
+    </div>
+
+    <div id="stepModal" class="bk-modal" aria-hidden="true">
+        <div class="bk-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="stepModalTitle">
+            <div class="bk-modal-head">
+                <div>
+                    <div class="bk-eyebrow">Step workspace</div>
+                    <h2 id="stepModalTitle">Current bookkeeping step</h2>
+                    <p>Use this focused workspace for setup, uploads, review, and export without shrinking the spreadsheet canvas.</p>
+                </div>
+                <button id="stepModalCloseBtn" class="btn btn-secondary" type="button">Close</button>
+            </div>
+
+            <div class="bk-modal-body">
+                <section class="bk-step-panel is-active" data-step-panel="1">
+                    <div class="bk-panel-head">
+                        <h2>Portfolio and listings</h2>
+                        <p>Build the bookkeeping portfolio from Cotton Candy’s own listings, then define the workbook names and aliases that the AI should use.</p>
+                    </div>
+                    <div class="bk-modal-grid">
+                        <div class="bk-modal-stack">
+                            <div class="bk-card">
+                                <h3>Portfolio details</h3>
+                                <form id="portfolioForm" class="bk-form-grid">
+                                    <div class="bk-form-grid two-col">
+                                        <label>Portfolio name
+                                            <input id="portfolioNameInput" name="name" type="text" placeholder="PT300">
+                                        </label>
+                                        <label>Portfolio tag
+                                            <select id="portfolioTagInput" name="listing_tag">
+                                                <option value="">Choose tag</option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                    <div class="bk-form-grid two-col">
+                                        <label>Management fee %
+                                            <input id="portfolioManagementFeeInput" name="management_fee_percentage" type="number" step="0.01" placeholder="20">
+                                        </label>
+                                        <div></div>
+                                    </div>
+                                    <div class="bk-form-grid two-col">
+                                        <label>Hostaway per listing
+                                            <input id="hostawayPerListingInput" name="hostaway_price_per_listing" type="number" step="0.01" placeholder="47.66">
+                                        </label>
+                                        <label>PriceLabs per listing
+                                            <input id="pricelabsPerListingInput" name="pricelabs_price_per_listing" type="number" step="0.01" placeholder="8.77">
+                                        </label>
+                                    </div>
+                                    <label>Property address
+                                        <textarea id="portfolioPropertyAddressInput" name="property_address" placeholder="300 Peachtree Street, NE, Atlanta, GA 30308"></textarea>
+                                    </label>
+                                    <label>Notes
+                                        <textarea id="portfolioNotesInput" name="notes" placeholder="Recurring rules, cleaner context, or other portfolio-specific bookkeeping notes."></textarea>
+                                    </label>
+                                    <div class="bk-form-actions">
+                                        <button id="savePortfolioBtn" class="btn btn-primary" type="submit">Save portfolio</button>
+                                        <button id="newPortfolioBtn" class="btn btn-secondary" type="button">New portfolio</button>
+                                        <button id="deletePortfolioBtn" class="btn btn-danger" type="button" disabled>Delete portfolio</button>
+                                    </div>
+                                </form>
+                            </div>
+
+                            <div class="bk-card">
+                                <div class="bk-context-head">
+                                    <h3>Listing mappings</h3>
+                                    <div class="bk-form-actions">
+                                        <button id="editListingMappingsBtn" class="btn btn-secondary" type="button">Edit mappings</button>
+                                        <button id="cancelListingMappingsBtn" class="btn btn-secondary" type="button">Cancel</button>
+                                        <button id="saveListingMappingsBtn" class="btn btn-primary" type="button">Save mappings</button>
+                                    </div>
+                                </div>
+                                <div id="listingMappingSummary" class="bk-subtitle">Mappings are locked after save. Click edit only when you want to change which units belong to this portfolio or update workbook aliases.</div>
+                                <div class="bk-mapping-table-wrap">
+                                    <table class="bk-mapping-table">
+                                        <thead>
+                                            <tr id="listingMappingHeaderRow">
+                                                <th>Status</th>
+                                                <th>Workbook name</th>
+                                                <th>Cotton Candy listing</th>
+                                                <th>Internal name</th>
+                                                <th>Aliases</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="listingMappingTableBody">
+                                            <tr><td colspan="5" class="bk-empty">Select a portfolio to configure its listing mappings.</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bk-card">
+                            <div class="bk-context-head">
+                                <h3>Saved portfolios</h3>
+                                <span id="portfolioCountBadge" class="bk-badge">0</span>
+                            </div>
+                            <div id="portfolioList" class="bk-list">
+                                <div class="bk-empty">Saved portfolios will appear here.</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="bk-step-panel" data-step-panel="2">
+                    <div class="bk-panel-head">
+                        <h2>Month workspace</h2>
+                        <p>Open the bookkeeping month for this portfolio. All uploads, rows, proposals, approvals, and exports stay scoped to that one reporting period.</p>
+                    </div>
+                    <div class="bk-modal-grid">
+                        <div class="bk-card">
+                            <h3>Create or load a month</h3>
+                            <form id="periodForm" class="bk-form-grid">
+                                <div class="bk-form-grid two-col">
+                                    <label>Month name
+                                        <input id="periodNameInput" name="name" type="text" placeholder="January 2026">
+                                    </label>
+                                    <label>Period start
+                                        <input id="periodStartInput" name="period_start" type="date">
+                                    </label>
+                                </div>
+                                <div class="bk-form-grid two-col">
+                                    <label>Period end
+                                        <input id="periodEndInput" name="period_end" type="date">
+                                    </label>
+                                    <label>Status
+                                        <select id="periodStatusInput" name="status">
+                                            <option value="draft">Draft</option>
+                                            <option value="in_review">In Review</option>
+                                            <option value="approved">Approved</option>
+                                        </select>
+                                    </label>
+                                </div>
+                                <label>Notes
+                                    <textarea id="periodNotesInput" name="notes" placeholder="Month-specific notes for the operators."></textarea>
+                                </label>
+                                <div class="bk-form-actions">
+                                    <button class="btn btn-primary" type="submit">Open month workspace</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div class="bk-card">
+                            <div class="bk-context-head">
+                                <h3>Existing months</h3>
+                                <span id="periodCountBadge" class="bk-badge">0</span>
+                            </div>
+                            <div id="periodList" class="bk-list">
+                                <div class="bk-empty">Select a portfolio to load its months.</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="bk-step-panel" data-step-panel="3">
+                    <div class="bk-panel-head">
+                        <h2>Revenue ingestion</h2>
+                        <p>Upload channel statements or bulk revenue files. Cotton Candy normalizes them into editable revenue rows and refreshes the workbook immediately.</p>
+                    </div>
+                    <div class="bk-card">
+                        <div class="bk-context-head">
+                            <h3>Revenue channels</h3>
+                            <div class="bk-form-actions">
+                                <button id="editRevenueChannelsBtn" class="btn btn-secondary" type="button">Edit channels</button>
+                                <button id="cancelRevenueChannelsBtn" class="btn btn-secondary" type="button">Cancel</button>
+                                <button id="saveRevenueChannelsBtn" class="btn btn-primary" type="button">Save channels</button>
+                            </div>
+                        </div>
+                        <div class="bk-subtitle">Choose which channels are expected for this portfolio. Missing/uploaded status updates as soon as the revenue files are processed.</div>
+                        <div id="revenueChannelsConfig" class="bk-channel-grid">
+                            <div class="bk-empty">Select a portfolio to configure expected revenue channels.</div>
+                        </div>
+                        <div id="revenueCoverageSummary" class="bk-subtitle">Open a month workspace to see uploaded and missing channels.</div>
+                        <div id="revenueCoverageList" class="bk-channel-status-list">
+                            <div class="bk-empty">Revenue channel coverage will appear here.</div>
+                        </div>
+                    </div>
+                    <div class="bk-card bk-upload-block">
+                        <h3>Revenue uploads</h3>
+                        <form id="revenueUploadForm" class="bk-form-grid">
+                            <label>Channel or auto-detect
+                                <select id="revenueSourceInput" name="source">
+                                    <option value="auto">Auto-detect from headers / sheet names</option>
+                                </select>
+                            </label>
+                            <label>Revenue files
+                                <input id="revenueFilesInput" name="files" type="file" accept=".csv,.xlsx,.xls" multiple>
+                            </label>
+                            <label>Notes
+                                <textarea id="revenueNotesInput" name="notes" placeholder="Optional context for the revenue batch."></textarea>
+                            </label>
+                            <div class="bk-form-actions">
+                                <button class="btn btn-primary" type="submit">Upload revenue statements</button>
+                                <button id="clearRevenueUploadsBtn" class="btn btn-secondary" type="button">Clear revenue uploads</button>
+                            </div>
+                        </form>
+                        <div id="revenueUploadSummary" class="bk-subtitle">Removing revenue uploads also removes their derived rows from the workbook.</div>
+                        <div id="revenueUploadStatus" class="bk-upload-status"></div>
+                    </div>
+                </section>
+
+                <section class="bk-step-panel" data-step-panel="4">
+                    <div class="bk-panel-head">
+                        <h2>Expense ingestion</h2>
+                        <p>Upload Zelle and Venmo screenshots, vendor PDFs, or grouped evidence. The AI itemizes the spending and updates the workbook rows from the same workspace.</p>
+                    </div>
+                    <div class="bk-card bk-upload-block">
+                        <h3>Expense evidence</h3>
+                        <form id="expenseUploadForm" class="bk-form-grid">
+                            <label>Expense files
+                                <input id="expenseFilesInput" name="files" type="file" accept=".pdf,.png,.jpg,.jpeg,.jfif,.webp" multiple>
+                            </label>
+                            <label>Notes
+                                <textarea id="expenseNotesInput" name="notes" placeholder="Example: cleaners paid through Zelle, receipts grouped by week."></textarea>
+                            </label>
+                            <div class="bk-form-actions">
+                                <button id="expenseUploadSubmitBtn" class="btn btn-primary" type="submit">Upload expense evidence</button>
+                                <button id="clearExpenseUploadsBtn" class="btn btn-secondary" type="button">Clear expense uploads</button>
+                            </div>
+                        </form>
+                        <div id="expenseUploadSummary" class="bk-subtitle">Removing expense uploads deletes their auto-created rows and unlinks manual rows for review.</div>
+                        <div id="expenseStepUploadsList" class="bk-stage-upload-list">
+                            <div class="bk-empty">Expense evidence uploaded for this month will appear here.</div>
+                        </div>
+                        <div id="expenseUploadStatus" class="bk-upload-status"></div>
+                    </div>
+                </section>
+
+                <section class="bk-step-panel" data-step-panel="5">
+                    <div class="bk-panel-head">
+                        <h2>Corroboration</h2>
+                        <p>Optionally upload bank, card, or Stripe statements so the expense rows can be corroborated against another source without becoming the primary bookkeeping record.</p>
+                    </div>
+                    <div class="bk-card bk-upload-block">
+                        <h3>Corroboration statements</h3>
+                        <form id="corroborationUploadForm" class="bk-form-grid">
+                            <label>Statement type
+                                <select id="corroborationSourceInput" name="source">
+                                    <option value="bank_statement">Bank statement</option>
+                                    <option value="credit_card_statement">Credit card statement</option>
+                                    <option value="stripe_statement">Stripe statement</option>
+                                </select>
+                            </label>
+                            <label>Files
+                                <input id="corroborationFilesInput" name="files" type="file" accept=".pdf,.csv,.xlsx,.xls,.png,.jpg,.jpeg,.jfif,.webp" multiple>
+                            </label>
+                            <label>Notes
+                                <textarea id="corroborationNotesInput" name="notes" placeholder="Optional note for the bank or card batch."></textarea>
+                            </label>
+                            <div class="bk-form-actions">
+                                <button class="btn btn-primary" type="submit">Upload corroboration files</button>
+                            </div>
+                        </form>
+                        <div id="corroborationUploadStatus" class="bk-upload-status"></div>
+                    </div>
+                </section>
+
+                <section class="bk-step-panel" data-step-panel="6">
+                    <div class="bk-panel-head">
+                        <h2>Review and approval</h2>
+                        <p>Review only appears when you open this step. Resolve yellow rows, inspect AI change proposals, and approve once the workbook reflects the final operator decision.</p>
+                    </div>
+
+                    <div class="bk-card">
+                        <h3>Review controls</h3>
+                        <div class="bk-subtitle">The workbook remains visible behind this modal. Use the spreadsheet to select rows, then resolve issues from here.</div>
+                        <div class="bk-form-actions">
+                            <button id="reprocessExpenseEvidenceBtn" class="btn btn-secondary" type="button">Reprocess expense evidence</button>
+                            <button id="approveWorkspaceInlineBtn" class="btn btn-primary" type="button">Approve workspace</button>
+                        </div>
+                    </div>
+
+                    <div class="bk-modal-grid">
+                        <div class="bk-card">
+                            <div class="bk-context-head">
+                                <h3>Review queue</h3>
+                                <span id="pendingProposalCount" class="bk-badge">0</span>
+                            </div>
+                            <div id="proposalList" class="bk-proposal-list">
+                                <div class="bk-empty">Pending proposals and flagged rows will appear here.</div>
+                            </div>
+                        </div>
+
+                        <div class="bk-card">
+                            <div class="bk-context-head">
+                                <h3>Recent revisions</h3>
+                            </div>
+                            <div id="revisionList" class="bk-list">
+                                <div class="bk-empty">Approvals and exports will appear here.</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="bk-step-panel" data-step-panel="7">
+                    <div class="bk-panel-head">
+                        <h2>Export</h2>
+                        <p>Download the workbook produced from the live spreadsheet state. If you edit anything afterward, the workspace returns to review mode until it is approved again.</p>
+                    </div>
+
+                    <div class="bk-card">
+                        <div class="bk-export-grid">
+                            <div class="bk-export-stack">
+                                <div class="bk-summary-cell">
+                                    <div class="bk-summary-label">Workspace</div>
+                                    <div id="reportWorkspaceValue" class="bk-summary-value">No workspace selected</div>
+                                </div>
+                                <div class="bk-summary-cell">
+                                    <div class="bk-summary-label">Readiness</div>
+                                    <div id="reportReadinessNote" class="bk-summary-value" style="font-size:0.95rem;font-weight:600;">Approve the workspace to enable clean export history.</div>
+                                </div>
+                            </div>
+                            <div class="bk-summary-cell bk-export-archive-card">
+                                <div>
+                                    <div class="bk-summary-label">Evidence archive</div>
+                                    <div id="reportDriveValue" class="bk-summary-value" style="font-size:0.95rem;font-weight:600;">Not connected</div>
+                                    <div id="reportDriveMeta" class="bk-summary-caption">Connect Drive to upload evidence and write receipt links during export.</div>
+                                </div>
+                                <div class="bk-drive-summary-actions">
+                                    <div id="reportDriveIdentityBadge" class="bk-drive-identity" hidden>Google Drive connected</div>
+                                    <button id="connectDriveInlineBtn" class="btn btn-secondary" type="button">Connect Drive</button>
+                                    <button id="disconnectDriveInlineBtn" class="btn btn-secondary" type="button" hidden>Disconnect Drive</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="exportStatusPanel" class="bk-export-status" hidden>
+                            <div id="exportStatusTitle" class="bk-export-status-title">Preparing workbook</div>
+                            <div id="exportStatusCopy" class="bk-export-status-copy">Cotton Candy is syncing evidence, building the workbook, and your download will start automatically.</div>
+                            <div class="bk-export-status-track">
+                                <div class="bk-export-status-fill"></div>
+                            </div>
+                        </div>
+                        <div class="bk-export-actions">
+                            <button id="generateReportBtn" class="btn btn-primary" type="button">Download live workbook</button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <div class="bk-modal-footer">
+                <div class="bk-caption">Workbook-first bookkeeping workspace</div>
+                <div class="bk-form-actions">
+                    <button id="stepBackBtn" class="btn btn-secondary" type="button">Back</button>
+                    <button id="stepNextBtn" class="btn btn-primary" type="button">Next</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/bookkeeping.js') }}"></script>
+{% endblock %}

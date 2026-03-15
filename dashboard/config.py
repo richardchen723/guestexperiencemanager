@@ -60,7 +60,7 @@ REVIEW_MONTHS = 3  # Analyze reviews from last 3 months
 MESSAGE_MONTHS = 2  # Analyze messages from last 2 months
 
 # OpenAI Model
-OPENAI_MODEL = "gpt-4o-mini"  # Cost-effective model with 128K token context window
+OPENAI_MODEL = "gpt-5.4"  # Flagship model for complex reasoning and coding
 
 # Flask Configuration
 FLASK_HOST = os.getenv("FLASK_HOST", "127.0.0.1")
@@ -97,6 +97,14 @@ if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
     import logging
     logger = logging.getLogger(__name__)
     logger.warning("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET not set. Google OAuth will not work.")
+
+# Google Drive bookkeeping sync
+GOOGLE_DRIVE_BOOKKEEPING_ROOT_FOLDER_ID = os.getenv(
+    "GOOGLE_DRIVE_BOOKKEEPING_ROOT_FOLDER_ID",
+    "1YFmlpJjzDXC2BhHMYFgAP4bfv1Q09qKd",
+)
+GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE")
+GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON")
 
 # Owner Configuration
 OWNER_EMAIL = "yunhang.chen@gmail.com"
