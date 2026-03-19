@@ -477,6 +477,32 @@ class HostawayAPIClient:
             return data['result']
         return []
     
+    def get_calendar(self, listing_id: int,
+                     start_date: Optional[str] = None,
+                     end_date: Optional[str] = None) -> List[Dict]:
+        """
+        Get calendar days for a listing.
+
+        Args:
+            listing_id: The listing ID.
+            start_date: Start date in YYYY-MM-DD format.
+            end_date: End date in YYYY-MM-DD format.
+
+        Returns:
+            List of calendar day dicts with keys like date, isAvailable,
+            status, price, minimumStay, maximumStay.
+        """
+        params: Dict[str, Any] = {}
+        if start_date:
+            params['startDate'] = start_date
+        if end_date:
+            params['endDate'] = end_date
+
+        data = self._make_request(f"listings/{listing_id}/calendar", params)
+        if data and 'result' in data:
+            return data['result']
+        return []
+
     def get_reviews(self, listing_id: Optional[int] = None,
                     reservation_id: Optional[int] = None,
                     limit: Optional[int] = None,

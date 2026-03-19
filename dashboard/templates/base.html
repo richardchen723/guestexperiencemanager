@@ -35,6 +35,9 @@
                         <a href="{{ url_for('bookkeeping.bookkeeping_page') }}" {% if 'bookkeeping' in request.endpoint %}class="active"{% endif %}>Bookkeeping</a>
                         {% endif %}
                         {% if current_user and current_user.is_admin() %}
+                        <a href="{{ url_for('boost.boost_page') }}" {% if 'boost' in request.endpoint %}class="active"{% endif %}>Boost</a>
+                        {% endif %}
+                        {% if current_user and current_user.is_admin() %}
                         <a href="{{ url_for('admin.activities_page') }}" {% if 'activities' in request.endpoint %}class="active"{% endif %}>Activities</a>
                         {% endif %}
                         <a href="{{ url_for('sync.sync_history_page') }}" {% if 'sync' in request.endpoint %}class="active"{% endif %}>Sync</a>

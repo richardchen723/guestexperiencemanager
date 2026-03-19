@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+
+{% block title %}Listing Boost - Hostaway Insights{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/boost.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="boost-page">
+    <!-- Header -->
+    <div class="boost-header">
+        <div class="boost-header-left">
+            <h1>Listing Boost</h1>
+            <p class="boost-subtitle">Automate guest-like browsing and track listing rank over time</p>
+        </div>
+        <div class="boost-header-actions">
+            <button class="btn btn-primary" onclick="BoostApp.showCampaignModal()">New Campaign</button>
+        </div>
+    </div>
+
+    <!-- Campaign Selector -->
+    <div class="boost-campaign-bar" id="campaignBar" style="display:none;">
+        <label for="campaignSelect">Campaign:</label>
+        <select id="campaignSelect" onchange="BoostApp.selectCampaign(this.value)">
+            <option value="">Select a campaign...</option>
+        </select>
+        <button class="btn btn-sm btn-secondary" onclick="BoostApp.editCampaign()" id="btnEditCampaign" disabled>Edit</button>
+        <button class="btn btn-sm btn-danger" onclick="BoostApp.deleteCampaign()" id="btnDeleteCampaign" disabled>Delete</button>
+        <div class="campaign-status" id="campaignStatus"></div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="boost-stats-grid" id="statsGrid" style="display:none;">
+        <div class="boost-stat-card">
+            <div class="boost-stat-label">Today's Rank</div>
+            <div class="boost-stat-value" id="statTodayPosition">--</div>
+            <div class="boost-stat-sub" id="statTodayFound"></div>
+        </div>
+        <div class="boost-stat-card">
+            <div class="boost-stat-label">7-Day Average</div>
+            <div class="boost-stat-value" id="statWeekAvg">--</div>
+        </div>
+        <div class="boost-stat-card">
+            <div class="boost-stat-label">Best Rank Ever</div>
+            <div class="boost-stat-value" id="statBestEver">--</div>
+        </div>
+        <div class="boost-stat-card">
+            <div class="boost-stat-label">Total Sessions</div>
+            <div class="boost-stat-value" id="statTotalSessions">0</div>
+        </div>
+    </div>
+
+    <!-- Main Content: two columns -->
+    <div class="boost-content" id="boostContent" style="display:none;">
+        <!-- Left: Chart + Rankings Table -->
+        <div class="boost-left">
+            <!-- Chart -->
+            <div class="boost-panel">
+                <div class="boost-panel-header">
+                    <h2>Ranking Trend</h2>
+                </div>
+                <div class="boost-panel-body">
+                    <canvas id="rankingChart" height="260"></canvas>
+                    <div id="chartEmpty" class="boost-empty" style="display:none;">
+                        No ranking data yet. Run a session to start tracking.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Leaderboard Table -->
+            <div class="boost-panel">
+                <div class="boost-panel-header">
+                    <h2>Daily Leaderboard</h2>
+                </div>
+                <div class="boost-panel-body boost-panel-table">
+                    <table class="boost-table" id="rankingsTable">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Avg Position</th>
+                                <th>Avg Page</th>
+                                <th>Best</th>
+                                <th>Worst</th>
+                                <th>Sessions</th>
+                                <th>Found</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rankingsBody"></tbody>
+                    </table>
+                    <div id="rankingsEmpty" class="boost-empty" style="display:none;">No ranking data yet.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Session Log + Proxies -->
+        <div class="boost-right">
+            <!-- Run Session -->
+            <div class="boost-panel">
+                <div class="boost-panel-header">
+                    <h2>Run Session</h2>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-sm btn-primary" id="btnRunNow" onclick="BoostApp.triggerSession()" disabled>Run Now</button>
+                        <button class="btn btn-sm btn-danger" id="btnStopSession" onclick="BoostApp.stopSession()" style="display:none;">Stop</button>
+                    </div>
+                </div>
+                <div class="boost-panel-body">
+                    <div id="runStatus" class="boost-run-status" style="display:none;"></div>
+                    <p class="boost-hint" id="runHint">Select a campaign and click "Run Now" to start a boost session.</p>
+                </div>
+            </div>
+
+            <!-- Session Log -->
+            <div class="boost-panel">
+                <div class="boost-panel-header">
+                    <h2>Recent Sessions</h2>
+                </div>
+                <div class="boost-panel-body boost-panel-table">
+                    <table class="boost-table boost-table-compact" id="sessionsTable">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Status</th>
+                                <th>Page</th>
+                                <th>Pos</th>
+                                <th>Proxy</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sessionsBody"></tbody>
+                    </table>
+                    <div id="sessionsEmpty" class="boost-empty" style="display:none;">No sessions yet.</div>
+                </div>
+            </div>
+
+            <!-- Proxy Management -->
+            <div class="boost-panel">
+                <div class="boost-panel-header">
+                    <h2>Proxies</h2>
+                    <div class="boost-panel-actions">
+                        <button class="btn btn-sm btn-secondary" onclick="BoostApp.showProxyModal()">Import</button>
+                        <button id="proxyDeleteSelected" class="btn btn-sm btn-danger" onclick="BoostApp.deleteSelectedProxies()" style="display:none;">Delete Selected</button>
+                        <button class="btn btn-sm btn-danger" onclick="BoostApp.clearProxies()">Clear All</button>
+                    </div>
+                </div>
+                <div class="boost-panel-body boost-panel-table">
+                    <table class="boost-table boost-table-compact" id="proxiesTable">
+                        <thead>
+                            <tr>
+                                <th style="width:30px"><input type="checkbox" onchange="BoostApp.toggleAllProxyCbs(this)"></th>
+                                <th>Host:Port</th>
+                                <th>Username</th>
+                                <th>Status</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="proxiesBody"></tbody>
+                    </table>
+                    <div id="proxiesEmpty" class="boost-empty">No proxies configured.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Empty state when no campaigns -->
+    <div class="boost-empty-state" id="emptyState">
+        <div class="boost-empty-icon">&#x1F680;</div>
+        <h2>No campaigns yet</h2>
+        <p>Create a campaign to start tracking your listing's rank and boosting visibility.</p>
+        <button class="btn btn-primary" onclick="BoostApp.showCampaignModal()">Create First Campaign</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Campaign Modal -->
+<div class="boost-modal-overlay" id="campaignModal" style="display:none;" onclick="BoostApp.closeCampaignModal(event)">
+    <div class="boost-modal" onclick="event.stopPropagation()">
+        <div class="boost-modal-header">
+            <h3 id="campaignModalTitle">New Campaign</h3>
+            <button class="boost-modal-close" onclick="BoostApp.closeCampaignModal()">&times;</button>
+        </div>
+        <form id="campaignForm" onsubmit="BoostApp.saveCampaign(event)">
+            <input type="hidden" id="campaignId" value="">
+            <div class="boost-form-grid">
+                <div class="boost-form-group">
+                    <label for="campName">Campaign Name</label>
+                    <input type="text" id="campName" required placeholder="e.g. Pigeon Forge Cabin Boost">
+                </div>
+                <div class="boost-form-group">
+                    <label for="campSearchArea">Search Area</label>
+                    <input type="text" id="campSearchArea" required placeholder="e.g. Pigeon Forge, TN">
+                </div>
+                <div class="boost-form-group">
+                    <label for="campTargetListing">Target Listing</label>
+                    <select id="campTargetListing" required>
+                        <option value="">Select a listing...</option>
+                    </select>
+                </div>
+                <div class="boost-form-group">
+                    <label for="campTargetName">Listing Name</label>
+                    <input type="text" id="campTargetName" readonly placeholder="Auto-filled from selection">
+                </div>
+                <div class="boost-form-row">
+                    <div class="boost-form-group">
+                        <label for="campDateStart">Date Window Start</label>
+                        <input type="date" id="campDateStart" required>
+                    </div>
+                    <div class="boost-form-group">
+                        <label for="campDateEnd">Date Window End</label>
+                        <input type="date" id="campDateEnd" required>
+                    </div>
+                </div>
+                <div class="boost-form-row">
+                    <div class="boost-form-group">
+                        <label for="campMinNights">Min Nights</label>
+                        <input type="number" id="campMinNights" value="2" min="1" max="30">
+                    </div>
+                    <div class="boost-form-group">
+                        <label for="campMaxNights">Max Nights</label>
+                        <input type="number" id="campMaxNights" value="5" min="1" max="30">
+                    </div>
+                    <div class="boost-form-group">
+                        <label for="campSessionsPerDay">Sessions / Day</label>
+                        <input type="number" id="campSessionsPerDay" value="3" min="1" max="20">
+                    </div>
+                </div>
+                <div class="boost-form-group">
+                    <label class="boost-toggle-label">
+                        <input type="checkbox" id="campActive" checked>
+                        <span>Active</span>
+                    </label>
+                </div>
+            </div>
+            <div class="boost-modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="BoostApp.closeCampaignModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Campaign</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Proxy Import Modal -->
+<div class="boost-modal-overlay" id="proxyModal" style="display:none;" onclick="BoostApp.closeProxyModal(event)">
+    <div class="boost-modal" onclick="event.stopPropagation()">
+        <div class="boost-modal-header">
+            <h3>Import Proxies</h3>
+            <button class="boost-modal-close" onclick="BoostApp.closeProxyModal()">&times;</button>
+        </div>
+        <div class="boost-modal-body">
+            <p class="boost-hint">Paste one proxy per line. Format: <strong>IP:PORT:USERNAME:PASSWORD</strong></p>
+            <textarea id="proxyText" rows="10" placeholder="9.142.37.178:5349:rolopvds:wpj28rlf8px2
+9.142.211.34:5199:rolopvds:wpj28rlf8px2
+192.53.142.65:5762:rolopvds:wpj28rlf8px2"></textarea>
+        </div>
+        <div class="boost-modal-footer">
+            <button class="btn btn-secondary" onclick="BoostApp.closeProxyModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="BoostApp.importProxies()">Import</button>
+        </div>
+    </div>
+</div>
+
+<!-- Session Detail Modal -->
+<div class="boost-modal-overlay" id="sessionDetailModal" style="display:none;" onclick="BoostApp.closeSessionDetail(event)">
+    <div class="boost-modal boost-modal-wide" onclick="event.stopPropagation()">
+        <div class="boost-modal-header">
+            <h3>Session Details</h3>
+            <button class="boost-modal-close" onclick="BoostApp.closeSessionDetail()">&times;</button>
+        </div>
+        <div class="boost-modal-body" id="sessionDetailContent"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/boost.js') }}"></script>
+{% endblock %}

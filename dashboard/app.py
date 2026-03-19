@@ -55,6 +55,7 @@ from dashboard.activities.routes import register_activities_routes
 from dashboard.reviews.routes import register_reviews_routes
 from dashboard.knowledge.routes import register_knowledge_routes
 from dashboard.bookkeeping.routes import register_bookkeeping_routes
+from dashboard.boost.routes import register_boost_routes
 from dashboard.dashboard.routes import dashboard_bp
 from dashboard.auth.oauth import create_google_blueprint
 from dashboard.auth.init import ensure_owner_exists
@@ -107,6 +108,7 @@ def create_app():
     register_reviews_routes(app)
     register_knowledge_routes(app)
     register_bookkeeping_routes(app)
+    register_boost_routes(app)
     app.register_blueprint(dashboard_bp)
     
     # Health check endpoint for monitoring

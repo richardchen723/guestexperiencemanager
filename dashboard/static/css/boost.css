@@ -1,0 +1,547 @@
+/* ============================================
+   Boost Module Styles
+   ============================================ */
+
+.boost-page {
+    padding: 1rem;
+    min-height: calc(100vh - 70px);
+}
+
+/* Header */
+.boost-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+}
+
+.boost-header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--gray-900);
+}
+
+.boost-subtitle {
+    margin: 0.2rem 0 0;
+    color: var(--gray-500);
+    font-size: 0.875rem;
+}
+
+/* Campaign Bar */
+.boost-campaign-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: 10px;
+    margin-bottom: 1rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.boost-campaign-bar label {
+    font-weight: 600;
+    color: var(--gray-700);
+    font-size: 0.875rem;
+    white-space: nowrap;
+}
+
+.boost-campaign-bar select {
+    flex: 1;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--gray-300);
+    border-radius: 6px;
+    font-size: 0.875rem;
+    color: var(--gray-800);
+    background: var(--white);
+}
+
+.campaign-status {
+    font-size: 0.8rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.campaign-status.active {
+    color: var(--success-600);
+}
+
+.campaign-status.paused {
+    color: var(--warning-600);
+}
+
+/* Stats Grid */
+.boost-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.boost-stat-card {
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.boost-stat-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.35rem;
+}
+
+.boost-stat-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--gray-900);
+    line-height: 1.2;
+}
+
+.boost-stat-sub {
+    font-size: 0.75rem;
+    color: var(--gray-400);
+    margin-top: 0.2rem;
+}
+
+/* Content Layout */
+.boost-content {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 1rem;
+    align-items: start;
+}
+
+/* Panels */
+.boost-panel {
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    margin-bottom: 1rem;
+}
+
+.boost-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid var(--gray-100);
+}
+
+.boost-panel-header h2 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--gray-800);
+}
+
+.boost-panel-actions {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.boost-panel-body {
+    padding: 1rem;
+}
+
+.boost-panel-table {
+    padding: 0;
+    overflow-x: auto;
+}
+
+/* Tables */
+.boost-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.boost-table th {
+    text-align: left;
+    padding: 0.55rem 0.75rem;
+    font-weight: 600;
+    color: var(--gray-500);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--gray-200);
+    white-space: nowrap;
+}
+
+.boost-table td {
+    padding: 0.55rem 0.75rem;
+    color: var(--gray-700);
+    border-bottom: 1px solid var(--gray-100);
+    white-space: nowrap;
+}
+
+.boost-table tbody tr:hover {
+    background: var(--gray-50);
+}
+
+.boost-table-compact td,
+.boost-table-compact th {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+}
+
+.boost-table tbody tr.clickable {
+    cursor: pointer;
+}
+
+/* Status badges */
+.boost-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.boost-badge-completed {
+    background: var(--success-50);
+    color: var(--success-700);
+}
+
+.boost-badge-running {
+    background: var(--info-50);
+    color: var(--info-700);
+}
+
+.boost-badge-failed {
+    background: var(--error-50);
+    color: var(--error-700);
+}
+
+.boost-badge-pending {
+    background: var(--gray-100);
+    color: var(--gray-600);
+}
+
+.boost-badge-active {
+    background: var(--success-50);
+    color: var(--success-700);
+}
+
+.boost-badge-inactive {
+    background: var(--gray-100);
+    color: var(--gray-500);
+}
+
+/* Run status */
+.boost-run-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    background: var(--info-50);
+    border: 1px solid var(--info-100);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: var(--info-700);
+}
+
+.boost-run-status .spinner-sm {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--info-200);
+    border-top-color: var(--info-600);
+    border-radius: 50%;
+    animation: boost-spin 0.8s linear infinite;
+}
+
+@keyframes boost-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Empty states */
+.boost-empty {
+    padding: 1.5rem;
+    text-align: center;
+    color: var(--gray-400);
+    font-size: 0.85rem;
+}
+
+.boost-empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+}
+
+.boost-empty-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
+.boost-empty-state h2 {
+    margin: 0 0 0.5rem;
+    color: var(--gray-800);
+    font-size: 1.25rem;
+}
+
+.boost-empty-state p {
+    color: var(--gray-500);
+    margin: 0 0 1.5rem;
+}
+
+.boost-hint {
+    font-size: 0.85rem;
+    color: var(--gray-500);
+    margin: 0;
+}
+
+.boost-hint-list {
+    font-size: 0.8rem;
+    color: var(--gray-500);
+    margin: 0.3rem 0 0.8rem 1.2rem;
+    padding: 0;
+}
+
+.boost-hint-list li {
+    font-family: monospace;
+    margin-bottom: 0.2rem;
+}
+
+/* Modal */
+.boost-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.boost-modal {
+    background: var(--white);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 560px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+.boost-modal-wide {
+    max-width: 720px;
+}
+
+.boost-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.2rem;
+    border-bottom: 1px solid var(--gray-200);
+}
+
+.boost-modal-header h3 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--gray-900);
+}
+
+.boost-modal-close {
+    background: none;
+    border: none;
+    font-size: 1.4rem;
+    color: var(--gray-400);
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+}
+
+.boost-modal-close:hover {
+    color: var(--gray-700);
+}
+
+.boost-modal-body {
+    padding: 1rem 1.2rem;
+}
+
+.boost-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 1rem 1.2rem;
+    border-top: 1px solid var(--gray-100);
+}
+
+/* Form */
+.boost-form-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    padding: 1rem 1.2rem;
+}
+
+.boost-form-row {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.boost-form-row .boost-form-group {
+    flex: 1;
+}
+
+.boost-form-group label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--gray-600);
+    margin-bottom: 0.3rem;
+}
+
+.boost-form-group input[type="text"],
+.boost-form-group input[type="url"],
+.boost-form-group input[type="date"],
+.boost-form-group input[type="number"] {
+    width: 100%;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--gray-300);
+    border-radius: 6px;
+    font-size: 0.875rem;
+    color: var(--gray-800);
+    background: var(--white);
+    transition: border-color 0.15s;
+}
+
+.boost-form-group input:focus {
+    outline: none;
+    border-color: var(--primary-500);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.boost-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: var(--gray-700);
+}
+
+.boost-toggle-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+#proxyText {
+    width: 100%;
+    padding: 0.6rem;
+    border: 1px solid var(--gray-300);
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 0.8rem;
+    resize: vertical;
+    color: var(--gray-800);
+}
+
+#proxyText:focus {
+    outline: none;
+    border-color: var(--primary-500);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Session detail modal content */
+.session-detail-section {
+    margin-bottom: 1rem;
+}
+
+.session-detail-section h4 {
+    margin: 0 0 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--gray-700);
+}
+
+.session-log-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    max-height: 300px;
+    overflow-y: auto;
+    font-size: 0.78rem;
+    font-family: monospace;
+    background: var(--gray-50);
+    border-radius: 6px;
+    padding: 0.6rem;
+}
+
+.session-log-list li {
+    padding: 0.15rem 0;
+    color: var(--gray-600);
+    border-bottom: 1px solid var(--gray-100);
+}
+
+.session-log-list li:last-child {
+    border-bottom: none;
+}
+
+.session-log-time {
+    color: var(--gray-400);
+    margin-right: 0.5rem;
+}
+
+/* Buttons - inherit from design system, add size variants */
+.btn-sm {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.78rem;
+}
+
+.btn-danger {
+    background: var(--error-600);
+    color: var(--white);
+    border: none;
+    cursor: pointer;
+    border-radius: 6px;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.btn-danger:hover {
+    background: var(--error-700);
+}
+
+.btn-danger.btn-sm {
+    padding: 0.3rem 0.7rem;
+    font-size: 0.78rem;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+    .boost-content {
+        grid-template-columns: 1fr;
+    }
+    .boost-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 640px) {
+    .boost-header {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    .boost-campaign-bar {
+        flex-wrap: wrap;
+    }
+    .boost-stats-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    .boost-form-row {
+        flex-direction: column;
+    }
+}
