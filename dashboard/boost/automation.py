@@ -16,6 +16,7 @@ import threading
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+import dashboard.config as config
 from dashboard.boost.human_behavior import (
     get_random_locale,
     get_random_timezone,
@@ -46,9 +47,7 @@ logger = logging.getLogger(__name__)
 MAX_PAGES_TO_BROWSE = 15
 MAP_LISTING_COUNT_MIN = 150
 MAP_LISTING_COUNT_MAX = 450
-DEBUG_SCREENSHOTS_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "..", "boost_recordings"
-)
+DEBUG_SCREENSHOTS_DIR = config.BOOST_RECORDINGS_DIR
 BLOCKING_DIALOG_SIGNATURES = (
     (
         "translation dialog",

@@ -99,6 +99,7 @@ terraform/tfplan.*
 # Project specific
 conversations/
 data/exports/
+data/boost_recordings/
 data/tickets/images/
 data/photos/listings/
 data/knowledge/

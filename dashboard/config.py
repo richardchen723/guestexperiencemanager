@@ -112,6 +112,23 @@ OWNER_EMAIL = "yunhang.chen@gmail.com"
 # Ticket Image Storage
 TICKET_IMAGES_DIR = str(PROJECT_ROOT / "data" / "tickets")
 
+
+def get_boost_recordings_dir() -> str:
+    """
+    Get the writable directory for boost screenshots and recordings.
+
+    Defaults to app-local data storage so EC2 deployments running with
+    ProtectSystem=strict can still write without extra unit-file changes.
+    """
+    recordings_dir = Path(
+        os.getenv("BOOST_RECORDINGS_DIR", str(PROJECT_ROOT / "data" / "boost_recordings"))
+    )
+    recordings_dir.mkdir(parents=True, exist_ok=True)
+    return str(recordings_dir)
+
+
+BOOST_RECORDINGS_DIR = get_boost_recordings_dir()
+
 # Twilio WhatsApp Configuration
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
