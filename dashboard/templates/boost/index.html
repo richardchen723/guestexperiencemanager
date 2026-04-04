@@ -105,8 +105,21 @@
                     </div>
                 </div>
                 <div class="boost-panel-body">
+                    <div class="boost-run-mode" id="runModeControl">
+                        <span class="boost-run-mode-label">Browser Mode</span>
+                        <div class="boost-run-mode-options" role="radiogroup" aria-label="Browser mode">
+                            <label class="boost-run-mode-option">
+                                <input type="radio" name="boostRunMode" value="headed" checked>
+                                <span>Headed</span>
+                            </label>
+                            <label class="boost-run-mode-option">
+                                <input type="radio" name="boostRunMode" value="headless">
+                                <span>Headless</span>
+                            </label>
+                        </div>
+                    </div>
                     <div id="runStatus" class="boost-run-status" style="display:none;"></div>
-                    <p class="boost-hint" id="runHint">Select a campaign and click "Run Now" to start a boost session.</p>
+                    <p class="boost-hint" id="runHint">Select a campaign, choose a browser mode, and click "Run Now" to start a boost session.</p>
                 </div>
             </div>
 

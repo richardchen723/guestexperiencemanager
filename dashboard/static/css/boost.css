@@ -250,6 +250,73 @@
     color: var(--info-700);
 }
 
+.boost-run-mode {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.85rem;
+}
+
+.boost-run-mode-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--gray-500);
+}
+
+.boost-run-mode-options {
+    display: inline-flex;
+    gap: 0.4rem;
+    padding: 0.25rem;
+    background: var(--gray-50);
+    border: 1px solid var(--gray-100);
+    border-radius: 999px;
+}
+
+.boost-run-mode-option {
+    position: relative;
+    cursor: pointer;
+}
+
+.boost-run-mode-option input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.boost-run-mode-option span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 82px;
+    padding: 0.4rem 0.8rem;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--gray-500);
+    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.boost-run-mode-option input:checked + span {
+    background: var(--gray-900);
+    color: white;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.18);
+}
+
+.boost-run-mode.is-disabled {
+    opacity: 0.65;
+}
+
+.boost-run-mode.is-disabled .boost-run-mode-option {
+    cursor: default;
+}
+
+.boost-run-mode.is-disabled .boost-run-mode-option span {
+    pointer-events: none;
+}
+
 .boost-run-status .spinner-sm {
     width: 16px;
     height: 16px;
@@ -543,5 +610,19 @@
     }
     .boost-form-row {
         flex-direction: column;
+    }
+    .boost-run-mode {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .boost-run-mode-options {
+        width: 100%;
+    }
+    .boost-run-mode-option {
+        flex: 1 1 0;
+    }
+    .boost-run-mode-option span {
+        min-width: 0;
+        width: 100%;
     }
 }

@@ -17,6 +17,7 @@ const BoostApp = (() => {
         loadCampaigns();
         loadProxies();
         loadListings();
+        syncRunModeUi();
     }
 
     async function loadListings() {
@@ -129,6 +130,7 @@ const BoostApp = (() => {
             btnEdit.disabled = true;
             btnDelete.disabled = true;
             btnRun.disabled = true;
+            setRunModeDisabled(true);
             statusEl.textContent = '';
             return;
         }
@@ -138,6 +140,7 @@ const BoostApp = (() => {
         btnEdit.disabled = false;
         btnDelete.disabled = false;
         btnRun.disabled = false;
+        setRunModeDisabled(false);
 
         const campaign = campaigns.find(c => c.id === selectedCampaignId);
         if (campaign) {
@@ -245,18 +248,47 @@ const BoostApp = (() => {
     // Sessions
     // ------------------------------------------------------------------
 
+    function getSelectedRunMode() {
+        const selected = document.querySelector('input[name="boostRunMode"]:checked');
+        return selected ? selected.value : 'headed';
+    }
+
+    function setRunModeDisabled(disabled) {
+        const root = document.getElementById('runModeControl');
+        const options = document.querySelectorAll('input[name="boostRunMode"]');
+        if (!root) return;
+        root.classList.toggle('is-disabled', disabled);
+        options.forEach(option => {
+            option.disabled = disabled;
+        });
+    }
+
+    function syncRunModeUi() {
+        setRunModeDisabled(!selectedCampaignId);
+    }
+
     async function triggerSession() {
         if (!selectedCampaignId) return;
         try {
             document.getElementById('btnRunNow').disabled = true;
             document.getElementById('btnStopSession').style.display = '';
-            await api(`/campaigns/${selectedCampaignId}/trigger`, { method: 'POST' });
-            showRunStatus('Session started...');
+            setRunModeDisabled(true);
+            const selectedMode = getSelectedRunMode();
+            const result = await api(`/campaigns/${selectedCampaignId}/trigger`, {
+                method: 'POST',
+                body: { headless: selectedMode === 'headless' },
+            });
+            const modeLabel = result.headless ? 'headless' : 'headed';
+            const message = result.message
+                ? `Session started in ${modeLabel} mode. ${result.message}`
+                : `Session started in ${modeLabel} mode.`;
+            showRunStatus(message);
             startPolling();
         } catch (e) {
             alert('Error: ' + e.message);
             document.getElementById('btnRunNow').disabled = false;
             document.getElementById('btnStopSession').style.display = 'none';
+            setRunModeDisabled(false);
         }
     }
 
@@ -378,6 +410,7 @@ const BoostApp = (() => {
                     hideRunStatus();
                     document.getElementById('btnRunNow').disabled = false;
                     document.getElementById('btnStopSession').style.display = 'none';
+                    setRunModeDisabled(false);
                     await Promise.all([loadSessions(), loadStats(), loadRankings()]);
                     stopPolling();
                 }
@@ -403,6 +436,7 @@ const BoostApp = (() => {
         document.getElementById('runStatus').style.display = 'none';
         document.getElementById('runHint').style.display = '';
         document.getElementById('btnStopSession').style.display = 'none';
+        setRunModeDisabled(!selectedCampaignId);
     }
 
     // ------------------------------------------------------------------

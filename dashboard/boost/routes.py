@@ -120,7 +120,16 @@ def api_delete_campaign(campaign_id):
 @boost_bp.route("/api/campaigns/<int:campaign_id>/trigger", methods=["POST"])
 @admin_required
 def api_trigger_session(campaign_id):
-    result = service.trigger_session(campaign_id, headless=False)
+    payload = request.get_json(silent=True) or {}
+    raw_headless = payload.get("headless", False)
+    if isinstance(raw_headless, bool):
+        headless = raw_headless
+    elif isinstance(raw_headless, str):
+        headless = raw_headless.strip().lower() in {"1", "true", "yes", "on", "headless"}
+    else:
+        headless = bool(raw_headless)
+
+    result = service.trigger_session(campaign_id, headless=headless)
     if "error" in result:
         return jsonify(result), 409
     return jsonify(result), 202
