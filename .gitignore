@@ -100,6 +100,7 @@ terraform/tfplan.*
 conversations/
 data/exports/
 data/boost_recordings/
+data/playwright-runtime/
 data/tickets/images/
 data/photos/listings/
 data/knowledge/

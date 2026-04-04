@@ -6,6 +6,8 @@ and supports both manual and scheduled execution.
 
 import asyncio
 import logging
+import os
+import sys
 import threading
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
@@ -27,6 +29,22 @@ logger = logging.getLogger(__name__)
 # Track running sessions so the UI can poll status
 _running_sessions: Dict[int, Dict[str, Any]] = {}
 _lock = threading.Lock()
+
+
+def _resolve_headless_mode(requested_headless: bool) -> tuple[bool, Optional[str]]:
+    """
+    Force headless mode on Linux hosts without a graphical display.
+
+    This keeps local desktop debugging possible while making EC2/server
+    deployments work from the web UI.
+    """
+    if requested_headless:
+        return True, None
+
+    if sys.platform.startswith("linux") and not os.getenv("DISPLAY") and not os.getenv("WAYLAND_DISPLAY"):
+        return True, "No Linux display detected; running the browser in headless mode on this server."
+
+    return requested_headless, None
 
 
 def get_running_status(campaign_id: int) -> Optional[Dict[str, Any]]:
@@ -208,15 +226,26 @@ def trigger_session(campaign_id: int, headless: bool = True) -> Dict[str, Any]:
     cancel_event = threading.Event()
     _set_running(campaign_id, sess_id, cancel_event)
 
+    effective_headless, mode_message = _resolve_headless_mode(headless)
+    if mode_message:
+        logger.info(
+            "Campaign %s requested headed mode, but no Linux display is available. "
+            "Falling back to headless mode.",
+            campaign_id,
+        )
+
     # Run in background thread
     thread = threading.Thread(
         target=_run_session_thread,
-        args=(campaign_id, sess_id, campaign_dict, headless, cancel_event),
+        args=(campaign_id, sess_id, campaign_dict, effective_headless, cancel_event),
         daemon=True,
     )
     thread.start()
 
-    return {"session_id": sess_id, "status": "running"}
+    result = {"session_id": sess_id, "status": "running", "headless": effective_headless}
+    if mode_message:
+        result["message"] = mode_message
+    return result
 
 
 def _run_session_thread(

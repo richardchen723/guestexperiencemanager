@@ -129,6 +129,32 @@ def get_boost_recordings_dir() -> str:
 
 BOOST_RECORDINGS_DIR = get_boost_recordings_dir()
 
+
+def get_playwright_runtime_paths() -> dict[str, str]:
+    """
+    Get writable runtime directories for Chromium/Playwright state.
+
+    These paths avoid service sandboxes that block access to the user's home
+    directory on production Linux hosts.
+    """
+    root = Path(
+        os.getenv("PLAYWRIGHT_RUNTIME_DIR", str(PROJECT_ROOT / "data" / "playwright-runtime"))
+    )
+    paths = {
+        "root": root,
+        "home": root / "home",
+        "cache": root / "cache",
+        "config": root / "config",
+        "data": root / "data",
+        "tmp": root / "tmp",
+    }
+    for path in paths.values():
+        path.mkdir(parents=True, exist_ok=True)
+    return {key: str(value) for key, value in paths.items()}
+
+
+PLAYWRIGHT_RUNTIME_PATHS = get_playwright_runtime_paths()
+
 # Twilio WhatsApp Configuration
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")

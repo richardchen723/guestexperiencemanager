@@ -134,6 +134,20 @@ def _match_dialog_signature(text: str) -> Optional[str]:
     return None
 
 
+def _build_playwright_launch_env() -> Dict[str, str]:
+    """Provide writable runtime paths for Chromium subprocesses."""
+    env = os.environ.copy()
+    runtime_paths = config.PLAYWRIGHT_RUNTIME_PATHS
+    env.update({
+        "HOME": runtime_paths["home"],
+        "XDG_CACHE_HOME": runtime_paths["cache"],
+        "XDG_CONFIG_HOME": runtime_paths["config"],
+        "XDG_DATA_HOME": runtime_paths["data"],
+        "TMPDIR": runtime_paths["tmp"],
+    })
+    return env
+
+
 async def _clear_page_storage(page, log=None):
     """Best-effort cleanup for page-scoped storage and caches."""
     try:
@@ -1933,6 +1947,7 @@ async def run_boost_session(
     async with async_playwright() as pw:
         launch_kwargs: Dict[str, Any] = {
             "headless": headless,
+            "env": _build_playwright_launch_env(),
             "args": [
                 "--disable-blink-features=AutomationControlled",
                 "--disable-infobars",
