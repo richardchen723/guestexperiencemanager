@@ -14,6 +14,7 @@ NC='\033[0m' # No Color
 APP_DIR="/opt/hostaway-messages/app"
 VENV_DIR="/opt/hostaway-messages/venv"
 ENV_FILE="/opt/hostaway-messages/.env"
+PLAYWRIGHT_BROWSERS_DIR="$APP_DIR/data/ms-playwright"
 BRANCH="${1:-main}"  # Default to main branch
 
 echo "========================================="
@@ -59,6 +60,14 @@ sudo -u hostaway "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
 sudo -u hostaway "$VENV_DIR/bin/pip" install -r "$APP_DIR/dashboard/requirements.txt"
 # Install Gunicorn for production
 sudo -u hostaway "$VENV_DIR/bin/pip" install gunicorn
+
+echo -e "${GREEN}Step 3b: Installing Playwright Chromium...${NC}"
+mkdir -p "$PLAYWRIGHT_BROWSERS_DIR"
+chown -R hostaway:hostaway "$APP_DIR/data"
+env PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_DIR" \
+    "$VENV_DIR/bin/python" -m playwright install-deps chromium
+sudo -u hostaway env PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_DIR" \
+    "$VENV_DIR/bin/python" -m playwright install chromium
 
 echo -e "${GREEN}Step 4: Copying .env file to app directory (if needed)...${NC}"
 # Copy .env to app directory for local access (app loads from project root)
@@ -126,4 +135,3 @@ echo ""
 echo "View logs:"
 echo "  sudo journalctl -u hostaway-dashboard -f"
 echo ""
-

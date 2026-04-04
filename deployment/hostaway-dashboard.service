@@ -15,6 +15,7 @@ Group=hostaway
 WorkingDirectory=/opt/hostaway-messages/app
 Environment="PATH=/opt/hostaway-messages/venv/bin"
 Environment="LOG_FILE=/opt/hostaway-messages/logs/dashboard.log"
+Environment="PLAYWRIGHT_BROWSERS_PATH=/opt/hostaway-messages/app/data/ms-playwright"
 EnvironmentFile=/opt/hostaway-messages/.env
 
 # Gunicorn configuration
@@ -48,4 +49,3 @@ LimitNPROC=4096
 
 [Install]
 WantedBy=multi-user.target
-
