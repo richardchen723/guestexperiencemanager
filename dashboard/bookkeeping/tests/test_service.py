@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import dashboard.bookkeeping.service as bookkeeping_service
+import dashboard.bookkeeping.routes as bookkeeping_routes
 from dashboard.bookkeeping.service import (
     build_bookkeeping_workbook,
     build_workspace_revision_snapshot,
@@ -24,6 +25,37 @@ from dashboard.bookkeeping.service import (
 class DummyExpenseItem(SimpleNamespace):
     def effective_total(self):
         return float(self.total or self.amount or 0)
+
+
+def test_expense_item_from_payload_preserves_upload_id_when_edit_payload_omits_it():
+    item = SimpleNamespace(category="supplies", upload_id=88, created_by=7)
+
+    bookkeeping_routes._expense_item_from_payload(
+        item,
+        {
+            "category": "supplies",
+            "item_name": "Replacement sheets",
+            "amount": 42.50,
+        },
+        created_by=7,
+    )
+
+    assert item.upload_id == 88
+
+
+def test_expense_item_from_payload_allows_explicit_upload_unlink():
+    item = SimpleNamespace(category="supplies", upload_id=88, created_by=7)
+
+    bookkeeping_routes._expense_item_from_payload(
+        item,
+        {
+            "category": "supplies",
+            "upload_id": "",
+        },
+        created_by=7,
+    )
+
+    assert item.upload_id is None
 
 
 def test_detect_source_from_headers_prefers_known_signatures():

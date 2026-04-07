@@ -288,11 +288,12 @@ def _expense_item_from_payload(item, payload, created_by):
     item.details = (payload.get("details") or "").strip() or None
     item.needs_review = _parse_boolean(payload.get("needs_review"))
     item.review_reason = (payload.get("review_reason") or "").strip() or None
-    upload_id = payload.get("upload_id")
-    if upload_id in ("", None):
-        item.upload_id = None
-    else:
-        item.upload_id = int(upload_id)
+    if "upload_id" in payload:
+        upload_id = payload.get("upload_id")
+        if upload_id in ("", None):
+            item.upload_id = None
+        else:
+            item.upload_id = int(upload_id)
     if getattr(item, "created_by", None) is None:
         item.created_by = created_by
     return item
