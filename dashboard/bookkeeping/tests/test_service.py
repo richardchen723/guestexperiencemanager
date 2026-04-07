@@ -1,8 +1,16 @@
 from decimal import Decimal
+from pathlib import Path
+import sys
 from types import SimpleNamespace
 
+import pytest
 from openpyxl import load_workbook
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+import dashboard.bookkeeping.service as bookkeeping_service
 from dashboard.bookkeeping.service import (
     build_bookkeeping_workbook,
     build_workspace_revision_snapshot,
@@ -66,6 +74,101 @@ def test_summarize_revenue_rows_ignores_total_rows():
     assert summary["stripe_fee_total"] == 16.39
     assert summary["commission_total"] == 24.6
     assert len(summary["processing_fee_rows"]) == 2
+
+
+def test_extract_expense_evidence_bundle_retries_dense_retail_receipt_after_timeout(monkeypatch):
+    calls = []
+
+    def fake_request_openai_json(*, system_prompt, user_content, timeout_seconds):
+        calls.append(
+            {
+                "timeout_seconds": timeout_seconds,
+                "prompt": user_content[0]["text"],
+            }
+        )
+        if len(calls) == 1:
+            raise RuntimeError("Request timed out.")
+        return {
+            "document_type": "retail_receipt",
+            "overall_confidence": 0.91,
+            "support_only": False,
+            "explicit_guest_refund_language": False,
+            "guest_refund_phrase": None,
+            "shared_fields": {"store_name": "dd's DISCOUNTS", "payment_method": "card"},
+            "reimbursement_proof": {},
+            "entries": [
+                {
+                    "category": "supplies",
+                    "confidence": 0.91,
+                    "item_name": "Battery pack",
+                    "vendor": "dd's DISCOUNTS",
+                    "property_code": None,
+                    "scope": "portfolio",
+                    "amount": 9.99,
+                    "total": 9.99,
+                    "service_date": None,
+                    "payment_date": None,
+                    "payment_method": "card",
+                    "account_holder": None,
+                    "account_number": "0043",
+                    "purchase_type": "retail",
+                    "store_name": "dd's DISCOUNTS",
+                    "quantity": 1,
+                    "unit_amount": 9.99,
+                    "subtotal": None,
+                    "discount": None,
+                    "shipping": None,
+                    "tax": None,
+                    "reimbursement_method": None,
+                    "reimbursement_date": None,
+                    "details": "Battery pack",
+                    "review_reason": None,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(bookkeeping_service, "_request_openai_json", fake_request_openai_json)
+
+    result = bookkeeping_service.extract_expense_evidence_bundle(
+        file_bytes=b"fake-image-bytes",
+        filename="March 17, 2026 - Purchase Receipt - dd's Discount.jpeg",
+        mime_type="image/jpeg",
+        parsed_summary={"preview_text": None, "page_count": None},
+        property_alias_map=None,
+    )
+
+    assert result is not None
+    assert result["document_type"] == "retail_receipt"
+    assert len(result["entries"]) == 1
+    assert [call["timeout_seconds"] for call in calls] == [
+        bookkeeping_service.OPENAI_VISION_TIMEOUT_SECONDS,
+        max(
+            bookkeeping_service.OPENAI_VISION_SLOW_FALLBACK_TIMEOUT_SECONDS,
+            bookkeeping_service.OPENAI_VISION_TIMEOUT_SECONDS,
+        ),
+    ]
+    assert "Fallback mode: this is likely a dense itemized retail receipt." in calls[1]["prompt"]
+
+
+def test_extract_expense_evidence_bundle_keeps_non_receipt_timeouts_fast(monkeypatch):
+    calls = []
+
+    def fake_request_openai_json(*, system_prompt, user_content, timeout_seconds):
+        calls.append(timeout_seconds)
+        raise RuntimeError("Request timed out.")
+
+    monkeypatch.setattr(bookkeeping_service, "_request_openai_json", fake_request_openai_json)
+
+    with pytest.raises(RuntimeError, match="Request timed out"):
+        bookkeeping_service.extract_expense_evidence_bundle(
+            file_bytes=b"fake-image-bytes",
+            filename="March 12, 2026 - PT300 Bedsheets.jpeg",
+            mime_type="image/jpeg",
+            parsed_summary={"preview_text": None, "page_count": None},
+            property_alias_map=None,
+        )
+
+    assert calls == [bookkeeping_service.OPENAI_VISION_TIMEOUT_SECONDS]
 
 
 def test_build_bookkeeping_workbook_creates_owner_statement_and_tabs():

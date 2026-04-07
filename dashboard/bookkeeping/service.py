@@ -8,6 +8,7 @@ import csv
 import mimetypes
 import io
 import json
+import logging
 import os
 import re
 from collections import Counter, defaultdict
@@ -52,7 +53,11 @@ except ImportError:  # pragma: no cover - optional until Drive sync is configure
 
 BOOKKEEPING_FILES_DIR = Path(config.PROJECT_ROOT) / "data" / "bookkeeping"
 AUTO_CATEGORIZE_CONFIDENCE_THRESHOLD = 0.88
-OPENAI_VISION_TIMEOUT_SECONDS = 60.0
+OPENAI_VISION_TIMEOUT_SECONDS = float(os.getenv("BOOKKEEPING_OPENAI_VISION_TIMEOUT_SECONDS", "90"))
+OPENAI_VISION_SLOW_FALLBACK_TIMEOUT_SECONDS = float(
+    os.getenv("BOOKKEEPING_OPENAI_VISION_SLOW_FALLBACK_TIMEOUT_SECONDS", "180")
+)
+OPENAI_VISION_MAX_RETRIES = int(os.getenv("BOOKKEEPING_OPENAI_VISION_MAX_RETRIES", "0"))
 REVIEW_ROW_FILL_COLOR = "FFF2CC"
 WORKSPACE_PREVIEW_TEXT_LIMIT = 600
 VISION_IMAGE_MAX_DIMENSION = 1600
@@ -72,6 +77,29 @@ IMAGE_EXTENSION_TO_MIME = {
     ".jfif": "image/jpeg",
     ".webp": "image/webp",
 }
+RETAIL_RECEIPT_FILENAME_HINTS = (
+    "receipt",
+    "purchase",
+    "invoice",
+    "order",
+    "dollar tree",
+    "sam's club",
+    "sams club",
+    "home depot",
+    "target",
+    "walmart",
+    "costco",
+    "ross",
+    "discount",
+)
+PAYMENT_APP_FILENAME_HINTS = (
+    "venmo",
+    "zelle",
+    "cash app",
+    "cashapp",
+    "paypal",
+    "apple cash",
+)
 GOOGLE_DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 GOOGLE_DRIVE_BOOKKEEPING_SCOPES = ("https://www.googleapis.com/auth/drive",)
 GOOGLE_DRIVE_EVIDENCE_SUBFOLDER = "evidences"
@@ -267,6 +295,7 @@ PT300_FULL_CODE_BY_UNIT = {
     "6N": "PT300-6N-IG",
     "8H": "PT300-8H-IG",
 }
+logger = logging.getLogger(__name__)
 STANDARD_REVENUE_HEADERS = {
     "airbnb": [
         "Date",
@@ -2125,6 +2154,128 @@ def normalize_structured_expense_extraction(
     }
 
 
+def _request_openai_json(
+    *,
+    system_prompt: str,
+    user_content: Any,
+    timeout_seconds: float,
+) -> Dict[str, Any]:
+    from openai import OpenAI
+
+    client = OpenAI(
+        api_key=config.OPENAI_API_KEY,
+        timeout=timeout_seconds,
+        max_retries=OPENAI_VISION_MAX_RETRIES,
+    )
+    response = client.chat.completions.create(
+        model=config.OPENAI_MODEL,
+        temperature=0,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+    )
+    raw_content = (response.choices[0].message.content or "{}").strip()
+    return json.loads(raw_content)
+
+
+def _build_expense_extraction_prompt(*, dense_retail_fallback: bool = False) -> str:
+    prompt = (
+        "Extract the document into structured bookkeeping data. "
+        "Return keys: document_type, overall_confidence, support_only, explicit_guest_refund_language, guest_refund_phrase, "
+        "shared_fields, reimbursement_proof, entries. "
+        "shared_fields can contain vendor, payment_method, account_holder, account_number, payment_date, service_date, message_text, purchase_type, store_name, subtotal, discount, shipping, tax, total, reimbursement_method, reimbursement_date. "
+        "reimbursement_proof can contain amount, payment_date, payment_method, account_holder, account_number. "
+        "Each entry must include category, confidence, item_name, vendor, property_code, scope, amount, total, service_date, payment_date, payment_method, account_holder, account_number, purchase_type, store_name, quantity, unit_amount, subtotal, discount, shipping, tax, reimbursement_method, reimbursement_date, details, review_reason. "
+        "Do not aggregate multiple properties into one entry when the evidence clearly lists them separately. "
+        "For retail receipts, one receipt line item must become one entry whenever the document shows distinct purchased items. "
+        "For PT300 cleaning screenshots, always read and return the exact message memo in shared_fields.message_text. "
+        "For Venmo or Zelle screenshots, also extract payment_date, vendor, account_holder, and handle information from the transfer card itself whenever visible."
+    )
+    if dense_retail_fallback:
+        prompt += (
+            " Fallback mode: this is likely a dense itemized retail receipt. "
+            "Take the extra time needed to enumerate every distinct purchased line item that is legible. "
+            "Prefer exhaustive line-item coverage over collapsing the receipt into category summaries. "
+            "If some lines are partially unreadable, still return the legible ones and use review_reason on uncertain rows."
+        )
+    return prompt
+
+
+def _build_expense_extraction_content(
+    *,
+    extraction_prompt: str,
+    file_bytes: bytes,
+    filename: str,
+    normalized_mime_type: Optional[str],
+    preview_text: Optional[str],
+    property_alias_map: Optional[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+    content: List[Dict[str, Any]] = [{"type": "text", "text": extraction_prompt}]
+    if property_alias_map:
+        known_codes = sorted({code for code in property_alias_map.values()})
+        if known_codes:
+            content.append(
+                {
+                    "type": "text",
+                    "text": f"Known property codes for canonicalization: {', '.join(known_codes[:40])}",
+                }
+            )
+    if normalized_mime_type:
+        vision_bytes, vision_mime_type = _optimize_image_bytes_for_vision(file_bytes, normalized_mime_type)
+        encoded = base64.b64encode(vision_bytes).decode("utf-8")
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{vision_mime_type};base64,{encoded}",
+                },
+            }
+        )
+    if preview_text:
+        content.append(
+            {
+                "type": "text",
+                "text": f"Extracted text preview:\n{preview_text[:4000]}",
+            }
+        )
+    content.append({"type": "text", "text": f"Filename context: {filename}"})
+    return content
+
+
+def _is_timeout_error(exc: Exception) -> bool:
+    if "timed out" in str(exc).lower():
+        return True
+    error_name = type(exc).__name__.lower()
+    return "timeout" in error_name
+
+
+def _looks_dense_itemized_retail_receipt(
+    filename: str,
+    preview_text: Optional[str],
+) -> bool:
+    signal_text = f"{filename}\n{preview_text or ''}".lower()
+    if any(hint in signal_text for hint in PAYMENT_APP_FILENAME_HINTS):
+        return False
+    if any(hint in signal_text for hint in RETAIL_RECEIPT_FILENAME_HINTS):
+        return True
+    if preview_text:
+        line_count = len([line for line in preview_text.splitlines() if line.strip()])
+        currency_count = len(re.findall(r"\d+\.\d{2}", preview_text))
+        return line_count >= 12 and currency_count >= 6
+    return False
+
+
+def _should_retry_dense_retail_receipt_fallback(
+    *,
+    filename: str,
+    preview_text: Optional[str],
+    exc: Exception,
+) -> bool:
+    return _is_timeout_error(exc) and _looks_dense_itemized_retail_receipt(filename, preview_text)
+
+
 def _extract_payment_screenshot_context(
     file_bytes: bytes,
     filename: str,
@@ -2135,46 +2286,30 @@ def _extract_payment_screenshot_context(
         return None
     optimized_bytes, optimized_mime_type = _optimize_image_bytes_for_vision(file_bytes, normalized_mime_type)
 
+    encoded = base64.b64encode(optimized_bytes).decode("utf-8")
     try:
-        from openai import OpenAI
+        return _request_openai_json(
+            system_prompt=(
+                "You identify consumer payment app screenshots. "
+                "Return JSON only with keys app_name, payment_method, payee_name, payee_handle, funding_source_label. "
+                "Use payment_method values like Venmo, Zelle, Cash App, PayPal, Apple Cash, bank_transfer, debit, credit_card. "
+                "If the screenshot shows Venmo UI chrome such as Privacy/Private, the Venmo logo, or the 'Turn on for purchases' panel, set payment_method to Venmo even when the funding source is a bank card. "
+                "Do not confuse the funding source with the payment app. "
+                "Only return payee_handle when it is visible."
+            ),
+            user_content=[
+                {"type": "text", "text": f"Filename context: {filename}"},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{optimized_mime_type};base64,{encoded}",
+                    },
+                },
+            ],
+            timeout_seconds=OPENAI_VISION_TIMEOUT_SECONDS,
+        )
     except ImportError:
         return None
-
-    encoded = base64.b64encode(optimized_bytes).decode("utf-8")
-    client = OpenAI(api_key=config.OPENAI_API_KEY, timeout=OPENAI_VISION_TIMEOUT_SECONDS, max_retries=1)
-    response = client.chat.completions.create(
-        model=config.OPENAI_MODEL,
-        temperature=0,
-        response_format={"type": "json_object"},
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You identify consumer payment app screenshots. "
-                    "Return JSON only with keys app_name, payment_method, payee_name, payee_handle, funding_source_label. "
-                    "Use payment_method values like Venmo, Zelle, Cash App, PayPal, Apple Cash, bank_transfer, debit, credit_card. "
-                    "If the screenshot shows Venmo UI chrome such as Privacy/Private, the Venmo logo, or the 'Turn on for purchases' panel, set payment_method to Venmo even when the funding source is a bank card. "
-                    "Do not confuse the funding source with the payment app. "
-                    "Only return payee_handle when it is visible."
-                ),
-            },
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": f"Filename context: {filename}"},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{optimized_mime_type};base64,{encoded}",
-                        },
-                    },
-                ],
-            },
-        ],
-    )
-    raw_content = (response.choices[0].message.content or "{}").strip()
-    try:
-        return json.loads(raw_content)
     except json.JSONDecodeError:
         return None
 
@@ -2274,11 +2409,6 @@ def extract_expense_evidence_bundle(
     if not normalized_mime_type and not preview_text:
         return None
 
-    try:
-        from openai import OpenAI
-    except ImportError:
-        return None
-
     system_prompt = (
         "You extract bookkeeping evidence for a short-term rental operator. "
         "Return JSON only. A single document may contain multiple bookkeeping entries. "
@@ -2297,61 +2427,53 @@ def extract_expense_evidence_bundle(
         "20M=60, 21M=60, 23J=65, 2I=65, 2M=60, 3E=65, 6N=65, 8H=65. "
         "guest service(5) is usually one $5 misc row, parking reimbursement is misc, and explicit repair notes like unclog toilet (30) are maintenance."
     )
-    extraction_prompt = (
-        "Extract the document into structured bookkeeping data. "
-        "Return keys: document_type, overall_confidence, support_only, explicit_guest_refund_language, guest_refund_phrase, "
-        "shared_fields, reimbursement_proof, entries. "
-        "shared_fields can contain vendor, payment_method, account_holder, account_number, payment_date, service_date, message_text, purchase_type, store_name, subtotal, discount, shipping, tax, total, reimbursement_method, reimbursement_date. "
-        "reimbursement_proof can contain amount, payment_date, payment_method, account_holder, account_number. "
-        "Each entry must include category, confidence, item_name, vendor, property_code, scope, amount, total, service_date, payment_date, payment_method, account_holder, account_number, purchase_type, store_name, quantity, unit_amount, subtotal, discount, shipping, tax, reimbursement_method, reimbursement_date, details, review_reason. "
-        "Do not aggregate multiple properties into one entry when the evidence clearly lists them separately. "
-        "For retail receipts, one receipt line item must become one entry whenever the document shows distinct purchased items. "
-        "For PT300 cleaning screenshots, always read and return the exact message memo in shared_fields.message_text. "
-        "For Venmo or Zelle screenshots, also extract payment_date, vendor, account_holder, and handle information from the transfer card itself whenever visible."
+    content = _build_expense_extraction_content(
+        extraction_prompt=_build_expense_extraction_prompt(),
+        file_bytes=file_bytes,
+        filename=filename,
+        normalized_mime_type=normalized_mime_type,
+        preview_text=preview_text,
+        property_alias_map=property_alias_map,
     )
 
-    content: List[Dict[str, Any]] = [{"type": "text", "text": extraction_prompt}]
-    if property_alias_map:
-        known_codes = sorted({code for code in property_alias_map.values()})
-        if known_codes:
-            content.append(
-                {
-                    "type": "text",
-                    "text": f"Known property codes for canonicalization: {', '.join(known_codes[:40])}",
-                }
-            )
-    if normalized_mime_type:
-        vision_bytes, vision_mime_type = _optimize_image_bytes_for_vision(file_bytes, normalized_mime_type)
-        encoded = base64.b64encode(vision_bytes).decode("utf-8")
-        content.append(
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:{vision_mime_type};base64,{encoded}",
-                },
-            }
+    try:
+        extracted = _request_openai_json(
+            system_prompt=system_prompt,
+            user_content=content,
+            timeout_seconds=OPENAI_VISION_TIMEOUT_SECONDS,
         )
-    if preview_text:
-        content.append(
-            {
-                "type": "text",
-                "text": f"Extracted text preview:\n{preview_text[:4000]}",
-            }
-        )
-    content.append({"type": "text", "text": f"Filename context: {filename}"})
+    except ImportError:
+        return None
+    except Exception as exc:
+        if not _should_retry_dense_retail_receipt_fallback(
+            filename=filename,
+            preview_text=preview_text,
+            exc=exc,
+        ):
+            raise
 
-    client = OpenAI(api_key=config.OPENAI_API_KEY, timeout=OPENAI_VISION_TIMEOUT_SECONDS, max_retries=1)
-    response = client.chat.completions.create(
-        model=config.OPENAI_MODEL,
-        temperature=0,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": content},
-        ],
-    )
-    raw_content = (response.choices[0].message.content or "{}").strip()
-    extracted = json.loads(raw_content)
+        logger.info(
+            "Retrying dense retail receipt extraction for %s with %.1fs timeout fallback",
+            filename,
+            OPENAI_VISION_SLOW_FALLBACK_TIMEOUT_SECONDS,
+        )
+        fallback_content = _build_expense_extraction_content(
+            extraction_prompt=_build_expense_extraction_prompt(dense_retail_fallback=True),
+            file_bytes=file_bytes,
+            filename=filename,
+            normalized_mime_type=normalized_mime_type,
+            preview_text=preview_text,
+            property_alias_map=property_alias_map,
+        )
+        extracted = _request_openai_json(
+            system_prompt=system_prompt,
+            user_content=fallback_content,
+            timeout_seconds=max(
+                OPENAI_VISION_SLOW_FALLBACK_TIMEOUT_SECONDS,
+                OPENAI_VISION_TIMEOUT_SECONDS,
+            ),
+        )
+
     document_type = _string_or_none(extracted.get("document_type")) or ""
     if _is_payment_screenshot_document(document_type) and _needs_payment_screenshot_context(extracted):
         payment_context = _extract_payment_screenshot_context(
