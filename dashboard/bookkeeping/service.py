@@ -3857,6 +3857,85 @@ def build_sheet_views(
     )
 
     for category in EXPENSE_CATEGORIES:
+        if category == "software_fee":
+            category_items = sorted(
+                [item for item in expense_items if item.category == category],
+                key=_expense_sort_key,
+            )
+            software_columns = [
+                {"key": "entry_type", "label": "Entry Type"},
+                {"key": "software_name", "label": "Software"},
+                {"key": "vendor", "label": "Vendor"},
+                {"key": "price_per_listing", "label": "Price Per Listing"},
+                {"key": "listing_count", "label": "Listings"},
+                {"key": "effective_total", "label": "Amount"},
+                {"key": "property_code", "label": "Property"},
+                {"key": "needs_review", "label": "Review"},
+            ]
+            software_rows: List[Dict[str, Any]] = []
+            configured_rows = [
+                (
+                    "Hostaway",
+                    float(portfolio.hostaway_price_per_listing or 0),
+                    portfolio.listing_count or 0,
+                    float((portfolio.hostaway_price_per_listing or Decimal("0")) * (portfolio.listing_count or 0)),
+                ),
+                (
+                    "Pricelabs",
+                    float(portfolio.pricelabs_price_per_listing or 0),
+                    portfolio.listing_count or 0,
+                    float((portfolio.pricelabs_price_per_listing or Decimal("0")) * (portfolio.listing_count or 0)),
+                ),
+            ]
+            for software_name, price_per_listing, listing_count, total in configured_rows:
+                if price_per_listing == 0 and total == 0:
+                    continue
+                software_rows.append(
+                    {
+                        "row_id": None,
+                        "row_type": None,
+                        "updated_at": None,
+                        "entry_type": "Configured",
+                        "software_name": software_name,
+                        "vendor": "Portfolio setting",
+                        "price_per_listing": round(price_per_listing, 2),
+                        "listing_count": listing_count,
+                        "effective_total": round(total, 2),
+                        "property_code": getattr(portfolio, "code", None),
+                        "needs_review": False,
+                    }
+                )
+
+            software_rows.extend(
+                [
+                    {
+                        "row_id": item.bookkeeping_expense_item_id,
+                        "row_type": "expense_item",
+                        "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+                        "entry_type": "Manual",
+                        "software_name": item.item_name or item.vendor or "Manual Software Fee",
+                        "vendor": item.vendor,
+                        "price_per_listing": None,
+                        "listing_count": None,
+                        "effective_total": round(item.effective_total(), 2),
+                        "property_code": item.property_code,
+                        "needs_review": bool(item.needs_review),
+                    }
+                    for item in category_items
+                ]
+            )
+            tabs.append(
+                {
+                    "key": f"expense_{category}",
+                    "label": category.replace("_", " ").title(),
+                    "editable": any(row.get("row_id") for row in software_rows),
+                    "row_type": "expense_item",
+                    "columns": software_columns,
+                    "rows": software_rows,
+                }
+            )
+            continue
+
         category_items = [item for item in expense_items if item.category == category]
         tabs.append(
             {

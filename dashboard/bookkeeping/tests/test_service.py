@@ -14,6 +14,7 @@ import dashboard.bookkeeping.service as bookkeeping_service
 import dashboard.bookkeeping.routes as bookkeeping_routes
 from dashboard.bookkeeping.service import (
     build_bookkeeping_workbook,
+    build_sheet_views,
     build_workspace_revision_snapshot,
     build_revenue_item_payloads,
     build_workspace_summary,
@@ -201,6 +202,75 @@ def test_extract_expense_evidence_bundle_keeps_non_receipt_timeouts_fast(monkeyp
         )
 
     assert calls == [bookkeeping_service.OPENAI_VISION_TIMEOUT_SECONDS]
+
+
+def test_build_sheet_views_shows_configured_software_rows_in_live_tab():
+    portfolio = SimpleNamespace(
+        code="PT300",
+        listing_count=16,
+        hostaway_price_per_listing=Decimal("46.32"),
+        pricelabs_price_per_listing=Decimal("10.01"),
+        management_fee_percentage=Decimal("0.00"),
+        revenue_channels=[],
+    )
+
+    sheet_views = build_sheet_views(
+        portfolio,
+        period=SimpleNamespace(),
+        uploads=[],
+        revenue_items=[],
+        expense_items=[],
+    )
+
+    software_sheet = next(sheet for sheet in sheet_views if sheet["key"] == "expense_software_fee")
+
+    assert software_sheet["editable"] is False
+    assert [row["software_name"] for row in software_sheet["rows"]] == ["Hostaway", "Pricelabs"]
+    assert [row["effective_total"] for row in software_sheet["rows"]] == [741.12, 160.16]
+    assert [row["entry_type"] for row in software_sheet["rows"]] == ["Configured", "Configured"]
+
+
+def test_build_sheet_views_keeps_manual_software_rows_editable():
+    portfolio = SimpleNamespace(
+        code="PT300",
+        listing_count=16,
+        hostaway_price_per_listing=Decimal("46.32"),
+        pricelabs_price_per_listing=Decimal("10.01"),
+        management_fee_percentage=Decimal("0.00"),
+        revenue_channels=[],
+    )
+    manual_item = DummyExpenseItem(
+        bookkeeping_expense_item_id=55,
+        category="software_fee",
+        item_name="Owner portal add-on",
+        vendor="Hostfully",
+        property_code="PT300",
+        payment_method="Card",
+        total=25.0,
+        amount=25.0,
+        updated_at=None,
+        service_date=None,
+        payment_date=None,
+        needs_review=False,
+    )
+
+    sheet_views = build_sheet_views(
+        portfolio,
+        period=SimpleNamespace(),
+        uploads=[],
+        revenue_items=[],
+        expense_items=[manual_item],
+    )
+
+    software_sheet = next(sheet for sheet in sheet_views if sheet["key"] == "expense_software_fee")
+    manual_row = software_sheet["rows"][-1]
+
+    assert software_sheet["editable"] is True
+    assert [row["software_name"] for row in software_sheet["rows"][:2]] == ["Hostaway", "Pricelabs"]
+    assert manual_row["row_id"] == 55
+    assert manual_row["row_type"] == "expense_item"
+    assert manual_row["entry_type"] == "Manual"
+    assert manual_row["effective_total"] == 25.0
 
 
 def test_build_bookkeeping_workbook_creates_owner_statement_and_tabs():
