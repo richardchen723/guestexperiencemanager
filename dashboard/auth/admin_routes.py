@@ -5,6 +5,7 @@ Admin user management routes.
 
 import sys
 import os
+import logging
 from datetime import datetime
 from flask import Blueprint, render_template, jsonify, request
 
@@ -24,6 +25,8 @@ from dashboard.auth.features import (
 )
 from dashboard.auth.session import get_current_user
 from dashboard.auth.api_keys import create_api_key
+
+logger = logging.getLogger(__name__)
 
 # Create blueprint
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin', template_folder='../templates')
@@ -200,22 +203,38 @@ def api_update_user_role(user_id):
 @admin_bp.route('/api/users/<int:user_id>', methods=['DELETE'])
 @admin_required
 def api_delete_user(user_id):
-    """Delete a user (cannot delete owner)."""
+    """Remove a user account while retaining historical work records."""
     try:
+        current_user = get_current_user()
+        if not current_user:
+            return jsonify({'error': 'Not authenticated'}), 401
+
         user = get_user_by_id(user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
         if user.role == 'owner':
             return jsonify({'error': 'Cannot delete owner account'}), 403
+
+        if current_user.user_id == user_id:
+            return jsonify({'error': 'You cannot remove your own account'}), 403
+
+        if user.role == 'admin' and current_user.role != 'owner':
+            return jsonify({'error': 'Only the owner can remove an administrator'}), 403
         
         success = delete_user(user_id)
         if success:
-            return jsonify({'success': True, 'message': 'User deleted'})
+            return jsonify({
+                'success': True,
+                'message': 'User removed. Historical work has been retained.',
+            })
         else:
-            return jsonify({'error': 'Failed to delete user'}), 500
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+            return jsonify({'error': 'User could not be removed'}), 409
+    except Exception:
+        logger.exception('Failed to remove user account %s', user_id)
+        return jsonify({
+            'error': 'Unable to remove this user. No account data was changed.',
+        }), 500
 
 
 @admin_bp.route('/api/api-keys', methods=['GET'])

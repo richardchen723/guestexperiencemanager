@@ -243,7 +243,7 @@ async function changeRole(userId, newRole) {
 }
 
 async function deleteUser(userId) {
-    try { await runUserAction(`/admin/api/users/${userId}`, { method: 'DELETE' }, 'Permanently delete this user account?'); }
+    try { await runUserAction(`/admin/api/users/${userId}`, { method: 'DELETE' }, 'Remove this user account? Access and credentials will be revoked while historical work is retained.'); }
     catch (error) { alert(error.message); }
 }
 

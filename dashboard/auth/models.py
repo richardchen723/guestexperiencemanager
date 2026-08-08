@@ -41,6 +41,7 @@ class User(Base):
     _users_schema = 'users.' if os.getenv("DATABASE_URL") else ''
     approved_by = Column(Integer, ForeignKey(f'{_users_schema}users.user_id'), nullable=True)
     last_login = Column(DateTime)
+    deleted_at = Column(DateTime, nullable=True, index=True)
     whatsapp_number = Column(String, nullable=True)  # E.164 format (e.g., +14155552671)
     whatsapp_notifications_enabled = Column(Boolean, default=True, nullable=False)
     
@@ -228,6 +229,7 @@ def init_user_database():
                 raise e
         else:
             raise e
+    _migrate_user_soft_delete_field(engine)
     return engine
 
 
@@ -250,7 +252,10 @@ def get_user_by_email(email: str):
     """Get user by email address."""
     session = get_session()
     try:
-        return session.query(User).filter(User.email == email).first()
+        return session.query(User).filter(
+            User.email == email,
+            User.deleted_at.is_(None),
+        ).first()
     finally:
         session.close()
 
@@ -259,7 +264,10 @@ def get_user_by_google_id(google_id: str):
     """Get user by Google ID."""
     session = get_session()
     try:
-        return session.query(User).filter(User.google_id == google_id).first()
+        return session.query(User).filter(
+            User.google_id == google_id,
+            User.deleted_at.is_(None),
+        ).first()
     finally:
         session.close()
 
@@ -268,7 +276,10 @@ def get_user_by_id(user_id: int):
     """Get user by user ID."""
     session = get_session()
     try:
-        return session.query(User).filter(User.user_id == user_id).first()
+        return session.query(User).filter(
+            User.user_id == user_id,
+            User.deleted_at.is_(None),
+        ).first()
     finally:
         session.close()
 
@@ -302,7 +313,10 @@ def get_or_create_service_user():
     from dashboard.config import API_SERVICE_EMAIL, API_SERVICE_NAME
     session = get_session()
     try:
-        user = session.query(User).filter(User.email == API_SERVICE_EMAIL).first()
+        user = session.query(User).filter(
+            User.email == API_SERVICE_EMAIL,
+            User.deleted_at.is_(None),
+        ).first()
         if user:
             return user
         
@@ -327,7 +341,10 @@ def approve_user(user_id: int, approved_by_user_id: int):
     """Approve a user account."""
     session = get_session()
     try:
-        user = session.query(User).filter(User.user_id == user_id).first()
+        user = session.query(User).filter(
+            User.user_id == user_id,
+            User.deleted_at.is_(None),
+        ).first()
         if user:
             # Owner accounts are always approved, cannot be modified
             if user.role == 'owner':
@@ -349,7 +366,10 @@ def revoke_user(user_id: int):
     """Revoke user access (unapprove)."""
     session = get_session()
     try:
-        user = session.query(User).filter(User.user_id == user_id).first()
+        user = session.query(User).filter(
+            User.user_id == user_id,
+            User.deleted_at.is_(None),
+        ).first()
         if user:
             # Owner accounts cannot be revoked
             if user.role == 'owner':
@@ -371,7 +391,10 @@ def update_user_role(user_id: int, new_role: str):
     """Update user role."""
     session = get_session()
     try:
-        user = session.query(User).filter(User.user_id == user_id).first()
+        user = session.query(User).filter(
+            User.user_id == user_id,
+            User.deleted_at.is_(None),
+        ).first()
         if user:
             # Owner role cannot be changed
             if user.role == 'owner':
@@ -394,7 +417,10 @@ def update_last_login(user_id: int):
     """Update user's last login timestamp."""
     session = get_session()
     try:
-        user = session.query(User).filter(User.user_id == user_id).first()
+        user = session.query(User).filter(
+            User.user_id == user_id,
+            User.deleted_at.is_(None),
+        ).first()
         if user:
             user.last_login = datetime.utcnow()
             session.commit()
@@ -411,7 +437,9 @@ def get_all_users():
     """Get all users."""
     session = get_session()
     try:
-        return session.query(User).order_by(User.created_at.desc()).all()
+        return session.query(User).filter(
+            User.deleted_at.is_(None)
+        ).order_by(User.created_at.desc()).all()
     finally:
         session.close()
 
@@ -445,7 +473,10 @@ def replace_user_feature_permissions(user_id: int, feature_access: dict, granted
 
     session = get_session()
     try:
-        user = session.query(User).filter(User.user_id == user_id).first()
+        user = session.query(User).filter(
+            User.user_id == user_id,
+            User.deleted_at.is_(None),
+        ).first()
         if not user:
             return None
         if user.role in ('owner', 'admin'):
@@ -471,20 +502,114 @@ def replace_user_feature_permissions(user_id: int, feature_access: dict, granted
 
 
 def delete_user(user_id: int):
-    """Delete a user (cannot delete owner)."""
+    """Remove a user account while retaining records that reference it.
+
+    Tickets, comments, uploads, and activity logs need a stable user row for
+    historical attribution. Account removal therefore anonymizes that row and
+    revokes every authentication path instead of issuing a destructive DELETE.
+    """
     session = get_session()
     try:
-        user = session.query(User).filter(User.user_id == user_id).first()
-        if user and user.role != 'owner':
-            session.delete(user)
-            session.commit()
-            return True
-        return False
-    except Exception as e:
+        user = session.query(User).filter(
+            User.user_id == user_id,
+            User.deleted_at.is_(None),
+        ).first()
+        if not user or user.role == 'owner':
+            return False
+
+        from dashboard.tickets.models import ReviewPortfolioRule, ReviewQueueState, Ticket
+
+        removed_at = datetime.utcnow()
+
+        # Remove operational ownership so open work can be reassigned normally.
+        session.query(Ticket).filter(
+            Ticket.assigned_user_id == user_id,
+            Ticket.status.notin_(('Resolved', 'Closed')),
+        ).update({Ticket.assigned_user_id: None}, synchronize_session=False)
+        session.query(Ticket).filter(
+            Ticket.recurring_admin_id == user_id
+        ).update({Ticket.recurring_admin_id: None}, synchronize_session=False)
+        session.query(ReviewQueueState).filter(
+            ReviewQueueState.host_reviewed_by == user_id
+        ).update({ReviewQueueState.host_reviewed_by: None}, synchronize_session=False)
+        session.query(ReviewPortfolioRule).filter(
+            ReviewPortfolioRule.updated_by == user_id
+        ).update({ReviewPortfolioRule.updated_by: None}, synchronize_session=False)
+
+        # Remove credentials and explicit access grants owned by this account.
+        session.query(UserGoogleDriveCredential).filter(
+            UserGoogleDriveCredential.user_id == user_id
+        ).delete(synchronize_session=False)
+        session.query(UserFeaturePermission).filter(
+            UserFeaturePermission.user_id == user_id
+        ).delete(synchronize_session=False)
+
+        # Remove this identity from approval/grant metadata and revoke API keys.
+        session.query(User).filter(
+            User.approved_by == user_id
+        ).update({User.approved_by: None}, synchronize_session=False)
+        session.query(UserFeaturePermission).filter(
+            UserFeaturePermission.granted_by == user_id
+        ).update({UserFeaturePermission.granted_by: None}, synchronize_session=False)
+        session.query(ApiKey).filter(
+            ApiKey.created_by == user_id
+        ).update({
+            ApiKey.created_by: None,
+            ApiKey.is_active: False,
+            ApiKey.revoked_at: removed_at,
+        }, synchronize_session=False)
+
+        # Free the email and Google identity for a future, separately approved
+        # account while keeping a non-PII tombstone for historical foreign keys.
+        user.email = f'deleted-user-{user_id}@deleted.invalid'
+        user.name = 'Deleted user'
+        user.picture_url = None
+        user.google_id = None
+        user.role = 'user'
+        user.is_approved = False
+        user.approved_at = None
+        user.approved_by = None
+        user.last_login = None
+        user.whatsapp_number = None
+        user.whatsapp_notifications_enabled = False
+        user.deleted_at = removed_at
+
+        session.commit()
+        return True
+    except Exception:
         session.rollback()
-        raise e
+        raise
     finally:
         session.close()
+
+
+def _migrate_user_soft_delete_field(engine):
+    """Add the user tombstone timestamp to existing databases."""
+    database_url = os.getenv("DATABASE_URL")
+    with engine.begin() as conn:
+        if database_url:
+            conn.execute(text(
+                "ALTER TABLE users.users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_users_deleted_at "
+                "ON users.users (deleted_at)"
+            ))
+            return
+
+        table_exists = conn.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+        )).fetchone()
+        if not table_exists:
+            return
+        columns = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(users)")).fetchall()
+        }
+        if 'deleted_at' not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN deleted_at DATETIME"))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_users_deleted_at ON users (deleted_at)"
+        ))
 
 
 def get_google_drive_credential_for_user(user_id: int):
