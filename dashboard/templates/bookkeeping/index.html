@@ -311,14 +311,15 @@
     }
 
     .bk-step-list {
-        display: flex;
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
         gap: 0.55rem;
-        overflow-x: auto;
+        overflow: visible;
         padding-bottom: 0.15rem;
     }
 
     .bk-step-link {
-        min-width: 132px;
+        min-width: 0;
         display: grid;
         gap: 0.18rem;
         padding: 0.65rem 0.75rem;
@@ -328,7 +329,6 @@
         color: inherit;
         text-align: left;
         cursor: pointer;
-        flex: 0 0 auto;
     }
 
     .bk-step-link.is-active {
@@ -1200,6 +1200,16 @@
     }
 
     @media (max-width: 1120px) {
+        .bk-step-list {
+            display: flex;
+            overflow-x: auto;
+        }
+
+        .bk-step-link {
+            min-width: 132px;
+            flex: 0 0 auto;
+        }
+
         .bk-topbar,
         .bk-main,
         .bk-modal-grid,

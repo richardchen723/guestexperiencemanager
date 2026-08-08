@@ -18,7 +18,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='20260808-1') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tickets.css') }}">
     {% block extra_head %}{% endblock %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/product-shell.css', v='20260808-3') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/product-shell.css', v='20260808-4') }}">
 </head>
 <body
     data-is-admin="{% if current_user and current_user.is_admin() %}true{% else %}false{% endif %}"
@@ -34,7 +34,7 @@
     {% elif 'sync' in endpoint %}{% set workspace_name = 'Data sync' %}
     {% elif 'admin' in endpoint %}{% set workspace_name = 'Team access' %}
     {% elif 'profile' in endpoint %}{% set workspace_name = 'My profile' %}
-    {% elif endpoint == 'properties' %}{% set workspace_name = 'Properties' %}
+    {% elif endpoint == 'properties' or endpoint == 'insights_page' %}{% set workspace_name = 'Properties' %}
     {% else %}{% set workspace_name = 'Overview' %}{% endif %}
 
     <div class="app-shell">
@@ -64,7 +64,7 @@
                     </a>
                     {% endif %}
                     {% if feature_access.properties %}
-                    <a href="{{ url_for('properties') }}" class="app-nav-link {% if endpoint == 'properties' %}active{% endif %}" title="Properties">
+                    <a href="{{ url_for('properties') }}" class="app-nav-link {% if endpoint == 'properties' or endpoint == 'insights_page' %}active{% endif %}" title="Properties">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9Z"/><path d="M9 21v-8h6v8"/></svg>
                         <span>Properties</span>
                     </a>
@@ -188,7 +188,7 @@
     <script src="{{ url_for('static', filename='js/components/EmptyState.js') }}"></script>
     <script src="{{ url_for('static', filename='js/components/LoadingSkeleton.js') }}"></script>
     <script src="{{ url_for('static', filename='js/mobile-forms.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/product-shell.js', v='20260808-3') }}"></script>
+    <script src="{{ url_for('static', filename='js/product-shell.js', v='20260808-4') }}"></script>
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>

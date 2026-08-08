@@ -318,25 +318,49 @@ class TagFilter {
     render() {
         if (!this.container) return;
         this.container.innerHTML = '';
-        this.container.className = 'tag-filter';
-        
-        // Header with label
+        this.container.className = 'tag-filter tag-filter-compact';
+        this.popoverId = `tag-filter-popover-${TagFilter.instanceCounter++}`;
+
+        const trigger = document.createElement('button');
+        trigger.type = 'button';
+        trigger.className = 'tag-filter-trigger';
+        trigger.setAttribute('aria-haspopup', 'dialog');
+        trigger.setAttribute('aria-expanded', 'false');
+        trigger.setAttribute('aria-controls', this.popoverId);
+        trigger.innerHTML = `
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+            <span class="tag-filter-trigger-copy"><strong>Tags</strong><small>All tags</small></span>
+            <span class="tag-filter-count" hidden>0</span>
+            <svg class="tag-filter-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
+        `;
+        trigger.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this.togglePopover();
+        });
+        this.trigger = trigger;
+        this.triggerSummary = trigger.querySelector('small');
+        this.triggerCount = trigger.querySelector('.tag-filter-count');
+        this.container.appendChild(trigger);
+
+        const popover = document.createElement('div');
+        popover.className = 'tag-filter-popover';
+        popover.id = this.popoverId;
+        popover.hidden = true;
+        popover.setAttribute('role', 'dialog');
+        popover.setAttribute('aria-label', 'Filter by tags');
+
         const header = document.createElement('div');
         header.className = 'tag-filter-header';
-        
-        const label = document.createElement('label');
-        label.textContent = 'Filter by Tags:';
-        header.appendChild(label);
-        
-        // Selected tags display
-        const selectedContainer = document.createElement('div');
-        selectedContainer.className = 'tag-filter-selected';
-        selectedContainer.id = 'tagFilterSelected';
-        header.appendChild(selectedContainer);
-        
-        this.container.appendChild(header);
-        
-        // Input wrapper
+        header.innerHTML = '<div><strong>Filter by tags</strong><span>Select one or more portfolio tags.</span></div>';
+        const closeButton = document.createElement('button');
+        closeButton.type = 'button';
+        closeButton.className = 'tag-filter-close';
+        closeButton.setAttribute('aria-label', 'Close tag filter');
+        closeButton.innerHTML = '&times;';
+        closeButton.addEventListener('click', () => this.closePopover());
+        header.appendChild(closeButton);
+        popover.appendChild(header);
+
         const inputWrapper = document.createElement('div');
         inputWrapper.className = 'tag-filter-input-wrapper';
         
@@ -348,7 +372,7 @@ class TagFilter {
         input.addEventListener('keydown', (e) => this.handleKeyDown(e));
         input.addEventListener('focus', () => {
             this.updateFilteredTags();
-            if (this.filteredTags.length > 0) {
+            if (this.input.value.trim().length > 0 && this.filteredTags.length > 0) {
                 this.showAutocomplete();
             }
         });
@@ -357,9 +381,9 @@ class TagFilter {
         });
         this.input = input;
         
-        const inputIcon = document.createElement('div');
+        const inputIcon = document.createElement('span');
         inputIcon.className = 'tag-filter-input-icon';
-        inputIcon.innerHTML = '🔍';
+        inputIcon.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>';
         inputWrapper.appendChild(input);
         inputWrapper.appendChild(inputIcon);
         
@@ -370,22 +394,21 @@ class TagFilter {
         inputWrapper.appendChild(autocomplete);
         this.autocomplete = autocomplete;
         
-        this.container.appendChild(inputWrapper);
-        
-        // Logic toggle and clear button
+        popover.appendChild(inputWrapper);
+
+        const selectedContainer = document.createElement('div');
+        selectedContainer.className = 'tag-filter-selected';
+        popover.appendChild(selectedContainer);
+
         const controls = document.createElement('div');
-        controls.style.display = 'flex';
-        controls.style.alignItems = 'center';
-        controls.style.gap = '0.75rem';
-        controls.style.marginTop = '0.75rem';
-        controls.style.width = '100%';
+        controls.className = 'tag-filter-controls';
         
         const logicContainer = document.createElement('div');
         logicContainer.className = 'tag-filter-logic';
         
         const logicLabel = document.createElement('span');
         logicLabel.className = 'tag-filter-logic-label';
-        logicLabel.textContent = 'Match:';
+        logicLabel.textContent = 'Match';
         logicContainer.appendChild(logicLabel);
         
         const logicToggle = document.createElement('div');
@@ -413,18 +436,47 @@ class TagFilter {
         
         const clearBtn = document.createElement('button');
         clearBtn.className = 'tag-filter-clear';
-        clearBtn.textContent = 'Clear All';
+        clearBtn.textContent = 'Clear';
         clearBtn.type = 'button';
         clearBtn.onclick = () => this.clear();
         
         controls.appendChild(logicContainer);
         controls.appendChild(clearBtn);
-        controls.style.marginLeft = 'auto';
+        popover.appendChild(controls);
+        this.container.appendChild(popover);
         
-        this.container.appendChild(controls);
-        
+        this.popover = popover;
         this.selectedContainer = selectedContainer;
         this.updateSelectedDisplay();
+
+        document.addEventListener('click', (event) => {
+            if (!this.container.contains(event.target)) this.closePopover();
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && !this.popover.hidden) this.closePopover();
+        });
+    }
+
+    togglePopover() {
+        if (!this.popover) return;
+        if (this.popover.hidden) this.openPopover();
+        else this.closePopover();
+    }
+
+    openPopover() {
+        if (!this.popover) return;
+        this.popover.hidden = false;
+        this.container.classList.add('is-open');
+        this.trigger.setAttribute('aria-expanded', 'true');
+        window.requestAnimationFrame(() => this.input && this.input.focus());
+    }
+
+    closePopover() {
+        if (!this.popover || this.popover.hidden) return;
+        this.popover.hidden = true;
+        this.container.classList.remove('is-open');
+        this.trigger.setAttribute('aria-expanded', 'false');
+        this.hideAutocomplete();
     }
 
     async loadTags() {
@@ -573,11 +625,23 @@ class TagFilter {
         if (!this.selectedContainer) return;
         
         this.selectedContainer.innerHTML = '';
+        if (this.triggerSummary) {
+            this.triggerSummary.textContent = this.selectedTags.length === 0
+                ? 'All tags'
+                : `${this.selectedTags.length} selected`;
+        }
+        if (this.triggerCount) {
+            this.triggerCount.textContent = this.selectedTags.length;
+            this.triggerCount.hidden = this.selectedTags.length === 0;
+        }
+        if (this.trigger) {
+            this.trigger.classList.toggle('has-selection', this.selectedTags.length > 0);
+        }
         
         if (this.selectedTags.length === 0) {
             const empty = document.createElement('span');
             empty.className = 'tags-empty';
-            empty.textContent = 'No tags selected';
+            empty.textContent = 'No tags selected — showing everything';
             this.selectedContainer.appendChild(empty);
             return;
         }
@@ -646,8 +710,9 @@ class TagFilter {
     }
 }
 
+TagFilter.instanceCounter = 1;
+
 // Export for use in other scripts
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { TagInput, renderTags, TagFilter };
 }
-

@@ -102,7 +102,7 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .finally(() => {
             saveButton.disabled = false;
-            saveButton.textContent = 'Save Changes';
+            saveButton.textContent = 'Save preferences';
         });
     }
     
@@ -128,7 +128,6 @@ document.addEventListener('DOMContentLoaded', function() {
         errorMessage.style.display = 'none';
     }
 });
-
 
 
 
