@@ -8,7 +8,7 @@ import os
 import logging
 from datetime import datetime, date
 from typing import Optional, List
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Date, Boolean, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Date, Boolean, Float, UniqueConstraint
 import sqlalchemy
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import JSON
@@ -29,6 +29,9 @@ get_session = get_user_session
 TICKET_STATUSES = ['Open', 'Assigned', 'In Progress', 'Blocked', 'Resolved', 'Closed']
 TICKET_PRIORITIES = ['Low', 'Medium', 'High', 'Critical']
 TICKET_CATEGORIES = ['cleaning', 'maintenance', 'online', 'technology', 'review management', 'other']
+STANDARD_TICKET_TYPE = 'standard'
+REVIEW_RESOLUTION_TICKET_TYPE = 'review_resolution'
+REVIEW_RESOLUTION_STAGES = ['New', 'Reviewing', 'Action in progress', 'Guest follow-up', 'Resolved']
 
 
 class Ticket(Base):
@@ -49,6 +52,10 @@ class Ticket(Base):
     status = Column(String, nullable=False, default='Open', index=True)
     priority = Column(String, default='Low')
     category = Column(String, nullable=False, default='other', index=True)
+    ticket_type = Column(String, nullable=False, default=STANDARD_TICKET_TYPE, index=True)
+    source_review_id = Column(Integer, nullable=True, unique=True, index=True)
+    source_reservation_id = Column(Integer, nullable=True, index=True)
+    workflow_stage = Column(String, nullable=True, index=True)
     due_date = Column(Date, nullable=True)
     created_by = Column(Integer, ForeignKey(f'{_users_fk_schema}users.user_id'), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -96,6 +103,10 @@ class Ticket(Base):
             'status': self.status,
             'priority': self.priority,
             'category': self.category,
+            'ticket_type': self.ticket_type or STANDARD_TICKET_TYPE,
+            'source_review_id': self.source_review_id,
+            'source_reservation_id': self.source_reservation_id,
+            'workflow_stage': self.workflow_stage,
             'due_date': self.due_date.isoformat() if self.due_date else None,
             'created_by': self.created_by,
             'created_by_name': self.creator.name if self.creator else None,
@@ -137,6 +148,55 @@ class Ticket(Base):
         result['images'] = [img.to_dict() for img in self.images] if hasattr(self, 'images') else []
         
         return result
+
+
+class ReviewQueueState(Base):
+    """Operational state for a reservation while its two-sided review window is open."""
+
+    __tablename__ = 'review_queue_states'
+    __table_args__ = (
+        {'schema': 'tickets'} if os.getenv("DATABASE_URL") else {},
+    )
+
+    reservation_id = Column(Integer, primary_key=True, autoincrement=False)
+    listing_id = Column(Integer, nullable=False, index=True)
+    host_reviewed = Column(Boolean, default=False, nullable=False, index=True)
+    host_reviewed_at = Column(DateTime, nullable=True)
+    _users_fk_schema = 'users.' if os.getenv("DATABASE_URL") else ''
+    host_reviewed_by = Column(Integer, ForeignKey(f'{_users_fk_schema}users.user_id'), nullable=True)
+    guest_review_id = Column(Integer, nullable=True, index=True)
+    host_review_id = Column(Integer, nullable=True)
+    _tickets_fk_schema = 'tickets.' if os.getenv("DATABASE_URL") else ''
+    resolution_ticket_id = Column(
+        Integer,
+        ForeignKey(f'{_tickets_fk_schema}tickets.ticket_id', ondelete='SET NULL'),
+        nullable=True,
+        unique=True,
+    )
+    closed_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    reviewer = relationship('User', foreign_keys=[host_reviewed_by])
+    resolution_ticket = relationship('Ticket', foreign_keys=[resolution_ticket_id])
+
+
+class ReviewPortfolioRule(Base):
+    """Portfolio-specific rating threshold for the six-month resolution pool."""
+
+    __tablename__ = 'review_portfolio_rules'
+    __table_args__ = (
+        {'schema': 'tickets'} if os.getenv("DATABASE_URL") else {},
+    )
+
+    portfolio_name = Column(String, primary_key=True)
+    bad_review_threshold = Column(Float, nullable=False, default=5.0)
+    _users_fk_schema = 'users.' if os.getenv("DATABASE_URL") else ''
+    updated_by = Column(Integer, ForeignKey(f'{_users_fk_schema}users.user_id'), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    updater = relationship('User', foreign_keys=[updated_by])
 
 
 class TicketComment(Base):
@@ -424,6 +484,8 @@ def init_ticket_database():
         _migrate_activity_logs_table(engine)
         # Migrate ticket_listings junction table
         _migrate_ticket_listings_table(engine)
+        # Migrate review-resolution ticket fields
+        _migrate_review_resolution_fields(engine)
     else:
         # PostgreSQL: Migrate to make listing_id nullable
         _migrate_listing_id_nullable(engine)
@@ -435,6 +497,8 @@ def init_ticket_database():
         _migrate_activity_logs_table(engine)
         # Migrate ticket_listings junction table
         _migrate_ticket_listings_table(engine)
+        # Migrate review-resolution ticket fields
+        _migrate_review_resolution_fields(engine)
     
     return engine
 
@@ -520,6 +584,68 @@ def _migrate_listing_id_nullable(engine):
     except Exception as e:
         logger.warning(f"Error migrating listing_id to nullable: {e}")
         # Migration might have already been applied, ignore
+
+
+def _migrate_review_resolution_fields(engine):
+    """Add special-ticket workflow fields to existing ticket installations."""
+    database_url = os.getenv("DATABASE_URL")
+    table_name = 'tickets.tickets' if database_url else 'tickets'
+
+    with engine.connect() as conn:
+        if database_url:
+            exists = conn.execute(sqlalchemy.text(
+                "SELECT EXISTS (SELECT FROM information_schema.tables "
+                "WHERE table_schema = 'tickets' AND table_name = 'tickets')"
+            )).scalar()
+            if not exists:
+                return
+            rows = conn.execute(sqlalchemy.text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'tickets' AND table_name = 'tickets'"
+            ))
+            existing_columns = {row[0] for row in rows}
+            columns_to_add = [
+                ('ticket_type', "VARCHAR DEFAULT 'standard'"),
+                ('source_review_id', 'INTEGER'),
+                ('source_reservation_id', 'INTEGER'),
+                ('workflow_stage', 'VARCHAR'),
+            ]
+        else:
+            exists = conn.execute(sqlalchemy.text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='tickets'"
+            )).fetchone()
+            if not exists:
+                return
+            existing_columns = {row[1] for row in conn.execute(sqlalchemy.text("PRAGMA table_info(tickets)"))}
+            columns_to_add = [
+                ('ticket_type', "TEXT DEFAULT 'standard'"),
+                ('source_review_id', 'INTEGER'),
+                ('source_reservation_id', 'INTEGER'),
+                ('workflow_stage', 'TEXT'),
+            ]
+
+        for column_name, column_type in columns_to_add:
+            if column_name not in existing_columns:
+                conn.execute(sqlalchemy.text(
+                    f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
+                ))
+
+        conn.execute(sqlalchemy.text(
+            f"UPDATE {table_name} SET ticket_type = 'standard' "
+            "WHERE ticket_type IS NULL OR ticket_type = ''"
+        ))
+        if database_url:
+            conn.execute(sqlalchemy.text(
+                "ALTER TABLE tickets.tickets ALTER COLUMN ticket_type SET DEFAULT 'standard'"
+            ))
+            conn.execute(sqlalchemy.text(
+                "ALTER TABLE tickets.tickets ALTER COLUMN ticket_type SET NOT NULL"
+            ))
+        conn.execute(sqlalchemy.text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_tickets_source_review_id "
+            f"ON {table_name}(source_review_id) WHERE source_review_id IS NOT NULL"
+        ))
+        conn.commit()
 
 
 def _migrate_image_tables(engine):
@@ -1049,7 +1175,7 @@ def get_tickets(listing_id: int = None, assigned_user_id: int = None,
         query = session.query(Ticket).options(
             joinedload(Ticket.assigned_user),
             joinedload(Ticket.creator)
-        )
+        ).filter(Ticket.ticket_type == STANDARD_TICKET_TYPE)
         
         if listing_id:
             query = query.filter(Ticket.listing_id == listing_id)

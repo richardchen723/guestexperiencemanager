@@ -1,76 +1,149 @@
 {% extends "base.html" %}
 
-{% block title %}Reviews - Hostaway Insights Dashboard{% endblock %}
+{% block title %}Review Operations - Hostaway Insights{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260807-3') }}">
+{% endblock %}
 
 {% block content %}
-<div class="reviews-page">
-    <div class="reviews-header">
-        <h2>Reviews</h2>
-    </div>
-    
-    <!-- Unresponded Reviews Section -->
-    <section class="reviews-section unresponded-section">
-        <div class="section-header">
-            <h3>Unresponded Guest Reviews</h3>
-            <p class="section-description">Reviews submitted by guests that need responses</p>
+<div class="review-ops-page" data-resolution-url="{{ url_for('reviews.review_resolutions_page') }}">
+    <header class="review-ops-hero">
+        <div>
+            <span class="review-ops-eyebrow">Guest experience</span>
+            <h1>Review operations</h1>
+            <p>Prioritize every checkout inside the 14-day review window, from highest concern to strongest positive signal.</p>
         </div>
-        <div id="unrespondedTagFilterContainer" class="tag-filter-container" style="margin-bottom: 1.5rem;"></div>
-        <div id="unrespondedReviewsContainer" class="reviews-container">
-            <div class="loading-spinner">Loading reviews...</div>
+        <a class="review-ops-primary-link" href="{{ url_for('reviews.review_resolutions_page') }}">
+            Review resolutions
+            <span aria-hidden="true">→</span>
+        </a>
+    </header>
+
+    <section class="review-ops-summary" aria-label="Review queue summary">
+        <button type="button" class="review-ops-metric is-active" data-queue-filter="all" aria-pressed="true">
+            <span>Open review windows</span>
+            <strong id="reviewMetricTotal">—</strong>
+            <small>Checked out within 14 days</small>
+        </button>
+        <button type="button" class="review-ops-metric review-ops-metric--attention" data-queue-filter="needs_host_review" aria-pressed="false">
+            <span>Needs host review</span>
+            <strong id="reviewMetricHost">—</strong>
+            <small>Ready for the team to post</small>
+        </button>
+        <button type="button" class="review-ops-metric" data-queue-filter="guest_submitted" aria-pressed="false">
+            <span>Guest submitted</span>
+            <strong id="reviewMetricGuest">—</strong>
+            <small>Waiting on the host side</small>
+        </button>
+        <button type="button" class="review-ops-metric review-ops-metric--risk" data-queue-filter="priority_watch" aria-pressed="false">
+            <span>Priority watch</span>
+            <strong id="reviewMetricRisk">—</strong>
+            <small>High or elevated bad-review risk</small>
+        </button>
+    </section>
+
+    <section class="review-ops-panel" aria-labelledby="reviewQueueHeading">
+        <div class="review-ops-panel-head">
+            <div>
+                <span class="review-ops-eyebrow">Active queue</span>
+                <h2 id="reviewQueueHeading">Open review windows</h2>
+                <p id="reviewWindowDescription">Loading the current 14-day window…</p>
+            </div>
+            <div class="review-ops-toolbar">
+                <label class="review-ops-search">
+                    <span class="sr-only">Search guest or property</span>
+                    <span aria-hidden="true">⌕</span>
+                    <input id="reviewQueueSearch" type="search" placeholder="Search guest or property">
+                </label>
+                <label class="review-ops-select-wrap">
+                    <span class="sr-only">Filter by review risk</span>
+                    <select id="reviewRiskFilter">
+                        <option value="all">All risk levels</option>
+                        <option value="bad_high">High bad-review risk</option>
+                        <option value="bad_elevated">Elevated bad-review risk</option>
+                        <option value="mixed">Unclear outcome</option>
+                        <option value="good_likely">Likely good</option>
+                        <option value="good_high">High chance of good</option>
+                    </select>
+                </label>
+            </div>
+        </div>
+
+        <div class="review-risk-scale" aria-label="Review risk scale">
+            <span class="review-risk-scale-label">Bad-review risk</span>
+            <span class="review-risk-dot review-risk-dot--bad"></span>
+            <span class="review-risk-track"></span>
+            <span class="review-risk-dot review-risk-dot--good"></span>
+            <span class="review-risk-scale-label">Good-review confidence</span>
+        </div>
+
+        <div id="reviewQueueContainer" class="review-portfolio-list" aria-live="polite">
+            <div class="review-ops-loading">
+                <span class="review-ops-spinner" aria-hidden="true"></span>
+                <span>Loading review windows…</span>
+            </div>
         </div>
     </section>
-    
-    <!-- Bad Review Filters Section -->
-    <section class="reviews-section filters-section">
-        <div class="section-header">
-            <h3>Bad Review Filters</h3>
-            <button type="button" id="addFilterBtn" class="btn-primary">Add Filter</button>
+
+    <details class="review-ops-history">
+        <summary>
+            <span>
+                <strong>Published review filters</strong>
+                <small>Saved views for historical low-rating reviews</small>
+            </span>
+            <span aria-hidden="true">⌄</span>
+        </summary>
+        <div class="review-ops-history-body">
+            <div class="review-ops-history-head">
+                <p>Analyze published reviews by portfolio tag, rating, and stay date.</p>
+                <button type="button" id="addFilterBtn" class="btn-primary">Add filter</button>
+            </div>
+            <div id="filtersContainer" class="filters-container">
+                <div class="loading-spinner">Loading filters...</div>
+            </div>
         </div>
-        <div id="filtersContainer" class="filters-container">
-            <div class="loading-spinner">Loading filters...</div>
-        </div>
-    </section>
+    </details>
 </div>
 
-<!-- Filter Form Modal -->
+<div id="reviewToast" class="review-ops-toast" role="status" aria-live="polite"></div>
+
 <div id="filterModal" class="modal" style="display: none;">
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="filterModalTitle">Create Review Filter</h3>
-            <button type="button" class="modal-close" onclick="closeFilterModal()">&times;</button>
+            <button type="button" class="modal-close" onclick="closeFilterModal()" aria-label="Close">&times;</button>
         </div>
         <div class="modal-body">
             <form id="filterForm">
                 <input type="hidden" id="filterId" name="filter_id">
-                
+
                 <div class="form-group">
-                    <label for="filterName">Filter Name (optional)</label>
-                    <input type="text" id="filterName" name="name" placeholder="e.g., Enchanted Havens Bad Reviews">
+                    <label for="filterName">Filter name (optional)</label>
+                    <input type="text" id="filterName" name="name" placeholder="e.g., Enchanted Havens low reviews">
                 </div>
-                
+
                 <div class="form-group">
                     <label for="filterTags">Tags</label>
-                    <select id="filterTags" name="tag_ids" multiple>
-                        <!-- Tags will be populated by JavaScript -->
-                    </select>
-                    <small>Select one or more tags to filter by listing tags</small>
+                    <select id="filterTags" name="tag_ids" multiple></select>
+                    <small>Select one or more listing tags.</small>
                 </div>
-                
+
                 <div class="form-group">
-                    <label for="filterMaxRating">Maximum Rating</label>
+                    <label for="filterMaxRating">Maximum rating</label>
                     <input type="number" id="filterMaxRating" name="max_rating" min="0" max="5" step="0.1" value="4.0">
-                    <small>Show reviews with rating ≤ X stars</small>
+                    <small>Show reviews at or below this rating.</small>
                 </div>
-                
+
                 <div class="form-group">
-                    <label for="filterMonthsBack">Time Period</label>
+                    <label for="filterMonthsBack">Time period</label>
                     <input type="number" id="filterMonthsBack" name="months_back" min="1" max="24" value="2">
-                    <small>Last X months</small>
+                    <small>Look back this many months.</small>
                 </div>
-                
+
                 <div class="form-actions">
                     <button type="button" class="btn-secondary" onclick="closeFilterModal()">Cancel</button>
-                    <button type="submit" class="btn-primary">Save Filter</button>
+                    <button type="submit" class="btn-primary">Save filter</button>
                 </div>
             </form>
         </div>
@@ -79,7 +152,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/tags.js') }}"></script>
-<script src="{{ url_for('static', filename='js/reviews-page.js') }}"></script>
+<script src="{{ url_for('static', filename='js/reviews-page.js', v='20260807-4') }}"></script>
 {% endblock %}
-

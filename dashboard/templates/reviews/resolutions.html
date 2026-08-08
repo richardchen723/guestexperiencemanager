@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Review Resolutions - Hostaway Insights{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260807-4') }}">
+{% endblock %}
+
+{% block content %}
+<div class="review-ops-page review-resolution-page">
+    <header class="review-ops-hero">
+        <div>
+            <a class="review-ops-back" href="{{ url_for('reviews.reviews_page') }}">← Review operations</a>
+            <span class="review-ops-eyebrow">Service recovery</span>
+            <h1>Review resolutions</h1>
+            <p>Resolve every portfolio-defined bad review received during the past six months, independent of the host review window.</p>
+        </div>
+        <div class="review-resolution-summary" aria-label="Resolution summary">
+            <span><strong id="resolutionTotalCount">—</strong> total</span>
+            <span><strong id="resolutionOpenCount">—</strong> open</span>
+            <span><strong id="resolutionResolvedCount">—</strong> resolved</span>
+        </div>
+    </header>
+
+    <div class="review-resolution-notice">
+        <span aria-hidden="true">◇</span>
+        <p><strong>Six-month review pool.</strong> A qualifying guest review appears here even when the host never reviewed and the 14-day window has expired.</p>
+    </div>
+
+    <section class="review-resolution-policy" aria-labelledby="resolutionPolicyHeading">
+        <div class="review-resolution-policy-head">
+            <div>
+                <span class="review-ops-eyebrow">Portfolio standards</span>
+                <h2 id="resolutionPolicyHeading">Define a bad review</h2>
+                <p>Hostaway’s 1–10 scores are converted to their 5-star equivalent (score ÷ 2), then reviews strictly below each threshold enter the workflow.</p>
+            </div>
+            <span id="resolutionLookback" class="review-resolution-lookback">Loading review period…</span>
+        </div>
+        <div id="resolutionRuleList" class="review-resolution-rule-list" aria-live="polite">
+            <div class="review-ops-loading">
+                <span class="review-ops-spinner" aria-hidden="true"></span>
+                <span>Loading portfolio standards…</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="review-resolution-board-shell" aria-labelledby="resolutionBoardHeading">
+        <div class="review-ops-panel-head">
+            <div>
+                <span class="review-ops-eyebrow">Swim lanes</span>
+                <h2 id="resolutionBoardHeading">Resolution workflow</h2>
+            </div>
+            <div class="review-ops-toolbar">
+                <label class="review-ops-select-wrap">
+                    <span class="sr-only">Filter review resolutions by portfolio</span>
+                    <select id="resolutionPortfolioFilter" aria-label="Filter review resolutions by portfolio">
+                        <option value="">All portfolios</option>
+                    </select>
+                </label>
+                <label class="review-ops-search">
+                    <span class="sr-only">Search review resolutions</span>
+                    <span aria-hidden="true">⌕</span>
+                    <input id="resolutionSearch" type="search" placeholder="Search guest or property">
+                </label>
+            </div>
+        </div>
+        <div id="resolutionBoard" class="review-resolution-board" aria-live="polite">
+            <div class="review-ops-loading">
+                <span class="review-ops-spinner" aria-hidden="true"></span>
+                <span>Loading resolution tickets…</span>
+            </div>
+        </div>
+    </section>
+</div>
+
+<div id="reviewToast" class="review-ops-toast" role="status" aria-live="polite"></div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/review-resolutions.js', v='20260807-6') }}"></script>
+{% endblock %}

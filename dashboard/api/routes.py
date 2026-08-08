@@ -53,7 +53,9 @@ def register_routes(app):
             tags_param = request.args.get('tags', '')
             tag_logic = request.args.get('tag_logic', 'AND').upper()  # AND or OR
             
-            query = session.query(Listing)
+            query = session.query(Listing).filter(
+                func.lower(func.coalesce(Listing.status, '')) != 'deleted'
+            )
             
             # Apply tag filtering if provided
             if tags_param:
@@ -163,9 +165,15 @@ def register_routes(app):
             result = []
             for tag in tags:
                 # Count usage
-                listing_count = session.query(func.count(ListingTag.listing_id)).filter(
-                    ListingTag.tag_id == tag.tag_id
-                ).scalar()
+                listing_count = (
+                    session.query(func.count(ListingTag.listing_id))
+                    .join(Listing, Listing.listing_id == ListingTag.listing_id)
+                    .filter(
+                        ListingTag.tag_id == tag.tag_id,
+                        func.lower(func.coalesce(Listing.status, '')) != 'deleted',
+                    )
+                    .scalar()
+                )
                 
                 result.append({
                     'tag_id': tag.tag_id,
@@ -365,4 +373,3 @@ def register_routes(app):
             return jsonify({'error': str(e)}), 500
         finally:
             session.close()
-

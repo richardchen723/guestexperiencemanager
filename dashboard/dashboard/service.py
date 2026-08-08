@@ -17,7 +17,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, project_root)
 
 from dashboard.tickets.models import (
-    Ticket, TicketTag, get_session, TICKET_STATUSES, TICKET_PRIORITIES
+    Ticket, TicketTag, get_session, TICKET_STATUSES, TICKET_PRIORITIES, STANDARD_TICKET_TYPE
 )
 from database.models import Reservation, Listing, get_session as get_main_session
 import dashboard.config as config
@@ -86,6 +86,7 @@ class DashboardService:
                 joinedload(Ticket.tags)
             ).filter(
                 Ticket.assigned_user_id == self.user_id,
+                Ticket.ticket_type == STANDARD_TICKET_TYPE,
                 Ticket.status.in_(active_statuses)
             ).all()
             
@@ -164,7 +165,8 @@ class DashboardService:
             
             # Base query for user's tickets
             base_query = self.ticket_session.query(Ticket).filter(
-                Ticket.assigned_user_id == self.user_id
+                Ticket.assigned_user_id == self.user_id,
+                Ticket.ticket_type == STANDARD_TICKET_TYPE,
             )
             
             # Total assigned (active tickets)
@@ -251,7 +253,9 @@ class DashboardService:
             reservations = [r for r in reservations if r.status not in cancelled_statuses]
             
             # Get all listings
-            listings = self.main_session.query(Listing).all()
+            listings = self.main_session.query(Listing).filter(
+                func.lower(func.coalesce(Listing.status, '')) != 'deleted'
+            ).all()
             listing_ids = [l.listing_id for l in listings]
             
             final_result = []
@@ -332,4 +336,3 @@ class DashboardService:
                 self.main_session.close()
         except Exception as e:
             logger.error(f"Error closing main session: {e}")
-

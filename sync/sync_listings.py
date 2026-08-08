@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sync.api_client import HostawayAPIClient
 from sync.progress_tracker import get_progress_tracker
-from database.models import Listing, ListingPhoto, SyncLog, get_session, init_models
+from database.models import Listing, ListingPhoto, ListingTag, SyncLog, Tag, get_session, init_models
 from database.schema import get_database_path
 from config import STORE_PHOTO_METADATA, VERBOSE
 
@@ -26,6 +26,30 @@ logger = logging.getLogger(__name__)
 # Constants
 BATCH_SIZE = 10
 PAGINATION_LIMIT = 100
+LISTING_SYNC_MANAGED_TAG_NAMES = {
+    "enchanted havens",
+    "luminary resorts",
+    "luminary resort",
+    "pt300",
+    "urban stays",
+    "urbans stays",
+    "middlefork",
+    "middlefork ridge",
+    "crockett's run",
+    "crockett’s run",
+    "crocketts run",
+    "san gabriel units",
+    "crestwood",
+    "alpine cabins",
+    "smoky cabins",
+}
+DETAIL_PROFILE_FIELDS = {
+    "accommodates",
+    "bedrooms",
+    "bathrooms",
+    "beds",
+    "base_price",
+}
 
 
 def parse_timestamp(ts_str: Optional[str]) -> Optional[datetime]:
@@ -138,6 +162,106 @@ def sync_listing_photos(session, listing_id: int, photos_data: List[Dict]) -> No
             continue
 
 
+def listing_tag_names(listing_data: Dict) -> List[str]:
+    """Return normalized Hostaway listing tag names from listing payload data."""
+    tag_rows = listing_data.get("listingTags") or listing_data.get("tags") or []
+    if not isinstance(tag_rows, list):
+        return []
+    names = []
+    for tag_data in tag_rows:
+        raw_name = tag_data.get("name") if isinstance(tag_data, dict) else str(tag_data or "")
+        try:
+            names.append(Tag.normalize_name(raw_name))
+        except ValueError:
+            continue
+    return sorted(set(names))
+
+
+def listing_field_value(listing_data: Dict, *keys: str):
+    """Return the first non-null Hostaway field across summary/detail aliases."""
+    for key in keys:
+        value = listing_data.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def enrich_listing_data(client: HostawayAPIClient, listing_data: Dict) -> Dict:
+    """Merge the listing-detail payload when the list response omits property profile fields."""
+    listing_id = listing_data.get("id")
+    profile_values = (
+        listing_field_value(listing_data, "personCapacity", "accommodates"),
+        listing_field_value(listing_data, "bedroomsNumber", "bedrooms"),
+        listing_field_value(listing_data, "bathroomsNumber", "bathrooms"),
+        listing_field_value(listing_data, "bedsNumber", "beds"),
+    )
+    if not listing_id or all(value is not None for value in profile_values):
+        return listing_data
+    detail = client.get_listing(int(listing_id))
+    if not isinstance(detail, dict) or not detail:
+        return listing_data
+    return {**listing_data, **detail}
+
+
+def sync_listing_tags(session, listing_id: int, listing_data: Dict) -> None:
+    """Sync Hostaway listing tags into local tag tables."""
+    if "listingTags" not in listing_data and "tags" not in listing_data:
+        return
+
+    incoming_names = set(listing_tag_names(listing_data))
+    existing_rows = (
+        session.query(ListingTag)
+        .filter(ListingTag.listing_id == listing_id)
+        .all()
+    )
+
+    for row in existing_rows:
+        tag_name = row.tag.name if row.tag else None
+        if tag_name in LISTING_SYNC_MANAGED_TAG_NAMES and tag_name not in incoming_names:
+            session.delete(row)
+
+    for tag_name in incoming_names:
+        tag = session.query(Tag).filter(Tag.name == tag_name).first()
+        if not tag:
+            tag = Tag(name=tag_name)
+            session.add(tag)
+            session.flush()
+        existing = (
+            session.query(ListingTag)
+            .filter(ListingTag.listing_id == listing_id, ListingTag.tag_id == tag.tag_id)
+            .first()
+        )
+        if not existing:
+            session.add(ListingTag(listing_id=listing_id, tag_id=tag.tag_id))
+
+
+def mark_missing_listings_deleted(
+    existing_listings: List[Listing],
+    received_listing_ids: set[int],
+    synced_at: Optional[datetime] = None,
+) -> int:
+    """Mark local listings absent from a complete Hostaway listing response as deleted.
+
+    We retain each listing and its historical reservations/reviews, but ``deleted``
+    listings are excluded from active operational views. A later sync automatically
+    reactivates a listing if Hostaway returns it again.
+    """
+    if not received_listing_ids:
+        return 0
+
+    deactivated = 0
+    timestamp = synced_at or datetime.utcnow()
+    for listing in existing_listings:
+        if listing.listing_id in received_listing_ids:
+            continue
+        if (listing.status or '').strip().lower() == 'deleted':
+            continue
+        listing.status = 'deleted'
+        listing.last_synced_at = timestamp
+        deactivated += 1
+    return deactivated
+
+
 def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None, sync_run_id: Optional[int] = None) -> Dict:
     """
     Sync all listings from Hostaway API.
@@ -167,7 +291,12 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
         offset = 0
         
         while True:
-            listings = client.get_listings(limit=PAGINATION_LIMIT, offset=offset)
+            listings = client.get_listings_page(limit=PAGINATION_LIMIT, offset=offset)
+            if listings is None:
+                raise RuntimeError(
+                    f"Hostaway listings sync failed while fetching offset {offset}; "
+                    "local listing statuses were left unchanged"
+                )
             if not listings:
                 break
             
@@ -195,6 +324,7 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
         
         records_created = 0
         records_updated = 0
+        records_deactivated = 0
         errors: List[str] = []
         
         # Commit in batches to avoid database locking
@@ -205,6 +335,7 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
                 listing_id = listing_data.get('id')
                 if not listing_id:
                     continue
+                listing_data = enrich_listing_data(client, listing_data)
                 
                 listing_name = listing_data.get('name', f'Listing {listing_id}')
                 progress.update_item(listing_name)
@@ -218,10 +349,10 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
                     'name': listing_data.get('name'),
                     'description': listing_data.get('description'),
                     'property_type_id': listing_data.get('propertyTypeId'),
-                    'accommodates': listing_data.get('accommodates'),
-                    'bedrooms': listing_data.get('bedrooms'),
-                    'bathrooms': listing_data.get('bathrooms'),
-                    'beds': listing_data.get('beds'),
+                    'accommodates': listing_field_value(listing_data, 'personCapacity', 'accommodates'),
+                    'bedrooms': listing_field_value(listing_data, 'bedroomsNumber', 'bedrooms'),
+                    'bathrooms': listing_field_value(listing_data, 'bathroomsNumber', 'bathrooms'),
+                    'beds': listing_field_value(listing_data, 'bedsNumber', 'beds'),
                     'square_meters': listing_data.get('squareMeters'),
                     'address': listing_data.get('address'),
                     'city': listing_data.get('city'),
@@ -231,7 +362,7 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
                     'latitude': listing_data.get('latitude'),
                     'longitude': listing_data.get('longitude'),
                     'timezone_name': listing_data.get('timezoneName'),
-                    'base_price': listing_data.get('basePrice'),
+                    'base_price': listing_field_value(listing_data, 'price', 'basePrice'),
                     'currency': listing_data.get('currency'),
                     'check_in_time_start': listing_data.get('checkInTimeStart'),
                     'check_in_time_end': listing_data.get('checkInTimeEnd'),
@@ -260,6 +391,9 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
                             # Always update this, but don't count as a change
                             setattr(existing_listing, key, value)
                             continue
+
+                        if key in DETAIL_PROFILE_FIELDS and value is None and getattr(existing_listing, key, None) is not None:
+                            continue
                         
                         current_value = getattr(existing_listing, key, None)
                         if current_value != value:
@@ -285,6 +419,8 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
                 photos_data = listing_data.get('photos', [])
                 if photos_data:
                     sync_listing_photos(session, listing_id, photos_data)
+
+                sync_listing_tags(session, listing_id, listing_data)
                 
                 # Commit in batches to avoid database locking
                 batch_count += 1
@@ -305,6 +441,22 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
                 session.rollback()  # Rollback on error
                 logger.warning(error_msg)
                 continue
+
+        # Hostaway's listings endpoint is fully paginated above for both full and
+        # incremental runs. Only reconcile removals after a non-empty, error-free
+        # response so a transient API or processing failure can never retire all
+        # local inventory.
+        if all_listings and not errors:
+            received_listing_ids = {
+                int(listing_data['id'])
+                for listing_data in all_listings
+                if listing_data.get('id') is not None
+            }
+            records_deactivated = mark_missing_listings_deleted(
+                existing_listings,
+                received_listing_ids,
+            )
+            records_updated += records_deactivated
         
         # Complete progress tracking
         progress.complete_phase()
@@ -347,6 +499,7 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
             logger.info(
                 f"Sync complete: {len(all_listings)} processed, "
                 f"{records_created} created, {records_updated} updated, "
+                f"{records_deactivated} deactivated, "
                 f"{len(errors)} errors, {duration:.2f}s"
             )
         
@@ -355,6 +508,7 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
             'records_processed': len(all_listings),
             'records_created': records_created,
             'records_updated': records_updated,
+            'records_deactivated': records_deactivated,
             'errors': errors
         }
         

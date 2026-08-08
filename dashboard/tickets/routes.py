@@ -16,7 +16,7 @@ sys.path.insert(0, project_root)
 from dashboard.tickets.models import (
     Ticket, TicketComment, TicketTag, TicketImage, CommentImage, get_session, create_ticket, get_ticket,
     get_tickets, update_ticket, delete_ticket, add_ticket_comment, get_ticket_comments, delete_ticket_comment,
-    init_ticket_database, TICKET_CATEGORIES
+    init_ticket_database, TICKET_CATEGORIES, STANDARD_TICKET_TYPE
 )
 from dashboard.tickets.recurring_tasks import process_recurring_tasks, get_next_occurrence_date, get_admin_user
 from dashboard.tickets.image_utils import save_uploaded_image
@@ -119,7 +119,9 @@ def ticket_create_form():
     main_session = get_main_session(config.MAIN_DATABASE_PATH)
     listings = []
     try:
-        listings = main_session.query(Listing).order_by(Listing.name).all()
+        listings = main_session.query(Listing).filter(
+            func.lower(func.coalesce(Listing.status, '')) != 'deleted'
+        ).order_by(Listing.name).all()
     finally:
         main_session.close()
     
@@ -158,7 +160,9 @@ def ticket_edit_form(ticket_id):
     main_session = get_main_session(config.MAIN_DATABASE_PATH)
     listings = []
     try:
-        listings = main_session.query(Listing).order_by(Listing.name).all()
+        listings = main_session.query(Listing).filter(
+            func.lower(func.coalesce(Listing.status, '')) != 'deleted'
+        ).order_by(Listing.name).all()
     finally:
         main_session.close()
     
@@ -197,7 +201,7 @@ def api_list_tickets():
     
     try:
         # Start with base query
-        query = session.query(Ticket)
+        query = session.query(Ticket).filter(Ticket.ticket_type == STANDARD_TICKET_TYPE)
         
         # Apply tag filtering if provided
         if tags_param:

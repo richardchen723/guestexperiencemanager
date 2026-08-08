@@ -13,7 +13,14 @@ from flask import Blueprint, render_template, jsonify, request
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
-from dashboard.reviews.query import get_unresponded_reviews, get_reviews_by_filter
+from dashboard.reviews.query import (
+    get_review_queue,
+    get_review_resolutions,
+    get_reviews_by_filter,
+    mark_host_reviewed,
+    update_review_resolution_rule,
+    update_review_resolution_stage,
+)
 from database.models import ReviewFilter, Tag, get_session
 from database.schema import get_database_path
 from dashboard.auth.decorators import approved_required, admin_required
@@ -32,28 +39,100 @@ def reviews_page():
     return render_template('reviews/index.html', current_user=get_current_user())
 
 
+@reviews_bp.route('/resolutions')
+@approved_required
+def review_resolutions_page():
+    """Review resolution swim-lane page."""
+    return render_template('reviews/resolutions.html', current_user=get_current_user())
+
+
+def _tag_ids_from_request():
+    tag_ids_param = request.args.get('tag_ids')
+    if not tag_ids_param:
+        return None
+    try:
+        tag_ids = json.loads(tag_ids_param)
+        return tag_ids if isinstance(tag_ids, list) else ([tag_ids] if tag_ids else None)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return [int(tag_id.strip()) for tag_id in tag_ids_param.split(',') if tag_id.strip().isdigit()]
+
+
+@reviews_bp.route('/api/queue')
 @reviews_bp.route('/api/unresponded')
 @approved_required
 def api_unresponded_reviews():
-    """Get unresponded reviews (status='Submitted', origin='Guest')."""
+    """Get all reservations that remain inside the two-sided 14-day review window."""
     try:
-        # Get tag_ids from query parameters
-        tag_ids_param = request.args.get('tag_ids')
-        tag_ids = None
-        if tag_ids_param:
-            try:
-                import json
-                tag_ids = json.loads(tag_ids_param)
-                if not isinstance(tag_ids, list):
-                    tag_ids = [tag_ids] if tag_ids else None
-            except (json.JSONDecodeError, ValueError):
-                # Try comma-separated list
-                tag_ids = [int(tid.strip()) for tid in tag_ids_param.split(',') if tid.strip().isdigit()]
-        
-        reviews = get_unresponded_reviews(tag_ids=tag_ids)
-        return jsonify({'reviews': reviews}), 200
+        current_user = get_current_user()
+        queue = get_review_queue(
+            tag_ids=_tag_ids_from_request(),
+            current_user_id=current_user.user_id,
+        )
+        return jsonify(queue), 200
     except Exception as e:
-        logger.error(f"Error fetching unresponded reviews: {e}", exc_info=True)
+        logger.error(f"Error fetching review queue: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@reviews_bp.route('/api/queue/<int:reservation_id>/host-reviewed', methods=['POST'])
+@approved_required
+def api_mark_host_reviewed(reservation_id):
+    """Mark the host-side review complete and run the two-sided review transition."""
+    try:
+        result = mark_host_reviewed(reservation_id, get_current_user().user_id)
+        return jsonify(result), 200
+    except LookupError as e:
+        return jsonify({'error': str(e)}), 404
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 409
+    except Exception as e:
+        logger.error(f"Error marking reservation {reservation_id} host reviewed: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@reviews_bp.route('/api/resolutions')
+@approved_required
+def api_review_resolutions():
+    """Get special review-resolution tickets arranged into swim lanes."""
+    try:
+        return jsonify(get_review_resolutions(get_current_user().user_id)), 200
+    except Exception as e:
+        logger.error(f"Error fetching review resolutions: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@reviews_bp.route('/api/resolution-rules', methods=['PUT'])
+@approved_required
+def api_update_review_resolution_rule():
+    """Set the strict bad-review threshold for one portfolio."""
+    data = request.get_json(silent=True) or {}
+    try:
+        result = update_review_resolution_rule(
+            data.get('portfolio'),
+            data.get('bad_review_threshold'),
+            get_current_user().user_id,
+        )
+        return jsonify(result), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Error updating review resolution rule: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@reviews_bp.route('/api/resolutions/<int:ticket_id>/stage', methods=['PATCH'])
+@approved_required
+def api_update_review_resolution_stage(ticket_id):
+    """Move a review-resolution ticket between placeholder stages."""
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify(update_review_resolution_stage(ticket_id, data.get('stage'))), 200
+    except LookupError as e:
+        return jsonify({'error': str(e)}), 404
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error(f"Error updating review resolution {ticket_id}: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
@@ -329,4 +408,3 @@ def api_get_filtered_reviews(filter_id):
 def register_reviews_routes(app):
     """Register reviews routes with the Flask app."""
     app.register_blueprint(reviews_bp)
-

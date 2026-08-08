@@ -417,9 +417,9 @@ class Tag(Base):
             raise ValueError("Tag name cannot be empty")
         if len(normalized) > 50:
             raise ValueError("Tag name cannot exceed 50 characters")
-        # Allow alphanumeric, spaces, hyphens, underscores
-        if not all(c.isalnum() or c in (' ', '-', '_') for c in normalized):
-            raise ValueError("Tag name can only contain letters, numbers, spaces, hyphens, and underscores")
+        # Allow punctuation commonly used in portfolio and property names.
+        if not all(c.isalnum() or c in (' ', '-', '_', "'", '’') for c in normalized):
+            raise ValueError("Tag name can only contain letters, numbers, spaces, hyphens, underscores, and apostrophes")
         return normalized
 
 

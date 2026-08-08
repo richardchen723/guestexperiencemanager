@@ -127,8 +127,7 @@ class HostawayAPIClient:
                 else:
                     logger.error(f"Timeout getting access token after {MAX_RETRIES} attempts")
                     
-            except (requests.exceptions.ConnectionError,
-                    requests.exceptions.NewConnectionError) as e:
+            except requests.exceptions.ConnectionError as e:
                 last_exception = e
                 # Check if it's a DNS error (requests wraps socket.gaierror)
                 error_str = str(e).lower()
@@ -152,7 +151,7 @@ class HostawayAPIClient:
             except requests.exceptions.HTTPError as e:
                 # Don't retry HTTP errors (4xx, 5xx) except 5xx which are handled by urllib3 retry
                 # But if it's 401/403, don't retry
-                if e.response and e.response.status_code in (401, 403, 404):
+                if e.response is not None and e.response.status_code in (401, 403, 404):
                     logger.error(f"Authentication/authorization error getting access token: {e}")
                     return None
                 # For other HTTP errors, let urllib3 retry handle it or raise
@@ -245,8 +244,7 @@ class HostawayAPIClient:
                 else:
                     logger.error(f"Timeout making request to {endpoint} after {MAX_RETRIES} attempts")
                     
-            except (requests.exceptions.ConnectionError,
-                    requests.exceptions.NewConnectionError) as e:
+            except requests.exceptions.ConnectionError as e:
                 last_exception = e
                 # Check if it's a DNS error (requests wraps socket.gaierror)
                 error_str = str(e).lower()
@@ -269,7 +267,7 @@ class HostawayAPIClient:
                     
             except requests.exceptions.HTTPError as e:
                 # Don't retry client errors (4xx) except 429 which is handled above
-                if e.response and e.response.status_code in (400, 401, 403, 404, 422):
+                if e.response is not None and e.response.status_code in (400, 401, 403, 404, 422):
                     logger.error(f"HTTP error for {endpoint}: {e}")
                     if hasattr(e, 'response') and e.response is not None:
                         logger.debug(f"Response: {e.response.text[:200]}")
@@ -299,7 +297,28 @@ class HostawayAPIClient:
             logger.error(f"Failed to make request to {endpoint} after {MAX_RETRIES} attempts. Last error: {last_exception}")
         return None
     
-    def get_listings(self, limit: Optional[int] = None, 
+    def get_listings_page(
+        self,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+    ) -> Optional[List[Dict]]:
+        """Return one listings page, preserving API failure as ``None``."""
+        params: Dict[str, int] = {}
+        if limit:
+            params['limit'] = limit
+        if offset:
+            params['offset'] = offset
+
+        data = self._make_request("listings", params)
+        if not isinstance(data, dict) or 'result' not in data:
+            return None
+        result = data['result']
+        if not isinstance(result, list):
+            logger.error("Hostaway listings response contained an invalid result payload")
+            return None
+        return result
+
+    def get_listings(self, limit: Optional[int] = None,
                     offset: Optional[int] = None) -> List[Dict]:
         """
         Get all listings with pagination support.
@@ -311,16 +330,8 @@ class HostawayAPIClient:
         Returns:
             List of listing dictionaries.
         """
-        params: Dict[str, int] = {}
-        if limit:
-            params['limit'] = limit
-        if offset:
-            params['offset'] = offset
-        
-        data = self._make_request("listings", params)
-        if data and 'result' in data:
-            return data['result']
-        return []
+        page = self.get_listings_page(limit=limit, offset=offset)
+        return page if page is not None else []
     
     def get_listing(self, listing_id: int) -> Optional[Dict]:
         """
