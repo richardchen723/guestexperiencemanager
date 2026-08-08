@@ -6,7 +6,7 @@ Boost routes - UI page and REST API endpoints.
 import logging
 from flask import Blueprint, jsonify, render_template, request
 
-from dashboard.auth.decorators import admin_required
+from dashboard.auth.decorators import feature_required
 from dashboard.boost.models import init_boost_database
 from dashboard.boost import service
 from dashboard.boost import proxy_manager
@@ -33,7 +33,7 @@ def _ensure_boost_tables():
 # ---------------------------------------------------------------------------
 
 @boost_bp.route("/")
-@admin_required
+@feature_required('boost')
 def boost_page():
     return render_template("boost/index.html")
 
@@ -43,14 +43,14 @@ def boost_page():
 # ---------------------------------------------------------------------------
 
 @boost_bp.route("/api/listings", methods=["GET"])
-@admin_required
+@feature_required('boost')
 def api_list_listings():
     listings = listing_helper.get_all_listings()
     return jsonify(listings)
 
 
 @boost_bp.route("/api/listings/<int:listing_id>/details", methods=["GET"])
-@admin_required
+@feature_required('boost')
 def api_listing_details(listing_id):
     details = listing_helper.get_listing_details(listing_id)
     if not details:
@@ -63,14 +63,14 @@ def api_listing_details(listing_id):
 # ---------------------------------------------------------------------------
 
 @boost_bp.route("/api/campaigns", methods=["GET"])
-@admin_required
+@feature_required('boost')
 def api_list_campaigns():
     campaigns = service.list_campaigns()
     return jsonify(campaigns)
 
 
 @boost_bp.route("/api/campaigns", methods=["POST"])
-@admin_required
+@feature_required('boost')
 def api_create_campaign():
     data = request.get_json()
     if not data:
@@ -93,7 +93,7 @@ def api_create_campaign():
 
 
 @boost_bp.route("/api/campaigns/<int:campaign_id>", methods=["PUT"])
-@admin_required
+@feature_required('boost')
 def api_update_campaign(campaign_id):
     data = request.get_json()
     if not data:
@@ -105,7 +105,7 @@ def api_update_campaign(campaign_id):
 
 
 @boost_bp.route("/api/campaigns/<int:campaign_id>", methods=["DELETE"])
-@admin_required
+@feature_required('boost')
 def api_delete_campaign(campaign_id):
     ok = service.delete_campaign(campaign_id)
     if not ok:
@@ -118,7 +118,7 @@ def api_delete_campaign(campaign_id):
 # ---------------------------------------------------------------------------
 
 @boost_bp.route("/api/campaigns/<int:campaign_id>/trigger", methods=["POST"])
-@admin_required
+@feature_required('boost')
 def api_trigger_session(campaign_id):
     payload = request.get_json(silent=True) or {}
     raw_headless = payload.get("headless", False)
@@ -136,7 +136,7 @@ def api_trigger_session(campaign_id):
 
 
 @boost_bp.route("/api/campaigns/<int:campaign_id>/stop", methods=["POST"])
-@admin_required
+@feature_required('boost')
 def api_stop_session(campaign_id):
     result = service.stop_session(campaign_id)
     if "error" in result:
@@ -145,7 +145,7 @@ def api_stop_session(campaign_id):
 
 
 @boost_bp.route("/api/campaigns/<int:campaign_id>/sessions", methods=["GET"])
-@admin_required
+@feature_required('boost')
 def api_list_sessions(campaign_id):
     limit = request.args.get("limit", 50, type=int)
     sessions = service.get_sessions(campaign_id, limit=limit)
@@ -153,7 +153,7 @@ def api_list_sessions(campaign_id):
 
 
 @boost_bp.route("/api/campaigns/<int:campaign_id>/status", methods=["GET"])
-@admin_required
+@feature_required('boost')
 def api_session_status(campaign_id):
     running = service.get_running_status(campaign_id)
     return jsonify({"running": running})
@@ -164,7 +164,7 @@ def api_session_status(campaign_id):
 # ---------------------------------------------------------------------------
 
 @boost_bp.route("/api/campaigns/<int:campaign_id>/rankings", methods=["GET"])
-@admin_required
+@feature_required('boost')
 def api_rankings(campaign_id):
     limit = request.args.get("limit", 90, type=int)
     rankings = service.get_rankings(campaign_id, limit=limit)
@@ -172,7 +172,7 @@ def api_rankings(campaign_id):
 
 
 @boost_bp.route("/api/campaigns/<int:campaign_id>/stats", methods=["GET"])
-@admin_required
+@feature_required('boost')
 def api_dashboard_stats(campaign_id):
     stats = service.get_dashboard_stats(campaign_id)
     return jsonify(stats)
@@ -183,14 +183,14 @@ def api_dashboard_stats(campaign_id):
 # ---------------------------------------------------------------------------
 
 @boost_bp.route("/api/proxies", methods=["GET"])
-@admin_required
+@feature_required('boost')
 def api_list_proxies():
     proxies = proxy_manager.get_all_proxies()
     return jsonify(proxies)
 
 
 @boost_bp.route("/api/proxies/import", methods=["POST"])
-@admin_required
+@feature_required('boost')
 def api_import_proxies():
     data = request.get_json()
     if not data or not data.get("text"):
@@ -200,14 +200,14 @@ def api_import_proxies():
 
 
 @boost_bp.route("/api/proxies/clear", methods=["POST"])
-@admin_required
+@feature_required('boost')
 def api_clear_proxies():
     proxy_manager.clear_all_proxies()
     return jsonify({"ok": True})
 
 
 @boost_bp.route("/api/proxies/<int:proxy_id>/toggle", methods=["POST"])
-@admin_required
+@feature_required('boost')
 def api_toggle_proxy(proxy_id):
     data = request.get_json() or {}
     is_active = data.get("is_active", True)
@@ -216,7 +216,7 @@ def api_toggle_proxy(proxy_id):
 
 
 @boost_bp.route("/api/proxies/delete", methods=["POST"])
-@admin_required
+@feature_required('boost')
 def api_delete_proxies():
     data = request.get_json() or {}
     ids = data.get("ids", [])

@@ -9,7 +9,7 @@ import os
 import logging
 from datetime import datetime
 
-from dashboard.auth.decorators import approved_required, admin_required
+from dashboard.auth.decorators import approved_required, admin_required, check_feature_access
 from dashboard.auth.session import get_current_user
 from dashboard.config import KNOWLEDGE_DOCUMENTS_DIR, MAX_DOCUMENT_SIZE
 from database.models import get_session as get_main_session, Document, DocumentListing, DocumentTag, Listing, Tag
@@ -22,6 +22,11 @@ from dashboard.knowledge.search_utils import format_search_results
 logger = logging.getLogger(__name__)
 
 knowledge_bp = Blueprint('knowledge', __name__, url_prefix='/knowledge')
+
+
+@knowledge_bp.before_request
+def require_knowledge_access():
+    return check_feature_access('knowledge')
 
 
 @knowledge_bp.route('/')
@@ -870,4 +875,3 @@ def api_delete_document(document_id):
 def register_knowledge_routes(app):
     """Register knowledge base routes with Flask app."""
     app.register_blueprint(knowledge_bp)
-

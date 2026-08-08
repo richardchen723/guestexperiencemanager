@@ -21,7 +21,7 @@ from sqlalchemy.orm import load_only, selectinload
 
 from database.models import Listing, ListingTag, Tag, get_session as get_main_session
 
-from dashboard.auth.decorators import admin_required
+from dashboard.auth.decorators import feature_required
 from dashboard.auth.models import get_google_drive_credential_for_user
 from dashboard.auth.session import get_current_user
 from dashboard.bookkeeping.models import (
@@ -1519,13 +1519,13 @@ def _start_supporting_upload_batch(batch_id: int) -> None:
 
 
 @bookkeeping_bp.route("/")
-@admin_required
+@feature_required('bookkeeping')
 def bookkeeping_page():
     return render_template("bookkeeping/index.html", current_user=get_current_user())
 
 
 @bookkeeping_bp.route("/api/reference-data")
-@admin_required
+@feature_required('bookkeeping')
 def bookkeeping_reference_data():
     return jsonify(
         {
@@ -1539,7 +1539,7 @@ def bookkeeping_reference_data():
 
 
 @bookkeeping_bp.route("/api/listings/catalog", methods=["GET"])
-@admin_required
+@feature_required('bookkeeping')
 def api_list_cotton_candy_listings():
     main_session = _cotton_candy_session()
     try:
@@ -1554,7 +1554,7 @@ def api_list_cotton_candy_listings():
 
 
 @bookkeeping_bp.route("/api/listing-tags", methods=["GET"])
-@admin_required
+@feature_required('bookkeeping')
 def api_list_cotton_candy_listing_tags():
     main_session = _cotton_candy_session()
     try:
@@ -1577,7 +1577,7 @@ def api_list_cotton_candy_listing_tags():
 
 
 @bookkeeping_bp.route("/api/portfolios", methods=["GET"])
-@admin_required
+@feature_required('bookkeeping')
 def api_list_portfolios():
     session = get_session()
     try:
@@ -1600,7 +1600,7 @@ def api_list_portfolios():
 
 
 @bookkeeping_bp.route("/api/portfolios", methods=["POST"])
-@admin_required
+@feature_required('bookkeeping')
 def api_create_portfolio():
     session = get_session()
     main_session = _cotton_candy_session()
@@ -1657,7 +1657,7 @@ def api_create_portfolio():
 
 
 @bookkeeping_bp.route("/api/portfolios/<int:portfolio_id>", methods=["PUT"])
-@admin_required
+@feature_required('bookkeeping')
 def api_update_portfolio(portfolio_id):
     session = get_session()
     main_session = _cotton_candy_session()
@@ -1721,7 +1721,7 @@ def api_update_portfolio(portfolio_id):
 
 
 @bookkeeping_bp.route("/api/portfolios/<int:portfolio_id>", methods=["DELETE"])
-@admin_required
+@feature_required('bookkeeping')
 def api_delete_portfolio(portfolio_id):
     session = get_session()
     try:
@@ -1771,7 +1771,7 @@ def api_delete_portfolio(portfolio_id):
 
 
 @bookkeeping_bp.route("/api/portfolios/<int:portfolio_id>/revenue-channels", methods=["PUT"])
-@admin_required
+@feature_required('bookkeeping')
 def api_update_portfolio_revenue_channels(portfolio_id):
     session = get_session()
     payload = request.get_json() or {}
@@ -1799,7 +1799,7 @@ def api_update_portfolio_revenue_channels(portfolio_id):
 
 
 @bookkeeping_bp.route("/api/portfolios/<int:portfolio_id>/listing-mappings", methods=["GET"])
-@admin_required
+@feature_required('bookkeeping')
 def api_get_listing_mappings(portfolio_id):
     session = get_session()
     main_session = _cotton_candy_session()
@@ -1826,7 +1826,7 @@ def api_get_listing_mappings(portfolio_id):
 
 
 @bookkeeping_bp.route("/api/portfolios/<int:portfolio_id>/listing-mappings", methods=["PUT"])
-@admin_required
+@feature_required('bookkeeping')
 def api_save_listing_mappings(portfolio_id):
     session = get_session()
     current_user = get_current_user()
@@ -1918,7 +1918,7 @@ def api_save_listing_mappings(portfolio_id):
 
 
 @bookkeeping_bp.route("/api/portfolios/<int:portfolio_id>/periods", methods=["GET"])
-@admin_required
+@feature_required('bookkeeping')
 def api_list_periods(portfolio_id):
     session = get_session()
     try:
@@ -1934,7 +1934,7 @@ def api_list_periods(portfolio_id):
 
 
 @bookkeeping_bp.route("/api/periods", methods=["POST"])
-@admin_required
+@feature_required('bookkeeping')
 def api_create_period():
     session = get_session()
     current_user = get_current_user()
@@ -1981,7 +1981,7 @@ def api_create_period():
 
 
 @bookkeeping_bp.route("/api/periods/<int:period_id>/workspace", methods=["GET"])
-@admin_required
+@feature_required('bookkeeping')
 def api_period_workspace(period_id):
     session = get_session()
     try:
@@ -1997,7 +1997,7 @@ def api_period_workspace(period_id):
 
 
 @bookkeeping_bp.route("/api/processing-batches/<int:batch_id>", methods=["GET"])
-@admin_required
+@feature_required('bookkeeping')
 def api_processing_batch(batch_id):
     session = get_session()
     try:
@@ -2016,7 +2016,7 @@ def api_processing_batch(batch_id):
 
 
 @bookkeeping_bp.route("/api/periods/<int:period_id>/uploads", methods=["POST"])
-@admin_required
+@feature_required('bookkeeping')
 def api_upload_files(period_id):
     session = get_session()
     current_user = get_current_user()
@@ -2135,7 +2135,7 @@ def api_upload_files(period_id):
 
 
 @bookkeeping_bp.route("/api/periods/<int:period_id>/reprocess-expenses", methods=["POST"])
-@admin_required
+@feature_required('bookkeeping')
 def api_reprocess_expense_uploads(period_id):
     session = get_session()
     current_user = get_current_user()
@@ -2164,7 +2164,7 @@ def api_reprocess_expense_uploads(period_id):
 
 
 @bookkeeping_bp.route("/api/uploads/<int:upload_id>/file", methods=["GET"])
-@admin_required
+@feature_required('bookkeeping')
 def api_download_upload(upload_id):
     session = get_session()
     try:
@@ -2187,7 +2187,7 @@ def api_download_upload(upload_id):
 
 
 @bookkeeping_bp.route("/api/uploads/<int:upload_id>", methods=["DELETE"])
-@admin_required
+@feature_required('bookkeeping')
 def api_delete_upload(upload_id):
     session = get_session()
     try:
@@ -2230,7 +2230,7 @@ def api_delete_upload(upload_id):
 
 
 @bookkeeping_bp.route("/api/uploads/bulk-delete", methods=["POST"])
-@admin_required
+@feature_required('bookkeeping')
 def api_bulk_delete_uploads():
     session = get_session()
     payload = request.get_json() or {}
@@ -2317,7 +2317,7 @@ def api_bulk_delete_uploads():
 
 
 @bookkeeping_bp.route("/api/periods/<int:period_id>/expense-items", methods=["POST"])
-@admin_required
+@feature_required('bookkeeping')
 def api_create_expense_item(period_id):
     session = get_session()
     current_user = get_current_user()
@@ -2357,7 +2357,7 @@ def api_create_expense_item(period_id):
 
 
 @bookkeeping_bp.route("/api/expense-items/<int:item_id>", methods=["PUT"])
-@admin_required
+@feature_required('bookkeeping')
 def api_update_expense_item(item_id):
     session = get_session()
     current_user = get_current_user()
@@ -2415,7 +2415,7 @@ def api_update_expense_item(item_id):
 
 
 @bookkeeping_bp.route("/api/periods/<int:period_id>/revenue-items", methods=["POST"])
-@admin_required
+@feature_required('bookkeeping')
 def api_create_revenue_item(period_id):
     session = get_session()
     current_user = get_current_user()
@@ -2446,7 +2446,7 @@ def api_create_revenue_item(period_id):
 
 
 @bookkeeping_bp.route("/api/revenue-items/<int:item_id>", methods=["PUT"])
-@admin_required
+@feature_required('bookkeeping')
 def api_update_revenue_item(item_id):
     session = get_session()
     current_user = get_current_user()
@@ -2502,7 +2502,7 @@ def api_update_revenue_item(item_id):
 
 
 @bookkeeping_bp.route("/api/change-proposals/<int:proposal_id>/resolve", methods=["POST"])
-@admin_required
+@feature_required('bookkeeping')
 def api_resolve_change_proposal(proposal_id):
     session = get_session()
     current_user = get_current_user()
@@ -2602,7 +2602,7 @@ def api_resolve_change_proposal(proposal_id):
 
 
 @bookkeeping_bp.route("/api/periods/<int:period_id>/approve", methods=["POST"])
-@admin_required
+@feature_required('bookkeeping')
 def api_approve_workspace(period_id):
     session = get_session()
     current_user = get_current_user()
@@ -2639,7 +2639,7 @@ def api_approve_workspace(period_id):
 
 
 @bookkeeping_bp.route("/api/periods/<int:period_id>/assistant/messages", methods=["GET"])
-@admin_required
+@feature_required('bookkeeping')
 def api_list_assistant_messages(period_id):
     session = get_session()
     try:
@@ -2652,7 +2652,7 @@ def api_list_assistant_messages(period_id):
 
 
 @bookkeeping_bp.route("/api/periods/<int:period_id>/assistant/messages", methods=["POST"])
-@admin_required
+@feature_required('bookkeeping')
 def api_post_assistant_message(period_id):
     session = get_session()
     current_user = get_current_user()
@@ -2757,7 +2757,7 @@ def api_post_assistant_message(period_id):
 
 
 @bookkeeping_bp.route("/api/periods/<int:period_id>/export", methods=["GET"])
-@admin_required
+@feature_required('bookkeeping')
 def api_export_period_workbook(period_id):
     session = get_session()
     current_user = get_current_user()

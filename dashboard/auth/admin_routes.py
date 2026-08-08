@@ -11,10 +11,16 @@ from flask import Blueprint, render_template, jsonify, request
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
-from dashboard.auth.decorators import admin_required
+from dashboard.auth.decorators import admin_required, feature_required
 from dashboard.auth.models import (
     get_all_users, get_user_by_id, approve_user, revoke_user,
-    update_user_role, delete_user, ApiKey, get_session
+    update_user_role, delete_user, ApiKey, get_session,
+    get_user_feature_overrides, replace_user_feature_permissions,
+)
+from dashboard.auth.features import (
+    assigned_feature_access,
+    feature_catalog,
+    normalize_feature_access,
 )
 from dashboard.auth.session import get_current_user
 from dashboard.auth.api_keys import create_api_key
@@ -31,7 +37,7 @@ def users_page():
 
 
 @admin_bp.route('/activities')
-@admin_required
+@feature_required('activities')
 def activities_page():
     """Activity tracking and reporting page."""
     return render_template('admin/activities.html')
@@ -43,8 +49,10 @@ def api_list_users():
     """Get all users (admin only)."""
     try:
         users = get_all_users()
+        overrides_by_user = get_user_feature_overrides([user.user_id for user in users])
         result = []
         for user in users:
+            overrides = overrides_by_user.get(user.user_id, {})
             result.append({
                 'user_id': user.user_id,
                 'email': user.email,
@@ -55,9 +63,53 @@ def api_list_users():
                 'created_at': user.created_at.isoformat() if user.created_at else None,
                 'approved_at': user.approved_at.isoformat() if user.approved_at else None,
                 'last_login': user.last_login.isoformat() if user.last_login else None,
-                'is_owner': user.role == 'owner'
+                'is_owner': user.role == 'owner',
+                'feature_access': assigned_feature_access(user, overrides=overrides),
+                'has_custom_feature_access': bool(overrides),
             })
-        return jsonify(result)
+        return jsonify({
+            'features': feature_catalog(),
+            'users': result,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_bp.route('/api/users/<int:user_id>/features', methods=['PUT'])
+@admin_required
+def api_update_user_features(user_id):
+    """Replace the feature access assigned to a regular user."""
+    try:
+        current_user = get_current_user()
+        if not current_user:
+            return jsonify({'error': 'Not authenticated'}), 401
+
+        user = get_user_by_id(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        if user.role in ('owner', 'admin'):
+            return jsonify({
+                'error': 'Admins and owners automatically have access to every feature',
+            }), 409
+
+        data = request.get_json(silent=True) or {}
+        enabled_features = data.get('features')
+        if not isinstance(enabled_features, list):
+            return jsonify({'error': 'features must be an array'}), 400
+
+        feature_access = normalize_feature_access(enabled_features)
+        replace_user_feature_permissions(
+            user_id,
+            feature_access,
+            granted_by=current_user.user_id,
+        )
+        return jsonify({
+            'success': True,
+            'message': 'Feature access updated',
+            'feature_access': feature_access,
+        })
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -29,33 +29,34 @@ class MobileNavigation {
      * Get navigation items based on user role
      */
     getNavItems() {
-        // Check if user is admin (we'll need to get this from the page)
         const isAdmin = document.body.dataset.isAdmin === 'true' || 
                        document.querySelector('[data-is-admin="true"]') !== null;
-        
+        const enabledFeatures = new Set(
+            (document.body.dataset.features || '').split(',').filter(Boolean)
+        );
+        const canAccess = featureKey => enabledFeatures.has(featureKey);
+
         const primaryItems = [
             { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', url: '/dashboard/' },
             { id: 'tickets', label: 'Tickets', icon: 'ticket', url: '/tickets/' },
             { id: 'reviews', label: 'Reviews', icon: 'review', url: '/reviews/' },
-            { id: 'knowledge', label: 'Knowledge', icon: 'knowledge', url: '/knowledge/' },
-            { id: 'more', label: 'More', icon: 'more', url: '#', hasSubmenu: true }
-        ];
-        
+            { id: 'knowledge', label: 'Knowledge', icon: 'knowledge', url: '/knowledge/' }
+        ].filter(item => canAccess(item.id));
+
         const moreItems = [
-            { id: 'properties', label: 'Properties', icon: 'property', url: '/properties' }
-        ];
-        
+            { id: 'properties', label: 'Properties', icon: 'property', url: '/properties' },
+            { id: 'bookkeeping', label: 'Bookkeeping', icon: 'activity', url: '/bookkeeping/' },
+            { id: 'boost', label: 'Boost', icon: 'activity', url: '/boost/' },
+            { id: 'activities', label: 'Activities', icon: 'activity', url: '/admin/activities' },
+            { id: 'sync', label: 'Sync', icon: 'sync', url: '/sync/history' }
+        ].filter(item => canAccess(item.id));
+
         if (isAdmin) {
-            moreItems.push(
-                { id: 'bookkeeping', label: 'Bookkeeping', icon: 'activity', url: '/bookkeeping/' },
-                { id: 'activities', label: 'Activities', icon: 'activity', url: '/admin/activities' },
-                { id: 'sync', label: 'Sync', icon: 'sync', url: '/sync/history' },
-                { id: 'admin', label: 'Admin', icon: 'admin', url: '/admin/users' }
-            );
-        } else {
-            moreItems.push(
-                { id: 'sync', label: 'Sync', icon: 'sync', url: '/sync/history' }
-            );
+            moreItems.push({ id: 'admin', label: 'Admin', icon: 'admin', url: '/admin/users' });
+        }
+
+        if (moreItems.length > 0) {
+            primaryItems.push({ id: 'more', label: 'More', icon: 'more', url: '#', hasSubmenu: true });
         }
         
         return {

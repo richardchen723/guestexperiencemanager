@@ -15,32 +15,47 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-knowledge.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='20260808-1') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tickets.css') }}">
     {% block extra_head %}{% endblock %}
 </head>
-<body data-is-admin="{% if current_user and current_user.is_admin() %}true{% else %}false{% endif %}">
+<body
+    data-is-admin="{% if current_user and current_user.is_admin() %}true{% else %}false{% endif %}"
+    data-features="{{ accessible_feature_keys | join(',') }}"
+>
     <div class="container">
         <header>
             <div class="header-content">
                 <div class="header-brand">
                     <a href="/" class="header-logo">Hostaway Insights</a>
                     <nav class="header-nav">
+                        {% if feature_access.dashboard %}
                         <a href="{{ url_for('dashboard.dashboard_page') }}" {% if 'dashboard' in request.endpoint %}class="active"{% endif %}>Dashboard</a>
+                        {% endif %}
+                        {% if feature_access.properties %}
                         <a href="{{ url_for('properties') }}" {% if request.endpoint == 'properties' %}class="active"{% endif %}>Properties</a>
+                        {% endif %}
+                        {% if feature_access.tickets %}
                         <a href="{{ url_for('tickets.tickets_list') }}" {% if 'tickets' in request.endpoint %}class="active"{% endif %}>Tickets</a>
+                        {% endif %}
+                        {% if feature_access.reviews %}
                         <a href="{{ url_for('reviews.reviews_page') }}" {% if 'reviews' in request.endpoint %}class="active"{% endif %}>Reviews</a>
+                        {% endif %}
+                        {% if feature_access.knowledge %}
                         <a href="{{ url_for('knowledge.knowledge_page') }}" {% if 'knowledge' in request.endpoint %}class="active"{% endif %}>Knowledge</a>
-                        {% if current_user and current_user.is_admin() %}
+                        {% endif %}
+                        {% if feature_access.bookkeeping %}
                         <a href="{{ url_for('bookkeeping.bookkeeping_page') }}" {% if 'bookkeeping' in request.endpoint %}class="active"{% endif %}>Bookkeeping</a>
                         {% endif %}
-                        {% if current_user and current_user.is_admin() %}
+                        {% if feature_access.boost %}
                         <a href="{{ url_for('boost.boost_page') }}" {% if 'boost' in request.endpoint %}class="active"{% endif %}>Boost</a>
                         {% endif %}
-                        {% if current_user and current_user.is_admin() %}
+                        {% if feature_access.activities %}
                         <a href="{{ url_for('admin.activities_page') }}" {% if 'activities' in request.endpoint %}class="active"{% endif %}>Activities</a>
                         {% endif %}
+                        {% if feature_access.sync %}
                         <a href="{{ url_for('sync.sync_history_page') }}" {% if 'sync' in request.endpoint %}class="active"{% endif %}>Sync</a>
+                        {% endif %}
                         {% if current_user and current_user.is_admin() %}
                         <a href="{{ url_for('admin.users_page') }}" {% if 'admin' in request.endpoint and 'activities' not in request.endpoint %}class="active"{% endif %}>Admin</a>
                         {% endif %}

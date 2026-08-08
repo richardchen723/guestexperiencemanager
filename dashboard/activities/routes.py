@@ -12,7 +12,7 @@ from typing import Optional, List, Dict, Any
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
-from dashboard.auth.decorators import admin_required
+from dashboard.auth.decorators import feature_required
 from dashboard.auth.session import get_current_user
 from dashboard.tickets.models import ActivityLog, Ticket, get_session
 from dashboard.auth.models import get_all_users, get_user_by_id
@@ -23,7 +23,7 @@ activities_bp = Blueprint('activities', __name__, url_prefix='/admin/api/activit
 
 
 @activities_bp.route('', methods=['GET'])
-@admin_required
+@feature_required('activities')
 def api_query_activities():
     """Query activities with filters."""
     try:
@@ -98,7 +98,7 @@ def api_query_activities():
 
 
 @activities_bp.route('/reports/ticket-metrics', methods=['GET'])
-@admin_required
+@feature_required('activities')
 def api_ticket_metrics_report():
     """Get ticket metrics report."""
     try:
@@ -201,7 +201,7 @@ def api_ticket_metrics_report():
 
 
 @activities_bp.route('/reports/user-performance', methods=['GET'])
-@admin_required
+@feature_required('activities')
 def api_user_performance_report():
     """Get user performance report."""
     try:
@@ -302,7 +302,7 @@ def api_user_performance_report():
 
 
 @activities_bp.route('/reports/unresolved-assignments', methods=['GET'])
-@admin_required
+@feature_required('activities')
 def api_unresolved_assignments_report():
     """Get current unresolved tickets grouped by assigned user."""
     try:
@@ -359,7 +359,7 @@ def api_unresolved_assignments_report():
 
 
 @activities_bp.route('/reports/trends', methods=['GET'])
-@admin_required
+@feature_required('activities')
 def api_trends_report():
     """Get trend analysis data for charts."""
     try:
@@ -468,4 +468,3 @@ def api_trends_report():
 def register_activities_routes(app):
     """Register activities blueprint with the Flask app."""
     app.register_blueprint(activities_bp)
-

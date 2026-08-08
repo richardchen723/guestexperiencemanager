@@ -20,6 +20,7 @@ sys.path.insert(0, project_root)
 
 from dashboard.auth.session import logout_user, get_current_user
 from dashboard.auth.decorators import login_required, approved_required
+from dashboard.auth.features import effective_feature_access, first_accessible_endpoint
 from dashboard.auth.oauth import handle_google_callback
 from dashboard.auth.models import (
     delete_google_drive_credential_for_user,
@@ -50,6 +51,18 @@ def _safe_next_path(candidate: str = None) -> str:
     if parsed.scheme or parsed.netloc or not parsed.path.startswith('/'):
         return url_for('bookkeeping.bookkeeping_page')
     return candidate
+
+
+def _configured_endpoint_url(config_key: str, default_endpoint: str) -> str:
+    endpoint = current_app.config.get(config_key, default_endpoint)
+    return url_for(endpoint)
+
+
+def _post_login_url(user) -> str:
+    configured_endpoint = current_app.config.get('POST_LOGIN_ENDPOINT')
+    if configured_endpoint and configured_endpoint != 'dashboard.dashboard_page':
+        return url_for(configured_endpoint)
+    return url_for(first_accessible_endpoint(user))
 
 
 def _append_query_value(url: str, key: str, value: str) -> str:
@@ -89,9 +102,9 @@ def login():
     if get_current_user():
         user = get_current_user()
         if user and user.is_approved:
-            return redirect(url_for('dashboard.dashboard_page'))
+            return redirect(_post_login_url(user))
         elif user:
-            return redirect(url_for('auth.pending_approval'))
+            return redirect(_configured_endpoint_url('PENDING_APPROVAL_ENDPOINT', 'auth.pending_approval'))
     
     # If the Google blueprint was not registered (missing dependency/config), fail with clear guidance.
     if 'google' not in current_app.blueprints:
@@ -152,7 +165,7 @@ def logout():
             logger.warning(f"Error logging logout activity: {e}", exc_info=True)
     
     logout_user()
-    return redirect(url_for('auth.login'))
+    return redirect(_configured_endpoint_url('POST_LOGOUT_ENDPOINT', 'auth.login'))
 
 
 @auth_bp.route('/pending-approval')
@@ -161,7 +174,7 @@ def pending_approval():
     """Pending approval page for unapproved users."""
     user = get_current_user()
     if user and user.is_approved:
-        return redirect(url_for('dashboard.dashboard_page'))
+        return redirect(_post_login_url(user))
     
     return render_template('auth/pending.html', current_user=user)
 
@@ -317,6 +330,7 @@ def api_get_profile():
         'name': user.name,
         'role': user.role,
         'is_admin': user.is_admin(),  # Add is_admin field
+        'feature_access': effective_feature_access(user),
         'whatsapp_number': user.whatsapp_number or '',
         'whatsapp_notifications_enabled': user.whatsapp_notifications_enabled,
         'google_drive': _google_drive_status_payload(user),

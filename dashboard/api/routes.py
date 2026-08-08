@@ -15,7 +15,8 @@ from database.models import get_session, Listing, Tag, ListingTag
 from database.schema import get_database_path
 import dashboard.config as config
 from dashboard.ai.analyzer import get_insights
-from dashboard.auth.decorators import approved_required
+from dashboard.auth.decorators import approved_required, feature_required
+from dashboard.auth.features import first_accessible_endpoint
 from dashboard.auth.session import get_current_user
 from sqlalchemy import func, or_, and_
 from sqlalchemy.orm import joinedload
@@ -32,17 +33,17 @@ def register_routes(app):
     @app.route('/')
     @approved_required
     def index():
-        """Root route - redirects to dashboard."""
-        return redirect(url_for('dashboard.dashboard_page'))
+        """Root route - redirects to the user's first accessible feature."""
+        return redirect(url_for(first_accessible_endpoint(get_current_user())))
     
     @app.route('/properties')
-    @approved_required
+    @feature_required('properties')
     def properties():
         """Properties page with listing selection."""
         return render_template('index.html', current_user=get_current_user())
     
     @app.route('/api/listings')
-    @approved_required
+    @feature_required('properties')
     def api_listings():
         """Get all listings as JSON with quality ratings and tags."""
         from dashboard.ai.cache import get_cached_insights_batch
@@ -128,7 +129,7 @@ def register_routes(app):
             session.close()
     
     @app.route('/api/insights/<int:listing_id>')
-    @approved_required
+    @feature_required('properties')
     def api_insights(listing_id):
         """Get insights for a specific listing."""
         force_refresh = request.args.get('refresh', 'false').lower() == 'true'
@@ -140,7 +141,7 @@ def register_routes(app):
             return jsonify({'error': str(e)}), 500
     
     @app.route('/insights/<int:listing_id>')
-    @approved_required
+    @feature_required('properties')
     def insights_page(listing_id):
         """Render insights page for a listing."""
         session = get_session(config.MAIN_DATABASE_PATH)
@@ -155,7 +156,7 @@ def register_routes(app):
     
     # Tag Management Endpoints
     @app.route('/api/tags', methods=['GET'])
-    @approved_required
+    @feature_required('properties')
     def api_list_tags():
         """Get all tags with usage counts."""
         session = get_session(config.MAIN_DATABASE_PATH)
@@ -188,7 +189,7 @@ def register_routes(app):
             session.close()
     
     @app.route('/api/tags', methods=['POST'])
-    @approved_required
+    @feature_required('properties')
     def api_create_tag():
         """Create a new tag."""
         data = request.get_json()
@@ -233,7 +234,7 @@ def register_routes(app):
             session.close()
     
     @app.route('/api/tags/<int:tag_id>', methods=['DELETE'])
-    @approved_required
+    @feature_required('properties')
     def api_delete_tag(tag_id):
         """Delete a tag (cascade removes from listings/tickets)."""
         session = get_session(config.MAIN_DATABASE_PATH)
@@ -252,7 +253,7 @@ def register_routes(app):
             session.close()
     
     @app.route('/api/tags/autocomplete', methods=['GET'])
-    @approved_required
+    @feature_required('properties')
     def api_tag_autocomplete():
         """Get tag suggestions based on partial name."""
         query = request.args.get('q', '').strip().lower()
@@ -272,7 +273,7 @@ def register_routes(app):
     
     # Listing Tag Endpoints
     @app.route('/api/listings/<int:listing_id>/tags', methods=['GET'])
-    @approved_required
+    @feature_required('properties')
     def api_get_listing_tags(listing_id):
         """Get all tags for a listing."""
         session = get_session(config.MAIN_DATABASE_PATH)
@@ -297,7 +298,7 @@ def register_routes(app):
             session.close()
     
     @app.route('/api/listings/<int:listing_id>/tags', methods=['POST'])
-    @approved_required
+    @feature_required('properties')
     def api_add_listing_tags(listing_id):
         """Add tag(s) to a listing."""
         data = request.get_json()
@@ -352,7 +353,7 @@ def register_routes(app):
             session.close()
     
     @app.route('/api/listings/<int:listing_id>/tags/<int:tag_id>', methods=['DELETE'])
-    @approved_required
+    @feature_required('properties')
     def api_remove_listing_tag(listing_id, tag_id):
         """Remove a tag from a listing."""
         session = get_session(config.MAIN_DATABASE_PATH)

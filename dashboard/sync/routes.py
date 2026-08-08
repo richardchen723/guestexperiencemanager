@@ -23,10 +23,15 @@ from database.schema import get_database_path
 from sync.sync_manager import full_sync, incremental_sync
 from dashboard.sync.job_manager import get_job_manager
 from dashboard.sync.web_progress import WebProgressTracker
-from dashboard.auth.decorators import approved_required, admin_required
+from dashboard.auth.decorators import approved_required, admin_required, check_feature_access
 import dashboard.config as config
 
 sync_bp = Blueprint('sync', __name__, url_prefix='/sync')
+
+
+@sync_bp.before_request
+def require_sync_access():
+    return check_feature_access('sync')
 
 
 def get_sync_status(sync_run_id: int) -> str:
@@ -1001,4 +1006,3 @@ def api_sync_status(job_id):
 def register_sync_routes(app):
     """Register sync routes with Flask app"""
     app.register_blueprint(sync_bp)
-

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block title %}Access required{% endblock %}
+
+{% block content %}
+<section class="feature-denied" aria-labelledby="featureDeniedTitle">
+    <div class="feature-denied-icon" aria-hidden="true">&#128274;</div>
+    <p class="feature-denied-eyebrow">Feature access</p>
+    <h1 id="featureDeniedTitle">{{ feature_name }} is not enabled for your account</h1>
+    <p>Your account is active, but an administrator needs to grant access to this feature.</p>
+    <a class="btn btn-primary" href="{{ url_for(landing_endpoint) }}">Return to your workspace</a>
+</section>
+{% endblock %}

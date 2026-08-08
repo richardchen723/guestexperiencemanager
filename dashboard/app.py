@@ -59,6 +59,7 @@ from dashboard.boost.routes import register_boost_routes
 from dashboard.dashboard.routes import dashboard_bp
 from dashboard.auth.oauth import create_google_blueprint
 from dashboard.auth.init import ensure_owner_exists
+from dashboard.auth.features import accessible_feature_keys, effective_feature_access
 from dashboard.auth.session import get_current_user
 
 
@@ -143,7 +144,12 @@ def create_app():
     # Make current_user available to all templates
     @app.context_processor
     def inject_user():
-        return dict(current_user=get_current_user())
+        user = get_current_user()
+        return {
+            'current_user': user,
+            'feature_access': effective_feature_access(user),
+            'accessible_feature_keys': accessible_feature_keys(user),
+        }
     
     # Add cache-busting headers for templates (prevent browser caching old templates)
     @app.after_request

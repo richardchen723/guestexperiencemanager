@@ -23,13 +23,18 @@ from dashboard.reviews.query import (
 )
 from database.models import ReviewFilter, Tag, get_session
 from database.schema import get_database_path
-from dashboard.auth.decorators import approved_required, admin_required
+from dashboard.auth.decorators import approved_required, admin_required, check_feature_access
 from dashboard.auth.session import get_current_user
 import logging
 
 logger = logging.getLogger(__name__)
 
 reviews_bp = Blueprint('reviews', __name__, url_prefix='/reviews')
+
+
+@reviews_bp.before_request
+def require_reviews_access():
+    return check_feature_access('reviews')
 
 
 @reviews_bp.route('/')

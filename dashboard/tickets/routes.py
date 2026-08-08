@@ -25,7 +25,7 @@ from flask import send_from_directory
 from database.models import Tag, ListingTag, get_session as get_main_session
 from sqlalchemy import func, or_, and_, String, cast
 from sqlalchemy.orm import joinedload
-from dashboard.auth.decorators import approved_required, admin_required
+from dashboard.auth.decorators import approved_required, admin_required, check_feature_access
 from dashboard.auth.session import get_current_user
 from dashboard.auth.models import get_all_users, get_user_by_id
 from database.models import get_session as get_main_session, Listing
@@ -33,6 +33,11 @@ from dashboard.ai.cache import get_cached_insights
 import dashboard.config as config
 
 tickets_bp = Blueprint('tickets', __name__, url_prefix='/tickets')
+
+
+@tickets_bp.before_request
+def require_tickets_access():
+    return check_feature_access('tickets')
 
 # Constants
 TICKET_STATUSES = ['Open', 'Assigned', 'In Progress', 'Blocked', 'Resolved', 'Closed']

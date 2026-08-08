@@ -13,12 +13,17 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, project_root)
 
 from dashboard.dashboard.service import DashboardService
-from dashboard.auth.decorators import approved_required
+from dashboard.auth.decorators import approved_required, check_feature_access
 from dashboard.auth.session import get_current_user
 
 logger = logging.getLogger(__name__)
 
 dashboard_bp = Blueprint('dashboard', __name__, url_prefix='/dashboard')
+
+
+@dashboard_bp.before_request
+def require_dashboard_access():
+    return check_feature_access('dashboard')
 
 
 @dashboard_bp.route('/')
@@ -58,7 +63,6 @@ def api_dashboard_data():
     except Exception as e:
         logger.error(f"Error fetching dashboard data for user {current_user.user_id}: {e}", exc_info=True)
         return jsonify({'error': 'Failed to load dashboard data'}), 500
-
 
 
 

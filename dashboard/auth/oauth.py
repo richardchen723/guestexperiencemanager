@@ -5,14 +5,27 @@ Google OAuth integration using Flask-Dance.
 
 import sys
 import os
-from flask import redirect, url_for
+from flask import current_app, redirect, url_for
 
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
 import dashboard.config as config
 from dashboard.auth.models import get_user_by_email, get_user_by_google_id, create_user
+from dashboard.auth.features import first_accessible_endpoint
 from dashboard.auth.session import login_user
+
+
+def _configured_endpoint_url(config_key: str, default_endpoint: str) -> str:
+    endpoint = current_app.config.get(config_key, default_endpoint)
+    return url_for(endpoint)
+
+
+def _post_login_url(user) -> str:
+    configured_endpoint = current_app.config.get('POST_LOGIN_ENDPOINT')
+    if configured_endpoint and configured_endpoint != 'dashboard.dashboard_page':
+        return url_for(configured_endpoint)
+    return url_for(first_accessible_endpoint(user))
 
 
 def create_google_blueprint(app):
@@ -163,9 +176,9 @@ def handle_google_callback():
         # Flask-Dance will redirect to the home page by default, but we want custom logic
         # So we return a redirect response
         if user.is_approved:
-            return redirect(url_for('dashboard.dashboard_page'))
+            return redirect(_post_login_url(user))
         else:
-            return redirect(url_for('auth.pending_approval'))
+            return redirect(_configured_endpoint_url('PENDING_APPROVAL_ENDPOINT', 'auth.pending_approval'))
             
     except Exception as e:
         import logging

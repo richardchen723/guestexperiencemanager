@@ -58,6 +58,29 @@ class User(Base):
         """Check if user is the owner."""
         return self.role == 'owner'
 
+
+class UserFeaturePermission(Base):
+    """Explicit per-feature access override for a user account."""
+
+    __tablename__ = 'user_feature_permissions'
+    __table_args__ = (
+        UniqueConstraint('user_id', 'feature_key', name='uq_user_feature_permissions_user_feature'),
+        {'schema': 'users'} if os.getenv("DATABASE_URL") else {},
+    )
+
+    user_feature_permission_id = Column(Integer, primary_key=True, autoincrement=True)
+    _users_schema = 'users.' if os.getenv("DATABASE_URL") else ''
+    user_id = Column(
+        Integer,
+        ForeignKey(f'{_users_schema}users.user_id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    feature_key = Column(String(64), nullable=False)
+    is_enabled = Column(Boolean, nullable=False, default=True)
+    granted_by = Column(Integer, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
 class ApiKey(Base):
     """API key model for third-party access."""
     __tablename__ = 'api_keys'
@@ -389,6 +412,60 @@ def get_all_users():
     session = get_session()
     try:
         return session.query(User).order_by(User.created_at.desc()).all()
+    finally:
+        session.close()
+
+
+def get_user_feature_overrides(user_ids):
+    """Return explicit feature overrides grouped by user ID."""
+    normalized_ids = sorted({int(user_id) for user_id in (user_ids or []) if user_id})
+    if not normalized_ids:
+        return {}
+
+    session = get_session()
+    try:
+        rows = session.query(UserFeaturePermission).filter(
+            UserFeaturePermission.user_id.in_(normalized_ids)
+        ).all()
+        result = {user_id: {} for user_id in normalized_ids}
+        for row in rows:
+            result.setdefault(row.user_id, {})[row.feature_key] = bool(row.is_enabled)
+        return result
+    finally:
+        session.close()
+
+
+def replace_user_feature_permissions(user_id: int, feature_access: dict, granted_by: int = None):
+    """Replace a user's feature overrides in one transaction."""
+    normalized_access = {
+        str(feature_key).strip(): bool(is_enabled)
+        for feature_key, is_enabled in (feature_access or {}).items()
+        if str(feature_key).strip()
+    }
+
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.user_id == user_id).first()
+        if not user:
+            return None
+        if user.role in ('owner', 'admin'):
+            raise ValueError('Admins and owners automatically have access to every feature')
+
+        session.query(UserFeaturePermission).filter(
+            UserFeaturePermission.user_id == user_id
+        ).delete(synchronize_session=False)
+        for feature_key, is_enabled in normalized_access.items():
+            session.add(UserFeaturePermission(
+                user_id=user_id,
+                feature_key=feature_key,
+                is_enabled=is_enabled,
+                granted_by=granted_by,
+            ))
+        session.commit()
+        return normalized_access
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
 
