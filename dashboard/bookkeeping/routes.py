@@ -360,6 +360,59 @@ CORRECTION_RULE_FIELDS = {
     "revenue_item": {"property_code", "listing_mapping_id"},
 }
 
+# Keep spreadsheet bulk edits intentionally narrower than the full row editor. These
+# are the fields exposed as columns in the live workbook and safe to assign across
+# more than one record at a time.
+BULK_EDIT_FIELDS = {
+    "expense_item": {
+        "service_date",
+        "category",
+        "item_name",
+        "vendor",
+        "property_code",
+        "total",
+        "payment_method",
+        "needs_review",
+    },
+    "revenue_item": {
+        "reservation_identifier",
+        "confirmation_code",
+        "guest_name",
+        "property_code",
+        "transaction_date",
+        "booking_date",
+        "start_date",
+        "end_date",
+        "nights",
+        "gross_amount",
+        "paid_out_amount",
+        "commission_amount",
+        "hostaway_fee_amount",
+        "stripe_fee_amount",
+        "cleaning_fee_amount",
+        "tax_amount",
+        "refund_amount",
+        "details",
+        "needs_review",
+    },
+}
+
+
+def _bulk_edit_item_payload(row_type, item, field_name, value):
+    """Build a complete item payload with one bulk-edit field changed."""
+    if field_name not in BULK_EDIT_FIELDS.get(row_type, set()):
+        raise ValueError("This column cannot be bulk edited")
+
+    if row_type == "expense_item":
+        payload = _expense_item_snapshot(item)
+    elif row_type == "revenue_item":
+        payload = item.to_dict()
+    else:
+        raise ValueError("Invalid row type")
+
+    payload[field_name] = value
+    return payload
+
 
 def _json_safe(value):
     if isinstance(value, dict):
@@ -2497,6 +2550,132 @@ def api_update_revenue_item(item_id):
         session.rollback()
         logger.error("Error updating revenue item: %s", exc, exc_info=True)
         return jsonify({"error": "Failed to update revenue item"}), 500
+    finally:
+        session.close()
+
+
+@bookkeeping_bp.route("/api/periods/<int:period_id>/items/bulk-update", methods=["PUT"])
+@feature_required('bookkeeping')
+def api_bulk_update_items(period_id):
+    """Apply one spreadsheet column value to multiple rows in one transaction."""
+    session = get_session()
+    current_user = get_current_user()
+    payload = request.get_json() or {}
+    row_type = (payload.get("row_type") or "").strip()
+    field_name = (payload.get("field") or "").strip()
+    raw_row_ids = payload.get("row_ids") or []
+    updated_at_by_id = payload.get("updated_at_by_id") or {}
+    edit_note = (payload.get("edit_note") or "").strip()
+
+    if row_type not in BULK_EDIT_FIELDS:
+        return jsonify({"error": "Invalid row type"}), 400
+    if field_name not in BULK_EDIT_FIELDS[row_type]:
+        return jsonify({"error": "This column cannot be bulk edited"}), 400
+    if not isinstance(raw_row_ids, list):
+        return jsonify({"error": "row_ids must be a list"}), 400
+    try:
+        row_ids = list(dict.fromkeys(int(row_id) for row_id in raw_row_ids))
+    except (TypeError, ValueError):
+        return jsonify({"error": "row_ids must contain valid record IDs"}), 400
+    if len(row_ids) < 2:
+        return jsonify({"error": "Select at least two rows for a bulk update"}), 400
+    if len(row_ids) > 5000:
+        return jsonify({"error": "Bulk updates are limited to 5,000 rows at a time"}), 400
+    if not edit_note:
+        return jsonify({"error": "A note is required for bulk bookkeeping changes"}), 400
+    if "value" not in payload:
+        return jsonify({"error": "Choose a value to apply"}), 400
+    if field_name == "category" and payload.get("value") not in EXPENSE_CATEGORIES:
+        return jsonify({"error": "Invalid expense category"}), 400
+
+    model = BookkeepingExpenseItem if row_type == "expense_item" else BookkeepingRevenueItem
+    id_column = (
+        BookkeepingExpenseItem.bookkeeping_expense_item_id
+        if row_type == "expense_item"
+        else BookkeepingRevenueItem.bookkeeping_revenue_item_id
+    )
+
+    try:
+        period, error_response = _get_period_or_404(session, period_id)
+        if error_response:
+            return error_response
+
+        items = (
+            session.query(model)
+            .filter(model.period_id == period_id, id_column.in_(row_ids))
+            .with_for_update()
+            .all()
+        )
+        items_by_id = {int(getattr(item, id_column.key)): item for item in items}
+        missing_ids = [row_id for row_id in row_ids if row_id not in items_by_id]
+        if missing_ids:
+            return jsonify({"error": "One or more selected rows no longer exist in this workspace", "row_ids": missing_ids}), 404
+
+        stale_ids = []
+        missing_versions = []
+        for row_id in row_ids:
+            expected_updated_at = updated_at_by_id.get(str(row_id), updated_at_by_id.get(row_id))
+            item = items_by_id[row_id]
+            if not expected_updated_at:
+                missing_versions.append(row_id)
+            elif item.updated_at and expected_updated_at != item.updated_at.isoformat():
+                stale_ids.append(row_id)
+        if missing_versions:
+            return jsonify({"error": "Refresh the workspace before applying this bulk change", "row_ids": missing_versions}), 400
+        if stale_ids:
+            return jsonify({"error": "Some selected rows changed. Nothing was updated; refresh and try again.", "row_ids": stale_ids}), 409
+
+        changed_count = 0
+        for row_id in row_ids:
+            item = items_by_id[row_id]
+            if row_type == "expense_item":
+                before_data = _expense_item_snapshot(item)
+                item_payload = _bulk_edit_item_payload(row_type, item, field_name, payload.get("value"))
+                _expense_item_from_payload(item, item_payload, current_user.user_id)
+                after_data = _expense_item_snapshot(item)
+                material_fields = MATERIAL_EXPENSE_FIELDS
+                rule_context = _build_expense_rule_context_from_item(item)
+            else:
+                before_data = _revenue_item_data(item)
+                item_payload = _bulk_edit_item_payload(row_type, item, field_name, payload.get("value"))
+                _revenue_item_from_payload(item, item_payload, current_user.user_id)
+                after_data = _revenue_item_data(item)
+                material_fields = MATERIAL_REVENUE_FIELDS
+                rule_context = _build_revenue_rule_context_from_item(item)
+
+            changed_fields = {
+                candidate
+                for candidate in material_fields
+                if before_data.get(candidate) != after_data.get(candidate)
+            }
+            if not changed_fields:
+                continue
+            _apply_manual_edit(
+                session,
+                period,
+                period.portfolio,
+                row_type,
+                row_id,
+                before_data,
+                after_data,
+                changed_fields,
+                edit_note,
+                current_user.user_id,
+                rule_context,
+            )
+            changed_count += 1
+
+        if changed_count:
+            _mark_period_dirty(period)
+        session.commit()
+        return jsonify({"updated_count": changed_count, "selected_count": len(row_ids)})
+    except (TypeError, ValueError, OverflowError) as exc:
+        session.rollback()
+        return jsonify({"error": str(exc) or "Invalid bulk update value"}), 400
+    except Exception as exc:
+        session.rollback()
+        logger.error("Error bulk updating bookkeeping items: %s", exc, exc_info=True)
+        return jsonify({"error": "Failed to update the selected bookkeeping rows"}), 500
     finally:
         session.close()
 

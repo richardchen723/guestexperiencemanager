@@ -476,6 +476,15 @@ REVENUE_COMMON_GRID_COLUMNS = [
     ("stripe_fee_amount", "Stripe"),
     ("needs_review", "Review"),
 ]
+
+
+def revenue_edit_field_for_header(source: str, header: str) -> Optional[str]:
+    for field_name, source_headers in REVENUE_ROW_FIELD_MAP.items():
+        if source_headers.get(source) == header:
+            return field_name
+    return None
+
+
 REVENUE_DATE_HEADERS = {
     "Date",
     "Arriving by date",
@@ -3734,7 +3743,10 @@ def build_sheet_views(
             "label": "All Revenue",
             "editable": True,
             "row_type": "revenue_item",
-            "columns": [{"key": key, "label": label} for key, label in REVENUE_COMMON_GRID_COLUMNS],
+            "columns": [
+                {"key": key, "label": label, "edit_field": key if key != "source" else None}
+                for key, label in REVENUE_COMMON_GRID_COLUMNS
+            ],
             "rows": (
                 [
                     {
@@ -3788,7 +3800,14 @@ def build_sheet_views(
                 "label": source_label(source),
                 "editable": True,
                 "row_type": "revenue_item",
-                "columns": [{"key": header, "label": header} for header in STANDARD_REVENUE_HEADERS.get(source, [])],
+                "columns": [
+                    {
+                        "key": header,
+                        "label": header,
+                        "edit_field": revenue_edit_field_for_header(source, header),
+                    }
+                    for header in STANDARD_REVENUE_HEADERS.get(source, [])
+                ],
                 "rows": (
                     [
                         {
@@ -3821,14 +3840,14 @@ def build_sheet_views(
         )
 
     expense_columns = [
-        {"key": "service_date", "label": "Service Date"},
-        {"key": "category", "label": "Category"},
-        {"key": "item_name", "label": "Item"},
-        {"key": "vendor", "label": "Vendor"},
-        {"key": "property_code", "label": "Property"},
-        {"key": "effective_total", "label": "Amount"},
-        {"key": "payment_method", "label": "Payment Method"},
-        {"key": "needs_review", "label": "Review"},
+        {"key": "service_date", "label": "Service Date", "edit_field": "service_date"},
+        {"key": "category", "label": "Category", "edit_field": "category"},
+        {"key": "item_name", "label": "Item", "edit_field": "item_name"},
+        {"key": "vendor", "label": "Vendor", "edit_field": "vendor"},
+        {"key": "property_code", "label": "Property", "edit_field": "property_code"},
+        {"key": "effective_total", "label": "Amount", "edit_field": "total"},
+        {"key": "payment_method", "label": "Payment Method", "edit_field": "payment_method"},
+        {"key": "needs_review", "label": "Review", "edit_field": "needs_review"},
     ]
     tabs.append(
         {
@@ -3864,13 +3883,13 @@ def build_sheet_views(
             )
             software_columns = [
                 {"key": "entry_type", "label": "Entry Type"},
-                {"key": "software_name", "label": "Software"},
-                {"key": "vendor", "label": "Vendor"},
+                {"key": "software_name", "label": "Software", "edit_field": "item_name"},
+                {"key": "vendor", "label": "Vendor", "edit_field": "vendor"},
                 {"key": "price_per_listing", "label": "Price Per Listing"},
                 {"key": "listing_count", "label": "Listings"},
-                {"key": "effective_total", "label": "Amount"},
-                {"key": "property_code", "label": "Property"},
-                {"key": "needs_review", "label": "Review"},
+                {"key": "effective_total", "label": "Amount", "edit_field": "total"},
+                {"key": "property_code", "label": "Property", "edit_field": "property_code"},
+                {"key": "needs_review", "label": "Review", "edit_field": "needs_review"},
             ]
             software_rows: List[Dict[str, Any]] = []
             configured_rows = [

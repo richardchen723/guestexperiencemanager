@@ -273,6 +273,69 @@ def test_build_sheet_views_keeps_manual_software_rows_editable():
     assert manual_row["effective_total"] == 25.0
 
 
+def test_live_expense_sheet_exposes_bulk_edit_fields_for_visible_columns():
+    portfolio = SimpleNamespace(
+        code="PT300",
+        listing_count=0,
+        hostaway_price_per_listing=Decimal("0"),
+        pricelabs_price_per_listing=Decimal("0"),
+        management_fee_percentage=Decimal("0"),
+        revenue_channels=[],
+    )
+
+    sheet_views = build_sheet_views(
+        portfolio,
+        period=SimpleNamespace(),
+        uploads=[],
+        revenue_items=[],
+        expense_items=[],
+    )
+
+    expense_sheet = next(sheet for sheet in sheet_views if sheet["key"] == "expenses_all")
+    edit_fields = {column["key"]: column.get("edit_field") for column in expense_sheet["columns"]}
+
+    assert edit_fields["service_date"] == "service_date"
+    assert edit_fields["category"] == "category"
+    assert edit_fields["effective_total"] == "total"
+    assert edit_fields["needs_review"] == "needs_review"
+
+
+def test_revenue_source_headers_map_to_canonical_bulk_edit_fields():
+    assert bookkeeping_service.revenue_edit_field_for_header("airbnb", "Guest") == "guest_name"
+    assert bookkeeping_service.revenue_edit_field_for_header("vrbo", "Total Price") == "gross_amount"
+    assert bookkeeping_service.revenue_edit_field_for_header("booking_com", "Commission %") is None
+
+
+def test_bulk_edit_payload_changes_only_requested_field():
+    item = SimpleNamespace(
+        to_dict=lambda: {
+            "guest_name": "Original Guest",
+            "property_code": "PT300-2i",
+            "gross_amount": 65.0,
+        }
+    )
+
+    payload = bookkeeping_routes._bulk_edit_item_payload(
+        "revenue_item",
+        item,
+        "property_code",
+        "PT300-6N",
+    )
+
+    assert payload == {
+        "guest_name": "Original Guest",
+        "property_code": "PT300-6N",
+        "gross_amount": 65.0,
+    }
+
+
+def test_bulk_edit_payload_rejects_non_bulk_field():
+    item = SimpleNamespace(to_dict=lambda: {})
+
+    with pytest.raises(ValueError, match="cannot be bulk edited"):
+        bookkeeping_routes._bulk_edit_item_payload("revenue_item", item, "source", "vrbo")
+
+
 def test_build_bookkeeping_workbook_creates_owner_statement_and_tabs():
     portfolio = SimpleNamespace(
         code="PT300",

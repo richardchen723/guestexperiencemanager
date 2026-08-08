@@ -14,6 +14,12 @@
                 currentStep: 1,
                 activeSheetKey: null,
                 selectedRow: null,
+                sheetSelection: {
+                    rowType: null,
+                    rowIds: new Set(),
+                    cellField: null,
+                    anchorRowId: null,
+                },
                 editorMode: 'update',
                 selectedUploadIds: new Set(),
                 pendingUploadStages: new Set(),
@@ -23,6 +29,7 @@
                 isEditingRevenueChannels: false,
                 driveStatus: null,
                 isExporting: false,
+                bulkFeedback: null,
             };
             this.processingPolls = {};
 
@@ -113,6 +120,13 @@
                 sheetMeta: document.getElementById('sheetMeta'),
                 sheetMetaSummary: document.getElementById('sheetMetaSummary'),
                 sheetStatusBadge: document.getElementById('sheetStatusBadge'),
+                sheetSelectionBar: document.getElementById('sheetSelectionBar'),
+                sheetSelectionTitle: document.getElementById('sheetSelectionTitle'),
+                sheetSelectionHint: document.getElementById('sheetSelectionHint'),
+                selectAllSheetRowsBtn: document.getElementById('selectAllSheetRowsBtn'),
+                clearSheetSelectionBtn: document.getElementById('clearSheetSelectionBtn'),
+                sheetSelectionLive: document.getElementById('sheetSelectionLive'),
+                rowEditorTitle: document.getElementById('rowEditorTitle'),
                 rowEditor: document.getElementById('rowEditor'),
                 selectionBadge: document.getElementById('selectionBadge'),
                 proposalList: document.getElementById('proposalList'),
@@ -228,6 +242,10 @@
             document.addEventListener('keydown', (event) => {
                 if (event.key === 'Escape' && this.state.isStepModalOpen) {
                     this.closeStepModal();
+                    return;
+                }
+                if (event.key === 'Escape' && this.getSelectedRowIds().length) {
+                    this.clearSelection();
                 }
             });
 
@@ -249,17 +267,25 @@
                 this.setActiveSheet(button.dataset.sheetKey);
             });
 
-            this.elements.sheetGridContainer.addEventListener('click', (event) => {
-                const row = event.target.closest('tr[data-row-type][data-row-id]');
-                if (!row) return;
-                const rowType = row.dataset.rowType;
-                const rowId = Number(row.dataset.rowId);
-                if (!rowType || !rowId) return;
-                this.selectRow(rowType, rowId);
+            this.elements.sheetGridContainer.addEventListener('click', (event) => this.handleSheetGridClick(event));
+            this.elements.sheetGridContainer.addEventListener('keydown', (event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
+                    event.preventDefault();
+                    this.selectAllSheetRows();
+                    return;
+                }
+                this.handleSheetGridKeydown(event);
             });
+            this.elements.selectAllSheetRowsBtn.addEventListener('click', () => this.selectAllSheetRows());
+            this.elements.clearSheetSelectionBtn.addEventListener('click', () => this.clearSelection());
 
             this.elements.rowEditor.addEventListener('submit', (event) => this.handleRowEditorSubmit(event));
             this.elements.rowEditor.addEventListener('change', (event) => this.handleEditorDependentChange(event));
+            this.elements.rowEditor.addEventListener('click', (event) => {
+                if (event.target.closest('[data-clear-sheet-selection]')) {
+                    this.clearSelection();
+                }
+            });
             this.elements.proposalList.addEventListener('click', (event) => this.handleProposalListClick(event));
             this.elements.uploadsList.addEventListener('click', (event) => this.handleUploadListClick(event));
             this.elements.uploadsList.addEventListener('change', (event) => this.handleUploadListChange(event));
@@ -824,6 +850,8 @@
             const sheetViews = workspace?.sheet_views || [];
             if (!sheetViews.length) {
                 this.state.activeSheetKey = null;
+                this.state.selectedRow = null;
+                this.resetSheetSelectionState();
                 this.renderSheetTabs([]);
                 this.elements.sheetMetaSummary.textContent = 'Spreadsheet tabs appear here as soon as a month is active.';
                 this.elements.sheetGridContainer.innerHTML = '<div class="bk-sheet-empty">Select a portfolio and month to load the live bookkeeping spreadsheet.</div>';
@@ -837,6 +865,8 @@
 
             if (!sheetViews.some((view) => view.key === this.state.activeSheetKey)) {
                 this.state.activeSheetKey = sheetViews[0].key;
+                this.state.selectedRow = null;
+                this.resetSheetSelectionState();
             }
 
             this.renderSheetTabs(sheetViews);
@@ -1123,47 +1153,368 @@
             `).join('');
         }
 
+        getSelectedRowIds() {
+            return Array.from(this.state.sheetSelection?.rowIds || []);
+        }
+
+        getSelectableSheetRows() {
+            return (this.getActiveSheet()?.rows || []).filter((row) => row.row_id && row.row_type);
+        }
+
+        resetSheetSelectionState() {
+            this.state.sheetSelection = {
+                rowType: null,
+                rowIds: new Set(),
+                cellField: null,
+                anchorRowId: null,
+            };
+        }
+
+        reconcileSheetSelection() {
+            const selection = this.state.sheetSelection;
+            if (!selection?.rowIds?.size) return;
+            const availableRows = this.getSelectableSheetRows();
+            const availableIds = new Set(
+                availableRows
+                    .filter((row) => row.row_type === selection.rowType)
+                    .map((row) => Number(row.row_id)),
+            );
+            selection.rowIds = new Set(this.getSelectedRowIds().filter((rowId) => availableIds.has(rowId)));
+            if (!selection.rowIds.size) {
+                this.resetSheetSelectionState();
+                this.state.selectedRow = null;
+            } else if (selection.rowIds.size === 1) {
+                this.state.selectedRow = { rowType: selection.rowType, rowId: this.getSelectedRowIds()[0] };
+            } else {
+                this.state.selectedRow = null;
+            }
+        }
+
+        handleSheetGridClick(event) {
+            if (event.target.closest('[data-select-all-sheet-rows]')) {
+                event.preventDefault();
+                const selectableCount = this.getSelectableSheetRows().length;
+                if (selectableCount && this.getSelectedRowIds().length === selectableCount) {
+                    this.clearSelection();
+                } else {
+                    this.selectAllSheetRows();
+                }
+                return;
+            }
+            const row = event.target.closest('tr[data-row-type][data-row-id]');
+            if (!row) return;
+            const rowType = row.dataset.rowType;
+            const rowId = Number(row.dataset.rowId);
+            if (!rowType || !rowId) return;
+
+            const sheet = this.getActiveSheet();
+            if (!sheet?.editable) {
+                this.selectRow(rowType, rowId);
+                return;
+            }
+
+            const isAdditive = event.metaKey || event.ctrlKey;
+            const selector = event.target.closest('[data-sheet-row-selector]');
+            const cell = event.target.closest('td[data-edit-field]');
+            if (selector) {
+                event.preventDefault();
+                this.updateSheetSelection(rowType, rowId, {
+                    additive: isAdditive || !event.shiftKey,
+                    range: event.shiftKey,
+                    cellField: null,
+                });
+                return;
+            }
+
+            if (cell) {
+                const cellField = cell.dataset.editField || null;
+                this.updateSheetSelection(rowType, rowId, {
+                    additive: isAdditive,
+                    range: event.shiftKey,
+                    cellField,
+                });
+                this.focusSheetCell(rowId, cellField);
+                return;
+            }
+
+            this.updateSheetSelection(rowType, rowId, {
+                additive: isAdditive,
+                range: event.shiftKey,
+                cellField: null,
+            });
+        }
+
+        handleSheetGridKeydown(event) {
+            const selector = event.target.closest('[data-sheet-row-selector]');
+            if (selector && ['Enter', ' '].includes(event.key)) {
+                event.preventDefault();
+                selector.click();
+                return;
+            }
+
+            const cell = event.target.closest('td[data-edit-field]');
+            if (!cell) return;
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                this.focusRowEditor();
+                return;
+            }
+            if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+
+            const row = cell.closest('tr[data-row-type][data-row-id]');
+            const rowCells = Array.from(row?.querySelectorAll('td[data-edit-field]') || []);
+            const rows = Array.from(this.elements.sheetGridContainer.querySelectorAll('tr[data-row-type][data-row-id]'));
+            const rowIndex = rows.indexOf(row);
+            const columnIndex = rowCells.indexOf(cell);
+            let targetCell = null;
+            if (event.key === 'ArrowLeft') targetCell = rowCells[columnIndex - 1] || null;
+            if (event.key === 'ArrowRight') targetCell = rowCells[columnIndex + 1] || null;
+            if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                const nextRowIndex = rowIndex + (event.key === 'ArrowUp' ? -1 : 1);
+                targetCell = rows[nextRowIndex]?.querySelector(`td[data-edit-field="${cell.dataset.editField}"]`) || null;
+            }
+            if (!targetCell) return;
+
+            event.preventDefault();
+            const targetRow = targetCell.closest('tr[data-row-type][data-row-id]');
+            this.updateSheetSelection(targetRow.dataset.rowType, Number(targetRow.dataset.rowId), {
+                additive: false,
+                range: event.shiftKey && ['ArrowUp', 'ArrowDown'].includes(event.key),
+                cellField: targetCell.dataset.editField,
+            });
+            this.focusSheetCell(Number(targetRow.dataset.rowId), targetCell.dataset.editField);
+        }
+
+        updateSheetSelection(rowType, rowId, options = {}) {
+            const { additive = false, range = false, cellField = null } = options;
+            const current = this.state.sheetSelection;
+            const isCompatible = current.rowType === rowType && current.cellField === cellField;
+            let nextIds = isCompatible ? new Set(current.rowIds) : new Set();
+            let anchorRowId = isCompatible ? current.anchorRowId : null;
+
+            if (range && isCompatible && anchorRowId) {
+                const rows = this.getSelectableSheetRows().filter((row) => row.row_type === rowType);
+                const anchorIndex = rows.findIndex((row) => Number(row.row_id) === Number(anchorRowId));
+                const targetIndex = rows.findIndex((row) => Number(row.row_id) === Number(rowId));
+                if (anchorIndex >= 0 && targetIndex >= 0) {
+                    const [start, end] = [anchorIndex, targetIndex].sort((left, right) => left - right);
+                    nextIds = new Set(rows.slice(start, end + 1).map((row) => Number(row.row_id)));
+                }
+            } else if (additive && isCompatible) {
+                if (nextIds.has(rowId)) {
+                    nextIds.delete(rowId);
+                } else {
+                    nextIds.add(rowId);
+                }
+                anchorRowId = rowId;
+            } else {
+                nextIds = new Set([rowId]);
+                anchorRowId = rowId;
+            }
+
+            if (!nextIds.size) {
+                this.resetSheetSelectionState();
+            } else {
+                this.state.sheetSelection = { rowType, rowIds: nextIds, cellField, anchorRowId };
+            }
+            this.state.selectedRow = nextIds.size === 1
+                ? { rowType, rowId: Array.from(nextIds)[0] }
+                : null;
+            this.state.bulkFeedback = null;
+            this.state.editorMode = 'update';
+            this.setActiveContextPanel('editor');
+            this.renderSelectionSurfaces();
+        }
+
+        selectAllSheetRows() {
+            const rows = this.getSelectableSheetRows();
+            if (!rows.length) return;
+            const rowType = rows[0].row_type;
+            const compatibleRows = rows.filter((row) => row.row_type === rowType);
+            this.state.sheetSelection = {
+                rowType,
+                rowIds: new Set(compatibleRows.map((row) => Number(row.row_id))),
+                cellField: null,
+                anchorRowId: Number(compatibleRows[0].row_id),
+            };
+            this.state.selectedRow = compatibleRows.length === 1
+                ? { rowType, rowId: Number(compatibleRows[0].row_id) }
+                : null;
+            this.state.bulkFeedback = null;
+            this.state.editorMode = 'update';
+            this.setActiveContextPanel('editor');
+            this.renderSelectionSurfaces();
+        }
+
+        renderSelectionSurfaces() {
+            const scrollTop = this.elements.sheetGridContainer.scrollTop;
+            const scrollLeft = this.elements.sheetGridContainer.scrollLeft;
+            this.renderActiveSheet();
+            this.elements.sheetGridContainer.scrollTop = scrollTop;
+            this.elements.sheetGridContainer.scrollLeft = scrollLeft;
+            this.renderRowEditor();
+            this.renderEvidencePreview();
+        }
+
+        focusSheetCell(rowId, fieldName) {
+            if (!fieldName) return;
+            window.setTimeout(() => {
+                const cell = this.elements.sheetGridContainer.querySelector(
+                    `tr[data-row-id="${rowId}"] td[data-edit-field="${fieldName}"]`,
+                );
+                cell?.focus({ preventScroll: true });
+            }, 0);
+        }
+
+        updateSheetSelectionBar(sheet) {
+            const selectedIds = this.getSelectedRowIds();
+            const isEditableSelection = Boolean(sheet?.editable && selectedIds.length);
+            this.elements.sheetSelectionBar.hidden = !isEditableSelection;
+            if (!isEditableSelection) return;
+
+            const fieldName = this.state.sheetSelection.cellField;
+            const column = (sheet.columns || []).find((candidate) => candidate.edit_field === fieldName);
+            const fieldLabel = column?.label || this.bulkFieldLabel(fieldName);
+            this.elements.sheetSelectionTitle.textContent = fieldName
+                ? `${selectedIds.length} ${fieldLabel} cell${selectedIds.length === 1 ? '' : 's'} selected`
+                : `${selectedIds.length} row${selectedIds.length === 1 ? '' : 's'} selected`;
+            this.elements.sheetSelectionHint.textContent = fieldName
+                ? `Column locked to ${fieldLabel}. Set the new value in Bulk edit.`
+                : 'Choose the field and new value in Bulk edit.';
+            const selectableCount = this.getSelectableSheetRows().length;
+            this.elements.selectAllSheetRowsBtn.textContent = selectedIds.length === selectableCount ? 'All selected' : `Select all ${selectableCount}`;
+            this.elements.selectAllSheetRowsBtn.disabled = selectedIds.length === selectableCount;
+            if (this.elements.sheetSelectionLive) {
+                this.elements.sheetSelectionLive.textContent = this.elements.sheetSelectionTitle.textContent;
+            }
+        }
+
+        sheetColumnWidth(column) {
+            const fieldName = column.edit_field || column.key || '';
+            if (fieldName === 'source') return 96;
+            if (['reservation_identifier', 'confirmation_code'].includes(fieldName)) return 132;
+            if (fieldName === 'guest_name') return 150;
+            if (fieldName === 'property_code') return 210;
+            if (['start_date', 'end_date', 'service_date', 'transaction_date', 'booking_date'].includes(fieldName)) return 108;
+            if (['gross_amount', 'paid_out_amount', 'commission_amount', 'hostaway_fee_amount', 'stripe_fee_amount', 'cleaning_fee_amount', 'tax_amount', 'refund_amount', 'total', 'effective_total'].includes(fieldName)) return 112;
+            if (fieldName === 'needs_review') return 92;
+            if (fieldName === 'category') return 112;
+            if (fieldName === 'item_name') return 190;
+            if (fieldName === 'vendor') return 180;
+            if (fieldName === 'payment_method') return 140;
+            return 140;
+        }
+
+        rowSelectionAriaLabel(row, rowIndex) {
+            const context = row.guest_name
+                || row.item_name
+                || row.property_code
+                || row.vendor
+                || row.reservation_identifier
+                || '';
+            return `Select row ${rowIndex + 1}${context ? `, ${context}` : ''}`;
+        }
+
         renderActiveSheet() {
             const sheet = this.getActiveSheet();
             if (!sheet) {
                 this.elements.sheetGridContainer.innerHTML = '<div class="bk-sheet-empty">No sheet selected.</div>';
+                this.elements.sheetSelectionBar.hidden = true;
                 return;
             }
 
+            this.reconcileSheetSelection();
+
             this.elements.sheetStatusBadge.textContent = sheet.editable ? 'Editable' : 'Read only';
-            this.elements.sheetMeta.textContent = `${sheet.label} · ${(sheet.rows || []).length} row${(sheet.rows || []).length === 1 ? '' : 's'}${sheet.editable ? ' · click a row to edit' : ''}`;
+            this.elements.sheetMeta.textContent = `${sheet.label} · ${(sheet.rows || []).length} row${(sheet.rows || []).length === 1 ? '' : 's'}${sheet.editable ? ' · select a cell to edit; use the row gutter for bulk actions' : ''}`;
             this.elements.sheetMetaSummary.textContent = `${sheet.label} · ${(sheet.rows || []).length} row${(sheet.rows || []).length === 1 ? '' : 's'}`;
             this.elements.addSheetRowBtn.disabled = !(sheet.key === 'expenses_all' || sheet.key === 'revenue_all');
 
             if (!(sheet.rows || []).length) {
                 this.elements.sheetGridContainer.innerHTML = '<div class="bk-sheet-empty">This sheet does not have any rows yet.</div>';
+                this.updateSheetSelectionBar(sheet);
                 return;
             }
 
             const headers = sheet.columns || [];
-            const rowsHtml = (sheet.rows || []).map((row) => {
-                const isSelected = this.state.selectedRow
-                    && this.state.selectedRow.rowType === row.row_type
-                    && this.state.selectedRow.rowId === Number(row.row_id);
+            const selectedIds = new Set(this.getSelectedRowIds());
+            const selectedCellField = this.state.sheetSelection.cellField;
+            const showRowSelectors = Boolean(sheet.editable && this.getSelectableSheetRows().length);
+            const rowsHtml = (sheet.rows || []).map((row, rowIndex) => {
+                const rowId = Number(row.row_id);
+                const isSelected = Boolean(row.row_id && selectedIds.has(rowId));
+                const selectionClass = isSelected
+                    ? (selectedCellField ? 'is-cell-range-selected' : (selectedIds.size > 1 ? 'is-range-selected' : 'is-selected'))
+                    : '';
                 const rowNeedsReview = row.needs_review || row.kind === 'change_proposal' || (row.reason && sheet.key === 'review_queue');
                 return `
                     <tr
-                        class="${isSelected ? 'is-selected ' : ''}${rowNeedsReview ? 'needs-review' : ''}"
+                        class="${selectionClass}${rowNeedsReview ? ' needs-review' : ''}"
                         ${row.row_id ? `data-row-id="${row.row_id}" data-row-type="${row.row_type || ''}"` : ''}
+                        ${isSelected ? 'aria-selected="true"' : ''}
+                        aria-rowindex="${rowIndex + 2}"
                     >
-                        ${headers.map((column) => `<td>${this.formatCell(row[column.key])}</td>`).join('')}
+                        ${showRowSelectors ? `
+                            <td class="bk-row-selector-cell">
+                                ${row.row_id ? `
+                                    <label class="bk-row-selector-hit" data-sheet-row-selector tabindex="0" aria-label="${this.escapeHtml(this.rowSelectionAriaLabel(row, rowIndex))}">
+                                        <input class="bk-row-selector" type="checkbox" tabindex="-1" ${isSelected ? 'checked' : ''} aria-hidden="true">
+                                        <span class="bk-row-number" aria-hidden="true">${rowIndex + 1}</span>
+                                    </label>
+                                ` : '—'}
+                            </td>
+                        ` : ''}
+                        ${headers.map((column, columnIndex) => {
+                            const editField = row.row_id ? (column.edit_field || '') : '';
+                            const isCellSelected = Boolean(isSelected && selectedCellField && editField === selectedCellField);
+                            const isActiveCell = Boolean(isCellSelected && Number(this.state.sheetSelection.anchorRowId) === rowId);
+                            const previousRowId = Number((sheet.rows || [])[rowIndex - 1]?.row_id);
+                            const nextRowId = Number((sheet.rows || [])[rowIndex + 1]?.row_id);
+                            const isCellRangeStart = Boolean(isCellSelected && !selectedIds.has(previousRowId));
+                            const isCellRangeEnd = Boolean(isCellSelected && !selectedIds.has(nextRowId));
+                            const cellSelectionClasses = [
+                                isCellSelected ? 'is-cell-selected' : '',
+                                isCellRangeStart ? 'is-cell-range-start' : '',
+                                isCellRangeEnd ? 'is-cell-range-end' : '',
+                            ].filter(Boolean).join(' ');
+                            return `<td
+                                data-column-key="${this.escapeHtml(column.key || '')}"
+                                aria-colindex="${columnIndex + (showRowSelectors ? 2 : 1)}"
+                                ${editField ? `data-edit-field="${this.escapeHtml(editField)}" tabindex="${isActiveCell || (!selectedCellField && rowIndex === 0 && columnIndex === 0) ? '0' : '-1'}" aria-label="${this.escapeHtml(`${column.label}: ${this.formatCellText(row[column.key])}`)}"` : ''}
+                                ${isCellSelected ? 'aria-selected="true"' : ''}
+                                class="${cellSelectionClasses}"
+                            >${this.formatCell(row[column.key])}</td>`;
+                        }).join('')}
                     </tr>
                 `;
             }).join('');
 
             this.elements.sheetGridContainer.innerHTML = `
-                <table class="bk-sheet-table">
+                <table class="bk-sheet-table" role="grid" aria-multiselectable="true" aria-label="${this.escapeHtml(sheet.label)} spreadsheet">
+                    <colgroup>
+                        ${showRowSelectors ? '<col style="width:38px">' : ''}
+                        ${headers.map((column) => `<col style="width:${this.sheetColumnWidth(column)}px">`).join('')}
+                    </colgroup>
                     <thead>
-                        <tr>${headers.map((column) => `<th>${this.escapeHtml(column.label)}</th>`).join('')}</tr>
+                        <tr aria-rowindex="1">
+                            ${showRowSelectors ? '<th class="bk-row-selector-cell"><label class="bk-row-selector-hit is-master" data-select-all-sheet-rows tabindex="0" aria-label="Select all rows"><input class="bk-row-selector" type="checkbox" tabindex="-1" aria-hidden="true"></label></th>' : ''}
+                            ${headers.map((column, columnIndex) => `<th data-column-key="${this.escapeHtml(column.key || '')}" aria-colindex="${columnIndex + (showRowSelectors ? 2 : 1)}">${this.escapeHtml(column.label)}</th>`).join('')}
+                        </tr>
                     </thead>
                     <tbody>${rowsHtml}</tbody>
                 </table>
             `;
+            const selectAllCheckbox = this.elements.sheetGridContainer.querySelector('[data-select-all-sheet-rows] .bk-row-selector');
+            if (selectAllCheckbox) {
+                const selectableCount = this.getSelectableSheetRows().length;
+                selectAllCheckbox.checked = Boolean(selectableCount && selectedIds.size === selectableCount);
+                selectAllCheckbox.indeterminate = Boolean(selectedIds.size && selectedIds.size < selectableCount);
+                const selectAllHitTarget = selectAllCheckbox.closest('[data-select-all-sheet-rows]');
+                if (selectAllHitTarget) {
+                    selectAllHitTarget.setAttribute('aria-label', selectAllCheckbox.checked ? 'Clear all selected rows' : 'Select all rows');
+                }
+            }
+            this.updateSheetSelectionBar(sheet);
         }
 
         renderUploads(uploads) {
@@ -1266,9 +1617,17 @@
 
         renderRowEditor() {
             const selection = this.state.selectedRow;
+            const selectedIds = this.getSelectedRowIds();
+            if (selectedIds.length > 1) {
+                this.renderBulkEditor();
+                return;
+            }
+            if (this.elements.rowEditorTitle) this.elements.rowEditorTitle.textContent = 'Row editor';
             if (!selection) {
-                this.elements.selectionBadge.textContent = 'No row selected';
-                this.elements.rowEditor.innerHTML = '<div class="bk-empty">Select a revenue or expense row from the spreadsheet to edit it here.</div>';
+                this.elements.selectionBadge.textContent = this.state.bulkFeedback ? 'Bulk update complete' : 'No row selected';
+                this.elements.rowEditor.innerHTML = this.state.bulkFeedback
+                    ? `<div class="bk-bulk-editor-intro"><strong>${this.escapeHtml(this.state.bulkFeedback)}</strong><br>The live workbook has been refreshed with the saved values.</div>`
+                    : '<div class="bk-empty">Select a row to edit it, or use the row checkboxes and Shift / Command / Ctrl to build a bulk selection.</div>';
                 return;
             }
 
@@ -1296,6 +1655,120 @@
 
             this.elements.selectionBadge.textContent = 'Read only';
             this.elements.rowEditor.innerHTML = '<div class="bk-empty">This sheet is derived from editable rows elsewhere in the workspace.</div>';
+        }
+
+        bulkFieldDefinitions(rowType) {
+            const shared = {
+                property_code: { label: 'Property', type: 'text', placeholder: 'Property or listing code' },
+                needs_review: { label: 'Review', type: 'boolean' },
+            };
+            if (rowType === 'expense_item') {
+                return {
+                    service_date: { label: 'Service date', type: 'date' },
+                    category: { label: 'Category', type: 'category' },
+                    item_name: { label: 'Item', type: 'text', placeholder: 'Expense item' },
+                    vendor: { label: 'Vendor', type: 'text', placeholder: 'Vendor name' },
+                    property_code: shared.property_code,
+                    total: { label: 'Amount', type: 'number', step: '0.01' },
+                    payment_method: { label: 'Payment method', type: 'text', placeholder: 'Zelle, card, cash…' },
+                    needs_review: shared.needs_review,
+                };
+            }
+            if (rowType === 'revenue_item') {
+                return {
+                    reservation_identifier: { label: 'Reservation ID', type: 'text' },
+                    confirmation_code: { label: 'Confirmation code', type: 'text' },
+                    guest_name: { label: 'Guest', type: 'text' },
+                    property_code: shared.property_code,
+                    transaction_date: { label: 'Transaction date', type: 'date' },
+                    booking_date: { label: 'Booking date', type: 'date' },
+                    start_date: { label: 'Start date', type: 'date' },
+                    end_date: { label: 'End date', type: 'date' },
+                    nights: { label: 'Nights', type: 'number', step: '1' },
+                    gross_amount: { label: 'Gross amount', type: 'number', step: '0.01' },
+                    paid_out_amount: { label: 'Paid out', type: 'number', step: '0.01' },
+                    commission_amount: { label: 'Commission', type: 'number', step: '0.01' },
+                    hostaway_fee_amount: { label: 'Hostaway fee', type: 'number', step: '0.01' },
+                    stripe_fee_amount: { label: 'Stripe fee', type: 'number', step: '0.01' },
+                    cleaning_fee_amount: { label: 'Cleaning fee', type: 'number', step: '0.01' },
+                    tax_amount: { label: 'Tax', type: 'number', step: '0.01' },
+                    refund_amount: { label: 'Refund', type: 'number', step: '0.01' },
+                    details: { label: 'Details', type: 'text' },
+                    needs_review: shared.needs_review,
+                };
+            }
+            return {};
+        }
+
+        bulkFieldLabel(fieldName) {
+            if (!fieldName) return 'selected';
+            const rowType = this.state.sheetSelection?.rowType;
+            return this.bulkFieldDefinitions(rowType)[fieldName]?.label
+                || fieldName.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+        }
+
+        renderBulkEditor() {
+            const selection = this.state.sheetSelection;
+            const selectedIds = this.getSelectedRowIds();
+            const definitions = this.bulkFieldDefinitions(selection.rowType);
+            const lockedField = selection.cellField;
+            const fieldOptions = Object.entries(definitions).map(([fieldName, definition]) => `
+                <option value="${fieldName}">${this.escapeHtml(definition.label)}</option>
+            `).join('');
+            const modeLabel = lockedField ? `${selectedIds.length} cells` : `${selectedIds.length} rows`;
+            if (this.elements.rowEditorTitle) this.elements.rowEditorTitle.textContent = 'Bulk edit';
+            this.elements.selectionBadge.textContent = `${modeLabel} selected`;
+            this.elements.rowEditor.innerHTML = `
+                <form id="bulkEditorForm" data-row-type="${this.escapeHtml(selection.rowType)}" class="bk-inline-editor">
+                    <div class="bk-bulk-editor-intro">
+                        <strong>Update ${modeLabel} together.</strong><br>
+                        The change is saved as one atomic operation. If any selected record changed since this sheet loaded, nothing will be updated.
+                    </div>
+                    <label>Column
+                        ${lockedField ? `
+                            <input type="hidden" name="bulk_field" value="${this.escapeHtml(lockedField)}">
+                            <div class="bk-bulk-field-lock">${this.escapeHtml(this.bulkFieldLabel(lockedField))}<span>Locked to selected cells</span></div>
+                        ` : `
+                            <select name="bulk_field" required>
+                                <option value="">Choose a column…</option>
+                                ${fieldOptions}
+                            </select>
+                        `}
+                    </label>
+                    <div class="bk-bulk-value-control">
+                        ${lockedField ? this.buildBulkValueControl(lockedField, selection.rowType) : '<div class="bk-empty">Choose the column whose value you want to replace.</div>'}
+                    </div>
+                    <label>Reason for this bulk change
+                        <textarea name="edit_note" required placeholder="Explain why these selected records need the same value."></textarea>
+                    </label>
+                    <div class="bk-inline-actions">
+                        <button class="btn btn-primary" type="submit">Update ${selectedIds.length} ${lockedField ? 'cells' : 'rows'}</button>
+                        <button class="btn btn-secondary" type="button" data-clear-sheet-selection>Clear selection</button>
+                    </div>
+                    <div data-bulk-status aria-live="polite"></div>
+                </form>
+            `;
+        }
+
+        buildBulkValueControl(fieldName, rowType) {
+            const definition = this.bulkFieldDefinitions(rowType)[fieldName];
+            if (!definition) {
+                return '<div class="bk-empty">This column cannot be updated in bulk.</div>';
+            }
+            if (definition.type === 'category') {
+                const options = (this.state.referenceData?.expense_categories || []).map((entry) => `
+                    <option value="${this.escapeHtml(entry.value)}">${this.escapeHtml(entry.label)}</option>
+                `).join('');
+                return `<label>New ${this.escapeHtml(definition.label)}<select name="value" required><option value="">Choose a category…</option>${options}</select></label>`;
+            }
+            if (definition.type === 'boolean') {
+                return `<label>New ${this.escapeHtml(definition.label)}<select name="value" required><option value="false">No</option><option value="true">Yes</option></select></label>`;
+            }
+            return `
+                <label>New ${this.escapeHtml(definition.label)}
+                    <input name="value" type="${definition.type}" ${definition.step ? `step="${definition.step}"` : ''} placeholder="${this.escapeHtml(definition.placeholder || '')}" required>
+                </label>
+            `;
         }
 
         buildExpenseEditor(item, mode) {
@@ -1444,6 +1917,11 @@
 
         renderEvidencePreview() {
             const selection = this.state.selectedRow;
+            const selectedCount = this.getSelectedRowIds().length;
+            if (selectedCount > 1) {
+                this.elements.evidencePreview.innerHTML = `<div class="bk-empty">${selectedCount} records are selected. Clear the bulk selection or choose one row to inspect its source evidence.</div>`;
+                return;
+            }
             if (!selection || !this.state.workspace) {
                 this.elements.evidencePreview.innerHTML = '<div class="bk-empty">Select a row to see its linked upload, preview, and metadata.</div>';
                 return;
@@ -1663,6 +2141,8 @@
             this.state.isEditingMappings = false;
             this.state.isEditingRevenueChannels = false;
             this.state.selectedRow = null;
+            this.resetSheetSelectionState();
+            this.state.bulkFeedback = null;
             this.state.activeSheetKey = null;
             this.elements.portfolioForm.reset();
             this.populateTagOptions('');
@@ -1678,6 +2158,8 @@
             const { autoStep = true, preserveSelectedPeriodId = null } = options;
             this.state.selectedPortfolioId = portfolioId;
             this.state.selectedRow = null;
+            this.resetSheetSelectionState();
+            this.state.bulkFeedback = null;
             this.state.activeSheetKey = null;
             this.state.selectedUploadIds = new Set();
             this.state.isEditingMappings = false;
@@ -1732,6 +2214,8 @@
             this.state.selectedPeriodId = periodId;
             this.state.selectedUploadIds = new Set();
             this.state.selectedRow = null;
+            this.resetSheetSelectionState();
+            this.state.bulkFeedback = null;
             this.state.editorMode = 'update';
             this.clearUploadFormState();
             this.renderPeriodList();
@@ -1802,6 +2286,8 @@
         startCreateRow() {
             const activeSheet = this.getActiveSheet();
             if (!activeSheet) return;
+            this.resetSheetSelectionState();
+            this.state.bulkFeedback = null;
             if (activeSheet.key === 'expenses_all') {
                 this.state.selectedRow = {
                     rowType: 'expense_item',
@@ -1858,6 +2344,13 @@
 
         selectRow(rowType, rowId) {
             this.state.selectedRow = { rowType, rowId };
+            this.state.sheetSelection = {
+                rowType,
+                rowIds: rowId ? new Set([Number(rowId)]) : new Set(),
+                cellField: null,
+                anchorRowId: rowId ? Number(rowId) : null,
+            };
+            this.state.bulkFeedback = null;
             this.state.editorMode = 'update';
             this.setActiveContextPanel('editor');
             this.renderActiveSheet();
@@ -1867,6 +2360,8 @@
 
         clearSelection() {
             this.state.selectedRow = null;
+            this.resetSheetSelectionState();
+            this.state.bulkFeedback = null;
             this.state.editorMode = 'update';
             this.renderActiveSheet();
             this.renderRowEditor();
@@ -1875,6 +2370,11 @@
 
         async handleRowEditorSubmit(event) {
             event.preventDefault();
+            const bulkForm = event.target.closest('#bulkEditorForm');
+            if (bulkForm) {
+                await this.handleBulkEditorSubmit(bulkForm);
+                return;
+            }
             const form = event.target.closest('#rowEditorForm');
             if (!form) return;
             const rowType = form.dataset.rowType;
@@ -1900,6 +2400,69 @@
                 await this.saveExpenseRow(mode, form.dataset.itemId, payload);
             } else if (rowType === 'revenue_item') {
                 await this.saveRevenueRow(mode, form.dataset.itemId, payload);
+            }
+        }
+
+        async handleBulkEditorSubmit(form) {
+            if (!this.state.selectedPeriodId) return;
+            const selection = this.state.sheetSelection;
+            const rowIds = this.getSelectedRowIds();
+            if (rowIds.length < 2) {
+                this.clearSelection();
+                return;
+            }
+
+            const formData = new FormData(form);
+            const fieldName = String(formData.get('bulk_field') || '');
+            const definition = this.bulkFieldDefinitions(selection.rowType)[fieldName];
+            const status = form.querySelector('[data-bulk-status]');
+            const submitButton = form.querySelector('[type="submit"]');
+            if (!definition) {
+                if (status) status.innerHTML = '<div class="bk-empty">Choose a column to update.</div>';
+                return;
+            }
+
+            let value = formData.get('value');
+            if (definition.type === 'boolean') {
+                value = value === 'true';
+            }
+            const updatedAtById = {};
+            rowIds.forEach((rowId) => {
+                const item = selection.rowType === 'expense_item'
+                    ? this.findExpenseItem(rowId)
+                    : this.findRevenueItem(rowId);
+                updatedAtById[String(rowId)] = item?.updated_at || '';
+            });
+
+            submitButton.disabled = true;
+            submitButton.textContent = `Updating ${rowIds.length} records…`;
+            if (status) status.textContent = '';
+            try {
+                const data = await this.fetchJson(`/bookkeeping/api/periods/${this.state.selectedPeriodId}/items/bulk-update`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        row_type: selection.rowType,
+                        row_ids: rowIds,
+                        field: fieldName,
+                        value,
+                        edit_note: String(formData.get('edit_note') || ''),
+                        updated_at_by_id: updatedAtById,
+                    }),
+                });
+                const changedCount = Number(data.updated_count || 0);
+                this.state.bulkFeedback = changedCount
+                    ? `${changedCount} record${changedCount === 1 ? '' : 's'} updated successfully.`
+                    : 'The selected records already had that value; no changes were needed.';
+                this.resetSheetSelectionState();
+                this.state.selectedRow = null;
+                await this.refreshWorkspace();
+            } catch (error) {
+                submitButton.disabled = false;
+                submitButton.textContent = `Update ${rowIds.length} ${selection.cellField ? 'cells' : 'rows'}`;
+                if (status) {
+                    status.innerHTML = `<div class="bk-empty">${this.escapeHtml(error.message || 'The bulk update could not be saved.')}</div>`;
+                }
             }
         }
 
@@ -1950,6 +2513,16 @@
         }
 
         handleEditorDependentChange(event) {
+            if (event.target.name === 'bulk_field') {
+                const form = event.target.closest('#bulkEditorForm');
+                const container = form?.querySelector('.bk-bulk-value-control');
+                if (container) {
+                    container.innerHTML = event.target.value
+                        ? this.buildBulkValueControl(event.target.value, form.dataset.rowType)
+                        : '<div class="bk-empty">Choose the column whose value you want to replace.</div>';
+                }
+                return;
+            }
             if (event.target.name !== 'listing_mapping_id') return;
             const mappingId = Number(event.target.value);
             const mapping = (this.state.workspace?.listing_mappings || []).find((entry) => entry.bookkeeping_listing_mapping_id === mappingId);
@@ -2494,7 +3067,15 @@
         }
 
         setActiveSheet(sheetKey) {
+            const didChangeSheet = this.state.activeSheetKey !== sheetKey;
             this.state.activeSheetKey = sheetKey;
+            if (didChangeSheet) {
+                this.state.selectedRow = null;
+                this.resetSheetSelectionState();
+                this.state.bulkFeedback = null;
+                this.renderRowEditor();
+                this.renderEvidencePreview();
+            }
             this.renderSheetTabs(this.state.workspace?.sheet_views || []);
             this.renderActiveSheet();
         }
@@ -2534,10 +3115,14 @@
         }
 
         formatCell(value) {
+            return this.escapeHtml(this.formatCellText(value)).replace(/\n/g, ' ');
+        }
+
+        formatCellText(value) {
             if (value === null || value === undefined || value === '') return '—';
             if (typeof value === 'boolean') return value ? 'Yes' : 'No';
             if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2);
-            return this.escapeHtml(String(value)).replace(/\n/g, '<br>');
+            return String(value);
         }
 
         formatCurrency(value) {
