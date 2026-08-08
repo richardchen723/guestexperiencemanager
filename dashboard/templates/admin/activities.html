@@ -8,10 +8,18 @@
 
 {% block content %}
 <div class="activities-page">
-    <h2>Activity Tracking & Reports</h2>
+    <div class="activities-header">
+        <div>
+            <h1>Activity center</h1>
+            <p>Audit team activity, measure ticket performance, and export operational records.</p>
+        </div>
+    </div>
     
     <!-- Query Builder Section -->
     <div class="query-builder">
+        <div class="query-builder-header">
+            <div><h2>Build a report</h2><p>Choose a period and narrow the activity you want to inspect.</p></div>
+        </div>
         <div class="query-filters">
             <div class="filter-group">
                 <label>Start Date:</label>
@@ -50,16 +58,19 @@
                 </select>
             </div>
         </div>
-        <div class="query-presets">
-            <button class="btn btn-secondary" onclick="setPreset('7days')">Last 7 days</button>
-            <button class="btn btn-secondary" onclick="setPreset('30days')">Last 30 days</button>
-            <button class="btn btn-secondary" onclick="setPreset('90days')">Last 90 days</button>
-            <button class="btn btn-secondary" onclick="setPreset('month')">This month</button>
-            <button class="btn btn-secondary" onclick="setPreset('year')">This year</button>
-        </div>
-        <div class="query-actions">
-            <button class="btn btn-primary" onclick="runQuery()">Run Query</button>
-            <button class="btn btn-secondary" onclick="resetFilters()">Reset</button>
+        <div class="query-builder-footer">
+            <div class="query-presets">
+                <span>Quick ranges</span>
+                <button class="btn btn-secondary" onclick="setPreset('7days')">7 days</button>
+                <button class="btn btn-secondary" onclick="setPreset('30days')">30 days</button>
+                <button class="btn btn-secondary" onclick="setPreset('90days')">90 days</button>
+                <button class="btn btn-secondary" onclick="setPreset('month')">This month</button>
+                <button class="btn btn-secondary" onclick="setPreset('year')">This year</button>
+            </div>
+            <div class="query-actions">
+                <button class="btn btn-secondary" onclick="resetFilters()">Reset</button>
+                <button class="btn btn-primary" onclick="runQuery()">Run report</button>
+            </div>
         </div>
     </div>
     
@@ -127,6 +138,5 @@
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/activities-page.js') }}"></script>
+<script src="{{ url_for('static', filename='js/activities-page.js', v='20260808-3') }}"></script>
 {% endblock %}
-

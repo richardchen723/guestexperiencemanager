@@ -18,84 +18,166 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='20260808-1') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tickets.css') }}">
     {% block extra_head %}{% endblock %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/product-shell.css', v='20260808-3') }}">
 </head>
 <body
     data-is-admin="{% if current_user and current_user.is_admin() %}true{% else %}false{% endif %}"
     data-features="{{ accessible_feature_keys | join(',') }}"
 >
-    <div class="container">
-        <header>
-            <div class="header-content">
-                <div class="header-brand">
-                    <a href="/" class="header-logo">Hostaway Insights</a>
-                    <nav class="header-nav">
-                        {% if feature_access.dashboard %}
-                        <a href="{{ url_for('dashboard.dashboard_page') }}" {% if 'dashboard' in request.endpoint %}class="active"{% endif %}>Dashboard</a>
-                        {% endif %}
-                        {% if feature_access.properties %}
-                        <a href="{{ url_for('properties') }}" {% if request.endpoint == 'properties' %}class="active"{% endif %}>Properties</a>
-                        {% endif %}
-                        {% if feature_access.tickets %}
-                        <a href="{{ url_for('tickets.tickets_list') }}" {% if 'tickets' in request.endpoint %}class="active"{% endif %}>Tickets</a>
-                        {% endif %}
-                        {% if feature_access.reviews %}
-                        <a href="{{ url_for('reviews.reviews_page') }}" {% if 'reviews' in request.endpoint %}class="active"{% endif %}>Reviews</a>
-                        {% endif %}
-                        {% if feature_access.knowledge %}
-                        <a href="{{ url_for('knowledge.knowledge_page') }}" {% if 'knowledge' in request.endpoint %}class="active"{% endif %}>Knowledge</a>
-                        {% endif %}
-                        {% if feature_access.bookkeeping %}
-                        <a href="{{ url_for('bookkeeping.bookkeeping_page') }}" {% if 'bookkeeping' in request.endpoint %}class="active"{% endif %}>Bookkeeping</a>
-                        {% endif %}
-                        {% if feature_access.boost %}
-                        <a href="{{ url_for('boost.boost_page') }}" {% if 'boost' in request.endpoint %}class="active"{% endif %}>Boost</a>
-                        {% endif %}
-                        {% if feature_access.activities %}
-                        <a href="{{ url_for('admin.activities_page') }}" {% if 'activities' in request.endpoint %}class="active"{% endif %}>Activities</a>
-                        {% endif %}
-                        {% if feature_access.sync %}
-                        <a href="{{ url_for('sync.sync_history_page') }}" {% if 'sync' in request.endpoint %}class="active"{% endif %}>Sync</a>
-                        {% endif %}
-                        {% if current_user and current_user.is_admin() %}
-                        <a href="{{ url_for('admin.users_page') }}" {% if 'admin' in request.endpoint and 'activities' not in request.endpoint %}class="active"{% endif %}>Admin</a>
-                        {% endif %}
-                    </nav>
+    {% set endpoint = request.endpoint or '' %}
+    {% if 'tickets' in endpoint %}{% set workspace_name = 'Tickets' %}
+    {% elif 'reviews' in endpoint %}{% set workspace_name = 'Reviews' %}
+    {% elif 'knowledge' in endpoint %}{% set workspace_name = 'Knowledge base' %}
+    {% elif 'bookkeeping' in endpoint %}{% set workspace_name = 'Bookkeeping' %}
+    {% elif 'boost' in endpoint %}{% set workspace_name = 'Boost' %}
+    {% elif 'activities' in endpoint %}{% set workspace_name = 'Activity center' %}
+    {% elif 'sync' in endpoint %}{% set workspace_name = 'Data sync' %}
+    {% elif 'admin' in endpoint %}{% set workspace_name = 'Team access' %}
+    {% elif 'profile' in endpoint %}{% set workspace_name = 'My profile' %}
+    {% elif endpoint == 'properties' %}{% set workspace_name = 'Properties' %}
+    {% else %}{% set workspace_name = 'Overview' %}{% endif %}
+
+    <div class="app-shell">
+        <aside class="app-sidebar" id="appSidebar" aria-label="Application navigation">
+            <div class="sidebar-brand">
+                <a href="/" class="brand-lockup" aria-label="Hostaway Insights home">
+                    <span class="brand-mark" aria-hidden="true">
+                        <svg viewBox="0 0 32 32" fill="none">
+                            <path d="M7 21.5V11.2L16 5l9 6.2v10.3a4 4 0 0 1-4 4H11a4 4 0 0 1-4-4Z" fill="currentColor" opacity=".22"/>
+                            <path d="M11 24V14.8L16 11l5 3.8V24M14 24v-5h4v5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </span>
+                    <span class="brand-copy">
+                        <strong>Hostaway Insights</strong>
+                        <small>Operations workspace</small>
+                    </span>
+                </a>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <div class="nav-section-label">Workspace</div>
+                    {% if feature_access.dashboard %}
+                    <a href="{{ url_for('dashboard.dashboard_page') }}" class="app-nav-link {% if 'dashboard' in endpoint %}active{% endif %}" title="Overview">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
+                        <span>Overview</span>
+                    </a>
+                    {% endif %}
+                    {% if feature_access.properties %}
+                    <a href="{{ url_for('properties') }}" class="app-nav-link {% if endpoint == 'properties' %}active{% endif %}" title="Properties">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9Z"/><path d="M9 21v-8h6v8"/></svg>
+                        <span>Properties</span>
+                    </a>
+                    {% endif %}
+                    {% if feature_access.tickets %}
+                    <a href="{{ url_for('tickets.tickets_list') }}" class="app-nav-link {% if 'tickets' in endpoint %}active{% endif %}" title="Tickets">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v4a2.5 2.5 0 0 0 0 5v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2.5 2.5 0 0 0 0-5V6a2 2 0 0 1 2-2Z"/><path d="M13 8h4M13 12h4M13 16h3M9 7v10"/></svg>
+                        <span>Tickets</span>
+                    </a>
+                    {% endif %}
+                    {% if feature_access.reviews %}
+                    <a href="{{ url_for('reviews.reviews_page') }}" class="app-nav-link {% if 'reviews' in endpoint %}active{% endif %}" title="Reviews">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"/></svg>
+                        <span>Reviews</span>
+                    </a>
+                    {% endif %}
+                    {% if feature_access.knowledge %}
+                    <a href="{{ url_for('knowledge.knowledge_page') }}" class="app-nav-link {% if 'knowledge' in endpoint %}active{% endif %}" title="Knowledge">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22V5.5ZM20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22V5.5Z"/></svg>
+                        <span>Knowledge</span>
+                    </a>
+                    {% endif %}
                 </div>
-                <div class="header-actions">
+
+                {% if feature_access.bookkeeping or feature_access.boost or feature_access.activities or feature_access.sync %}
+                <div class="nav-section">
+                    <div class="nav-section-label">Operations</div>
+                    {% if feature_access.bookkeeping %}
+                    <a href="{{ url_for('bookkeeping.bookkeeping_page') }}" class="app-nav-link {% if 'bookkeeping' in endpoint %}active{% endif %}" title="Bookkeeping">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 8h10M7 12h3M14 12h3M7 16h3M14 16h3"/></svg>
+                        <span>Bookkeeping</span>
+                    </a>
+                    {% endif %}
+                    {% if feature_access.boost %}
+                    <a href="{{ url_for('boost.boost_page') }}" class="app-nav-link {% if 'boost' in endpoint %}active{% endif %}" title="Boost">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4.5 13H11l-1 9 8.5-11H12l1-9Z"/></svg>
+                        <span>Boost</span>
+                    </a>
+                    {% endif %}
+                    {% if feature_access.activities %}
+                    <a href="{{ url_for('admin.activities_page') }}" class="app-nav-link {% if 'activities' in endpoint %}active{% endif %}" title="Activities">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19V3"/><path d="M2 21h20"/></svg>
+                        <span>Activities</span>
+                    </a>
+                    {% endif %}
+                    {% if feature_access.sync %}
+                    <a href="{{ url_for('sync.sync_history_page') }}" class="app-nav-link {% if 'sync' in endpoint %}active{% endif %}" title="Data sync">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-5V2M4 17h5v5"/><path d="M6.1 8a7 7 0 0 1 11.8-2L20 7M4 17l2.1 1A7 7 0 0 0 18 16"/></svg>
+                        <span>Data sync</span>
+                    </a>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                {% if current_user and current_user.is_admin() %}
+                <div class="nav-section nav-section-system">
+                    <div class="nav-section-label">System</div>
+                    <a href="{{ url_for('admin.users_page') }}" class="app-nav-link {% if 'admin' in endpoint and 'activities' not in endpoint %}active{% endif %}" title="Team access">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
+                        <span>Team access</span>
+                    </a>
+                </div>
+                {% endif %}
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="system-status"><span aria-hidden="true"></span><div><strong>System connected</strong><small>Live workspace</small></div></div>
+            </div>
+        </aside>
+
+        <div class="app-workspace">
+            <header class="app-topbar">
+                <div class="app-topbar-start">
+                    <button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Collapse navigation" aria-controls="appSidebar" aria-expanded="true">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+                    </button>
+                    <a href="/" class="mobile-brand" aria-label="Hostaway Insights home"><span class="brand-mark">H</span><strong>Hostaway</strong></a>
+                    <div class="workspace-context">
+                        <span>Operations</span>
+                        <strong>{{ workspace_name }}</strong>
+                    </div>
+                </div>
+                <div class="app-topbar-actions">
                     {% if current_user %}
-                    <div class="user-menu">
-                        <div class="user-menu-info">
+                    <div class="user-menu" id="userMenu">
+                        <button type="button" class="app-user-trigger" id="userMenuButton" aria-haspopup="menu" aria-expanded="false">
                             {% if current_user.picture_url %}
-                            <img src="{{ current_user.picture_url }}" alt="{{ current_user.name or current_user.email }}" class="user-menu-avatar">
+                            <img src="{{ current_user.picture_url }}" alt="" class="user-menu-avatar">
                             {% else %}
-                            <div class="avatar user-menu-avatar">
-                                {{ (current_user.name or current_user.email)[0].upper() }}
-                            </div>
+                            <span class="avatar user-menu-avatar">{{ (current_user.name or current_user.email)[0].upper() }}</span>
                             {% endif %}
-                            <span class="user-menu-name">{{ current_user.name or current_user.email }}</span>
-                        </div>
-                        <div class="user-menu-dropdown">
-                            <a href="{{ url_for('auth.profile_page') }}">Profile</a>
-                            <a href="{{ url_for('auth.logout') }}">Logout</a>
+                            <span class="app-user-copy"><strong>{{ current_user.name or current_user.email }}</strong><small>{% if current_user.is_admin() %}Administrator{% else %}Team member{% endif %}</small></span>
+                            <svg class="user-menu-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
+                        </button>
+                        <div class="user-menu-dropdown" id="userMenuDropdown" role="menu" hidden>
+                            <div class="user-menu-summary"><strong>{{ current_user.name or current_user.email }}</strong><span>{{ current_user.email }}</span></div>
+                            <a href="{{ url_for('auth.profile_page') }}" role="menuitem"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Profile & settings</a>
+                            <a href="{{ url_for('auth.logout') }}" role="menuitem" class="logout-link"><svg viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/></svg>Sign out</a>
                         </div>
                     </div>
                     {% else %}
-                    <a href="{{ url_for('auth.login') }}" class="btn btn-primary">Login</a>
+                    <a href="{{ url_for('auth.login') }}" class="btn btn-primary">Sign in</a>
                     {% endif %}
                 </div>
-            </div>
-        </header>
-        
-        <main>
-            <div class="content-wrapper">
-                {% block content %}{% endblock %}
-            </div>
-        </main>
-        
-        <footer>
-            <p>Powered by AI Analysis</p>
-        </footer>
-        
+            </header>
+
+            <main class="app-main">
+                <div class="content-wrapper">
+                    {% block content %}{% endblock %}
+                </div>
+            </main>
+        </div>
+
         {% block modals %}{% endblock %}
     </div>
     
@@ -106,6 +188,7 @@
     <script src="{{ url_for('static', filename='js/components/EmptyState.js') }}"></script>
     <script src="{{ url_for('static', filename='js/components/LoadingSkeleton.js') }}"></script>
     <script src="{{ url_for('static', filename='js/mobile-forms.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/product-shell.js', v='20260808-3') }}"></script>
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>

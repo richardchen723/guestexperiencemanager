@@ -6,8 +6,16 @@
 <div class="dashboard-page">
     <!-- Header -->
     <div class="page-header">
-        <h1>Dashboard</h1>
-        <p class="dashboard-subtitle">Welcome back, {{ current_user.name or current_user.email }}</p>
+        <div>
+            <h1>Good to see you, {{ (current_user.name or current_user.email).split(' ')[0] }}</h1>
+            <p class="dashboard-subtitle">Here is what needs your attention across the portfolio.</p>
+        </div>
+        <div class="page-actions">
+            <a href="/tickets/create" class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                New ticket
+            </a>
+        </div>
     </div>
     
     <!-- Loading State -->
@@ -26,22 +34,22 @@
         <!-- Statistics Cards -->
         <div class="dashboard-stats-grid">
             <div class="stat-card stat-card-clickable" id="statCardMyTickets" onclick="navigateToMyTickets()">
-                <div class="stat-icon">📋</div>
+                <div class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 5H6.8A1.8 1.8 0 0 0 5 6.8v12.4A1.8 1.8 0 0 0 6.8 21h10.4a1.8 1.8 0 0 0 1.8-1.8V6.8A1.8 1.8 0 0 0 17.2 5H15"/><rect x="9" y="3" width="6" height="4" rx="2"/><path d="M9 12h6M9 16h4"/></svg></div>
                 <div class="stat-value" id="statTotalAssigned">-</div>
                 <div class="stat-label">My Tickets</div>
             </div>
             <div class="stat-card stat-card-clickable" id="statCardDueThisWeek" onclick="navigateToDueThisWeek()">
-                <div class="stat-icon">📅</div>
+                <div class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg></div>
                 <div class="stat-value" id="statDueThisWeek">-</div>
                 <div class="stat-label">Due This Week</div>
             </div>
             <div class="stat-card stat-card-warning stat-card-clickable" id="statCardOverdue" onclick="navigateToOverdue()">
-                <div class="stat-icon">⚠️</div>
+                <div class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m10.3 4-7.7 13.4A1.7 1.7 0 0 0 4.1 20h15.8a1.7 1.7 0 0 0 1.5-2.6L13.7 4a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg></div>
                 <div class="stat-value" id="statOverdue">-</div>
                 <div class="stat-label">Overdue</div>
             </div>
             <div class="stat-card stat-card-danger stat-card-clickable" id="statCardHighPriority" onclick="navigateToHighPriority()">
-                <div class="stat-icon">🔥</div>
+                <div class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12.5 2S18 6 18 11.5c0 2-1 3.5-2.2 4.5.2-2.7-1.6-4.6-3.5-6.3.1 2.5-1.5 3.8-2.6 5.1-1 1.2-1.6 2.4-1.2 4.1A7.3 7.3 0 0 1 5 12.5C5 7.7 9 5.6 12.5 2Z"/><path d="M10 21c-1.5-2.5-.3-4.4 2-6 2.6 2.2 3.2 4.2 1.8 6"/></svg></div>
                 <div class="stat-value" id="statHighPriority">-</div>
                 <div class="stat-label">High Priority</div>
             </div>
@@ -94,8 +102,6 @@
     // Set current user ID for dashboard navigation
     window.CURRENT_USER_ID = {{ current_user.user_id if current_user.user_id else 'null' }};
 </script>
-<script src="{{ url_for('static', filename='js/dashboard-page.js') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard-page.js', v='20260808-3') }}"></script>
 {% endblock %}
-
-
 

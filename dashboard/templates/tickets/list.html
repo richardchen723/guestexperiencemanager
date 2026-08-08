@@ -5,7 +5,10 @@
 {% block content %}
 <div class="tickets-page">
     <div class="tickets-header">
-        <h2>Tickets</h2>
+        <div class="tickets-heading">
+            <h2>Tickets</h2>
+            <p>Coordinate work across properties, owners, and the operations team.</p>
+        </div>
         <div class="tickets-header-actions">
             <div class="view-toggle">
                 <button type="button" id="viewToggleBtn" class="view-toggle-btn active" data-view="list" onclick="toggleView('list')" title="List View">
@@ -26,7 +29,10 @@
                     <span>Swim Lane</span>
                 </button>
             </div>
-            <a href="/tickets/create" class="btn-primary">Create New Ticket</a>
+            <a href="/tickets/create" class="btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                New ticket
+            </a>
         </div>
     </div>
     
@@ -76,7 +82,7 @@
     <!-- Modern Filter Panel (Desktop) -->
     <div class="tickets-filters-modern desktop-only">
         <div class="filters-header">
-            <button type="button" id="filtersToggleBtn" class="filters-toggle-btn active" onclick="toggleFiltersPanel()">
+            <button type="button" id="filtersToggleBtn" class="filters-toggle-btn" onclick="toggleFiltersPanel()" aria-controls="filtersPanel" aria-expanded="false">
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M3 4.5H15M3 9H15M3 13.5H15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                 </svg>
@@ -87,7 +93,7 @@
             </button>
         </div>
         
-        <div id="filtersPanel" class="filters-panel" style="display: block;">
+        <div id="filtersPanel" class="filters-panel" style="display: none;">
             <div class="filters-grid">
                 <!-- Property Filter -->
                 <div class="filter-card">
@@ -347,10 +353,11 @@
                     </div>
                 </div>
             </div>
+            <div class="ticket-tag-filter-row">
+                <div id="tagFilterContainer" class="tag-filter"></div>
+            </div>
         </div>
     </div>
-    
-    <div id="tagFilterContainer" class="tag-filter" style="margin-top: 1rem;"></div>
     
     <div id="loading" class="loading" style="display: none;">
         Loading tickets...
@@ -685,6 +692,7 @@ function toggleFiltersPanel() {
     }
     if (btn) {
         btn.classList.toggle('active', !isOpen);
+        btn.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
     }
 }
 
@@ -1170,14 +1178,6 @@ function createTicketCard(ticket) {
     let nextOccurrenceHtml = '';
     if (ticket.is_recurring) {
         const recurrenceType = ticket.recurrence_type || 'frequency';
-        const icons = {
-            'frequency': '🔄',
-            'weekly': '📅',
-            'monthly': '📆',
-            'quarterly': '📊',
-            'annual': '🗓️'
-        };
-        const icon = icons[recurrenceType] || '🔄';
         const typeNames = {
             'frequency': 'Frequency',
             'weekly': 'Weekly',
@@ -1186,7 +1186,7 @@ function createTicketCard(ticket) {
             'annual': 'Annual'
         };
         const typeName = typeNames[recurrenceType] || 'Recurring';
-        recurringBadge = `<span class="status-badge" style="background: #6366f1; color: white; font-size: 10px; padding: 2px 6px;" title="${typeName} recurring task">${icon} ${typeName}</span>`;
+        recurringBadge = `<span class="status-badge recurring-badge" title="${typeName} recurring task"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-5V2M4 17h5v5M6.1 8A7 7 0 0 1 18 6l2 1M4 17l2 1a7 7 0 0 0 11.9-2"/></svg>${typeName}</span>`;
         
         // Display next occurrence date if available
         if (ticket.next_occurrence_date) {
@@ -1677,14 +1677,6 @@ function createSwimLaneCard(ticket) {
     let nextOccurrenceHtml = '';
     if (ticket.is_recurring) {
         const recurrenceType = ticket.recurrence_type || 'frequency';
-        const icons = {
-            'frequency': '🔄',
-            'weekly': '📅',
-            'monthly': '📆',
-            'quarterly': '📊',
-            'annual': '🗓️'
-        };
-        const icon = icons[recurrenceType] || '🔄';
         const typeNames = {
             'frequency': 'Frequency',
             'weekly': 'Weekly',
@@ -1693,7 +1685,7 @@ function createSwimLaneCard(ticket) {
             'annual': 'Annual'
         };
         const typeName = typeNames[recurrenceType] || 'Recurring';
-        recurringBadge = `<span class="swimlane-recurring" title="${typeName} recurring task">${icon}</span>`;
+        recurringBadge = `<span class="swimlane-recurring" title="${typeName} recurring task"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-5V2M4 17h5v5M6.1 8A7 7 0 0 1 18 6l2 1M4 17l2 1a7 7 0 0 0 11.9-2"/></svg></span>`;
         
         // Display next occurrence date if available
         if (ticket.next_occurrence_date) {

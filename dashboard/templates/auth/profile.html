@@ -5,30 +5,42 @@
 {% block content %}
 <div class="profile-page">
     <div class="profile-header">
-        <h1>My Profile</h1>
+        <span class="profile-eyebrow">Personal settings</span>
+        <h1>My profile</h1>
+        <p>Manage your account details and notification preferences.</p>
     </div>
     
     <div class="profile-content">
-        <div class="profile-section">
-            <h2>Account Information</h2>
+        <aside class="profile-section profile-identity-section">
+            <div class="profile-identity">
+                {% if current_user.picture_url %}
+                <img src="{{ current_user.picture_url }}" alt="" class="profile-avatar">
+                {% else %}
+                <span class="profile-avatar profile-avatar-fallback">{{ (current_user.name or current_user.email)[0].upper() }}</span>
+                {% endif %}
+                <div><h2>{{ current_user.name or current_user.email }}</h2><p>{{ current_user.email }}</p></div>
+            </div>
             <div class="profile-info">
                 <div class="info-item">
-                    <label>Name:</label>
+                    <label>Name</label>
                     <span id="profile-name">{{ current_user.name or current_user.email }}</span>
                 </div>
                 <div class="info-item">
-                    <label>Email:</label>
+                    <label>Email</label>
                     <span id="profile-email">{{ current_user.email }}</span>
                 </div>
                 <div class="info-item">
-                    <label>Role:</label>
-                    <span id="profile-role">{{ current_user.role }}</span>
+                    <label>Role</label>
+                    <span id="profile-role" class="profile-role-badge">{{ current_user.role }}</span>
                 </div>
             </div>
-        </div>
+        </aside>
         
-        <div class="profile-section">
-            <h2>WhatsApp Notifications</h2>
+        <section class="profile-section profile-notifications-section">
+            <div class="profile-section-header">
+                <span class="profile-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 11.5a8 8 0 0 1-11.8 7L4 20l1.5-4.1A8 8 0 1 1 20 11.5Z"/><path d="M9 8.5c.5 2.5 2 4 4.5 4.8"/></svg></span>
+                <div><h2>WhatsApp notifications</h2><p>Choose where operational alerts should reach you.</p></div>
+            </div>
             <form id="profile-form">
                 <div class="form-group">
                     <label for="whatsapp-number">WhatsApp Number</label>
@@ -56,12 +68,12 @@
                 </div>
                 
                 <div class="form-actions">
-                    <button type="submit" class="btn btn-primary" id="save-button">Save Changes</button>
+                    <button type="submit" class="btn btn-primary" id="save-button">Save preferences</button>
                     <div class="success-message" id="success-message" style="display: none;"></div>
                     <div class="error-message" id="error-message" style="display: none;"></div>
                 </div>
             </form>
-        </div>
+        </section>
     </div>
 </div>
 {% endblock %}
@@ -69,7 +81,6 @@
 {% block extra_scripts %}
 <script src="{{ url_for('static', filename='js/profile-page.js') }}"></script>
 {% endblock %}
-
 
 
 

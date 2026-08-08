@@ -231,7 +231,7 @@ function createTicketCard(ticket) {
     
     // Check if recurring
     const recurringBadge = ticket.is_recurring ? 
-        `<span class="status-badge" style="background: #6366f1; color: white; font-size: 10px; padding: 2px 6px;" title="Recurring task">🔄 Recurring</span>` : '';
+        `<span class="status-badge recurring-badge" title="Recurring task"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-5V2M4 17h5v5M6.1 8A7 7 0 0 1 18 6l2 1M4 17l2 1a7 7 0 0 0 11.9-2"/></svg>Recurring</span>` : '';
     
     card.innerHTML = `
         <div class="ticket-card-header">
@@ -322,7 +322,6 @@ function navigateToHighPriority() {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', loadDashboard);
-
 
 
 

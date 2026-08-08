@@ -164,26 +164,44 @@
 {% block content %}
 <div class="knowledge-page">
     <div class="knowledge-header">
-        <h1>Knowledge Base</h1>
-    </div>
-
-    <!-- Upload Section -->
-    <div class="upload-section">
-        <h2>Upload Document</h2>
-        <div id="documentUploadContainer"></div>
+        <div>
+            <h1>Knowledge base</h1>
+            <p class="page-description">Search operating knowledge, property guidance, and team documents.</p>
+        </div>
+        <a href="#documentUploadPanel" class="btn btn-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M5 20h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Add document
+        </a>
     </div>
 
     <!-- Search Section -->
     <div class="search-section">
-        <h2>Search Documents</h2>
+        <div class="knowledge-section-heading">
+            <span class="knowledge-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg></span>
+            <div><h2>Search the workspace</h2><p>Find answers across every document your team has uploaded.</p></div>
+        </div>
         <div id="knowledgeSearchContainer"></div>
         <div id="searchResults" class="search-results"></div>
     </div>
 
-    <!-- Documents List -->
-    <div class="documents-section">
-        <h2>All Documents</h2>
-        <div id="documentsList" class="documents-grid"></div>
+    <div class="knowledge-workspace-grid">
+        <!-- Documents List -->
+        <div class="documents-section">
+            <div class="knowledge-section-heading compact">
+                <span class="knowledge-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v5h5M8 13h7M8 17h5"/></svg></span>
+                <div><h2>All documents</h2><p>Browse the team library.</p></div>
+            </div>
+            <div id="documentsList" class="documents-grid"></div>
+        </div>
+
+        <!-- Upload Section -->
+        <aside class="upload-section" id="documentUploadPanel">
+            <div class="knowledge-section-heading compact">
+                <span class="knowledge-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg></span>
+                <div><h2>Add knowledge</h2><p>Upload a document for the team.</p></div>
+            </div>
+            <div id="documentUploadContainer"></div>
+        </aside>
     </div>
 </div>
 {% endblock %}
@@ -297,4 +315,3 @@
     }
 </script>
 {% endblock %}
-

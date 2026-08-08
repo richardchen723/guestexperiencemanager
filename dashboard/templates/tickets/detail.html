@@ -4,9 +4,14 @@
 
 {% block content %}
 <div class="ticket-detail-page">
+    <a href="{{ url_for('tickets.tickets_list') }}" class="ticket-back-link">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m15 18-6-6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        All tickets
+    </a>
     <div class="ticket-detail-header">
         <div>
-            <h2>Ticket #{{ ticket.ticket_id }}: {{ ticket.title }}</h2>
+            <span class="ticket-reference">Ticket #{{ ticket.ticket_id }}</span>
+            <h2>{{ ticket.title }}</h2>
             <div class="ticket-badges">
                 <span class="status-badge status-{{ ticket.status.lower().replace(' ', '-') }}">{{ ticket.status }}</span>
                 <span class="priority-badge priority-{{ ticket.priority.lower() }}">{{ ticket.priority }}</span>
@@ -19,7 +24,7 @@
         </div>
         <div class="ticket-actions desktop-only">
             {% if current_user.user_id == ticket.created_by or current_user.user_id == ticket.assigned_user_id or current_user.is_admin() %}
-            <a href="{{ url_for('tickets.ticket_edit_form', ticket_id=ticket.ticket_id) }}" class="btn-secondary">Edit</a>
+            <a href="{{ url_for('tickets.ticket_edit_form', ticket_id=ticket.ticket_id) }}" class="btn-secondary">Edit ticket</a>
             {% endif %}
             {% if current_user.is_admin() %}
             <button onclick="deleteTicket({{ ticket.ticket_id }})" class="btn-danger">Delete</button>
@@ -102,20 +107,23 @@
                 {% if ticket.is_recurring %}
                 <div class="info-row" style="background: var(--bg-secondary); padding: var(--space-3); border-radius: var(--radius-md); margin-top: var(--space-3);">
                     <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2);">
+                        <span class="recurring-detail-heading">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-5V2M4 17h5v5M6.1 8A7 7 0 0 1 18 6l2 1M4 17l2 1a7 7 0 0 0 11.9-2"/></svg>
                         {% set recurrence_type = ticket.recurrence_type or 'frequency' %}
                         {% if recurrence_type == 'frequency' %}
-                            <span style="font-weight: 600;">🔄 Recurring Task</span>
+                            Recurring task
                         {% elif recurrence_type == 'weekly' %}
-                            <span style="font-weight: 600;">📅 Weekly Recurring Task</span>
+                            Weekly recurring task
                         {% elif recurrence_type == 'monthly' %}
-                            <span style="font-weight: 600;">📆 Monthly Recurring Task</span>
+                            Monthly recurring task
                         {% elif recurrence_type == 'quarterly' %}
-                            <span style="font-weight: 600;">📊 Quarterly Recurring Task</span>
+                            Quarterly recurring task
                         {% elif recurrence_type == 'annual' %}
-                            <span style="font-weight: 600;">🗓️ Annual Recurring Task</span>
+                            Annual recurring task
                         {% else %}
-                            <span style="font-weight: 600;">🔄 Recurring Task</span>
+                            Recurring task
                         {% endif %}
+                        </span>
                         <span id="recurringStatusBadge" class="status-badge" style="background: {% if ticket.is_recurring_active %}var(--success){% else %}var(--text-tertiary){% endif %}; color: white; font-size: var(--text-xs); padding: 2px 8px;">
                             {% if ticket.is_recurring_active %}Active{% else %}Inactive{% endif %}
                         </span>

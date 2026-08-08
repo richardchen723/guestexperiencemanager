@@ -12,10 +12,13 @@
     <div class="boost-header">
         <div class="boost-header-left">
             <h1>Listing Boost</h1>
-            <p class="boost-subtitle">Automate guest-like browsing and track listing rank over time</p>
+            <p class="boost-subtitle">Track listing visibility and manage ranking campaigns over time.</p>
         </div>
         <div class="boost-header-actions">
-            <button class="btn btn-primary" onclick="BoostApp.showCampaignModal()">New Campaign</button>
+            <button class="btn btn-primary" onclick="BoostApp.showCampaignModal()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                New campaign
+            </button>
         </div>
     </div>
 
@@ -174,12 +177,19 @@
         </div>
     </div>
 
+    <!-- Selection state when campaigns exist but none is active in the workspace -->
+    <div class="boost-select-state" id="selectState" style="display:none;">
+        <div class="boost-empty-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg></div>
+        <h2>Select a campaign</h2>
+        <p>Choose a campaign above to open its ranking dashboard, sessions, and controls.</p>
+    </div>
+
     <!-- Empty state when no campaigns -->
     <div class="boost-empty-state" id="emptyState">
-        <div class="boost-empty-icon">&#x1F680;</div>
+        <div class="boost-empty-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 4c3.4-2 6-1 6-1s1 2.6-1 6l-5.5 5.5-4-4L14 4Z"/><path d="m8 12-3 1-2 3 5-1M12 16l-1 5 3-2 1-3M9.5 10.5 6 7H3l3.5 6.5M13.5 14.5 17 18v3l-6.5-3.5"/><circle cx="16" cy="7" r="1"/></svg></div>
         <h2>No campaigns yet</h2>
         <p>Create a campaign to start tracking your listing's rank and boosting visibility.</p>
-        <button class="btn btn-primary" onclick="BoostApp.showCampaignModal()">Create First Campaign</button>
+        <button class="btn btn-primary" onclick="BoostApp.showCampaignModal()">Create first campaign</button>
     </div>
 </div>
 {% endblock %}
@@ -286,5 +296,5 @@
 
 {% block extra_scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="{{ url_for('static', filename='js/boost.js') }}"></script>
+<script src="{{ url_for('static', filename='js/boost.js', v='20260808-3') }}"></script>
 {% endblock %}

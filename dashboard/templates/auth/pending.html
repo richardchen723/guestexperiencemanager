@@ -5,12 +5,13 @@
 {% block content %}
 <div class="pending-approval-page">
     <div class="pending-message">
-        <h2>Account Pending Approval</h2>
-        <p>Your account has been created successfully, but it requires admin approval before you can access the dashboard.</p>
-        <p>You will be able to login once your admin approves your account.</p>
-        <p>Please contact an administrator if you have any questions.</p>
+        <div class="pending-message-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <p class="pending-eyebrow">Account access</p>
+        <h2>Approval is pending</h2>
+        <p>Your account is ready. An administrator now needs to approve it and choose the workspaces you can access.</p>
+        <p class="pending-note">You can sign in as soon as approval is complete.</p>
         <div class="actions">
-            <a href="{{ url_for('auth.logout') }}" class="btn-secondary">Logout</a>
+            <a href="{{ url_for('auth.logout') }}" class="btn-secondary">Sign out</a>
         </div>
     </div>
 </div>

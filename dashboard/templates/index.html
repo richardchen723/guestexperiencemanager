@@ -7,8 +7,9 @@
     <div class="page-header">
         <div>
             <h1 class="page-title">Properties</h1>
-            <p class="page-description">Manage and analyze your property portfolio</p>
+            <p class="page-description">Manage portfolio details, quality, and operating tags.</p>
         </div>
+        <div class="page-actions"><span id="propertyCount" class="result-count">Loading portfolio…</span></div>
     </div>
     
     <div class="search-section">
@@ -32,7 +33,7 @@
     </div>
     
     <div id="noResults" class="empty-state" style="display: none;">
-        <div class="empty-state-icon">🏠</div>
+        <div class="empty-state-icon" aria-hidden="true"><svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 21v-8h6v8" stroke="currentColor" stroke-width="1.5"/></svg></div>
         <h3 class="empty-state-title">No properties found</h3>
         <p class="empty-state-description">No properties match your search criteria. Try adjusting your search terms.</p>
     </div>
@@ -87,6 +88,10 @@ function loadListings() {
         .then(response => response.json())
         .then(listings => {
             loading.style.display = 'none';
+            const propertyCount = document.getElementById('propertyCount');
+            if (propertyCount) {
+                propertyCount.textContent = `${listings.length} ${listings.length === 1 ? 'property' : 'properties'}`;
+            }
             
             if (listings.length === 0) {
                 noResults.style.display = 'block';
@@ -174,6 +179,12 @@ function filterListings() {
     });
     
     noResults.style.display = visibleCount === 0 && filter ? 'block' : 'none';
+    const propertyCount = document.getElementById('propertyCount');
+    if (propertyCount) {
+        propertyCount.textContent = filter
+            ? `${visibleCount} ${visibleCount === 1 ? 'match' : 'matches'}`
+            : `${cards.length} ${cards.length === 1 ? 'property' : 'properties'}`;
+    }
 }
 
 function escapeHtml(text) {
@@ -371,4 +382,3 @@ async function loadListingTags(listingId) {
 }
 </script>
 {% endblock %}
-

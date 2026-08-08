@@ -8,6 +8,10 @@
     <div class="insights-hero">
         <div class="insights-hero-content">
             <div>
+                <a href="{{ url_for('properties') }}" class="insights-back-link">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m15 18-6-6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    All properties
+                </a>
                 <h1 class="insights-hero-title">{{ listing.internal_listing_name or listing.name }}</h1>
                 <p class="insights-hero-subtitle">
                     <svg class="hero-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -269,14 +273,14 @@ function loadInsights(forceRefresh) {
             const summary = document.getElementById('dataSummary');
             summary.innerHTML = `
                 <div class="summary-card">
-                    <div class="summary-card-icon">📊</div>
+                    <div class="summary-card-icon"><svg viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7M3 20h18"/></svg></div>
                     <div class="summary-card-content">
                         <div class="summary-card-value">${data.total_reviews_analyzed || 0}</div>
                         <div class="summary-card-label">Reviews Analyzed</div>
                     </div>
                 </div>
                 <div class="summary-card">
-                    <div class="summary-card-icon">💬</div>
+                    <div class="summary-card-icon"><svg viewBox="0 0 24 24"><path d="M20 11.5a8 8 0 0 1-11.8 7L4 20l1.5-4.1A8 8 0 1 1 20 11.5Z"/></svg></div>
                     <div class="summary-card-content">
                         <div class="summary-card-value">${data.total_messages_analyzed || 0}</div>
                         <div class="summary-card-label">Messages Analyzed</div>
@@ -284,7 +288,7 @@ function loadInsights(forceRefresh) {
                 </div>
                 ${data.last_updated ? `
                 <div class="summary-card">
-                    <div class="summary-card-icon">🕒</div>
+                    <div class="summary-card-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
                     <div class="summary-card-content">
                         <div class="summary-card-value">${new Date(data.last_updated).toLocaleDateString()}</div>
                         <div class="summary-card-label">Last Updated</div>
@@ -293,7 +297,7 @@ function loadInsights(forceRefresh) {
                 ` : ''}
                 ${data.new_reviews_count > 0 || data.new_messages_count > 0 ? `
                 <div class="summary-card summary-card-new">
-                    <div class="summary-card-icon">✨</div>
+                    <div class="summary-card-icon"><svg viewBox="0 0 24 24"><path d="m12 3 1.2 4.8L18 9l-4.8 1.2L12 15l-1.2-4.8L6 9l4.8-1.2L12 3ZM19 14l.7 2.3L22 17l-2.3.7L19 20l-.7-2.3L16 17l2.3-.7L19 14Z"/></svg></div>
                     <div class="summary-card-content">
                         <div class="summary-card-value">${data.new_reviews_count + data.new_messages_count}</div>
                         <div class="summary-card-label">New Data Points</div>
@@ -580,4 +584,3 @@ function escapeHtml(text) {
 }
 </script>
 {% endblock %}
-

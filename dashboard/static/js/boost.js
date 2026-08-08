@@ -89,6 +89,7 @@ const BoostApp = (() => {
         const select = document.getElementById('campaignSelect');
         const bar = document.getElementById('campaignBar');
         const empty = document.getElementById('emptyState');
+        const selectState = document.getElementById('selectState');
         const content = document.getElementById('boostContent');
         const stats = document.getElementById('statsGrid');
 
@@ -105,12 +106,16 @@ const BoostApp = (() => {
             content.style.display = 'none';
             stats.style.display = 'none';
             empty.style.display = '';
+            selectState.style.display = 'none';
         } else {
             bar.style.display = '';
             empty.style.display = 'none';
             if (selectedCampaignId) {
+                selectState.style.display = 'none';
                 select.value = selectedCampaignId;
                 selectCampaign(selectedCampaignId);
+            } else {
+                selectState.style.display = '';
             }
         }
     }
@@ -123,6 +128,7 @@ const BoostApp = (() => {
         const btnDelete = document.getElementById('btnDeleteCampaign');
         const btnRun = document.getElementById('btnRunNow');
         const statusEl = document.getElementById('campaignStatus');
+        const selectState = document.getElementById('selectState');
 
         if (!selectedCampaignId) {
             content.style.display = 'none';
@@ -132,9 +138,11 @@ const BoostApp = (() => {
             btnRun.disabled = true;
             setRunModeDisabled(true);
             statusEl.textContent = '';
+            selectState.style.display = '';
             return;
         }
 
+        selectState.style.display = 'none';
         content.style.display = '';
         stats.style.display = '';
         btnEdit.disabled = false;

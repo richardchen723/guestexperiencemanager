@@ -15,7 +15,11 @@ document.addEventListener('DOMContentLoaded', function() {
 async function loadUsers() {
     try {
         const response = await fetch('/admin/api/users');
-        const users = await response.json();
+        if (!response.ok) {
+            throw new Error(`User request failed with status ${response.status}`);
+        }
+        const payload = await response.json();
+        const users = Array.isArray(payload) ? payload : (payload.users || []);
         const select = document.getElementById('userId');
         
         users.forEach(user => {
@@ -392,13 +396,18 @@ async function loadTrends() {
         if (data.data && data.data.length > 0) {
             renderTrendsChart(data.data, metric);
         } else {
-            const canvas = document.getElementById('trendsChart');
-            const ctx = canvas.getContext('2d');
             if (trendsChart) {
                 trendsChart.destroy();
+                trendsChart = null;
             }
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            canvas.parentElement.innerHTML = '<p>No trend data available.</p>';
+            const container = document.querySelector('.trends-chart-container');
+            const canvas = document.getElementById('trendsChart');
+            if (canvas) {
+                canvas.hidden = true;
+            }
+            if (container && !container.querySelector('.trends-empty-state')) {
+                container.insertAdjacentHTML('beforeend', '<p class="trends-empty-state">No trend data available.</p>');
+            }
         }
     } catch (error) {
         console.error('Error loading trends:', error);
@@ -407,7 +416,18 @@ async function loadTrends() {
 
 // Render trends chart
 function renderTrendsChart(data, metric) {
-    const canvas = document.getElementById('trendsChart');
+    const container = document.querySelector('.trends-chart-container');
+    let canvas = document.getElementById('trendsChart');
+    if (!canvas && container) {
+        canvas = document.createElement('canvas');
+        canvas.id = 'trendsChart';
+        container.appendChild(canvas);
+    }
+    if (!canvas) {
+        return;
+    }
+    canvas.hidden = false;
+    container?.querySelector('.trends-empty-state')?.remove();
     const ctx = canvas.getContext('2d');
     
     if (trendsChart) {
@@ -459,4 +479,3 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
-

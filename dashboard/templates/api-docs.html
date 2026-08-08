@@ -7,58 +7,83 @@
     <style>
       :root {
         color-scheme: light;
-        --bg: #f7f3ee;
-        --ink: #1e1b16;
-        --muted: #6a5d4f;
-        --accent: #1f5a52;
-        --panel: #fffaf2;
-        --border: #e6ded3;
-        --code: #f2e9db;
+        --bg: #f5f7fb;
+        --ink: #172033;
+        --muted: #667085;
+        --accent: #3158d8;
+        --panel: #ffffff;
+        --border: #e4e8f0;
+        --code: #f0f3f9;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        font-family: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         background: var(--bg);
         color: var(--ink);
         line-height: 1.6;
       }
       header {
-        padding: 48px 24px 24px;
-        background: linear-gradient(135deg, #e9dfd2, #f7f3ee);
-        border-bottom: 1px solid var(--border);
+        padding: 52px 24px 42px;
+        color: #fff;
+        background: radial-gradient(circle at 10% 0%, rgba(91,124,244,.32), transparent 30%), linear-gradient(135deg, #111a2c, #1b2a4a);
+        border-bottom: 0;
       }
       header h1 {
         margin: 0 0 8px;
         font-size: 36px;
-        letter-spacing: 0.4px;
+        letter-spacing: -1.2px;
       }
       header p {
         margin: 0;
-        color: var(--muted);
-        font-size: 16px;
+        color: #aeb9ce;
+        font-size: 14px;
+      }
+      .docs-header-inner {
+        max-width: 1080px;
+        margin: 0 auto;
+      }
+      .docs-brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 24px;
+        color: #dfe6f5;
+        font-size: 12px;
+        font-weight: 650;
+        text-decoration: none;
+      }
+      .docs-brand span {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        place-items: center;
+        color: #fff;
+        background: #4668df;
+        border-radius: 8px;
       }
       main {
-        max-width: 980px;
+        max-width: 1080px;
         margin: 0 auto;
-        padding: 32px 24px 64px;
+        padding: 28px 24px 64px;
       }
       section {
         background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 20px 22px;
-        margin-bottom: 20px;
-        box-shadow: 0 6px 18px rgba(30, 27, 22, 0.05);
+        border-radius: 14px;
+        padding: 22px 24px;
+        margin-bottom: 16px;
+        box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
       }
       h2 {
         margin: 0 0 10px;
-        font-size: 22px;
-        color: var(--accent);
+        font-size: 17px;
+        color: var(--ink);
+        letter-spacing: -.3px;
       }
       h3 {
         margin: 16px 0 8px;
-        font-size: 18px;
+        font-size: 14px;
       }
       code, pre {
         font-family: "IBM Plex Mono", "SFMono-Regular", ui-monospace, monospace;
@@ -72,8 +97,8 @@
         display: inline-block;
         padding: 4px 8px;
         border-radius: 999px;
-        background: #e2ecea;
-        color: #164943;
+        background: #edf2ff;
+        color: #294ebf;
         font-weight: 600;
         font-size: 12px;
         margin-right: 8px;
@@ -81,12 +106,25 @@
       .mono { font-family: "IBM Plex Mono", "SFMono-Regular", ui-monospace, monospace; }
       ul { margin: 8px 0 0 18px; padding: 0; }
       li { margin: 4px 0; }
+      @media (max-width: 640px) {
+        header { padding: 36px 18px 30px; }
+        header h1 { font-size: 30px; }
+        main { padding: 18px 14px 44px; }
+        section { padding: 18px 16px; }
+        li code {
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+      }
     </style>
   </head>
   <body>
     <header>
-      <h1>Hostaway Messages API</h1>
-      <p>Third‑party integration reference for the Hostaway Messages dashboard.</p>
+      <div class="docs-header-inner">
+        <a class="docs-brand" href="/"><span>H</span> Hostaway Insights</a>
+        <h1>Developer API</h1>
+        <p>Integration reference for the Hostaway Insights operations platform.</p>
+      </div>
     </header>
     <main>
       <section>
