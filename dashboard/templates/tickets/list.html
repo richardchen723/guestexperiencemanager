@@ -149,7 +149,7 @@
                     <div class="filter-card-body">
                         <div class="status-filter-wrapper">
                             <button type="button" id="statusFilterTrigger" class="modern-filter-trigger" onclick="toggleStatusFilter(event)">
-                                <span id="statusFilterText">All Statuses</span>
+                                <span id="statusFilterText">Active Statuses</span>
                                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" class="filter-arrow">
                                     <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                                 </svg>
@@ -184,12 +184,12 @@
                                         <span>Blocked</span>
                                     </label>
                                     <label class="modern-filter-option">
-                                        <input type="checkbox" class="status-checkbox" value="Resolved" checked>
+                                        <input type="checkbox" class="status-checkbox" value="Resolved">
                                         <span class="modern-checkbox-custom"></span>
                                         <span>Resolved</span>
                                     </label>
                                     <label class="modern-filter-option">
-                                        <input type="checkbox" class="status-checkbox" value="Closed" checked>
+                                        <input type="checkbox" class="status-checkbox" value="Closed">
                                         <span class="modern-checkbox-custom"></span>
                                         <span>Closed</span>
                                     </label>
@@ -386,6 +386,9 @@ let tagLogic = 'AND';
 let searchTimeout = null;
 let currentView = localStorage.getItem('ticketView') || 'list'; // 'list' or 'swimlane'
 let isInitialLoad = true; // Track if we're on initial page load
+let ticketRequestSequence = 0;
+let ticketRequestController = null;
+const defaultActiveStatuses = ['Open', 'Assigned', 'In Progress', 'Blocked'];
 
 // Function to apply filters from URL parameters
 function applyFiltersFromUrl() {
@@ -518,6 +521,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Small delay to ensure checkboxes are fully updated
             setTimeout(() => {
                 loadTickets();
+                isInitialLoad = false;
             }, 50);
         });
     }).catch(() => {
@@ -546,6 +550,7 @@ document.addEventListener('DOMContentLoaded', function() {
             isInitialLoad = false; // Mark that user has manually changed filters
             updateStatusFilterText();
             updateActiveFilters();
+            syncStatusFilterToUrl();
             loadTickets();
         });
     });
@@ -675,7 +680,7 @@ document.addEventListener('DOMContentLoaded', function() {
     updatePriorityFilterText();
     
     // Initialize view based on saved preference
-    toggleView(currentView, false); // false = don't save to localStorage yet
+    toggleView(currentView, false, false); // Initialize the view without starting a pre-filter request
 });
 
 function toggleFiltersPanel() {
@@ -713,17 +718,34 @@ function toggleStatusFilter(event) {
 function updateStatusFilterText() {
     const checkboxes = document.querySelectorAll('.status-checkbox:checked');
     const textElement = document.getElementById('statusFilterText');
+    const selectedStatuses = Array.from(checkboxes).map(cb => cb.value);
+    const isDefaultActiveSelection = defaultActiveStatuses.every(status => selectedStatuses.includes(status)) &&
+        selectedStatuses.length === defaultActiveStatuses.length;
     
     if (checkboxes.length === 0) {
         textElement.textContent = 'No Statuses';
     } else if (checkboxes.length === 6) {
         textElement.textContent = 'All Statuses';
+    } else if (isDefaultActiveSelection) {
+        textElement.textContent = 'Active Statuses';
     } else if (checkboxes.length === 1) {
         textElement.textContent = checkboxes[0].value;
     } else {
         textElement.textContent = `${checkboxes.length} Selected`;
     }
     updateActiveFilters();
+}
+
+function syncStatusFilterToUrl() {
+    const selectedStatuses = Array.from(
+        document.querySelectorAll('.status-checkbox:checked')
+    ).map(cb => cb.value);
+    const url = new URL(window.location.href);
+    url.searchParams.set(
+        'status',
+        selectedStatuses.length > 0 ? selectedStatuses.join(',') : '__none__'
+    );
+    window.history.replaceState({}, '', url);
 }
 
 function togglePriorityFilter(event) {
@@ -977,6 +999,13 @@ function loadTickets() {
     loading.style.display = 'block';
     container.innerHTML = '';
     
+    const requestSequence = ++ticketRequestSequence;
+    if (ticketRequestController) {
+        ticketRequestController.abort();
+    }
+    ticketRequestController = new AbortController();
+    const requestController = ticketRequestController;
+
     const params = new URLSearchParams();
     // Get selected listing IDs from checkboxes
     const listingCheckboxes = document.querySelectorAll('.listing-checkbox:checked');
@@ -1002,36 +1031,10 @@ function loadTickets() {
             }
         }
     }
-    // Always check URL parameter first - it's the source of truth when navigating from dashboard
-    // This prevents showing Resolved/Closed tickets when URL explicitly filters them out
-    const urlParams = new URLSearchParams(window.location.search);
-    const statusParam = urlParams.get('status');
-    let selectedStatuses;
-    
-    if (statusParam) {
-        // URL has status filter - use it (this is what dashboard navigation sets)
-        selectedStatuses = statusParam.split(',').map(s => s.trim());
-        // Ensure Resolved and Closed are never included when URL explicitly filters them out
-        selectedStatuses = selectedStatuses.filter(s => s !== 'Resolved' && s !== 'Closed');
-    } else {
-        // No URL parameter - during initial load, default to active statuses only
-        // (don't use checkboxes as they might be in default state with Resolved/Closed checked)
-        if (isInitialLoad) {
-            selectedStatuses = ['Open', 'Assigned', 'In Progress', 'Blocked'];
-        } else {
-            // After initial load, user has interacted with filters - use checkboxes
-            const statusCheckboxes = document.querySelectorAll('.status-checkbox:checked');
-            selectedStatuses = Array.from(statusCheckboxes).map(cb => cb.value);
-            
-            // If no checkboxes checked, default to active statuses only
-            if (selectedStatuses.length === 0) {
-                selectedStatuses = ['Open', 'Assigned', 'In Progress', 'Blocked'];
-            }
-        }
-    }
-    
-    // Final safeguard: always exclude Resolved and Closed
-    selectedStatuses = selectedStatuses.filter(s => s !== 'Resolved' && s !== 'Closed');
+    // URL filters seed the checkboxes once during page setup. After that, the
+    // visible controls are the source of truth for every request.
+    const statusCheckboxes = document.querySelectorAll('.status-checkbox:checked');
+    const selectedStatuses = Array.from(statusCheckboxes).map(cb => cb.value);
     
     const priorityCheckboxes = document.querySelectorAll('.priority-checkbox:checked');
     const selectedPriorities = Array.from(priorityCheckboxes).map(cb => cb.value);
@@ -1054,10 +1057,9 @@ function loadTickets() {
     if (assignedId) {
         params.append('assigned_user_id', assignedId);
     }
-    if (selectedStatuses.length > 0) {
-        // Send multiple status values as comma-separated string
-        params.append('status', selectedStatuses.join(','));
-    }
+    // An explicit empty selection must return no tickets, not silently become
+    // an unfiltered request.
+    params.append('status', selectedStatuses.length > 0 ? selectedStatuses.join(',') : '__none__');
     if (selectedPriorities.length > 0) {
         // Send multiple priority values as comma-separated string
         params.append('priority', selectedPriorities.join(','));
@@ -1082,9 +1084,12 @@ function loadTickets() {
         }
     }
     
-    fetch(`/tickets/api/tickets?${params.toString()}`)
+    fetch(`/tickets/api/tickets?${params.toString()}`, { signal: requestController.signal })
         .then(response => response.json())
         .then(tickets => {
+            if (requestSequence !== ticketRequestSequence) {
+                return;
+            }
             loading.style.display = 'none';
             
             if (tickets.length === 0) {
@@ -1118,6 +1123,9 @@ function loadTickets() {
             }
         })
         .catch(error => {
+            if (error.name === 'AbortError' || requestSequence !== ticketRequestSequence) {
+                return;
+            }
             loading.style.display = 'none';
             container.innerHTML = `<div class="error">Error loading tickets: ${error.message}</div>`;
         });
@@ -1239,6 +1247,7 @@ function selectAllStatuses() {
     document.querySelectorAll('.status-checkbox').forEach(cb => cb.checked = true);
     updateStatusFilterText();
     updateActiveFilters();
+    syncStatusFilterToUrl();
     loadTickets();
 }
 
@@ -1246,6 +1255,7 @@ function deselectAllStatuses() {
     document.querySelectorAll('.status-checkbox').forEach(cb => cb.checked = false);
     updateStatusFilterText();
     updateActiveFilters();
+    syncStatusFilterToUrl();
     loadTickets();
 }
 
@@ -1289,7 +1299,10 @@ function updateActiveFilters() {
     
     // Check status filters
     const statusCheckboxes = document.querySelectorAll('.status-checkbox:checked');
-    if (statusCheckboxes.length > 0 && statusCheckboxes.length < 6) {
+    const selectedStatuses = Array.from(statusCheckboxes).map(cb => cb.value);
+    const isDefaultActiveSelection = defaultActiveStatuses.every(status => selectedStatuses.includes(status)) &&
+        selectedStatuses.length === defaultActiveStatuses.length;
+    if (statusCheckboxes.length > 0 && statusCheckboxes.length < 6 && !isDefaultActiveSelection) {
         statusCheckboxes.forEach(cb => {
             activeFilters.push({ type: 'status', value: cb.value, label: cb.value });
         });
@@ -1419,6 +1432,9 @@ function removeActiveFilter(type, value) {
         if (clearBtn) clearBtn.style.display = 'none';
     }
     updateActiveFilters();
+    if (type === 'status') {
+        syncStatusFilterToUrl();
+    }
     loadTickets();
 }
 
@@ -1427,9 +1443,12 @@ function clearAllFilters() {
     document.querySelectorAll('.listing-checkbox').forEach(cb => cb.checked = false);
     updateListingFilterText();
     document.getElementById('filterAssigned').value = '';
-    // Select all statuses by default
-    document.querySelectorAll('.status-checkbox').forEach(cb => cb.checked = true);
+    // Restore the default active-ticket view.
+    document.querySelectorAll('.status-checkbox').forEach(cb => {
+        cb.checked = defaultActiveStatuses.includes(cb.value);
+    });
     updateStatusFilterText();
+    syncStatusFilterToUrl();
     // Select all priorities by default
     document.querySelectorAll('.priority-checkbox').forEach(cb => cb.checked = true);
     updatePriorityFilterText();
@@ -1467,7 +1486,7 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-function toggleView(view, savePreference = true) {
+function toggleView(view, savePreference = true, reloadTickets = true) {
     currentView = view;
     
     const listContainer = document.getElementById('ticketsContainer');
@@ -1491,8 +1510,9 @@ function toggleView(view, savePreference = true) {
         localStorage.setItem('ticketView', view);
     }
     
-    // Reload tickets to render in the correct view
-    loadTickets();
+    if (reloadTickets) {
+        loadTickets();
+    }
 }
 
 function renderSwimLaneView(tickets) {

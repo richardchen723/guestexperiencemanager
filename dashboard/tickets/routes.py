@@ -44,6 +44,19 @@ TICKET_STATUSES = ['Open', 'Assigned', 'In Progress', 'Blocked', 'Resolved', 'Cl
 TICKET_PRIORITIES = ['Low', 'Medium', 'High', 'Critical']
 
 
+def _parse_ticket_statuses(status_param):
+    """Parse a comma-separated status filter without changing its meaning."""
+    if status_param is None:
+        return None
+
+    requested_statuses = [
+        status.strip()
+        for status in status_param.split(',')
+        if status.strip()
+    ]
+    return [status for status in requested_statuses if status in TICKET_STATUSES]
+
+
 @tickets_bp.route('/')
 @approved_required
 def tickets_list():
@@ -286,13 +299,11 @@ def api_list_tickets():
                 query = query.filter(or_(*conditions))
         if assigned_user_id:
             query = query.filter(Ticket.assigned_user_id == assigned_user_id)
-        if status_param:
-            # Support multiple statuses (comma-separated)
-            statuses = [s.strip() for s in status_param.split(',') if s.strip()]
-            # Ensure Resolved and Closed are never included when explicitly filtered out
-            statuses = [s for s in statuses if s not in ['Resolved', 'Closed']]
-            if statuses:
-                query = query.filter(Ticket.status.in_(statuses))
+        if status_param is not None:
+            statuses = _parse_ticket_statuses(status_param)
+            if not statuses:
+                return jsonify([])
+            query = query.filter(Ticket.status.in_(statuses))
         if priority:
             # Support multiple priorities (comma-separated)
             priorities = [p.strip() for p in priority.split(',') if p.strip()]
