@@ -55,17 +55,17 @@
     <div id="activeFiltersBar" class="active-filters-bar" style="display: none;">
         <div class="active-filters-content">
             <div class="active-filters-label">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M2 4H14M2 8H14M2 12H14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M2.5 3.25H13.5L9.35 8V11.75L6.65 13V8L2.5 3.25Z" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
                 <span>Active Filters</span>
             </div>
             <div id="activeFiltersChips" class="active-filters-chips"></div>
-            <button type="button" onclick="clearAllFilters()" class="clear-all-filters-btn">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <button type="button" onclick="clearAllFilters()" class="clear-all-filters-btn" aria-label="Clear all active filters">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                     <path d="M10 4L4 10M4 4L10 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
                 </svg>
-                Clear All
+                Clear all
             </button>
         </div>
     </div>
@@ -1370,6 +1370,7 @@ function updateActiveFilters() {
             removeBtn.className = 'active-filter-chip-remove';
             removeBtn.setAttribute('data-filter-type', filter.type);
             removeBtn.setAttribute('data-filter-value', filter.value);
+            removeBtn.setAttribute('aria-label', `Remove ${filter.label} filter`);
             removeBtn.addEventListener('click', function() {
                 removeActiveFilter(filter.type, filter.value);
             });
