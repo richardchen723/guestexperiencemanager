@@ -29,7 +29,7 @@ BATCH_SIZE = 50
 PAGINATION_LIMIT = 100
 INCREMENTAL_OVERLAP_DAYS = 20
 REVIEW_HOST_BACKFILL_SYNC_TYPE = 'review_host_backfill_v1'
-HOST_REVIEW_POSTED_STATUSES = frozenset({'pending', 'submitted', 'published'})
+HOST_REVIEW_POSTED_STATUSES = frozenset({'submitted', 'published'})
 GUEST_REVIEW_SUBMITTED_STATUSES = frozenset({'submitted', 'published'})
 API_REVIEW_SYNC_STATUSES = ('pending', 'submitted', 'published')
 
@@ -93,10 +93,10 @@ def normalized_review_status(review_data: Dict) -> str:
 def should_sync_review_payload(review_data: Dict) -> bool:
     """Return whether a review row proves that side submitted a review.
 
-    Hostaway creates both directional rows before either party reviews. A host
-    row in ``pending`` means Hostaway sent it to the channel, while its paired
-    guest row can also remain ``pending`` without the guest having reviewed.
-    The accepted statuses are therefore intentionally origin-specific.
+    Hostaway creates both directional rows before either party reviews. For the
+    operational queue, only ``submitted`` and ``published`` are treated as
+    conclusive proof that either side completed its review. ``pending`` is kept
+    out of this policy because it can represent an intermediate channel state.
     """
     status = normalized_review_status(review_data)
     origin = normalize_review_origin(review_data)

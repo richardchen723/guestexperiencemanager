@@ -164,11 +164,7 @@ def should_offer_review_chase(risk: Dict, guest_reviewed: bool) -> bool:
 
 def _review_for_origin(reservation: Reservation, origin: str) -> Optional[Review]:
     normalized_origin = origin.strip().lower()
-    submitted_statuses = (
-        {'pending', 'submitted', 'published'}
-        if normalized_origin == 'host'
-        else {'submitted', 'published'}
-    )
+    submitted_statuses = {'submitted', 'published'}
     matching = [
         review for review in (reservation.reviews or [])
         if (review.origin or '').strip().lower() == normalized_origin
@@ -187,6 +183,34 @@ def _review_for_origin(reservation: Reservation, origin: str) -> Optional[Review
             review.review_id or 0,
         ),
     )
+
+
+def _has_manual_host_review_confirmation(state: Optional[ReviewQueueState]) -> bool:
+    """Return whether a human operator explicitly confirmed the host review."""
+    return bool(state and state.host_reviewed and state.host_reviewed_by)
+
+
+def _clear_stale_synced_host_review_state(
+    state: Optional[ReviewQueueState],
+    host_review: Optional[Review],
+) -> None:
+    """Undo workflow state previously inferred only from a now-ineligible review.
+
+    Manual confirmations are preserved. This lets the new status policy reopen
+    cards that were automatically closed solely because a Hostaway row was
+    ``pending``.
+    """
+    if (
+        not state
+        or host_review
+        or state.host_reviewed_by
+        or not state.host_review_id
+    ):
+        return
+    state.host_reviewed = False
+    state.host_review_id = None
+    state.host_reviewed_at = None
+    state.closed_at = None
 
 
 def normalize_review_rating(
@@ -400,10 +424,11 @@ def _apply_review_lifecycle(
     state: Optional[ReviewQueueState],
     current_user_id: int,
 ) -> tuple[Optional[str], Optional[ReviewQueueState]]:
+    _clear_stale_synced_host_review_state(state, host_review)
     if state and state.closed_at:
         return 'closed', state
 
-    host_reviewed = bool(host_review or (state and state.host_reviewed))
+    host_reviewed = bool(host_review or _has_manual_host_review_confirmation(state))
     rating = _rating_on_five_point_scale(guest_review)
     if not (guest_review and host_reviewed and rating is not None):
         if state and state.resolution_ticket_id:
@@ -457,7 +482,7 @@ def _serialize_queue_card(
     portfolio = portfolio_name_for_listing(reservation.listing_id, tag_names) or 'Unmapped'
     age_days = (reference_date - reservation.departure_date).days
     risk = rate_guest_review_risk(_guest_message_previews(reservation))
-    host_reviewed = bool(host_review or (state and state.host_reviewed))
+    host_reviewed = bool(host_review or _has_manual_host_review_confirmation(state))
     rating = _rating_on_five_point_scale(guest_review)
     sent_action_types = sent_action_types or set()
     chase_review_sent = REVIEW_ACTION_CHASE in sent_action_types

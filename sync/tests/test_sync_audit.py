@@ -82,8 +82,8 @@ class ApiParameterTests(unittest.TestCase):
 
 
 class ReviewSyncPolicyTests(unittest.TestCase):
-    def test_pending_host_review_counts_as_posted_but_pending_guest_row_does_not(self):
-        self.assertTrue(should_sync_review_payload({
+    def test_pending_review_does_not_count_as_posted_for_either_side(self):
+        self.assertFalse(should_sync_review_payload({
             'type': 'host-to-guest',
             'status': 'pending',
         }))
@@ -133,7 +133,7 @@ class ReviewSyncPolicyTests(unittest.TestCase):
         ]
 
         self.assertIsNone(_review_for_origin(reservation, 'Guest'))
-        self.assertEqual(_review_for_origin(reservation, 'Host').review_id, 2)
+        self.assertIsNone(_review_for_origin(reservation, 'Host'))
 
 
 class MessageSyncPolicyTests(unittest.TestCase):

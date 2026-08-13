@@ -5,6 +5,7 @@ from dashboard.reviews.query import (
     REVIEW_WINDOW_DAYS,
     _apply_review_lifecycle,
     _create_resolution_ticket_for_review,
+    _review_for_origin,
     default_bad_review_threshold,
     is_in_review_window,
     is_bad_review_rating,
@@ -165,7 +166,12 @@ class ReviewLifecycleTests(unittest.TestCase):
         session = FakeWorkflowSession()
         reservation = self.make_reservation()
         review = Review(review_id=30, listing_id=10, overall_rating=10, origin='Guest')
-        state = ReviewQueueState(reservation_id=20, listing_id=10, host_reviewed=True)
+        state = ReviewQueueState(
+            reservation_id=20,
+            listing_id=10,
+            host_reviewed=True,
+            host_reviewed_by=1,
+        )
 
         outcome, state = _apply_review_lifecycle(session, reservation, review, None, state, 1)
 
@@ -177,7 +183,12 @@ class ReviewLifecycleTests(unittest.TestCase):
         session = FakeWorkflowSession()
         reservation = self.make_reservation()
         review = Review(review_id=31, listing_id=10, overall_rating=8, origin='Guest', review_text='Needs follow-up')
-        state = ReviewQueueState(reservation_id=20, listing_id=10, host_reviewed=True)
+        state = ReviewQueueState(
+            reservation_id=20,
+            listing_id=10,
+            host_reviewed=True,
+            host_reviewed_by=1,
+        )
 
         outcome, state = _apply_review_lifecycle(session, reservation, review, None, state, 1)
 
@@ -187,6 +198,79 @@ class ReviewLifecycleTests(unittest.TestCase):
         self.assertEqual(len(tickets), 1)
         self.assertEqual(tickets[0].ticket_type, 'review_resolution')
         self.assertTrue(any(isinstance(value, TicketListing) for value in session.added))
+
+    def test_pending_host_review_does_not_count_and_reopens_stale_synced_state(self):
+        session = FakeWorkflowSession()
+        reservation = self.make_reservation()
+        guest_review = Review(
+            review_id=31,
+            listing_id=10,
+            overall_rating=10,
+            origin='Guest',
+            status='submitted',
+        )
+        pending_host_review = Review(
+            review_id=32,
+            listing_id=10,
+            origin='Host',
+            status='pending',
+        )
+        reservation.reviews = [guest_review, pending_host_review]
+        state = ReviewQueueState(
+            reservation_id=20,
+            listing_id=10,
+            host_reviewed=True,
+            host_review_id=32,
+            host_reviewed_at=datetime(2026, 8, 2),
+            closed_at=datetime(2026, 8, 2),
+        )
+
+        host_review = _review_for_origin(reservation, 'Host')
+        outcome, state = _apply_review_lifecycle(
+            session,
+            reservation,
+            guest_review,
+            host_review,
+            state,
+            1,
+        )
+
+        self.assertIsNone(host_review)
+        self.assertIsNone(outcome)
+        self.assertFalse(state.host_reviewed)
+        self.assertIsNone(state.host_review_id)
+        self.assertIsNone(state.host_reviewed_at)
+        self.assertIsNone(state.closed_at)
+
+    def test_pending_host_review_does_not_override_manual_confirmation(self):
+        session = FakeWorkflowSession()
+        reservation = self.make_reservation()
+        guest_review = Review(
+            review_id=33,
+            listing_id=10,
+            overall_rating=10,
+            origin='Guest',
+            status='submitted',
+        )
+        state = ReviewQueueState(
+            reservation_id=20,
+            listing_id=10,
+            host_reviewed=True,
+            host_reviewed_by=7,
+        )
+
+        outcome, state = _apply_review_lifecycle(
+            session,
+            reservation,
+            guest_review,
+            None,
+            state,
+            1,
+        )
+
+        self.assertEqual(outcome, 'closed')
+        self.assertTrue(state.host_reviewed)
+        self.assertEqual(state.host_reviewed_by, 7)
 
     def test_historical_review_creates_ticket_without_host_review(self):
         session = FakeWorkflowSession()
