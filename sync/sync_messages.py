@@ -401,6 +401,33 @@ def merge_conversation_payloads(*conversation_groups: List[Dict]) -> List[Dict]:
     return merged
 
 
+def repair_conversation_relationships(
+    conversation: Conversation,
+    reservation: Optional[Reservation],
+    listing: Optional[Listing],
+    fallback_listing_id: Optional[int],
+    fallback_guest_id: Optional[int],
+) -> bool:
+    """Repair conversation links when the conversation predates its reservation sync."""
+    expected_reservation_id = reservation.reservation_id if reservation else None
+    expected_listing_id = listing.listing_id if listing else fallback_listing_id
+    expected_guest_id = (
+        reservation.guest_id
+        if reservation and reservation.guest_id
+        else fallback_guest_id
+    )
+    changed = False
+    for attribute, expected_value in (
+        ('reservation_id', expected_reservation_id),
+        ('listing_id', expected_listing_id),
+        ('guest_id', expected_guest_id),
+    ):
+        if expected_value is not None and getattr(conversation, attribute) != expected_value:
+            setattr(conversation, attribute, expected_value)
+            changed = True
+    return changed
+
+
 def get_conversations_via_reservations(
     cutoff_time: datetime,
     client: HostawayAPIClient,
@@ -827,6 +854,20 @@ def sync_messages_from_api(
                 conversation_exists = conversation_id in conversation_id_set
                 existing_last_message_at = conversation_last_message_map.get(conversation_id)
                 existing_last_synced_at = conversation_last_synced_map.get(conversation_id)
+                conversation = None
+                relationship_repaired = False
+                if conversation_exists:
+                    conversation = session.query(Conversation).filter(
+                        Conversation.conversation_id == conversation_id
+                    ).first()
+                    if conversation:
+                        relationship_repaired = repair_conversation_relationships(
+                            conversation,
+                            reservation,
+                            listing,
+                            listing_id,
+                            guest_id,
+                        )
                 
                 # Get last message time from API conversation metadata
                 api_last_msg_time = None
@@ -841,6 +882,8 @@ def sync_messages_from_api(
                 if conversation_exists and existing_last_message_at and api_last_msg_time:
                     if api_last_msg_time <= existing_last_message_at:
                         conversations_skipped += 1
+                        if relationship_repaired:
+                            conversations_in_batch += 1
                         if VERBOSE:
                             print(f"  Skipping conversation {conversation_id} - no new messages (last: {existing_last_message_at})")
                         progress.increment()
@@ -893,9 +936,10 @@ def sync_messages_from_api(
                 # CRITICAL: Get or create conversation record FIRST before processing messages
                 # This ensures the conversation exists in the database before we add messages with foreign keys
                 # MEMORY OPTIMIZATION: Query conversation only when needed (not pre-loaded)
-                conversation = session.query(Conversation).filter(
-                    Conversation.conversation_id == conversation_id
-                ).first()
+                if conversation is None:
+                    conversation = session.query(Conversation).filter(
+                        Conversation.conversation_id == conversation_id
+                    ).first()
                 
                 if not conversation:
                     # Create conversation record first (before messages)
@@ -924,6 +968,14 @@ def sync_messages_from_api(
                         errors.append(f"Error creating conversation {conversation_id}: {str(flush_error)}")
                         progress.increment(error=True)
                         continue
+                else:
+                    repair_conversation_relationships(
+                        conversation,
+                        reservation,
+                        listing,
+                        listing_id,
+                        guest_id,
+                    )
                 
                 # Track new messages for this conversation
                 new_messages_count = 0
