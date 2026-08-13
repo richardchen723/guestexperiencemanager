@@ -96,6 +96,14 @@ if [ -f "$APP_DIR/deployment/hostaway-recurring-tasks.service" ]; then
     systemctl start hostaway-recurring-tasks.timer
     echo -e "${GREEN}Recurring tasks timer enabled${NC}"
 fi
+if [ -f "$APP_DIR/deployment/hostaway-review-sync.service" ]; then
+    cp "$APP_DIR/deployment/hostaway-review-sync.service" /etc/systemd/system/
+    cp "$APP_DIR/deployment/hostaway-review-sync.timer" /etc/systemd/system/
+    systemctl daemon-reload
+    systemctl enable hostaway-review-sync.timer
+    systemctl restart hostaway-review-sync.timer
+    echo -e "${GREEN}Review status sync timer enabled${NC}"
+fi
 
 echo -e "${GREEN}Step 7: Restarting systemd services...${NC}"
 if systemctl is-active --quiet hostaway-dashboard; then
