@@ -163,10 +163,19 @@ def should_offer_review_chase(risk: Dict, guest_reviewed: bool) -> bool:
 
 
 def _review_for_origin(reservation: Reservation, origin: str) -> Optional[Review]:
+    normalized_origin = origin.strip().lower()
+    submitted_statuses = (
+        {'pending', 'submitted', 'published'}
+        if normalized_origin == 'host'
+        else {'submitted', 'published'}
+    )
     matching = [
         review for review in (reservation.reviews or [])
-        if (review.origin or '').strip().lower() == origin.lower()
-        and (review.status or '').strip().lower() != 'rejected'
+        if (review.origin or '').strip().lower() == normalized_origin
+        and (
+            not (review.status or '').strip()
+            or (review.status or '').strip().lower() in submitted_statuses
+        )
     ]
     if not matching:
         return None

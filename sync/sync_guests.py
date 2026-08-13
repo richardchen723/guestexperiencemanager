@@ -14,12 +14,30 @@ from typing import Dict, Optional, Any
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sync.progress_tracker import get_progress_tracker
-from database.models import Guest, Reservation, SyncLog, get_session, init_models
+from database.models import (
+    Conversation,
+    Guest,
+    MessageMetadata,
+    Reservation,
+    Review,
+    SyncLog,
+    get_session,
+    init_models,
+)
 from database.schema import get_database_path
 from config import VERBOSE
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+def reassign_guest_references(session, duplicate_guest_id: int, primary_guest_id: int) -> None:
+    """Move every local foreign key before removing a duplicate guest."""
+    for model in (Reservation, Conversation, MessageMetadata, Review):
+        session.query(model).filter(model.guest_id == duplicate_guest_id).update(
+            {'guest_id': primary_guest_id},
+            synchronize_session=False,
+        )
 
 
 def deduplicate_guests(progress_tracker: Optional[Any] = None, sync_run_id: Optional[int] = None) -> Dict:
@@ -148,10 +166,11 @@ def deduplicate_guests(progress_tracker: Optional[Any] = None, sync_run_id: Opti
                 progress.update_item(f"Merging email: {email}")
                 
                 for duplicate_guest in guest_list[1:]:
-                    # Update reservations to point to primary guest
-                    session.query(Reservation).filter(
-                        Reservation.guest_id == duplicate_guest.guest_id
-                    ).update({'guest_id': primary_guest.guest_id}, synchronize_session=False)
+                    reassign_guest_references(
+                        session,
+                        duplicate_guest.guest_id,
+                        primary_guest.guest_id,
+                    )
                     
                     # Merge data if primary is missing it
                     if not primary_guest.guest_external_account_id and duplicate_guest.guest_external_account_id:
@@ -204,10 +223,11 @@ def deduplicate_guests(progress_tracker: Optional[Any] = None, sync_run_id: Opti
                 progress.update_item(f"Merging external ID: {ext_id}")
                 
                 for duplicate_guest in guest_list[1:]:
-                    # Update reservations
-                    session.query(Reservation).filter(
-                        Reservation.guest_id == duplicate_guest.guest_id
-                    ).update({'guest_id': primary_guest.guest_id}, synchronize_session=False)
+                    reassign_guest_references(
+                        session,
+                        duplicate_guest.guest_id,
+                        primary_guest.guest_id,
+                    )
                     
                     # Merge data
                     if not primary_guest.email and duplicate_guest.email:

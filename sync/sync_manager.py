@@ -32,6 +32,20 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
+def aggregate_sync_status(results: Dict) -> str:
+    """Summarize component results without hiding returned error dictionaries."""
+    component_statuses = [
+        value.get('status')
+        for value in results.values()
+        if isinstance(value, dict) and value.get('status') != 'skipped'
+    ]
+    if results.get('error') or 'error' in component_statuses:
+        return 'error'
+    if 'partial' in component_statuses:
+        return 'partial'
+    return 'success'
+
+
 def get_last_sync_time(sync_type: str) -> Optional[datetime]:
     """
     Get the last successful sync time for a given sync type.
@@ -82,9 +96,9 @@ def should_sync(sync_type: str, force_full: bool = False) -> bool:
     if not last_sync:
         return True  # Never synced, do it now
     
-    # Require at least 12 hours between syncs
+    # Respect the deployment setting rather than silently hard-coding 12 hours.
     time_since_sync = datetime.utcnow() - last_sync
-    return time_since_sync >= timedelta(hours=12)
+    return time_since_sync >= timedelta(hours=max(SYNC_INTERVAL_HOURS, 0))
 
 
 def full_sync(progress_tracker: Optional[Any] = None, sync_run_id: Optional[int] = None) -> Dict:
@@ -169,18 +183,31 @@ def full_sync(progress_tracker: Optional[Any] = None, sync_run_id: Optional[int]
         if use_terminal:
             progress.print_summary(results)
         
-        logger.info(f"Full sync completed successfully (sync_run_id={sync_run_id})")
+        results['status'] = aggregate_sync_status(results)
+        logger.info(
+            "Full sync completed with status %s (sync_run_id=%s)",
+            results['status'],
+            sync_run_id,
+        )
         results['sync_run_id'] = sync_run_id
         return results
         
     except Exception as e:
         logger.error(f"Fatal error during full sync: {e}", exc_info=True)
         results['error'] = str(e)
+        results['status'] = 'error'
         results['sync_run_id'] = sync_run_id
         return results
 
 
-def incremental_sync(progress_tracker: Optional[Any] = None, sync_run_id: Optional[int] = None, force: bool = False) -> Dict:
+def incremental_sync(
+    progress_tracker: Optional[Any] = None,
+    sync_run_id: Optional[int] = None,
+    force: bool = False,
+    include_messages: bool = True,
+    message_recent_activity_hours: Optional[int] = None,
+    message_max_reservations: Optional[int] = None,
+) -> Dict:
     """
     Perform an incremental sync (only changed data).
     
@@ -189,6 +216,10 @@ def incremental_sync(progress_tracker: Optional[Any] = None, sync_run_id: Option
         sync_run_id: Optional sync_run_id to group sync logs. If None, will be generated.
         force: If True, force sync to run even if synced recently (bypasses time check).
                When manually triggered from UI, this should be True.
+        include_messages: If False, skip the expensive conversation/message API path.
+        message_recent_activity_hours: If set, run a bounded recent message tail sync
+            instead of using the stale global message-sync watermark.
+        message_max_reservations: Optional cap for reservations considered by the message tail sync.
     
     Returns:
         Dictionary with sync results for each data type.
@@ -225,7 +256,9 @@ def incremental_sync(progress_tracker: Optional[Any] = None, sync_run_id: Option
         # If force=True, always sync (bypasses time check for manual triggers)
         sync_listings_flag = force or should_sync('listings')
         sync_reservations_flag = force or should_sync('reservations')
-        sync_messages_flag = force or should_sync('messages')
+        sync_messages_flag = include_messages and (
+            force or bool(message_recent_activity_hours) or should_sync('messages')
+        )
         sync_reviews_flag = force or should_sync('reviews')
         
         if sync_listings_flag:
@@ -263,13 +296,23 @@ def incremental_sync(progress_tracker: Optional[Any] = None, sync_run_id: Option
         if sync_messages_flag:
             if use_terminal:
                 print("[4] Syncing messages from API...")
-            results['messages'] = sync_messages_from_api(full_sync=False, progress_tracker=progress, sync_run_id=sync_run_id)
+            results['messages'] = sync_messages_from_api(
+                full_sync=False,
+                progress_tracker=progress,
+                sync_run_id=sync_run_id,
+                recent_activity_hours=message_recent_activity_hours,
+                max_reservations=message_max_reservations,
+            )
             if use_terminal:
                 print()
         else:
             if use_terminal:
-                print("[4] Skipping messages (synced recently)")
-            results['messages'] = {'status': 'skipped'}
+                reason = "disabled for this run" if not include_messages else "synced recently"
+                print(f"[4] Skipping messages ({reason})")
+            results['messages'] = {
+                'status': 'skipped',
+                'reason': 'disabled_for_run' if not include_messages else 'synced_recently',
+            }
         
         if sync_reviews_flag:
             if use_terminal:
@@ -286,13 +329,19 @@ def incremental_sync(progress_tracker: Optional[Any] = None, sync_run_id: Option
         if use_terminal:
             progress.print_summary(results)
         
-        logger.info(f"Incremental sync completed (sync_run_id={sync_run_id})")
+        results['status'] = aggregate_sync_status(results)
+        logger.info(
+            "Incremental sync completed with status %s (sync_run_id=%s)",
+            results['status'],
+            sync_run_id,
+        )
         results['sync_run_id'] = sync_run_id
         return results
         
     except Exception as e:
         logger.error(f"Fatal error during incremental sync: {e}", exc_info=True)
         results['error'] = str(e)
+        results['status'] = 'error'
         results['sync_run_id'] = sync_run_id
         return results
 
@@ -352,13 +401,14 @@ Examples:
     args = parser.parse_args()
     
     try:
-        if args.full:
-            sync(force_full=True)
-        elif args.incremental:
-            sync(force_full=False)
+        if args.incremental:
+            # An explicit incremental CLI request must not be promoted to a full
+            # sync by the automatic first-run policy.
+            result = incremental_sync(force=True)
         else:
-            # Default behavior from config
-            sync(force_full=False)
+            result = sync(force_full=bool(args.full))
+        if result.get('status') in {'error', 'partial'} or result.get('error'):
+            sys.exit(1)
     except KeyboardInterrupt:
         logger.info("Sync interrupted by user")
         print("\n\nSync interrupted by user")

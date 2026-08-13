@@ -95,8 +95,10 @@ def sync_listing_photos(session, listing_id: int, photos_data: List[Dict]) -> No
         listing_id: The listing ID.
         photos_data: List of photo data dictionaries from API.
     """
-    if not STORE_PHOTO_METADATA or not photos_data:
+    if not STORE_PHOTO_METADATA:
         return
+
+    photos_data = photos_data or []
     
     # Pre-load existing photos for this listing (keyed by photo_url for deduplication)
     existing_photos = session.query(ListingPhoto).filter(
@@ -416,9 +418,8 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
                     progress.increment(created=True)
                 
                 # Sync photos
-                photos_data = listing_data.get('photos', [])
-                if photos_data:
-                    sync_listing_photos(session, listing_id, photos_data)
+                if 'photos' in listing_data:
+                    sync_listing_photos(session, listing_id, listing_data.get('photos') or [])
 
                 sync_listing_tags(session, listing_id, listing_data)
                 

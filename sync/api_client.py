@@ -6,12 +6,12 @@ Handles OAuth 2.0 authentication and API requests with rate limiting.
 
 import time
 import logging
+import threading
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from datetime import datetime
 from typing import List, Dict, Optional, Any
-import socket
 
 from config import HOSTAWAY_API_KEY, HOSTAWAY_ACCOUNT_ID, HOSTAWAY_BASE_URL, VERBOSE
 
@@ -46,23 +46,40 @@ class HostawayAPIClient:
         self.access_token: Optional[str] = None
         self.token_expires_at: Optional[float] = None
         
-        # Create retry strategy for DNS/network errors
-        # Retry on: DNS errors, connection errors, timeouts, and server errors (5xx)
+        # Keep one requests session per worker thread. ``requests.Session`` is not
+        # documented as thread-safe, while message sync intentionally fetches
+        # several reservation conversations in parallel.
+        self._thread_local = threading.local()
+        self._token_lock = threading.RLock()
+
+    def _build_session(self) -> requests.Session:
+        """Create a pooled HTTP session for the current worker thread."""
+        # Transport retries cover transient connection/read failures. HTTP status
+        # retries are handled in ``_make_request`` so requests are not multiplied
+        # by two independent retry loops.
         retry_strategy = Retry(
-            total=MAX_RETRIES,
+            total=2,
+            connect=2,
+            read=2,
+            status=0,
             backoff_factor=BASE_DELAY,
-            status_forcelist=[500, 502, 503, 504],  # Server errors
-            allowed_methods=["GET"],  # Outbound POSTs are not safe to repeat automatically
-            raise_on_status=False,  # Don't raise, let us handle it
+            allowed_methods=["GET"],
+            raise_on_status=False,
         )
-        
-        # Create HTTP adapter with retry strategy
         adapter = HTTPAdapter(max_retries=retry_strategy)
-        
-        # Create session with retry adapter
-        self.session = requests.Session()
-        self.session.mount("http://", adapter)
-        self.session.mount("https://", adapter)
+        session = requests.Session()
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        return session
+
+    @property
+    def session(self) -> requests.Session:
+        """Return a pooled session that is private to the calling thread."""
+        session = getattr(self._thread_local, 'session', None)
+        if session is None:
+            session = self._build_session()
+            self._thread_local.session = session
+        return session
     
     def get_access_token(self) -> Optional[str]:
         """
@@ -71,111 +88,112 @@ class HostawayAPIClient:
         Returns:
             Access token string if successful, None otherwise.
         """
-        # Check if we have a valid cached token
-        if (self.access_token and 
-            self.token_expires_at and 
-            datetime.now().timestamp() < self.token_expires_at):
-            return self.access_token
-        
-        if VERBOSE:
-            logger.info("Getting new access token...")
-        
-        url = f"{self.base_url}/accessTokens"
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Cache-Control': 'no-cache'
-        }
-        data = {
-            'grant_type': 'client_credentials',
-            'client_id': self.account_id,
-            'client_secret': self.api_key,
-            'scope': 'general'
-        }
-        
-        # Retry logic for DNS/network errors with exponential backoff
-        last_exception = None
-        for attempt in range(MAX_RETRIES):
-            try:
-                response = self.session.post(url, headers=headers, data=data, timeout=30)
-                response.raise_for_status()
-                token_data = response.json()
-                self.access_token = token_data.get('access_token')
-                
-                if not self.access_token:
-                    logger.error("No access token in response")
-                    return None
-                
-                # Set token expiration with buffer
-                expires_in = token_data.get('expires_in', DEFAULT_TOKEN_EXPIRATION)
-                self.token_expires_at = (
-                    datetime.now().timestamp() + expires_in - TOKEN_EXPIRATION_BUFFER
-                )
-                
-                if attempt > 0:
-                    logger.info(f"Successfully got access token after {attempt} retries")
-                
+        with self._token_lock:
+            # Re-check inside the lock because another worker may have refreshed it.
+            if (self.access_token and
+                self.token_expires_at and
+                datetime.now().timestamp() < self.token_expires_at):
                 return self.access_token
+
+            if VERBOSE:
+                logger.info("Getting new access token...")
+
+            url = f"{self.base_url}/accessTokens"
+            headers = {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Cache-Control': 'no-cache'
+            }
+            data = {
+                'grant_type': 'client_credentials',
+                'client_id': self.account_id,
+                'client_secret': self.api_key,
+                'scope': 'general'
+            }
+
+            # Retry logic for DNS/network errors with exponential backoff
+            last_exception = None
+            for attempt in range(MAX_RETRIES):
+                try:
+                    response = self.session.post(url, headers=headers, data=data, timeout=30)
+                    response.raise_for_status()
+                    token_data = response.json()
+                    self.access_token = token_data.get('access_token')
+
+                    if not self.access_token:
+                        logger.error("No access token in response")
+                        return None
+
+                    # Set token expiration with buffer
+                    try:
+                        expires_in = float(
+                            token_data.get('expires_in', DEFAULT_TOKEN_EXPIRATION)
+                        )
+                    except (TypeError, ValueError):
+                        expires_in = float(DEFAULT_TOKEN_EXPIRATION)
+                    self.token_expires_at = (
+                        datetime.now().timestamp() + expires_in - TOKEN_EXPIRATION_BUFFER
+                    )
+
+                    if attempt > 0:
+                        logger.info(f"Successfully got access token after {attempt} retries")
+
+                    return self.access_token
                 
-            except (requests.exceptions.Timeout, 
-                    requests.exceptions.ConnectTimeout,
-                    requests.exceptions.ReadTimeout) as e:
-                last_exception = e
-                if attempt < MAX_RETRIES - 1:
-                    wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
-                    logger.warning(f"Timeout getting access token (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"Timeout getting access token after {MAX_RETRIES} attempts")
+                except (requests.exceptions.Timeout,
+                        requests.exceptions.ConnectTimeout,
+                        requests.exceptions.ReadTimeout) as e:
+                    last_exception = e
+                    if attempt < MAX_RETRIES - 1:
+                        wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
+                        logger.warning(f"Timeout getting access token (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"Timeout getting access token after {MAX_RETRIES} attempts")
                     
-            except requests.exceptions.ConnectionError as e:
-                last_exception = e
-                # Check if it's a DNS error (requests wraps socket.gaierror)
-                error_str = str(e).lower()
-                is_dns_error = (
-                    "nodename nor servname" in error_str or
-                    "name or service not known" in error_str or
-                    "failed to resolve" in error_str or
-                    "getaddrinfo failed" in error_str or
-                    "temporary failure in name resolution" in error_str
-                )
-                
-                if attempt < MAX_RETRIES - 1:
-                    wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
-                    error_type = "DNS resolution" if is_dns_error else "Connection"
-                    logger.warning(f"{error_type} error getting access token (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
-                    time.sleep(wait_time)
-                else:
-                    error_type = "DNS resolution" if is_dns_error else "Connection"
-                    logger.error(f"{error_type} error getting access token after {MAX_RETRIES} attempts: {e}")
+                except requests.exceptions.ConnectionError as e:
+                    last_exception = e
+                    error_str = str(e).lower()
+                    is_dns_error = (
+                        "nodename nor servname" in error_str or
+                        "name or service not known" in error_str or
+                        "failed to resolve" in error_str or
+                        "getaddrinfo failed" in error_str or
+                        "temporary failure in name resolution" in error_str
+                    )
+
+                    if attempt < MAX_RETRIES - 1:
+                        wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
+                        error_type = "DNS resolution" if is_dns_error else "Connection"
+                        logger.warning(f"{error_type} error getting access token (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        error_type = "DNS resolution" if is_dns_error else "Connection"
+                        logger.error(f"{error_type} error getting access token after {MAX_RETRIES} attempts: {e}")
                     
-            except requests.exceptions.HTTPError as e:
-                # Don't retry HTTP errors (4xx, 5xx) except 5xx which are handled by urllib3 retry
-                # But if it's 401/403, don't retry
-                if e.response is not None and e.response.status_code in (401, 403, 404):
-                    logger.error(f"Authentication/authorization error getting access token: {e}")
-                    return None
-                # For other HTTP errors, let urllib3 retry handle it or raise
-                last_exception = e
-                if attempt < MAX_RETRIES - 1:
-                    wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
-                    logger.warning(f"HTTP error getting access token (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"HTTP error getting access token after {MAX_RETRIES} attempts: {e}")
+                except requests.exceptions.HTTPError as e:
+                    if e.response is not None and e.response.status_code in (400, 401, 403, 404, 422):
+                        logger.error(f"Authentication/authorization error getting access token: {e}")
+                        return None
+                    last_exception = e
+                    if attempt < MAX_RETRIES - 1:
+                        wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
+                        logger.warning(f"HTTP error getting access token (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"HTTP error getting access token after {MAX_RETRIES} attempts: {e}")
                     
-            except requests.exceptions.RequestException as e:
-                last_exception = e
-                if attempt < MAX_RETRIES - 1:
-                    wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
-                    logger.warning(f"Request error getting access token (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"Request error getting access token after {MAX_RETRIES} attempts: {e}")
-        
-        # All retries exhausted
-        if last_exception:
-            logger.error(f"Failed to get access token after {MAX_RETRIES} attempts. Last error: {last_exception}")
-        return None
+                except requests.exceptions.RequestException as e:
+                    last_exception = e
+                    if attempt < MAX_RETRIES - 1:
+                        wait_time = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
+                        logger.warning(f"Request error getting access token (attempt {attempt + 1}/{MAX_RETRIES}), retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"Request error getting access token after {MAX_RETRIES} attempts: {e}")
+
+            if last_exception:
+                logger.error(f"Failed to get access token after {MAX_RETRIES} attempts. Last error: {last_exception}")
+            return None
     
     def get_headers(self) -> Dict[str, str]:
         """
@@ -218,13 +236,30 @@ class HostawayAPIClient:
             try:
                 response = self.session.get(url, headers=headers, params=params, timeout=30)
                 
-                # Handle rate limiting with retry (application-level, not network-level)
+                # Handle rate limiting in the main retry loop and honor Hostaway's
+                # Retry-After response when supplied.
                 if response.status_code == 429:
-                    if VERBOSE:
-                        logger.warning(f"Rate limit exceeded for {endpoint}, waiting {RATE_LIMIT_RETRY_DELAY}s...")
-                    time.sleep(RATE_LIMIT_RETRY_DELAY)
-                    # Retry the rate-limited request once more
-                    response = self.session.get(url, headers=headers, params=params, timeout=30)
+                    if attempt >= MAX_RETRIES - 1:
+                        response.raise_for_status()
+                    retry_after = response.headers.get('Retry-After')
+                    try:
+                        wait_time = max(float(retry_after), 0.0) if retry_after else RATE_LIMIT_RETRY_DELAY
+                    except (TypeError, ValueError):
+                        wait_time = RATE_LIMIT_RETRY_DELAY
+                    logger.warning(f"Rate limit exceeded for {endpoint}, retrying in {wait_time:g}s...")
+                    time.sleep(wait_time)
+                    continue
+
+                # A token can be revoked before its advertised expiry. Refresh it
+                # once instead of turning a valid sync into a silent empty result.
+                if response.status_code in (401, 403) and attempt == 0:
+                    with self._token_lock:
+                        self.access_token = None
+                        self.token_expires_at = None
+                    headers = self.get_headers()
+                    if not headers:
+                        return None
+                    continue
                 
                 response.raise_for_status()
                 
@@ -372,45 +407,66 @@ class HostawayAPIClient:
             return data['result']
         return None
     
-    def get_reservations(self, listing_id: Optional[int] = None, 
-                        status: Optional[str] = None,
+    def get_reservations(self, listing_id: Optional[int] = None,
                         limit: Optional[int] = None, 
                         offset: Optional[int] = None,
-                        updated_on: Optional[datetime] = None,
-                        latest_activity_on: Optional[datetime] = None) -> List[Dict]:
+                        latest_activity_on: Optional[datetime] = None,
+                        after_id: Optional[int] = None,
+                        sort_order: Optional[str] = None) -> List[Dict]:
         """
         Get reservations with optional filters.
         
         Args:
             listing_id: Filter by listing ID
-            status: Filter by reservation status
             limit: Maximum number of reservations to return
             offset: Number of reservations to skip
-            updated_on: Filter reservations updated after this timestamp (ISO 8601 format)
             latest_activity_on: Filter reservations with activity after this timestamp (ISO 8601 format)
             
         Returns:
             List of reservation dictionaries.
         """
+        page = self.get_reservations_page(
+            listing_id=listing_id,
+            limit=limit,
+            offset=offset,
+            latest_activity_on=latest_activity_on,
+            after_id=after_id,
+            sort_order=sort_order,
+        )
+        return page if page is not None else []
+
+    def get_reservations_page(self, listing_id: Optional[int] = None,
+                              limit: Optional[int] = None,
+                              offset: Optional[int] = None,
+                              latest_activity_on: Optional[datetime] = None,
+                              after_id: Optional[int] = None,
+                              sort_order: Optional[str] = None) -> Optional[List[Dict]]:
+        """Return one reservation page and preserve API failure as ``None``."""
         params: Dict[str, Any] = {}
         if listing_id:
             params['listingId'] = listing_id
-        if status:
-            params['status'] = status
         if limit:
             params['limit'] = limit
         if offset:
             params['offset'] = offset
-        if updated_on:
-            # Format timestamp as ISO 8601 string (Hostaway API format)
-            params['updatedOn'] = updated_on.strftime('%Y-%m-%dT%H:%M:%SZ')
+        if after_id:
+            params['afterId'] = after_id
+        if sort_order:
+            params['sortOrder'] = sort_order
         if latest_activity_on:
-            params['latestActivityOn'] = latest_activity_on.strftime('%Y-%m-%dT%H:%M:%SZ')
+            # The current Hostaway API accepts a date-only lower bound named
+            # ``latestActivityStart``. Callers still apply an exact timestamp
+            # filter locally when they need sub-day precision.
+            params['latestActivityStart'] = latest_activity_on.strftime('%Y-%m-%d')
         
         data = self._make_request("reservations", params)
-        if data and 'result' in data:
-            return data['result']
-        return []
+        if not isinstance(data, dict) or 'result' not in data:
+            return None
+        result = data['result']
+        if not isinstance(result, list):
+            logger.error("Hostaway reservations response contained an invalid result payload")
+            return None
+        return result
     
     def get_all_reservations(self, limit: int = 100) -> List[Dict]:
         """
@@ -425,10 +481,12 @@ class HostawayAPIClient:
             List of all reservation dictionaries.
         """
         all_reservations = []
-        offset = 0
+        after_id = None
         
         while True:
-            reservations = self.get_reservations(limit=limit, offset=offset)
+            reservations = self.get_reservations_page(limit=limit, after_id=after_id)
+            if reservations is None:
+                raise RuntimeError("Hostaway reservations pagination failed")
             if not reservations:
                 break
             
@@ -438,7 +496,9 @@ class HostawayAPIClient:
             if len(reservations) < limit:
                 break
             
-            offset += limit
+            after_id = reservations[-1].get('id')
+            if not after_id:
+                raise RuntimeError("Hostaway reservations page did not include a cursor ID")
         
         return all_reservations
     
@@ -456,6 +516,17 @@ class HostawayAPIClient:
         Returns:
             List of conversation dictionaries.
         """
+        page = self.get_conversations_page(
+            reservation_id=reservation_id,
+            limit=limit,
+            offset=offset,
+        )
+        return page if page is not None else []
+
+    def get_conversations_page(self, reservation_id: Optional[int] = None,
+                               limit: Optional[int] = None,
+                               offset: Optional[int] = None) -> Optional[List[Dict]]:
+        """Return one conversations page and preserve API failure as ``None``."""
         params: Dict[str, int] = {}
         if reservation_id:
             params['reservationId'] = reservation_id
@@ -465,9 +536,13 @@ class HostawayAPIClient:
             params['offset'] = offset
         
         data = self._make_request("conversations", params)
-        if data and 'result' in data:
-            return data['result']
-        return []
+        if not isinstance(data, dict) or 'result' not in data:
+            return None
+        result = data['result']
+        if not isinstance(result, list):
+            logger.error("Hostaway conversations response contained an invalid result payload")
+            return None
+        return result
     
     def get_all_conversations(self, limit: int = 100) -> List[Dict]:
         """
@@ -483,7 +558,9 @@ class HostawayAPIClient:
         offset = 0
         
         while True:
-            conversations = self.get_conversations(limit=limit, offset=offset)
+            conversations = self.get_conversations_page(limit=limit, offset=offset)
+            if conversations is None:
+                raise RuntimeError("Hostaway conversations pagination failed")
             if not conversations:
                 break
             
@@ -497,7 +574,9 @@ class HostawayAPIClient:
         
         return all_conversations
     
-    def get_conversation_messages(self, conversation_id: int) -> List[Dict]:
+    def get_conversation_messages(self, conversation_id: int,
+                                  limit: Optional[int] = None,
+                                  offset: Optional[int] = None) -> List[Dict]:
         """
         Get all messages for a specific conversation.
         
@@ -507,10 +586,48 @@ class HostawayAPIClient:
         Returns:
             List of message dictionaries.
         """
-        data = self._make_request(f"conversations/{conversation_id}/messages")
-        if data and 'result' in data:
-            return data['result']
-        return []
+        page = self.get_conversation_messages_page(conversation_id, limit=limit, offset=offset)
+        return page if page is not None else []
+
+    def get_conversation_messages_page(self, conversation_id: int,
+                                       limit: Optional[int] = None,
+                                       offset: Optional[int] = None) -> Optional[List[Dict]]:
+        """Return one message page and preserve API failure as ``None``."""
+        params: Dict[str, int] = {}
+        if limit:
+            params['limit'] = limit
+        if offset:
+            params['offset'] = offset
+        data = self._make_request(f"conversations/{conversation_id}/messages", params)
+        if not isinstance(data, dict) or 'result' not in data:
+            return None
+        result = data['result']
+        if not isinstance(result, list):
+            logger.error("Hostaway conversation messages response contained an invalid result payload")
+            return None
+        return result
+
+    def get_all_conversation_messages(self, conversation_id: int, limit: int = 500) -> List[Dict]:
+        """Fetch the complete sent-message history for one conversation."""
+        messages: List[Dict] = []
+        offset = 0
+        while True:
+            page = self.get_conversation_messages_page(
+                conversation_id,
+                limit=limit,
+                offset=offset,
+            )
+            if page is None:
+                raise RuntimeError(
+                    f"Hostaway message pagination failed for conversation {conversation_id}"
+                )
+            if not page:
+                break
+            messages.extend(page)
+            if len(page) < limit:
+                break
+            offset += limit
+        return messages
 
     def send_conversation_message(
         self,
@@ -558,6 +675,12 @@ class HostawayAPIClient:
             return data['result']
         return []
 
+    @staticmethod
+    def _add_indexed_params(params: Dict[str, Any], name: str, values: Optional[List[Any]]) -> None:
+        """Encode Hostaway array query parameters as ``name[0]``, ``name[1]``..."""
+        for index, value in enumerate(values or []):
+            params[f'{name}[{index}]'] = value
+
     def get_reviews(self, listing_id: Optional[int] = None,
                     reservation_id: Optional[int] = None,
                     limit: Optional[int] = None,
@@ -565,7 +688,10 @@ class HostawayAPIClient:
                     status: Optional[str] = None,
                     type: Optional[str] = None,
                     sortBy: Optional[str] = None,
-                    order: Optional[str] = None) -> List[Dict]:
+                    order: Optional[str] = None,
+                    statuses: Optional[List[str]] = None,
+                    departure_date_start: Optional[str] = None,
+                    departure_date_end: Optional[str] = None) -> List[Dict]:
         """
         Get reviews with optional filters.
         
@@ -582,25 +708,60 @@ class HostawayAPIClient:
         Returns:
             List of review dictionaries with sub-ratings.
         """
+        page = self.get_reviews_page(
+            listing_id=listing_id,
+            reservation_id=reservation_id,
+            limit=limit,
+            offset=offset,
+            status=status,
+            type=type,
+            sortBy=sortBy,
+            order=order,
+            statuses=statuses,
+            departure_date_start=departure_date_start,
+            departure_date_end=departure_date_end,
+        )
+        return page if page is not None else []
+
+    def get_reviews_page(self, listing_id: Optional[int] = None,
+                         reservation_id: Optional[int] = None,
+                         limit: Optional[int] = None,
+                         offset: Optional[int] = None,
+                         status: Optional[str] = None,
+                         type: Optional[str] = None,
+                         sortBy: Optional[str] = None,
+                         order: Optional[str] = None,
+                         statuses: Optional[List[str]] = None,
+                         departure_date_start: Optional[str] = None,
+                         departure_date_end: Optional[str] = None) -> Optional[List[Dict]]:
+        """Return one review page using the current Hostaway parameter names."""
         params: Dict[str, Any] = {}
         if listing_id:
-            params['listingId'] = listing_id
+            self._add_indexed_params(params, 'listingMapIds', [listing_id])
         if reservation_id:
             params['reservationId'] = reservation_id
         if limit:
             params['limit'] = limit
         if offset:
             params['offset'] = offset
-        if status:
-            params['status'] = status
+        normalized_statuses = statuses or ([status] if status else None)
+        self._add_indexed_params(params, 'statuses', normalized_statuses)
         if type:
             params['type'] = type
         if sortBy:
             params['sortBy'] = sortBy
         if order:
-            params['order'] = order
+            params['sortOrder'] = order
+        if departure_date_start:
+            params['departureDateStart'] = departure_date_start
+        if departure_date_end:
+            params['departureDateEnd'] = departure_date_end
         
         data = self._make_request("reviews", params)
-        if data and 'result' in data:
-            return data['result']
-        return []
+        if not isinstance(data, dict) or 'result' not in data:
+            return None
+        result = data['result']
+        if not isinstance(result, list):
+            logger.error("Hostaway reviews response contained an invalid result payload")
+            return None
+        return result

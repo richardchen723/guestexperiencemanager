@@ -1,0 +1,15 @@
+[Unit]
+Description=Synchronize Hostaway guest and host review status
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=hostaway
+Group=hostaway
+WorkingDirectory=/opt/hostaway-messages/app
+Environment="PATH=/opt/hostaway-messages/venv/bin"
+EnvironmentFile=/opt/hostaway-messages/.env
+ExecStart=/opt/hostaway-messages/venv/bin/python3 -m sync.sync_reviews --incremental
+Nice=5

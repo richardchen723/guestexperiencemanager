@@ -9,6 +9,7 @@ import os
 import json
 import re
 import glob
+import hashlib
 import time
 import logging
 import traceback
@@ -199,6 +200,35 @@ def parse_timestamp_from_api(ts_str: Optional[str]) -> Optional[datetime]:
     return None
 
 
+def message_id_for_payload(
+    conversation_id: int,
+    message_data: Dict,
+    created_at: datetime,
+) -> int:
+    """Return Hostaway's integer ID or a stable negative fallback.
+
+    Hostaway normally supplies ``id``. A negative content-derived fallback keeps
+    legacy/no-ID payloads idempotent without consuming the positive primary-key
+    sequence used by real Hostaway message IDs.
+    """
+    raw_id = message_data.get('id') or message_data.get('messageId')
+    if raw_id is not None:
+        try:
+            return int(raw_id)
+        except (TypeError, ValueError):
+            pass
+
+    fingerprint = '|'.join((
+        str(conversation_id),
+        created_at.isoformat(),
+        str(bool(message_data.get('isIncoming'))),
+        str(message_data.get('communicationType') or ''),
+        str(message_data.get('body') or message_data.get('content') or ''),
+    ))
+    digest = hashlib.sha256(fingerprint.encode('utf-8')).digest()
+    return -max(int.from_bytes(digest[:4], 'big') & 0x7FFFFFFF, 1)
+
+
 def parse_conversation_file(file_path: str) -> Dict:
     """Parse a conversation file and extract metadata"""
     try:
@@ -308,30 +338,25 @@ def fetch_conversations_for_reservation(client: HostawayAPIClient, reservation_i
     """
     for attempt in range(max_retries):
         try:
-            conversations = client.get_conversations(reservation_id=reservation_id)
+            conversations = client.get_conversations_page(reservation_id=reservation_id)
+            if conversations is None:
+                raise RuntimeError(
+                    f'Hostaway conversation fetch failed for reservation {reservation_id}'
+                )
             return conversations
         except Exception as e:
-            error_msg = str(e)
-            # Check if it's a rate limit error (429)
-            if '429' in error_msg or 'rate limit' in error_msg.lower():
-                if attempt < max_retries - 1:
-                    # Wait before retrying (exponential backoff)
-                    wait_time = (attempt + 1) * 2
-                    if VERBOSE:
-                        print(f"Rate limit hit for reservation {reservation_id}, waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    if VERBOSE:
-                        print(f"Rate limit error for reservation {reservation_id} after {max_retries} retries")
-                    return []
-            else:
-                # Other error - log and return empty list
-                if VERBOSE:
-                    print(f"Error fetching conversations for reservation {reservation_id}: {e}")
-                return []
-    
-    return []
+            if attempt >= max_retries - 1:
+                raise
+            wait_time = (attempt + 1) * 2
+            logger.warning(
+                'Conversation fetch failed for reservation %s; retrying in %ss: %s',
+                reservation_id,
+                wait_time,
+                e,
+            )
+            time.sleep(wait_time)
+
+    raise RuntimeError(f'Conversation fetch failed for reservation {reservation_id}')
 
 
 def get_missing_review_window_conversations(
@@ -369,6 +394,7 @@ def get_missing_review_window_conversations(
         return []
 
     conversations = []
+    failures = []
     with ThreadPoolExecutor(max_workers=MESSAGE_SYNC_PARALLEL_WORKERS) as executor:
         futures = {
             executor.submit(fetch_conversations_for_reservation, client, reservation_id): reservation_id
@@ -378,11 +404,17 @@ def get_missing_review_window_conversations(
             try:
                 conversations.extend(future.result() or [])
             except Exception as exc:
+                failures.append((futures[future], exc))
                 logger.warning(
                     'Unable to backfill review-window conversation for reservation %s: %s',
                     futures[future],
                     exc,
                 )
+
+    if failures:
+        raise RuntimeError(
+            f'Unable to fetch {len(failures)} review-window conversation(s) from Hostaway'
+        )
 
     return conversations
 
@@ -399,6 +431,16 @@ def merge_conversation_payloads(*conversation_groups: List[Dict]) -> List[Dict]:
             seen_ids.add(conversation_id)
             merged.append(conversation)
     return merged
+
+
+def conversation_last_message_at(conversation_data: Dict) -> Optional[datetime]:
+    """Return the newest actual message timestamp advertised by Hostaway."""
+    values = [
+        parse_timestamp_from_api(conversation_data.get(field))
+        for field in ('lastMessageAt', 'lastMessageDate', 'messageSentOn', 'messageReceivedOn')
+        if conversation_data.get(field)
+    ]
+    return max((value for value in values if value), default=None)
 
 
 def repair_conversation_relationships(
@@ -451,55 +493,43 @@ def get_conversations_via_reservations(
     """
     from sync.sync_reservations import parse_timestamp
     
-    # Step 1: Fetch reservations with larger page size (500) for fewer API calls
+    # Step 1: Fetch only reservations in Hostaway's latest-activity date range.
+    # The former implementation sent the unsupported ``latestActivityOn``
+    # parameter, fetched the whole account, and applied an unsafe early-stop while
+    # results were ordered by a different field.
     progress.update_item("Fetching reservations...")
     if VERBOSE:
         print(f"Fetching reservations with latest_activity_on >= {cutoff_time}...")
     
     all_reservations = []
-    offset = 0
+    after_id = None
     limit = 500  # Increased from 100 to 500 for fewer API calls
     page_count = 0
     
     while True:
         progress.update_item(f"Fetching reservations (page {page_count + 1})...")
-        reservations = client.get_reservations(limit=limit, offset=offset)
-        
+        reservations = client.get_reservations_page(
+            limit=limit,
+            after_id=after_id,
+            latest_activity_on=cutoff_time,
+        )
+        if reservations is None:
+            raise RuntimeError(
+                f'Hostaway recent-activity reservation fetch failed after ID {after_id}'
+            )
         if not reservations:
             break
         
         all_reservations.extend(reservations)
         page_count += 1
-        
-        # Early-stop heuristic: if this page has no reservations with latest_activity_on >= cutoff
-        # AND all reservations have latest_activity_on populated, we can stop
-        # (since sorted by updatedOn DESC, older pages won't have recent activity)
-        page_has_recent_activity = False
-        all_have_activity = True
-        
-        for res in reservations:
-            latest_activity_str = res.get('latestActivityOn')
-            if not latest_activity_str:
-                all_have_activity = False
-                continue
-            
-            latest_activity_time = parse_timestamp(latest_activity_str)
-            if latest_activity_time and latest_activity_time >= cutoff_time:
-                page_has_recent_activity = True
-                break
-        
-        # If page has no recent activity AND all reservations have activity timestamps,
-        # we can stop (since sorted by updatedOn DESC, older pages won't have recent activity)
-        if not page_has_recent_activity and all_have_activity and len(reservations) > 0:
-            if VERBOSE:
-                print(f"Early-stop: Page {page_count} has no recent activity, stopping pagination")
-            break
-        
+
         # If we got fewer than the limit, we've reached the end
         if len(reservations) < limit:
             break
-        
-        offset += limit
+
+        after_id = reservations[-1].get('id')
+        if not after_id:
+            raise RuntimeError('Reservation activity page did not include a cursor ID')
     
     if VERBOSE:
         print(f"Fetched {len(all_reservations)} total reservations from API ({page_count} pages)")
@@ -538,6 +568,7 @@ def get_conversations_via_reservations(
     progress.update_item(f"Fetching conversations in parallel for {len(filtered_reservations)} reservations...")
     
     all_conversations = []
+    failures = []
     reservation_ids = [r.get('id') for r in filtered_reservations if r.get('id')]
     
     if VERBOSE:
@@ -564,12 +595,18 @@ def get_conversations_via_reservations(
                     if VERBOSE and completed % 10 == 0:
                         print(f"  Fetched conversations for {completed}/{len(reservation_ids)} reservations...")
             except Exception as e:
+                failures.append((reservation_id, e))
                 if VERBOSE:
                     print(f"  Error getting conversations for reservation {reservation_id}: {e}")
             
             # Update progress
             progress.update_item(f"Fetching conversations... ({completed}/{len(reservation_ids)})")
     
+    if failures:
+        raise RuntimeError(
+            f'Unable to fetch conversations for {len(failures)} recently active reservation(s)'
+        )
+
     if VERBOSE:
         print(f"Found {len(all_conversations)} total conversations for {len(filtered_reservations)} reservations")
     
@@ -755,17 +792,30 @@ def sync_messages_from_api(
         
         records_created = 0
         records_updated = 0
+        pending_created_count = 0
         errors = []
         listing_stats = {}  # {listing_id: {messages: count}}
         
-        # MEMORY OPTIMIZATION: Load only IDs and timestamps for large tables (90% memory reduction)
-        # Pre-load existing messages for fast duplicate checking - only load minimal data
-        # Create a set of (conversation_id, created_at) tuples for O(1) lookup
-        # Also track message_id if available for more reliable deduplication
+        # Restrict every lookup to this API batch. The old implementation loaded
+        # the complete lifetime message, conversation, reservation, listing, and
+        # guest tables even for a small incremental tail sync.
+        conversation_ids = {
+            int(row['id'])
+            for row in conversations_to_process
+            if row.get('id') is not None
+        }
+        reservation_ids = {
+            int(row['reservationId'])
+            for row in conversations_to_process
+            if row.get('reservationId') is not None
+        }
+
         existing_message_data = session.query(
             MessageMetadata.message_id,
             MessageMetadata.conversation_id,
             MessageMetadata.created_at
+        ).filter(
+            MessageMetadata.conversation_id.in_(conversation_ids or {-1})
         ).all()
         existing_message_set = {(msg.conversation_id, msg.created_at) for msg in existing_message_data if msg.created_at is not None}
         existing_message_ids = {msg.message_id for msg in existing_message_data if msg.message_id is not None}
@@ -775,28 +825,51 @@ def sync_messages_from_api(
         # Track message_ids added in current batch (not yet committed) to prevent duplicates within batch
         pending_message_ids = set()
         
-        # MEMORY OPTIMIZATION: Load only IDs and timestamps for conversations (90% memory reduction)
-        # We'll query full conversation objects only when needed (per conversation)
-        existing_conversation_data = session.query(
-            Conversation.conversation_id,
-            Conversation.last_message_at,
-            Conversation.last_synced_at
+        existing_conversations = session.query(Conversation).filter(
+            Conversation.conversation_id.in_(conversation_ids or {-1})
         ).all()
-        conversation_id_set = {c.conversation_id for c in existing_conversation_data}
-        conversation_last_message_map = {c.conversation_id: c.last_message_at for c in existing_conversation_data}
-        conversation_last_synced_map = {c.conversation_id: c.last_synced_at for c in existing_conversation_data}
-        # Clear the full data list to free memory
-        del existing_conversation_data
-        
-        # Keep full objects for small tables (listings, guests, reservations) - these are small and don't cause memory issues
-        # Pre-load reservations, listings, and guests for fast lookup
-        all_reservations = session.query(Reservation).all()
+        conversation_map = {
+            conversation.conversation_id: conversation
+            for conversation in existing_conversations
+        }
+        conversation_id_set = set(conversation_map)
+        conversation_last_message_map = {
+            key: value.last_message_at for key, value in conversation_map.items()
+        }
+
+        all_reservations = session.query(Reservation).filter(
+            Reservation.reservation_id.in_(reservation_ids or {-1})
+        ).all()
         reservation_map = {r.reservation_id: r for r in all_reservations}
-        
-        all_listings = session.query(Listing).all()
+
+        listing_ids = {
+            int(row.get('listingId') or row.get('listingMapId'))
+            for row in conversations_to_process
+            if row.get('listingId') or row.get('listingMapId')
+        }
+        listing_ids.update(
+            reservation.listing_id
+            for reservation in all_reservations
+            if reservation.listing_id
+        )
+        all_listings = session.query(Listing).filter(
+            Listing.listing_id.in_(listing_ids or {-1})
+        ).all()
         listing_map = {l.listing_id: l for l in all_listings}
-        
-        all_guests = session.query(Guest).all()
+
+        guest_ids = {
+            reservation.guest_id
+            for reservation in all_reservations
+            if reservation.guest_id
+        }
+        guest_ids.update(
+            int(row['guestId'])
+            for row in conversations_to_process
+            if row.get('guestId') is not None
+        )
+        all_guests = session.query(Guest).filter(
+            Guest.guest_id.in_(guest_ids or {-1})
+        ).all()
         guest_map = {g.guest_id: g for g in all_guests}
         
         # MessageOrganizer for saving files
@@ -853,13 +926,10 @@ def sync_messages_from_api(
                 # MEMORY OPTIMIZATION: Check if conversation exists using lightweight lookup
                 conversation_exists = conversation_id in conversation_id_set
                 existing_last_message_at = conversation_last_message_map.get(conversation_id)
-                existing_last_synced_at = conversation_last_synced_map.get(conversation_id)
                 conversation = None
                 relationship_repaired = False
                 if conversation_exists:
-                    conversation = session.query(Conversation).filter(
-                        Conversation.conversation_id == conversation_id
-                    ).first()
+                    conversation = conversation_map.get(conversation_id)
                     if conversation:
                         relationship_repaired = repair_conversation_relationships(
                             conversation,
@@ -870,13 +940,7 @@ def sync_messages_from_api(
                         )
                 
                 # Get last message time from API conversation metadata
-                api_last_msg_time = None
-                if 'lastMessageAt' in conv_data:
-                    api_last_msg_time = parse_timestamp_from_api(conv_data['lastMessageAt'])
-                elif 'updatedOn' in conv_data:
-                    api_last_msg_time = parse_timestamp_from_api(conv_data['updatedOn'])
-                elif 'lastMessageDate' in conv_data:
-                    api_last_msg_time = parse_timestamp_from_api(conv_data['lastMessageDate'])
+                api_last_msg_time = conversation_last_message_at(conv_data)
                 
                 # Skip conversation if it hasn't changed (additional check for safety)
                 if conversation_exists and existing_last_message_at and api_last_msg_time:
@@ -891,13 +955,13 @@ def sync_messages_from_api(
                 
                 conversations_processed += 1
                 
-                # Get last sync time for this conversation (for client-side message filtering)
-                last_sync_time = existing_last_synced_at if conversation_exists else None
-                
                 # Fetch all messages from API - catch API errors
                 logger.debug(f"Fetching messages for conversation {conversation_id} (reservation_id={reservation_id}, listing_id={listing_id})")
                 try:
-                    all_api_messages = client.get_conversation_messages(conversation_id)
+                    all_api_messages = client.get_all_conversation_messages(
+                        conversation_id,
+                        limit=500,
+                    )
                     logger.debug(f"Fetched {len(all_api_messages) if all_api_messages else 0} messages for conversation {conversation_id}")
                 except Exception as api_error:
                     # API call failed - log and skip this conversation
@@ -912,34 +976,50 @@ def sync_messages_from_api(
                     continue
                 
                 if not all_api_messages:
+                    # Keep the Hostaway conversation ID even when its channel has
+                    # no retrievable messages yet. This is still the canonical
+                    # inbox link used by review operators.
+                    if conversation is None:
+                        conversation = Conversation(
+                            conversation_id=conversation_id,
+                            reservation_id=reservation_id if reservation else None,
+                            listing_id=listing.listing_id if listing else listing_id,
+                            guest_id=(
+                                reservation.guest_id
+                                if reservation and reservation.guest_id
+                                else guest_id
+                            ),
+                            message_count=0,
+                            last_synced_at=datetime.utcnow(),
+                        )
+                        session.add(conversation)
+                        conversation_map[conversation_id] = conversation
+                        conversation_id_set.add(conversation_id)
+                    else:
+                        repair_conversation_relationships(
+                            conversation,
+                            reservation,
+                            listing,
+                            listing_id,
+                            guest_id,
+                        )
+                        conversation.last_synced_at = datetime.utcnow()
+                    conversations_in_batch += 1
                     progress.increment()
                     continue
                 
-                # Filter messages to only process new ones (for incremental sync)
+                # Always run the fetched history through the ID/timestamp
+                # idempotency checks below. Filtering by the conversation's last
+                # sync timestamp can permanently miss delayed or back-dated
+                # channel messages, while it saves no API work because the full
+                # paginated history has already been downloaded.
                 messages_to_process = all_api_messages
-                if last_sync_time and not full_sync:
-                    filtered_messages = []
-                    for msg in all_api_messages:
-                        msg_date = msg.get('date', '')
-                        if not msg_date:
-                            continue
-                        
-                        msg_created_at = parse_timestamp_from_api(msg_date)
-                        if msg_created_at and msg_created_at > last_sync_time:
-                            filtered_messages.append(msg)
-                    
-                    messages_to_process = filtered_messages
-                    
-                    if VERBOSE and len(messages_to_process) < len(all_api_messages):
-                        print(f"  Filtered to {len(messages_to_process)} new messages (from {len(all_api_messages)} total) in conversation {conversation_id}")
                 
                 # CRITICAL: Get or create conversation record FIRST before processing messages
                 # This ensures the conversation exists in the database before we add messages with foreign keys
                 # MEMORY OPTIMIZATION: Query conversation only when needed (not pre-loaded)
                 if conversation is None:
-                    conversation = session.query(Conversation).filter(
-                        Conversation.conversation_id == conversation_id
-                    ).first()
+                    conversation = conversation_map.get(conversation_id)
                 
                 if not conversation:
                     # Create conversation record first (before messages)
@@ -960,8 +1040,8 @@ def sync_messages_from_api(
                         session.flush()
                         # MEMORY OPTIMIZATION: Update lightweight lookup maps when creating new conversation
                         conversation_id_set.add(conversation_id)
+                        conversation_map[conversation_id] = conversation
                         conversation_last_message_map[conversation_id] = None
-                        conversation_last_synced_map[conversation_id] = conversation.last_synced_at
                     except Exception as flush_error:
                         logger.error(f"Error flushing conversation {conversation_id}: {flush_error}", exc_info=True)
                         session.rollback()
@@ -979,12 +1059,11 @@ def sync_messages_from_api(
                 
                 # Track new messages for this conversation
                 new_messages_count = 0
+                new_message_records = []
                 all_api_messages_dict = {}  # {(conversation_id, created_at): full_message_data}
                 
                 # Process each message from API
                 for msg in messages_to_process:
-                    # IDEMPOTENCY CHECK: Use message_id from API if available, otherwise fall back to (conversation_id, created_at)
-                    message_id = msg.get('id') or msg.get('messageId')
                     msg_date = msg.get('date', '')
                     
                     if not msg_date:
@@ -995,17 +1074,15 @@ def sync_messages_from_api(
                         if VERBOSE:
                             print(f"  Could not parse timestamp: {msg_date}")
                         continue
-                    
-                    # IDEMPOTENCY CHECK: Prefer message_id if available, otherwise use (conversation_id, created_at)
-                    if message_id:
-                        # Check if message with this ID already exists in DB or pending in current batch
-                        if message_id in existing_message_ids or message_id in pending_message_ids:
-                            continue
-                    else:
-                        # Fallback: Check by (conversation_id, created_at) tuple
-                        message_key = (conversation_id, created_at)
-                        if message_key in existing_message_set:
-                            continue
+
+                    message_id = message_id_for_payload(conversation_id, msg, created_at)
+                    message_key = (conversation_id, created_at)
+                    if message_id in existing_message_ids or message_id in pending_message_ids:
+                        continue
+                    # Preserve compatibility with legacy rows that were stored
+                    # without Hostaway's message ID.
+                    if message_id < 0 and message_key in existing_message_set:
+                        continue
                     
                     # Determine sender
                     is_incoming = msg.get('isIncoming', False)
@@ -1025,7 +1102,7 @@ def sync_messages_from_api(
                     # Create message metadata record
                     sender_type = 'guest' if is_incoming else 'host'
                     message_meta = MessageMetadata(
-                        message_id=message_id if message_id else None,  # Use API message_id if available
+                        message_id=message_id,
                         conversation_id=conversation_id,
                         reservation_id=reservation_id if reservation else None,
                         listing_id=listing.listing_id if listing else listing_id,
@@ -1040,17 +1117,15 @@ def sync_messages_from_api(
                         message_file_path=None
                     )
                     session.add(message_meta)
+                    new_message_records.append(message_meta)
                     records_created += 1
+                    pending_created_count += 1
                     new_messages_count += 1
                     
                     # Track in memory set for duplicate checking (always use tuple for consistency)
-                    message_key = (conversation_id, created_at)
                     existing_message_set.add(message_key)
-                    
-                    # If message_id was provided, also track it for future lookups
-                    if message_id:
-                        existing_message_ids.add(message_id)
-                        pending_message_ids.add(message_id)  # Track in pending set for batch deduplication
+                    existing_message_ids.add(message_id)
+                    pending_message_ids.add(message_id)
                     
                     # Store full message data for file generation
                     all_api_messages_dict[message_key] = {
@@ -1100,16 +1175,19 @@ def sync_messages_from_api(
                     all_db_messages = session.query(MessageMetadata).filter(
                         MessageMetadata.conversation_id == conversation_id
                     ).order_by(MessageMetadata.created_at).all()
+                all_message_records = sorted(
+                    [*all_db_messages, *new_message_records],
+                    key=lambda message: message.created_at or datetime.min,
+                )
                 
                 # Update conversation with latest message counts and timestamps
-                conversation.message_count = len(all_db_messages)
-                if all_db_messages:
-                    conversation.first_message_at = all_db_messages[0].created_at if all_db_messages[0].created_at else conversation.first_message_at
-                    conversation.last_message_at = all_db_messages[-1].created_at if all_db_messages[-1].created_at else conversation.last_message_at
+                conversation.message_count = len(all_message_records)
+                if all_message_records:
+                    conversation.first_message_at = all_message_records[0].created_at or conversation.first_message_at
+                    conversation.last_message_at = all_message_records[-1].created_at or conversation.last_message_at
                 conversation.last_synced_at = datetime.utcnow()
                 # MEMORY OPTIMIZATION: Update lightweight lookup maps when conversation is updated
                 conversation_last_message_map[conversation_id] = conversation.last_message_at
-                conversation_last_synced_map[conversation_id] = conversation.last_synced_at
                 
                 # Note: We don't flush here anymore - we'll commit in batches
                 # This allows for better performance by batching multiple conversations together
@@ -1172,7 +1250,7 @@ def sync_messages_from_api(
                 # Update conversation and all messages with file path (only if file was saved)
                 if file_path:
                     conversation.conversation_file_path = file_path
-                    for db_msg in all_db_messages:
+                    for db_msg in all_message_records:
                         db_msg.message_file_path = file_path
                 
                 # Track statistics (only count new messages)
@@ -1194,6 +1272,7 @@ def sync_messages_from_api(
                         if VERBOSE and batch_count % 10 == 0:
                             print(f"  Committed batch {batch_count} ({conversations_in_batch} conversations)...")
                         conversations_in_batch = 0
+                        pending_created_count = 0
                         # Clear pending message_ids after successful commit (they're now in existing_message_ids)
                         pending_message_ids.clear()
                         # MEMORY OPTIMIZATION: Update existing_message_ids with newly committed messages
@@ -1208,6 +1287,8 @@ def sync_messages_from_api(
                         logger.error(f"Database error committing batch {batch_count}: {str(db_error)}", exc_info=True)
                         logger.debug(f"Full traceback for batch {batch_count}:\n{error_details}")
                         session.rollback()  # Rollback this batch's changes
+                        records_created -= pending_created_count
+                        pending_created_count = 0
                         if VERBOSE:
                             print(f"\n  {error_msg}")
                         conversations_in_batch = 0
@@ -1217,6 +1298,8 @@ def sync_messages_from_api(
                             MessageMetadata.message_id,
                             MessageMetadata.conversation_id,
                             MessageMetadata.created_at
+                        ).filter(
+                            MessageMetadata.conversation_id.in_(conversation_ids or {-1})
                         ).all()
                         existing_message_set = {(msg.conversation_id, msg.created_at) for msg in existing_message_data if msg.created_at is not None}
                         existing_message_ids = {msg.message_id for msg in existing_message_data if msg.message_id is not None}
@@ -1224,15 +1307,18 @@ def sync_messages_from_api(
                         # Clear pending message_ids after rollback (they weren't committed)
                         pending_message_ids.clear()
                         # Re-fetch conversation data (minimal)
-                        existing_conversation_data = session.query(
-                            Conversation.conversation_id,
-                            Conversation.last_message_at,
-                            Conversation.last_synced_at
+                        existing_conversations = session.query(Conversation).filter(
+                            Conversation.conversation_id.in_(conversation_ids or {-1})
                         ).all()
-                        conversation_id_set = {c.conversation_id for c in existing_conversation_data}
-                        conversation_last_message_map = {c.conversation_id: c.last_message_at for c in existing_conversation_data}
-                        conversation_last_synced_map = {c.conversation_id: c.last_synced_at for c in existing_conversation_data}
-                        del existing_conversation_data
+                        conversation_map = {
+                            conversation.conversation_id: conversation
+                            for conversation in existing_conversations
+                        }
+                        conversation_id_set = set(conversation_map)
+                        conversation_last_message_map = {
+                            key: value.last_message_at
+                            for key, value in conversation_map.items()
+                        }
             
             except Exception as e:
                 # Capture full exception details for debugging
@@ -1271,6 +1357,8 @@ def sync_messages_from_api(
                 errors.append(error_msg)
                 logger.error(f"Database error committing final batch {batch_count}: {str(db_error)}", exc_info=True)
                 session.rollback()
+                records_created -= pending_created_count
+                pending_created_count = 0
                 if VERBOSE:
                     print(f"\n  {error_msg}")
         
