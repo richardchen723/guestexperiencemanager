@@ -21,6 +21,14 @@ from dashboard.reviews.query import (
     update_review_resolution_rule,
     update_review_resolution_stage,
 )
+from dashboard.reviews.automation import (
+    HostReviewPublishingUnavailable,
+    ReviewAutomationDisabled,
+    get_property_review_templates,
+    get_review_automation_preview,
+    perform_review_automation_action,
+    update_property_review_templates,
+)
 from database.models import ReviewFilter, Tag, get_session
 from database.schema import get_database_path
 from dashboard.auth.decorators import approved_required, admin_required, check_feature_access
@@ -93,6 +101,83 @@ def api_mark_host_reviewed(reservation_id):
     except Exception as e:
         logger.error(f"Error marking reservation {reservation_id} host reviewed: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+@reviews_bp.route('/api/templates')
+@approved_required
+def api_review_automation_templates():
+    """Return property-specific templates for the human operator editor."""
+    try:
+        return jsonify(get_property_review_templates()), 200
+    except Exception as e:
+        logger.error('Error fetching review automation templates: %s', e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@reviews_bp.route('/api/templates/<int:listing_id>', methods=['PUT'])
+@approved_required
+def api_update_review_automation_template(listing_id):
+    """Save one active property's chase-message and host-review templates."""
+    data = request.get_json(silent=True) or {}
+    try:
+        result = update_property_review_templates(
+            listing_id,
+            data.get('chase_message_template'),
+            data.get('host_review_template'),
+            get_current_user().user_id,
+        )
+        return jsonify(result), 200
+    except LookupError as e:
+        return jsonify({'error': str(e)}), 404
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error('Error updating review templates for listing %s: %s', listing_id, e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@reviews_bp.route('/api/queue/<int:reservation_id>/automation-preview')
+@approved_required
+def api_review_automation_preview(reservation_id):
+    """Render and validate the exact guest message or host review about to be used."""
+    try:
+        result = get_review_automation_preview(
+            reservation_id,
+            request.args.get('action', ''),
+            get_current_user().user_id,
+        )
+        return jsonify(result), 200
+    except LookupError as e:
+        return jsonify({'error': str(e)}), 404
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 409
+    except Exception as e:
+        logger.error('Error preparing review action for reservation %s: %s', reservation_id, e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@reviews_bp.route('/api/queue/<int:reservation_id>/automation', methods=['POST'])
+@approved_required
+def api_perform_review_automation(reservation_id):
+    """Execute the reviewed content using the configured guarded transport."""
+    data = request.get_json(silent=True) or {}
+    try:
+        result = perform_review_automation_action(
+            reservation_id,
+            data.get('action_type', ''),
+            data.get('content', ''),
+            get_current_user().user_id,
+        )
+        return jsonify(result), 200
+    except LookupError as e:
+        return jsonify({'error': str(e)}), 404
+    except (ReviewAutomationDisabled, HostReviewPublishingUnavailable) as e:
+        return jsonify({'error': str(e)}), 409
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 409
+    except Exception as e:
+        logger.error('Error executing review action for reservation %s: %s', reservation_id, e, exc_info=True)
+        return jsonify({'error': str(e)}), 502
 
 
 @reviews_bp.route('/api/resolutions')

@@ -52,7 +52,7 @@ class HostawayAPIClient:
             total=MAX_RETRIES,
             backoff_factor=BASE_DELAY,
             status_forcelist=[500, 502, 503, 504],  # Server errors
-            allowed_methods=["GET", "POST"],  # Only retry safe methods
+            allowed_methods=["GET"],  # Outbound POSTs are not safe to repeat automatically
             raise_on_status=False,  # Don't raise, let us handle it
         )
         
@@ -296,6 +296,30 @@ class HostawayAPIClient:
         if last_exception:
             logger.error(f"Failed to make request to {endpoint} after {MAX_RETRIES} attempts. Last error: {last_exception}")
         return None
+
+    def _make_post_request(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Make one non-retried JSON POST for an outbound, non-idempotent action."""
+        url = f"{self.base_url}/{endpoint}"
+        headers = self.get_headers()
+        if not headers:
+            raise RuntimeError("Hostaway authentication failed")
+
+        try:
+            response = self.session.post(url, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+        except requests.exceptions.RequestException as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            status_suffix = f" ({status_code})" if status_code else ""
+            logger.error("Hostaway POST failed for %s%s", endpoint, status_suffix)
+            raise RuntimeError(f"Hostaway rejected the outbound action{status_suffix}") from exc
+
+        if not response.content:
+            return {}
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise RuntimeError("Hostaway returned an invalid response") from exc
+        return data if isinstance(data, dict) else {'result': data}
     
     def get_listings_page(
         self,
@@ -487,6 +511,26 @@ class HostawayAPIClient:
         if data and 'result' in data:
             return data['result']
         return []
+
+    def send_conversation_message(
+        self,
+        conversation_id: int,
+        body: str,
+        communication_type: str = 'channel',
+    ) -> Dict[str, Any]:
+        """Send one message through an existing Hostaway conversation."""
+        normalized_body = str(body or '').strip()
+        if not normalized_body:
+            raise ValueError('Message body is required')
+        if not conversation_id:
+            raise ValueError('Conversation ID is required')
+        return self._make_post_request(
+            f"conversations/{int(conversation_id)}/messages",
+            {
+                'body': normalized_body,
+                'communicationType': communication_type or 'channel',
+            },
+        )
     
     def get_calendar(self, listing_id: int,
                      start_date: Optional[str] = None,

@@ -3,7 +3,7 @@
 {% block title %}Review Operations - Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260807-3') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260813-8') }}">
 {% endblock %}
 
 {% block content %}
@@ -51,6 +51,10 @@
                 <p id="reviewWindowDescription">Loading the current 14-day window…</p>
             </div>
             <div class="review-ops-toolbar">
+                <button type="button" id="reviewTemplatesBtn" class="review-templates-button">
+                    <span aria-hidden="true">✎</span>
+                    Review templates
+                </button>
                 <label class="review-ops-search">
                     <span class="sr-only">Search guest or property</span>
                     <span aria-hidden="true">⌕</span>
@@ -106,6 +110,79 @@
     </details>
 </div>
 
+<div id="reviewActionModal" class="review-action-modal" hidden>
+    <button type="button" class="review-action-backdrop" data-close-review-action aria-label="Close review action"></button>
+    <section class="review-action-dialog" role="dialog" aria-modal="true" aria-labelledby="reviewActionTitle">
+        <header class="review-action-dialog-head">
+            <div>
+                <span id="reviewActionEyebrow" class="review-ops-eyebrow">Guest outreach</span>
+                <h2 id="reviewActionTitle">Chase a great review</h2>
+                <p id="reviewActionContext">Loading guest and property details…</p>
+            </div>
+            <button type="button" class="review-action-close" data-close-review-action aria-label="Close">×</button>
+        </header>
+        <div class="review-action-dialog-body">
+            <div id="reviewActionSafety" class="review-action-safety" role="status"></div>
+            <label class="review-action-editor">
+                <span id="reviewActionEditorLabel">Message to guest</span>
+                <textarea id="reviewActionContent" rows="9" maxlength="5000"></textarea>
+                <small><span id="reviewActionCharacterCount">0</span>/5,000 characters · Review and edit before continuing</small>
+            </label>
+        </div>
+        <footer class="review-action-dialog-foot">
+            <button type="button" class="review-action-secondary" data-close-review-action>Cancel</button>
+            <button type="button" id="reviewActionSubmit" class="review-action-primary" disabled>Send via Hostaway</button>
+        </footer>
+    </section>
+</div>
+
+<div id="reviewTemplatesModal" class="review-action-modal" hidden>
+    <button type="button" class="review-action-backdrop" data-close-review-templates aria-label="Close review templates"></button>
+    <section class="review-action-dialog review-template-dialog" role="dialog" aria-modal="true" aria-labelledby="reviewTemplatesTitle">
+        <header class="review-action-dialog-head">
+            <div>
+                <span class="review-ops-eyebrow">Property settings</span>
+                <h2 id="reviewTemplatesTitle">Review templates</h2>
+                <p>Set the default guest message and host review for each property.</p>
+            </div>
+            <button type="button" class="review-action-close" data-close-review-templates aria-label="Close">×</button>
+        </header>
+        <form id="reviewTemplatesForm">
+            <div class="review-action-dialog-body">
+                <label class="review-template-property-picker">
+                    <span>Property</span>
+                    <select id="reviewTemplateProperty"></select>
+                    <small id="reviewTemplatePortfolio">Choose a property to edit its templates.</small>
+                </label>
+                <div class="review-template-grid">
+                    <label class="review-action-editor">
+                        <span>Guest chase message</span>
+                        <textarea id="reviewTemplateChase" rows="11" maxlength="5000"></textarea>
+                        <small>Used for guests outside the high and elevated bad-review risk tiers.</small>
+                    </label>
+                    <label class="review-action-editor">
+                        <span>Standard good host review</span>
+                        <textarea id="reviewTemplateHost" rows="11" maxlength="5000"></textarea>
+                        <small>Shown to the operator for a final review before posting.</small>
+                    </label>
+                </div>
+                <div class="review-template-placeholders">
+                    <strong>Available placeholders</strong>
+                    <code>{guest_name}</code>
+                    <code>{guest_first_name}</code>
+                    <code>{property_name}</code>
+                    <code>{portfolio_name}</code>
+                </div>
+            </div>
+            <footer class="review-action-dialog-foot">
+                <span id="reviewTemplateStatus" class="review-template-status"></span>
+                <button type="button" class="review-action-secondary" data-close-review-templates>Cancel</button>
+                <button type="submit" id="reviewTemplatesSave" class="review-action-primary">Save property templates</button>
+            </footer>
+        </form>
+    </section>
+</div>
+
 <div id="reviewToast" class="review-ops-toast" role="status" aria-live="polite"></div>
 
 <div id="filterModal" class="modal" style="display: none;">
@@ -152,5 +229,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/reviews-page.js', v='20260807-4') }}"></script>
+<script src="{{ url_for('static', filename='js/reviews-page.js', v='20260813-8') }}"></script>
 {% endblock %}

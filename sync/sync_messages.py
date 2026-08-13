@@ -15,6 +15,7 @@ import traceback
 from datetime import datetime, timedelta, date
 from typing import List, Dict, Optional, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from sqlalchemy import func
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,6 +30,9 @@ from dashboard.config import CONVERSATIONS_DIR
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
+
+REVIEW_MESSAGE_LOOKBACK_DAYS = 14
+NON_MESSAGING_RESERVATION_CHANNELS = {'customical'}
 
 
 class MessageOrganizer:
@@ -330,7 +334,79 @@ def fetch_conversations_for_reservation(client: HostawayAPIClient, reservation_i
     return []
 
 
-def get_conversations_via_reservations(cutoff_time: datetime, client: HostawayAPIClient, progress: Any) -> List[Dict]:
+def get_missing_review_window_conversations(
+    session,
+    client: HostawayAPIClient,
+    reference_date: Optional[date] = None,
+) -> List[Dict]:
+    """Fetch Inbox threads omitted by the short recent-activity message tail.
+
+    A guest may stop messaging several days before checkout, so a 48-hour activity
+    tail is not sufficient for the 14-day review workflow. This targeted backfill
+    only asks Hostaway about review-window reservations that do not already have a
+    local conversation. Calendar imports are excluded because they do not have a
+    Hostaway Inbox thread.
+    """
+    today = reference_date or date.today()
+    review_window_start = today - timedelta(days=REVIEW_MESSAGE_LOOKBACK_DAYS - 1)
+    channel = func.lower(func.coalesce(Reservation.channel_name, Reservation.source, ''))
+    missing_reservations = (
+        session.query(Reservation.reservation_id)
+        .outerjoin(Conversation, Conversation.reservation_id == Reservation.reservation_id)
+        .filter(
+            Reservation.departure_date >= review_window_start,
+            Reservation.departure_date <= today,
+            Conversation.conversation_id.is_(None),
+            ~func.lower(func.coalesce(Reservation.status, '')).like('%cancel%'),
+            ~func.lower(func.coalesce(Reservation.status, '')).in_(['declined', 'inquiry', 'expired']),
+            ~channel.in_(NON_MESSAGING_RESERVATION_CHANNELS),
+        )
+        .distinct()
+        .all()
+    )
+    reservation_ids = [row[0] for row in missing_reservations]
+    if not reservation_ids:
+        return []
+
+    conversations = []
+    with ThreadPoolExecutor(max_workers=MESSAGE_SYNC_PARALLEL_WORKERS) as executor:
+        futures = {
+            executor.submit(fetch_conversations_for_reservation, client, reservation_id): reservation_id
+            for reservation_id in reservation_ids
+        }
+        for future in as_completed(futures):
+            try:
+                conversations.extend(future.result() or [])
+            except Exception as exc:
+                logger.warning(
+                    'Unable to backfill review-window conversation for reservation %s: %s',
+                    futures[future],
+                    exc,
+                )
+
+    return conversations
+
+
+def merge_conversation_payloads(*conversation_groups: List[Dict]) -> List[Dict]:
+    """Merge Hostaway conversation results without processing an ID twice."""
+    merged = []
+    seen_ids = set()
+    for group in conversation_groups:
+        for conversation in group or []:
+            conversation_id = conversation.get('id')
+            if not conversation_id or conversation_id in seen_ids:
+                continue
+            seen_ids.add(conversation_id)
+            merged.append(conversation)
+    return merged
+
+
+def get_conversations_via_reservations(
+    cutoff_time: datetime,
+    client: HostawayAPIClient,
+    progress: Any,
+    max_reservations: Optional[int] = None,
+) -> List[Dict]:
     """
     Get conversations via reservation-based optimization.
     
@@ -341,6 +417,7 @@ def get_conversations_via_reservations(cutoff_time: datetime, client: HostawayAP
         cutoff_time: datetime object - only include reservations with latest_activity_on >= this time
         client: HostawayAPIClient instance
         progress: Progress tracker instance
+        max_reservations: Optional cap after sorting reservations by latest activity, newest first.
     
     Returns:
         List of conversation dictionaries
@@ -420,6 +497,15 @@ def get_conversations_via_reservations(cutoff_time: datetime, client: HostawayAP
         if VERBOSE:
             print("No reservations match the latest_activity_on filter")
         return []
+
+    filtered_reservations.sort(
+        key=lambda res: parse_timestamp(res.get('latestActivityOn')) or datetime.min,
+        reverse=True,
+    )
+    if max_reservations and max_reservations > 0 and len(filtered_reservations) > max_reservations:
+        if VERBOSE:
+            print(f"Capping message sync to {max_reservations} most recently active reservations")
+        filtered_reservations = filtered_reservations[:max_reservations]
     
     # Step 3: Fetch conversations in parallel
     progress.update_item(f"Fetching conversations in parallel for {len(filtered_reservations)} reservations...")
@@ -463,7 +549,13 @@ def get_conversations_via_reservations(cutoff_time: datetime, client: HostawayAP
     return all_conversations
 
 
-def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[Any] = None, sync_run_id: Optional[int] = None) -> Dict:
+def sync_messages_from_api(
+    full_sync: bool = True,
+    progress_tracker: Optional[Any] = None,
+    sync_run_id: Optional[int] = None,
+    recent_activity_hours: Optional[int] = None,
+    max_reservations: Optional[int] = None,
+) -> Dict:
     """
     Sync messages from Hostaway API to database.
     
@@ -486,6 +578,9 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
         full_sync: Whether to perform a full sync. If False, uses reservation-based optimization.
         progress_tracker: Optional progress tracker (WebProgressTracker or terminal tracker).
         sync_run_id: Optional sync_run_id to group sync logs.
+        recent_activity_hours: For a bounded tail sync, ignore stale global message sync time
+            and only fetch conversations for reservations active in this many recent hours.
+        max_reservations: Optional cap on reservations considered for conversation fetches.
     
     Returns:
         Dictionary with sync results including listing_stats.
@@ -515,6 +610,7 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
         
         # Get conversations based on sync type
         conversations_to_process = []
+        sync_mode = 'full' if full_sync else ('recent' if recent_activity_hours else 'incremental')
         
         if full_sync:
             # Full sync: Fetch all conversations (current approach)
@@ -530,8 +626,26 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
             # Incremental sync: Use reservation-based optimization
             from sync.sync_manager import get_last_sync_time
             last_sync_time = get_last_sync_time('messages')
-            
-            if last_sync_time:
+
+            if recent_activity_hours and recent_activity_hours > 0:
+                cutoff_time = datetime.utcnow() - timedelta(hours=recent_activity_hours)
+
+                if VERBOSE:
+                    print("Recent message tail sync: Using reservation-based optimization")
+                    print(f"  Cutoff time (latest_activity_on >=): {cutoff_time}")
+                    if max_reservations:
+                        print(f"  Reservation cap: {max_reservations}")
+
+                conversations_to_process = get_conversations_via_reservations(
+                    cutoff_time,
+                    client,
+                    progress,
+                    max_reservations=max_reservations,
+                )
+
+                if VERBOSE:
+                    print(f"Recent sync: Found {len(conversations_to_process)} conversations via reservations")
+            elif last_sync_time:
                 # Calculate cutoff time: 12 hours before last sync
                 cutoff_time = last_sync_time - timedelta(hours=12)
                 
@@ -540,7 +654,12 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
                     print(f"  Cutoff time (latest_activity_on >=): {cutoff_time}")
                 
                 # Use reservation-based approach to get conversations
-                conversations_to_process = get_conversations_via_reservations(cutoff_time, client, progress)
+                conversations_to_process = get_conversations_via_reservations(
+                    cutoff_time,
+                    client,
+                    progress,
+                    max_reservations=max_reservations,
+                )
                 
                 if VERBOSE:
                     print(f"Incremental sync: Found {len(conversations_to_process)} conversations via reservations")
@@ -551,9 +670,18 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
                 
                 progress.update_item("Fetching all conversations from API...")
                 conversations_to_process = client.get_all_conversations(limit=500)
-                
+
                 if VERBOSE:
                     print(f"Full sync: Fetched {len(conversations_to_process)} total conversations from API")
+
+            review_window_conversations = get_missing_review_window_conversations(
+                session,
+                client,
+            )
+            conversations_to_process = merge_conversation_payloads(
+                conversations_to_process,
+                review_window_conversations,
+            )
         
         if not conversations_to_process:
             if VERBOSE:
@@ -569,7 +697,7 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
             sync_log = SyncLog(
                 sync_run_id=sync_run_id,
                 sync_type='messages',
-                sync_mode='full' if full_sync else 'incremental',
+                sync_mode=sync_mode,
                 status='success',
                 records_processed=0,
                 records_created=0,
@@ -585,6 +713,9 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
             
             return {
                 'status': 'success',
+                'sync_mode': sync_mode,
+                'recent_activity_hours': recent_activity_hours,
+                'max_reservations': max_reservations,
                 'records_processed': 0,
                 'records_created': 0,
                 'records_updated': 0,
@@ -1118,7 +1249,7 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
         sync_log = SyncLog(
             sync_run_id=sync_run_id,
             sync_type='messages',
-            sync_mode='full' if full_sync else 'incremental',
+            sync_mode=sync_mode,
             status='success' if not errors else 'partial',
             records_processed=len(conversations_to_process),
             records_created=records_created,
@@ -1149,6 +1280,9 @@ def sync_messages_from_api(full_sync: bool = True, progress_tracker: Optional[An
         
         return {
             'status': 'success' if not errors else 'partial',
+            'sync_mode': sync_mode,
+            'recent_activity_hours': recent_activity_hours,
+            'max_reservations': max_reservations,
             'records_processed': len(conversations_to_process),
             'records_created': records_created,
             'records_updated': records_updated,

@@ -27,8 +27,11 @@ from database.models import (
 )
 from database.schema import get_database_path
 from dashboard.tickets.models import (
+    REVIEW_ACTION_CHASE,
+    REVIEW_ACTION_HOST,
     REVIEW_RESOLUTION_STAGES,
     REVIEW_RESOLUTION_TICKET_TYPE,
+    ReviewAutomationAction,
     ReviewPortfolioRule,
     ReviewQueueState,
     Ticket,
@@ -48,6 +51,7 @@ DEFAULT_PORTFOLIO_BAD_REVIEW_THRESHOLDS = {
     'Enchanted Havens': 5.0,
     'Urban Stays': 4.0,
 }
+HOSTAWAY_DASHBOARD_BASE_URL = 'https://dashboard.hostaway.com'
 REVIEW_RISK_TIERS = (
     {'key': 'bad_high', 'label': 'High chance of a bad review', 'short_label': 'High risk'},
     {'key': 'bad_elevated', 'label': 'Elevated chance of a bad review', 'short_label': 'Elevated risk'},
@@ -148,6 +152,16 @@ def rate_guest_review_risk(message_previews: Sequence[str]) -> Dict:
     }
 
 
+def is_review_chase_risk_eligible(risk: Dict) -> bool:
+    """Allow outreach unless the guest is high or elevated bad-review risk."""
+    return (risk or {}).get('key') not in {'bad_high', 'bad_elevated'}
+
+
+def should_offer_review_chase(risk: Dict, guest_reviewed: bool) -> bool:
+    """Offer outreach only while an eligible guest review is still outstanding."""
+    return is_review_chase_risk_eligible(risk) and not guest_reviewed
+
+
 def _review_for_origin(reservation: Reservation, origin: str) -> Optional[Review]:
     matching = [
         review for review in (reservation.reviews or [])
@@ -236,6 +250,37 @@ def _guest_message_previews(reservation: Reservation) -> List[str]:
                 if message.content_preview:
                     previews.append(message.content_preview)
     return previews
+
+
+def _latest_reservation_conversation(reservation: Reservation) -> Optional[Conversation]:
+    """Return the conversation most likely to contain the active guest thread."""
+    conversations = list(reservation.conversations or [])
+    if not conversations:
+        return None
+    return max(
+        conversations,
+        key=lambda conversation: (
+            conversation.last_message_at
+            or conversation.updated_on
+            or conversation.inserted_on
+            or datetime.min,
+            conversation.conversation_id or 0,
+        ),
+    )
+
+
+def hostaway_url_for_reservation(reservation: Reservation) -> Dict[str, str]:
+    """Build a Hostaway inbox deep link with a reservation fallback."""
+    conversation = _latest_reservation_conversation(reservation)
+    if conversation and conversation.conversation_id:
+        return {
+            'url': f'{HOSTAWAY_DASHBOARD_BASE_URL}/messages/inbox/{conversation.conversation_id}',
+            'destination': 'conversation',
+        }
+    return {
+        'url': f'{HOSTAWAY_DASHBOARD_BASE_URL}/reservations/{reservation.reservation_id}',
+        'destination': 'reservation',
+    }
 
 
 def _reservation_options():
@@ -388,6 +433,7 @@ def _serialize_queue_card(
     host_review: Optional[Review],
     state: Optional[ReviewQueueState],
     reference_date: date,
+    sent_action_types: Optional[set[str]] = None,
 ) -> Dict:
     tags = [
         {
@@ -404,6 +450,13 @@ def _serialize_queue_card(
     risk = rate_guest_review_risk(_guest_message_previews(reservation))
     host_reviewed = bool(host_review or (state and state.host_reviewed))
     rating = _rating_on_five_point_scale(guest_review)
+    sent_action_types = sent_action_types or set()
+    chase_review_sent = REVIEW_ACTION_CHASE in sent_action_types
+    host_review_sent = REVIEW_ACTION_HOST in sent_action_types
+    has_conversation = bool(reservation.conversations)
+    chase_review_eligible = is_review_chase_risk_eligible(risk)
+    show_chase_review_action = should_offer_review_chase(risk, bool(guest_review))
+    hostaway_link = hostaway_url_for_reservation(reservation)
 
     return {
         'reservation_id': reservation.reservation_id,
@@ -429,6 +482,22 @@ def _serialize_queue_card(
         'host_reviewed': host_reviewed,
         'host_review_source': 'synced' if host_review else ('manual' if host_reviewed else None),
         'host_reviewed_at': state.host_reviewed_at.isoformat() if state and state.host_reviewed_at else None,
+        'chase_review_sent': chase_review_sent,
+        'chase_review_status': (
+            'chased' if chase_review_sent else ('not_needed' if guest_review else 'not_chased')
+        ),
+        'host_review_sent': host_review_sent,
+        'chase_review_eligible': chase_review_eligible,
+        'show_chase_review_action': show_chase_review_action,
+        'has_message_conversation': has_conversation,
+        'hostaway_url': hostaway_link['url'],
+        'hostaway_destination': hostaway_link['destination'],
+        'can_chase_review': bool(
+            show_chase_review_action
+            and not chase_review_sent
+            and has_conversation
+        ),
+        'can_post_host_review': not host_reviewed,
         'risk': risk,
         'tags': tags,
     }
@@ -452,6 +521,7 @@ def get_review_queue(
             Reservation.departure_date <= reference_date,
             ~func.lower(func.coalesce(Reservation.status, '')).like('%cancel%'),
             ~func.lower(func.coalesce(Reservation.status, '')).in_(['declined', 'inquiry', 'expired']),
+            func.lower(func.coalesce(Reservation.channel_name, Reservation.source, '')) != 'customical',
             func.lower(func.coalesce(Listing.status, '')) != 'deleted',
         )
         if tag_ids:
@@ -465,6 +535,12 @@ def get_review_queue(
                 ReviewQueueState.reservation_id.in_(reservation_ids or [-1])
             ).all()
         }
+        sent_actions_by_reservation = {}
+        for action in workflow_session.query(ReviewAutomationAction).filter(
+            ReviewAutomationAction.reservation_id.in_(reservation_ids or [-1]),
+            ReviewAutomationAction.status == 'sent',
+        ).all():
+            sent_actions_by_reservation.setdefault(action.reservation_id, set()).add(action.action_type)
 
         cards = []
         for reservation in reservations:
@@ -488,6 +564,7 @@ def get_review_queue(
                 host_review,
                 state,
                 reference_date,
+                sent_actions_by_reservation.get(reservation.reservation_id),
             ))
 
         workflow_session.commit()

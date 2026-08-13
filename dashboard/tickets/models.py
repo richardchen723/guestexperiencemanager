@@ -32,6 +32,8 @@ TICKET_CATEGORIES = ['cleaning', 'maintenance', 'online', 'technology', 'review 
 STANDARD_TICKET_TYPE = 'standard'
 REVIEW_RESOLUTION_TICKET_TYPE = 'review_resolution'
 REVIEW_RESOLUTION_STAGES = ['New', 'Reviewing', 'Action in progress', 'Guest follow-up', 'Resolved']
+REVIEW_ACTION_CHASE = 'chase_review'
+REVIEW_ACTION_HOST = 'host_review'
 
 
 class Ticket(Base):
@@ -197,6 +199,59 @@ class ReviewPortfolioRule(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     updater = relationship('User', foreign_keys=[updated_by])
+
+
+class ReviewAutomationTemplate(Base):
+    """Human-editable review outreach templates scoped to one Hostaway listing."""
+
+    __tablename__ = 'review_automation_templates'
+    __table_args__ = (
+        {'schema': 'tickets'} if os.getenv("DATABASE_URL") else {},
+    )
+
+    listing_id = Column(Integer, primary_key=True, autoincrement=False)
+    chase_message_template = Column(Text, nullable=False)
+    host_review_template = Column(Text, nullable=False)
+    _users_fk_schema = 'users.' if os.getenv("DATABASE_URL") else ''
+    updated_by = Column(
+        Integer,
+        ForeignKey(f'{_users_fk_schema}users.user_id', ondelete='SET NULL'),
+        nullable=True,
+    )
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    updater = relationship('User', foreign_keys=[updated_by])
+
+
+class ReviewAutomationAction(Base):
+    """Audit record for a live outbound review message or host-review post."""
+
+    __tablename__ = 'review_automation_actions'
+    __table_args__ = (
+        {'schema': 'tickets'} if os.getenv("DATABASE_URL") else {},
+    )
+
+    action_id = Column(Integer, primary_key=True, autoincrement=True)
+    reservation_id = Column(Integer, nullable=False, index=True)
+    listing_id = Column(Integer, nullable=False, index=True)
+    conversation_id = Column(Integer, nullable=True, index=True)
+    action_type = Column(String, nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default='pending', index=True)
+    provider_reference = Column(String, nullable=True)
+    error_message = Column(Text, nullable=True)
+    _users_fk_schema = 'users.' if os.getenv("DATABASE_URL") else ''
+    created_by = Column(
+        Integer,
+        ForeignKey(f'{_users_fk_schema}users.user_id', ondelete='SET NULL'),
+        nullable=True,
+        index=True,
+    )
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    creator = relationship('User', foreign_keys=[created_by])
 
 
 class TicketComment(Base):

@@ -1,5 +1,5 @@
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from dashboard.reviews.query import (
     REVIEW_WINDOW_DAYS,
@@ -8,14 +8,17 @@ from dashboard.reviews.query import (
     default_bad_review_threshold,
     is_in_review_window,
     is_bad_review_rating,
+    is_review_chase_risk_eligible,
+    hostaway_url_for_reservation,
     normalize_review_rating,
     rate_guest_review_risk,
+    should_offer_review_chase,
     review_resolution_window_start,
     review_window_start,
 )
 from dashboard.portfolio_mapping import portfolio_name_for_listing, portfolio_name_for_tags
 from dashboard.tickets.models import ReviewQueueState, Ticket, TicketListing
-from database.models import Listing, Reservation, Review
+from database.models import Conversation, Listing, Reservation, Review
 
 
 class ReviewWindowTests(unittest.TestCase):
@@ -53,6 +56,40 @@ class ReviewRiskTests(unittest.TestCase):
         result = rate_guest_review_risk([])
         self.assertEqual(result['key'], 'mixed')
         self.assertEqual(result['confidence'], 'low')
+
+    def test_review_chase_excludes_only_high_and_elevated_bad_review_risk(self):
+        self.assertFalse(is_review_chase_risk_eligible({'key': 'bad_high'}))
+        self.assertFalse(is_review_chase_risk_eligible({'key': 'bad_elevated'}))
+        self.assertTrue(is_review_chase_risk_eligible({'key': 'mixed'}))
+        self.assertTrue(is_review_chase_risk_eligible({'key': 'good_likely'}))
+        self.assertTrue(is_review_chase_risk_eligible({'key': 'good_high'}))
+
+    def test_review_chase_is_not_offered_after_guest_submission(self):
+        self.assertTrue(should_offer_review_chase({'key': 'mixed'}, guest_reviewed=False))
+        self.assertFalse(should_offer_review_chase({'key': 'mixed'}, guest_reviewed=True))
+
+
+class ReviewHostawayLinkTests(unittest.TestCase):
+    def test_conversation_link_opens_the_latest_hostaway_thread(self):
+        reservation = Reservation(reservation_id=20, listing_id=10)
+        reservation.conversations = [
+            Conversation(conversation_id=30, last_message_at=datetime(2026, 8, 1)),
+            Conversation(conversation_id=31, last_message_at=datetime(2026, 8, 3)),
+        ]
+
+        result = hostaway_url_for_reservation(reservation)
+
+        self.assertEqual(result['destination'], 'conversation')
+        self.assertEqual(result['url'], 'https://dashboard.hostaway.com/messages/inbox/31')
+
+    def test_reservation_link_is_used_when_no_conversation_exists(self):
+        reservation = Reservation(reservation_id=20, listing_id=10)
+        reservation.conversations = []
+
+        result = hostaway_url_for_reservation(reservation)
+
+        self.assertEqual(result['destination'], 'reservation')
+        self.assertEqual(result['url'], 'https://dashboard.hostaway.com/reservations/20')
 
 
 class ReviewResolutionPolicyTests(unittest.TestCase):

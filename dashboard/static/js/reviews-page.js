@@ -15,6 +15,8 @@ const reviewSummaryHeadings = {
 let allTags = [];
 let currentEditingFilterId = null;
 let toastTimer = null;
+let activeReviewAction = null;
+let reviewTemplateProperties = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
     const queueContainer = document.getElementById('reviewQueueContainer');
@@ -31,6 +33,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             metric.addEventListener('click', () => activateSummaryFilter(metric));
         });
         queueContainer.addEventListener('click', handleQueueClick);
+        document.getElementById('reviewActionContent')?.addEventListener('input', updateReviewActionCharacterCount);
+        document.getElementById('reviewActionSubmit')?.addEventListener('click', submitReviewAction);
+        document.querySelectorAll('[data-close-review-action]').forEach((element) => {
+            element.addEventListener('click', closeReviewActionModal);
+        });
+        document.getElementById('reviewTemplatesBtn')?.addEventListener('click', openReviewTemplatesModal);
+        document.getElementById('reviewTemplateProperty')?.addEventListener('change', renderSelectedReviewTemplate);
+        document.getElementById('reviewTemplatesForm')?.addEventListener('submit', saveReviewTemplates);
+        document.querySelectorAll('[data-close-review-templates]').forEach((element) => {
+            element.addEventListener('click', closeReviewTemplatesModal);
+        });
+        document.addEventListener('keydown', handleReviewModalKeydown);
         loadReviewQueue();
     }
 
@@ -175,11 +189,24 @@ function createQueueCard(review) {
     const hostComplete = Boolean(review.host_reviewed);
     const guestStatus = guestComplete
         ? (review.guest_review_rating != null ? `${Number(review.guest_review_rating).toFixed(1)} stars submitted` : 'Review submitted')
-        : 'Waiting for guest';
-    const hostStatus = hostComplete ? 'Host reviewed' : 'Not yet posted';
+        : 'Awaiting guest';
+    const hostStatus = hostComplete ? 'Host reviewed' : 'Not posted';
+    const chaseButton = review.show_chase_review_action
+        ? (review.chase_review_sent
+            ? '<button type="button" class="review-card-button review-card-button--success" disabled>✓ Review chased</button>'
+            : (review.can_chase_review
+                ? `<button type="button" class="review-card-button review-card-button--secondary" data-action="chase_review" data-reservation-id="${review.reservation_id}">Chase review</button>`
+                : '<button type="button" class="review-card-button review-card-button--unavailable" aria-label="Chase review unavailable because no Hostaway conversation exists" disabled>Chase review</button>'))
+        : '';
     const hostButton = hostComplete
-        ? '<button type="button" class="review-host-button is-reviewed" disabled>✓ Host reviewed</button>'
-        : `<button type="button" class="review-host-button" data-action="host-reviewed" data-reservation-id="${review.reservation_id}">Mark host reviewed</button>`;
+        ? '<button type="button" class="review-card-button review-card-button--success" disabled>✓ Host reviewed</button>'
+        : `<button type="button" class="review-card-button review-card-button--primary" data-action="host_review" data-reservation-id="${review.reservation_id}">Post host review</button>`;
+    const manualButton = hostComplete
+        ? ''
+        : `<button type="button" class="review-manual-link" data-action="host-reviewed" data-reservation-id="${review.reservation_id}" aria-label="Mark the host review as already posted">Mark complete</button>`;
+    const hostawayLink = review.hostaway_url
+        ? `<a class="review-hostaway-link" href="${escapeHtml(review.hostaway_url)}" target="_blank" rel="noopener noreferrer" aria-label="Open ${escapeHtml(review.guest_name || 'guest')} ${review.hostaway_destination === 'conversation' ? 'message thread' : 'booking'} in Hostaway">${review.hostaway_destination === 'conversation' ? 'Messages' : 'Booking'} <span aria-hidden="true">↗</span></a>`
+        : '';
     const riskReason = risk.reasons?.[0] || 'No strong sentiment signals in recent guest messages';
     const guestInitials = initialsFor(review.guest_name);
 
@@ -208,30 +235,50 @@ function createQueueCard(review) {
             </div>
             <p class="review-risk-reason">${escapeHtml(riskReason)}</p>
             <div class="review-status-stack">
+                <div class="review-status-row ${review.chase_review_sent ? 'is-complete' : ''}">
+                    <span class="review-status-label"><span class="review-status-icon">${review.chase_review_sent ? '✓' : '1'}</span> Review chased</span>
+                    <span class="review-status-value">${review.chase_review_sent ? 'Chased' : (guestComplete ? 'Not needed' : (review.has_message_conversation ? 'Not chased' : 'No conversation'))}</span>
+                </div>
                 <div class="review-status-row ${guestComplete ? 'is-complete' : ''}">
-                    <span class="review-status-label"><span class="review-status-icon">${guestComplete ? '✓' : '1'}</span> Guest side</span>
+                    <span class="review-status-label"><span class="review-status-icon">${guestComplete ? '✓' : '2'}</span> Guest review</span>
                     <span class="review-status-value">${escapeHtml(guestStatus)}</span>
                 </div>
                 <div class="review-status-row ${hostComplete ? 'is-complete' : ''}">
-                    <span class="review-status-label"><span class="review-status-icon">${hostComplete ? '✓' : '2'}</span> Host side</span>
+                    <span class="review-status-label"><span class="review-status-icon">${hostComplete ? '✓' : '3'}</span> Host review</span>
                     <span class="review-status-value">${escapeHtml(hostStatus)}</span>
                 </div>
             </div>
             <div class="review-queue-actions">
-                <span class="review-channel-pill">${escapeHtml(review.channel_name || 'Direct')}</span>
-                ${hostButton}
+                <div class="review-action-buttons">
+                    ${chaseButton}
+                    ${hostButton}
+                </div>
+                <div class="review-action-meta">
+                    <span class="review-channel-pill">${escapeHtml(review.channel_name || 'Direct')}</span>
+                    <span class="review-action-links">
+                        ${hostawayLink}
+                        ${manualButton}
+                    </span>
+                </div>
             </div>
         </article>
     `;
 }
 
 async function handleQueueClick(event) {
-    const button = event.target.closest('[data-action="host-reviewed"]');
+    const button = event.target.closest('[data-action]');
     if (!button) return;
     const reservationId = Number(button.dataset.reservationId);
     if (!reservationId) return;
 
+    if (button.dataset.action === 'chase_review' || button.dataset.action === 'host_review') {
+        await openReviewActionModal(reservationId, button.dataset.action, button);
+        return;
+    }
+    if (button.dataset.action !== 'host-reviewed') return;
+
     button.disabled = true;
+    const originalText = button.textContent;
     button.textContent = 'Saving…';
     try {
         const result = await fetchJson(`/reviews/api/queue/${reservationId}/host-reviewed`, {
@@ -248,9 +295,181 @@ async function handleQueueClick(event) {
         await loadReviewQueue();
     } catch (error) {
         button.disabled = false;
-        button.textContent = 'Mark host reviewed';
+        button.textContent = originalText;
         showToast(error.message, true);
     }
+}
+
+async function openReviewActionModal(reservationId, actionType, triggerButton) {
+    const modal = document.getElementById('reviewActionModal');
+    const submit = document.getElementById('reviewActionSubmit');
+    if (!modal || !submit) return;
+    const originalText = triggerButton.textContent;
+    triggerButton.disabled = true;
+    triggerButton.textContent = 'Preparing…';
+    modal.hidden = false;
+    document.body.classList.add('review-modal-open');
+    setReviewActionLoading(true);
+    try {
+        const preview = await fetchJson(`/reviews/api/queue/${reservationId}/automation-preview?action=${encodeURIComponent(actionType)}`);
+        activeReviewAction = preview;
+        const isChase = actionType === 'chase_review';
+        setText('reviewActionEyebrow', isChase ? 'Guest outreach' : 'Host review');
+        setText('reviewActionTitle', isChase ? 'Chase a great review' : 'Post host review');
+        setText('reviewActionContext', `${preview.guest_name} · ${preview.listing_name} · ${preview.channel_name}`);
+        setText('reviewActionEditorLabel', isChase ? 'Message to guest' : 'Public review of guest');
+        const content = document.getElementById('reviewActionContent');
+        content.value = preview.content || '';
+        content.disabled = false;
+        const safety = document.getElementById('reviewActionSafety');
+        safety.className = `review-action-safety ${preview.simulated ? 'is-simulation' : (preview.execution_enabled ? 'is-live' : 'is-locked')}`;
+        safety.innerHTML = `<strong>${preview.simulated ? 'Safe simulation' : (preview.execution_enabled ? 'Live Hostaway action' : 'Publishing locked')}</strong><span>${escapeHtml(preview.capability_note)}</span>`;
+        submit.disabled = !preview.execution_enabled;
+        submit.textContent = preview.simulated
+            ? (isChase ? 'Simulate message' : 'Simulate review post')
+            : (isChase ? 'Send via Hostaway' : 'Post via Hostaway');
+        updateReviewActionCharacterCount();
+        content.focus();
+    } catch (error) {
+        closeReviewActionModal();
+        showToast(error.message, true);
+    } finally {
+        triggerButton.disabled = false;
+        triggerButton.textContent = originalText;
+    }
+}
+
+function setReviewActionLoading(isLoading) {
+    const content = document.getElementById('reviewActionContent');
+    const submit = document.getElementById('reviewActionSubmit');
+    if (content) {
+        content.value = isLoading ? 'Preparing the property template…' : content.value;
+        content.disabled = isLoading;
+    }
+    if (submit) submit.disabled = true;
+    setText('reviewActionSafety', isLoading ? 'Checking the review window and delivery channel…' : '');
+}
+
+function updateReviewActionCharacterCount() {
+    const content = document.getElementById('reviewActionContent');
+    setText('reviewActionCharacterCount', content?.value.length || 0);
+}
+
+async function submitReviewAction() {
+    if (!activeReviewAction) return;
+    const submit = document.getElementById('reviewActionSubmit');
+    const content = document.getElementById('reviewActionContent')?.value.trim();
+    if (!content || content.length < 20) {
+        showToast('Please enter at least 20 characters.', true);
+        return;
+    }
+    submit.disabled = true;
+    const originalText = submit.textContent;
+    submit.textContent = activeReviewAction.simulated ? 'Running simulation…' : 'Sending…';
+    try {
+        const result = await fetchJson(`/reviews/api/queue/${activeReviewAction.reservation_id}/automation`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action_type: activeReviewAction.action_type,
+                content,
+            }),
+        });
+        closeReviewActionModal();
+        showToast(result.message || 'Review action completed.');
+        if (!result.simulated) await loadReviewQueue();
+    } catch (error) {
+        submit.disabled = false;
+        submit.textContent = originalText;
+        showToast(error.message, true);
+    }
+}
+
+function closeReviewActionModal() {
+    const modal = document.getElementById('reviewActionModal');
+    if (modal) modal.hidden = true;
+    activeReviewAction = null;
+    if (document.getElementById('reviewTemplatesModal')?.hidden !== false) {
+        document.body.classList.remove('review-modal-open');
+    }
+}
+
+async function openReviewTemplatesModal() {
+    const modal = document.getElementById('reviewTemplatesModal');
+    const select = document.getElementById('reviewTemplateProperty');
+    if (!modal || !select) return;
+    modal.hidden = false;
+    document.body.classList.add('review-modal-open');
+    select.disabled = true;
+    select.innerHTML = '<option>Loading active properties…</option>';
+    setText('reviewTemplateStatus', 'Loading templates…');
+    try {
+        const data = await fetchJson('/reviews/api/templates');
+        reviewTemplateProperties = data.properties || [];
+        select.innerHTML = reviewTemplateProperties.map((property) => (
+            `<option value="${property.listing_id}">${escapeHtml(property.listing_name)}</option>`
+        )).join('');
+        select.disabled = false;
+        renderSelectedReviewTemplate();
+        select.focus();
+    } catch (error) {
+        closeReviewTemplatesModal();
+        showToast(error.message, true);
+    }
+}
+
+function renderSelectedReviewTemplate() {
+    const listingId = Number(document.getElementById('reviewTemplateProperty')?.value);
+    const property = reviewTemplateProperties.find((item) => Number(item.listing_id) === listingId);
+    if (!property) return;
+    document.getElementById('reviewTemplateChase').value = property.chase_message_template || '';
+    document.getElementById('reviewTemplateHost').value = property.host_review_template || '';
+    setText('reviewTemplatePortfolio', `${property.portfolio} portfolio · ${property.is_custom ? 'Custom property templates' : 'Using starter templates'}`);
+    setText('reviewTemplateStatus', '');
+}
+
+async function saveReviewTemplates(event) {
+    event.preventDefault();
+    const listingId = Number(document.getElementById('reviewTemplateProperty')?.value);
+    const button = document.getElementById('reviewTemplatesSave');
+    if (!listingId || !button) return;
+    button.disabled = true;
+    button.textContent = 'Saving…';
+    setText('reviewTemplateStatus', '');
+    try {
+        const saved = await fetchJson(`/reviews/api/templates/${listingId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chase_message_template: document.getElementById('reviewTemplateChase').value,
+                host_review_template: document.getElementById('reviewTemplateHost').value,
+            }),
+        });
+        const index = reviewTemplateProperties.findIndex((property) => Number(property.listing_id) === listingId);
+        if (index >= 0) reviewTemplateProperties[index] = { ...reviewTemplateProperties[index], ...saved };
+        setText('reviewTemplateStatus', 'Saved for this property');
+        showToast('Property review templates saved.');
+    } catch (error) {
+        setText('reviewTemplateStatus', error.message);
+        showToast(error.message, true);
+    } finally {
+        button.disabled = false;
+        button.textContent = 'Save property templates';
+    }
+}
+
+function closeReviewTemplatesModal() {
+    const modal = document.getElementById('reviewTemplatesModal');
+    if (modal) modal.hidden = true;
+    if (document.getElementById('reviewActionModal')?.hidden !== false) {
+        document.body.classList.remove('review-modal-open');
+    }
+}
+
+function handleReviewModalKeydown(event) {
+    if (event.key !== 'Escape') return;
+    if (document.getElementById('reviewActionModal')?.hidden === false) closeReviewActionModal();
+    if (document.getElementById('reviewTemplatesModal')?.hidden === false) closeReviewTemplatesModal();
 }
 
 async function loadTags() {
