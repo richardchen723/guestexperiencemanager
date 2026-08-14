@@ -159,6 +159,61 @@ class DryRunAutomationTests(unittest.TestCase):
             )
 
 
+class LiveGuestMessageTests(unittest.TestCase):
+    @patch('dashboard.reviews.automation.get_workflow_session')
+    @patch('dashboard.reviews.automation.get_review_automation_preview')
+    def test_live_chase_uses_gateway_once_and_records_sent_action(self, preview_mock, session_factory_mock):
+        preview_mock.return_value = {
+            'action_type': REVIEW_ACTION_CHASE,
+            'reservation_id': 44,
+            'listing_id': 55,
+            'listing_name': 'Test Home',
+            'portfolio': 'Test Portfolio',
+            'guest_name': 'Test Guest',
+            'channel_name': 'airbnbOfficial',
+            'conversation_id': 66,
+            'communication_type': 'channel',
+            'content': 'A sufficiently long test message for the guest.',
+            'mode': 'live',
+            'simulated': False,
+            'execution_enabled': True,
+            'live_host_review_supported': False,
+            'assisted_host_review': False,
+            'review_destination': None,
+            'capability_note': 'This message will be sent through Hostaway.',
+        }
+        session = Mock()
+        session.query.return_value.filter.return_value.first.return_value = None
+
+        def assign_action_id():
+            session.add.call_args.args[0].action_id = 901
+
+        session.flush.side_effect = assign_action_id
+        session_factory_mock.return_value = session
+        gateway = Mock()
+        gateway.send_guest_message.return_value = {
+            'provider_reference': 'message-777',
+            'simulated': False,
+        }
+
+        result = perform_review_automation_action(
+            44,
+            REVIEW_ACTION_CHASE,
+            'A sufficiently long edited message for the guest.',
+            7,
+            gateway=gateway,
+        )
+
+        gateway.send_guest_message.assert_called_once()
+        action = session.add.call_args.args[0]
+        self.assertEqual(action.status, 'sent')
+        self.assertEqual(action.provider_reference, 'message-777')
+        self.assertEqual(result['status'], 'sent')
+        self.assertFalse(result['simulated'])
+        session.commit.assert_called_once()
+        session.close.assert_called_once()
+
+
 class HostawayMessageClientTests(unittest.TestCase):
     def test_send_message_uses_documented_channel_payload_without_retry_wrapper(self):
         client = HostawayAPIClient.__new__(HostawayAPIClient)

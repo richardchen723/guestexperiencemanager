@@ -1,11 +1,13 @@
 import unittest
 from datetime import date, datetime, timedelta
+from unittest.mock import Mock, patch
 
 from dashboard.reviews.query import (
     REVIEW_WINDOW_DAYS,
     _apply_review_lifecycle,
     _create_resolution_ticket_for_review,
     _review_for_origin,
+    add_review_resolution_note,
     default_bad_review_threshold,
     is_in_review_window,
     is_bad_review_rating,
@@ -14,11 +16,19 @@ from dashboard.reviews.query import (
     normalize_review_rating,
     rate_guest_review_risk,
     should_offer_review_chase,
+    update_review_resolution,
     review_resolution_window_start,
     review_window_start,
 )
 from dashboard.portfolio_mapping import portfolio_name_for_listing, portfolio_name_for_tags
-from dashboard.tickets.models import ReviewQueueState, Ticket, TicketListing
+from dashboard.tickets.models import (
+    REVIEW_RESOLUTION_STAGE_DEFINITIONS,
+    REVIEW_RESOLUTION_STAGES,
+    ReviewQueueState,
+    Ticket,
+    TicketListing,
+    normalize_review_resolution_stage,
+)
 from database.models import Conversation, Listing, Reservation, Review
 
 
@@ -94,6 +104,27 @@ class ReviewHostawayLinkTests(unittest.TestCase):
 
 
 class ReviewResolutionPolicyTests(unittest.TestCase):
+    def test_resolution_workflow_uses_the_service_recovery_schema(self):
+        self.assertEqual(REVIEW_RESOLUTION_STAGES, [
+            'New',
+            'Outreach Initiated',
+            'Require Follow Up',
+            'Responded – Agreed to Remove',
+            'Responded – Declined',
+            'No Response',
+            'Resolved',
+        ])
+        self.assertEqual(
+            [definition['step'] for definition in REVIEW_RESOLUTION_STAGE_DEFINITIONS],
+            ['1', '2', '3', '4', '4', '4', '5'],
+        )
+
+    def test_retired_resolution_stages_are_mapped_without_losing_tickets(self):
+        self.assertEqual(normalize_review_resolution_stage('Reviewing'), 'Outreach Initiated')
+        self.assertEqual(normalize_review_resolution_stage('Action in progress'), 'Require Follow Up')
+        self.assertEqual(normalize_review_resolution_stage('Guest follow-up'), 'Require Follow Up')
+        self.assertEqual(normalize_review_resolution_stage(None), 'New')
+
     def test_six_month_pool_uses_calendar_months(self):
         self.assertEqual(review_resolution_window_start(date(2026, 8, 7)), date(2026, 2, 7))
 
@@ -126,6 +157,91 @@ class ReviewResolutionPolicyTests(unittest.TestCase):
         self.assertEqual(portfolio_name_for_tags(['Crestwood']), 'crestwood')
         self.assertEqual(portfolio_name_for_tags(["Crockett's Run"]), 'Middlefork')
         self.assertEqual(portfolio_name_for_listing(558675, []), 'crestwood')
+
+
+class ResolutionWorkflowSession:
+    def __init__(self, ticket=None):
+        self.ticket = ticket
+        self.committed = False
+        self.rolled_back = False
+        self.closed = False
+
+    def query(self, *args):
+        session = self
+
+        class Query:
+            def filter(self, *filters):
+                return self
+
+            def first(self):
+                return session.ticket
+
+        return Query()
+
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
+
+    def close(self):
+        self.closed = True
+
+
+class ReviewResolutionEditingTests(unittest.TestCase):
+    @patch('dashboard.reviews.query.get_review_resolution_detail')
+    @patch('dashboard.reviews.query.get_workflow_session')
+    def test_case_fields_can_be_edited_without_overwriting_the_guest_review(self, get_session_mock, detail_mock):
+        ticket = Ticket(
+            ticket_id=91,
+            ticket_type='review_resolution',
+            title='Original case title',
+            description='Original guest review text',
+            workflow_stage='New',
+            status='Open',
+            priority='Medium',
+            created_by=1,
+        )
+        session = ResolutionWorkflowSession(ticket)
+        get_session_mock.return_value = session
+        detail_mock.return_value = {'ticket_id': 91, 'stage': 'Require Follow Up'}
+
+        result = update_review_resolution(91, {
+            'title': '  Call guest about removal  ',
+            'stage': 'Require Follow Up',
+            'priority': 'High',
+            'due_date': '2026-08-20',
+        })
+
+        self.assertEqual(result['stage'], 'Require Follow Up')
+        self.assertEqual(ticket.title, 'Call guest about removal')
+        self.assertEqual(ticket.workflow_stage, 'Require Follow Up')
+        self.assertEqual(ticket.status, 'In Progress')
+        self.assertEqual(ticket.priority, 'High')
+        self.assertEqual(ticket.due_date, date(2026, 8, 20))
+        self.assertEqual(ticket.description, 'Original guest review text')
+        self.assertTrue(session.committed)
+
+    def test_case_edit_rejects_unknown_stages(self):
+        with self.assertRaisesRegex(ValueError, 'Invalid review resolution stage'):
+            update_review_resolution(91, {'stage': 'Waiting somewhere'})
+
+    @patch('dashboard.reviews.query.add_ticket_comment')
+    @patch('dashboard.reviews.query.get_workflow_session')
+    def test_operator_note_is_appended_to_the_ticket_history(self, get_session_mock, add_comment_mock):
+        get_session_mock.return_value = ResolutionWorkflowSession(ticket=(91,))
+        comment = Mock()
+        comment.to_dict.return_value = {
+            'comment_id': 18,
+            'ticket_id': 91,
+            'comment_text': 'Guest returned our call.',
+        }
+        add_comment_mock.return_value = comment
+
+        result = add_review_resolution_note(91, 7, '  Guest returned our call.  ')
+
+        self.assertEqual(result['comment_id'], 18)
+        add_comment_mock.assert_called_once_with(91, 7, 'Guest returned our call.')
 
 
 class FakeQuery:

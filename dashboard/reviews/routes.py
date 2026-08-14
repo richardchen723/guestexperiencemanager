@@ -14,11 +14,14 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, project_root)
 
 from dashboard.reviews.query import (
+    add_review_resolution_note,
+    get_review_resolution_detail,
     get_review_queue,
     get_review_resolutions,
     get_reviews_by_filter,
     mark_host_reviewed,
     update_review_resolution_rule,
+    update_review_resolution,
     update_review_resolution_stage,
 )
 from dashboard.reviews.automation import (
@@ -33,6 +36,7 @@ from database.models import ReviewFilter, Tag, get_session
 from database.schema import get_database_path
 from dashboard.auth.decorators import approved_required, admin_required, check_feature_access
 from dashboard.auth.session import get_current_user
+from dashboard.auth.models import get_all_users
 import logging
 
 logger = logging.getLogger(__name__)
@@ -185,7 +189,17 @@ def api_perform_review_automation(reservation_id):
 def api_review_resolutions():
     """Get special review-resolution tickets arranged into swim lanes."""
     try:
-        return jsonify(get_review_resolutions(get_current_user().user_id)), 200
+        payload = get_review_resolutions(get_current_user().user_id)
+        payload['operators'] = [
+            {
+                'user_id': user.user_id,
+                'name': user.name or user.email,
+                'email': user.email,
+            }
+            for user in get_all_users()
+            if user.is_approved
+        ]
+        return jsonify(payload), 200
     except Exception as e:
         logger.error(f"Error fetching review resolutions: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
@@ -213,7 +227,7 @@ def api_update_review_resolution_rule():
 @reviews_bp.route('/api/resolutions/<int:ticket_id>/stage', methods=['PATCH'])
 @approved_required
 def api_update_review_resolution_stage(ticket_id):
-    """Move a review-resolution ticket between placeholder stages."""
+    """Move a review-resolution ticket between service-recovery stages."""
     data = request.get_json(silent=True) or {}
     try:
         return jsonify(update_review_resolution_stage(ticket_id, data.get('stage'))), 200
@@ -223,6 +237,43 @@ def api_update_review_resolution_stage(ticket_id):
         return jsonify({'error': str(e)}), 400
     except Exception as e:
         logger.error(f"Error updating review resolution {ticket_id}: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@reviews_bp.route('/api/resolutions/<int:ticket_id>', methods=['GET', 'PATCH'])
+@approved_required
+def api_review_resolution_detail(ticket_id):
+    """Read or edit one review-resolution case without requiring Tickets access."""
+    try:
+        if request.method == 'GET':
+            return jsonify(get_review_resolution_detail(ticket_id)), 200
+        return jsonify(update_review_resolution(ticket_id, request.get_json(silent=True) or {})), 200
+    except LookupError as e:
+        return jsonify({'error': str(e)}), 404
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error('Error editing review resolution %s: %s', ticket_id, e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@reviews_bp.route('/api/resolutions/<int:ticket_id>/notes', methods=['POST'])
+@approved_required
+def api_add_review_resolution_note(ticket_id):
+    """Append a timestamped operator note to a review-resolution case."""
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify(add_review_resolution_note(
+            ticket_id,
+            get_current_user().user_id,
+            data.get('note_text'),
+        )), 201
+    except LookupError as e:
+        return jsonify({'error': str(e)}), 404
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error('Error adding note to review resolution %s: %s', ticket_id, e, exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 

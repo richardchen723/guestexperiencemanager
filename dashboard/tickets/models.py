@@ -31,9 +31,57 @@ TICKET_PRIORITIES = ['Low', 'Medium', 'High', 'Critical']
 TICKET_CATEGORIES = ['cleaning', 'maintenance', 'online', 'technology', 'review management', 'other']
 STANDARD_TICKET_TYPE = 'standard'
 REVIEW_RESOLUTION_TICKET_TYPE = 'review_resolution'
-REVIEW_RESOLUTION_STAGES = ['New', 'Reviewing', 'Action in progress', 'Guest follow-up', 'Resolved']
+REVIEW_RESOLUTION_STAGE_DEFINITIONS = [
+    {
+        'stage': 'New',
+        'step': '1',
+        'description': 'Review just came in, untouched.',
+    },
+    {
+        'stage': 'Outreach Initiated',
+        'step': '2',
+        'description': 'Guest has been contacted via call and text.',
+    },
+    {
+        'stage': 'Require Follow Up',
+        'step': '3',
+        'description': 'Waiting to hear back.',
+    },
+    {
+        'stage': 'Responded – Agreed to Remove',
+        'step': '4',
+        'description': 'Guest answered and agreed to take the review down.',
+    },
+    {
+        'stage': 'Responded – Declined',
+        'step': '4',
+        'description': "Guest answered but won't remove the review.",
+    },
+    {
+        'stage': 'No Response',
+        'step': '4',
+        'description': 'Guest never got back to us.',
+    },
+    {
+        'stage': 'Resolved',
+        'step': '5',
+        'description': 'Review removed or the outcome was accepted and closed.',
+    },
+]
+REVIEW_RESOLUTION_STAGES = [definition['stage'] for definition in REVIEW_RESOLUTION_STAGE_DEFINITIONS]
+REVIEW_RESOLUTION_LEGACY_STAGE_MAP = {
+    'Reviewing': 'Outreach Initiated',
+    'Action in progress': 'Require Follow Up',
+    'Guest follow-up': 'Require Follow Up',
+}
 REVIEW_ACTION_CHASE = 'chase_review'
 REVIEW_ACTION_HOST = 'host_review'
+
+
+def normalize_review_resolution_stage(stage):
+    """Map retired resolution stages and invalid empty values into the current workflow."""
+    normalized = REVIEW_RESOLUTION_LEGACY_STAGE_MAP.get(stage, stage)
+    return normalized if normalized in REVIEW_RESOLUTION_STAGES else REVIEW_RESOLUTION_STAGES[0]
 
 
 class Ticket(Base):
@@ -689,6 +737,43 @@ def _migrate_review_resolution_fields(engine):
             f"UPDATE {table_name} SET ticket_type = 'standard' "
             "WHERE ticket_type IS NULL OR ticket_type = ''"
         ))
+        for old_stage, new_stage in REVIEW_RESOLUTION_LEGACY_STAGE_MAP.items():
+            conn.execute(sqlalchemy.text(
+                f"UPDATE {table_name} SET workflow_stage = :new_stage "
+                "WHERE ticket_type = :ticket_type AND workflow_stage = :old_stage"
+            ), {
+                'new_stage': new_stage,
+                'old_stage': old_stage,
+                'ticket_type': REVIEW_RESOLUTION_TICKET_TYPE,
+            })
+        allowed_stage_parameters = {
+            f'stage_{index}': stage
+            for index, stage in enumerate(REVIEW_RESOLUTION_STAGES)
+        }
+        allowed_stage_placeholders = ', '.join(
+            f':stage_{index}' for index in range(len(REVIEW_RESOLUTION_STAGES))
+        )
+        conn.execute(sqlalchemy.text(
+            f"UPDATE {table_name} SET workflow_stage = :default_stage "
+            "WHERE ticket_type = :ticket_type "
+            "AND (workflow_stage IS NULL OR workflow_stage = '' "
+            f"OR workflow_stage NOT IN ({allowed_stage_placeholders}))"
+        ), {
+            'default_stage': REVIEW_RESOLUTION_STAGES[0],
+            'ticket_type': REVIEW_RESOLUTION_TICKET_TYPE,
+            **allowed_stage_parameters,
+        })
+        conn.execute(sqlalchemy.text(
+            f"UPDATE {table_name} SET status = CASE "
+            "WHEN workflow_stage = :resolved_stage THEN 'Resolved' "
+            "WHEN workflow_stage = :new_stage THEN 'Open' "
+            "ELSE 'In Progress' END "
+            "WHERE ticket_type = :ticket_type"
+        ), {
+            'resolved_stage': REVIEW_RESOLUTION_STAGES[-1],
+            'new_stage': REVIEW_RESOLUTION_STAGES[0],
+            'ticket_type': REVIEW_RESOLUTION_TICKET_TYPE,
+        })
         if database_url:
             conn.execute(sqlalchemy.text(
                 "ALTER TABLE tickets.tickets ALTER COLUMN ticket_type SET DEFAULT 'standard'"

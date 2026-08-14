@@ -29,16 +29,23 @@ from database.schema import get_database_path
 from dashboard.tickets.models import (
     REVIEW_ACTION_CHASE,
     REVIEW_ACTION_HOST,
+    REVIEW_RESOLUTION_STAGE_DEFINITIONS,
     REVIEW_RESOLUTION_STAGES,
     REVIEW_RESOLUTION_TICKET_TYPE,
+    TICKET_PRIORITIES,
     ReviewAutomationAction,
     ReviewPortfolioRule,
     ReviewQueueState,
     Ticket,
+    TicketComment,
     TicketListing,
     TicketTag,
+    add_ticket_comment,
+    get_ticket_comments,
     get_session as get_workflow_session,
+    normalize_review_resolution_stage,
 )
+from dashboard.auth.models import get_user_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -798,6 +805,13 @@ def get_review_resolutions(
             Ticket.ticket_type == REVIEW_RESOLUTION_TICKET_TYPE,
             Ticket.source_review_id.in_(qualifying_review_ids or {-1}),
         ).order_by(Ticket.created_at.desc()).all()
+        ticket_ids = [ticket.ticket_id for ticket in tickets]
+        note_counts = dict(workflow_session.query(
+            TicketComment.ticket_id,
+            func.count(TicketComment.comment_id),
+        ).filter(
+            TicketComment.ticket_id.in_(ticket_ids or {-1})
+        ).group_by(TicketComment.ticket_id).all())
         listing_ids = {ticket.listing_id for ticket in tickets if ticket.listing_id}
         review_ids = {ticket.source_review_id for ticket in tickets if ticket.source_review_id}
         reservation_ids = {ticket.source_reservation_id for ticket in tickets if ticket.source_reservation_id}
@@ -825,9 +839,10 @@ def get_review_resolutions(
             review_context = context_map.get(ticket.source_review_id, {})
             tag_names = [row.tag.name for row in (listing.tags if listing else []) if row.tag]
             portfolio = review_context.get('portfolio') or portfolio_name_for_listing(ticket.listing_id, tag_names) or 'Unmapped'
+            workflow_stage = normalize_review_resolution_stage(ticket.workflow_stage)
             cards.append({
                 'ticket_id': ticket.ticket_id,
-                'stage': ticket.workflow_stage or REVIEW_RESOLUTION_STAGES[0],
+                'stage': workflow_stage,
                 'status': ticket.status,
                 'priority': ticket.priority,
                 'title': ticket.title,
@@ -849,11 +864,14 @@ def get_review_resolutions(
                 ),
                 'portfolio': portfolio,
                 'assigned_user_name': ticket.assigned_user.name if ticket.assigned_user else None,
+                'note_count': note_counts.get(ticket.ticket_id, 0),
                 'created_at': ticket.created_at.isoformat() if ticket.created_at else None,
+                'updated_at': ticket.updated_at.isoformat() if ticket.updated_at else None,
             })
 
         return {
             'stages': REVIEW_RESOLUTION_STAGES,
+            'stage_definitions': REVIEW_RESOLUTION_STAGE_DEFINITIONS,
             'lanes': [
                 {
                     'stage': stage,
@@ -919,7 +937,7 @@ def update_review_resolution_rule(
 
 
 def update_review_resolution_stage(ticket_id: int, stage: str) -> Dict:
-    """Move a review-resolution ticket to another placeholder workflow stage."""
+    """Move a review-resolution ticket to another service-recovery stage."""
     if stage not in REVIEW_RESOLUTION_STAGES:
         raise ValueError('Invalid review resolution stage')
     workflow_session = get_workflow_session()
@@ -942,6 +960,139 @@ def update_review_resolution_stage(ticket_id: int, stage: str) -> Dict:
         raise
     finally:
         workflow_session.close()
+
+
+def get_review_resolution_detail(ticket_id: int) -> Dict:
+    """Return editable case details and the chronological operator note history."""
+    workflow_session = get_workflow_session()
+    try:
+        ticket = workflow_session.query(Ticket).options(
+            joinedload(Ticket.assigned_user),
+            joinedload(Ticket.creator),
+        ).filter(
+            Ticket.ticket_id == ticket_id,
+            Ticket.ticket_type == REVIEW_RESOLUTION_TICKET_TYPE,
+        ).first()
+        if not ticket:
+            raise LookupError('Review resolution not found')
+
+        detail = {
+            'ticket_id': ticket.ticket_id,
+            'title': ticket.title,
+            'stage': normalize_review_resolution_stage(ticket.workflow_stage),
+            'status': ticket.status,
+            'priority': ticket.priority,
+            'assigned_user_id': ticket.assigned_user_id,
+            'assigned_user_name': ticket.assigned_user.name if ticket.assigned_user else None,
+            'due_date': ticket.due_date.isoformat() if ticket.due_date else None,
+            'created_by_name': ticket.creator.name if ticket.creator else None,
+            'created_at': ticket.created_at.isoformat() if ticket.created_at else None,
+            'updated_at': ticket.updated_at.isoformat() if ticket.updated_at else None,
+        }
+    finally:
+        workflow_session.close()
+
+    detail['notes'] = [comment.to_dict() for comment in get_ticket_comments(ticket_id)]
+    return detail
+
+
+def update_review_resolution(ticket_id: int, changes: Dict) -> Dict:
+    """Update the editable fields of one review-resolution case."""
+    if not isinstance(changes, dict):
+        raise ValueError('Invalid review resolution data')
+
+    updates = {}
+    if 'title' in changes:
+        title = ' '.join(str(changes.get('title') or '').split())
+        if not title:
+            raise ValueError('Case title is required')
+        if len(title) > 240:
+            raise ValueError('Case title must be 240 characters or fewer')
+        updates['title'] = title
+
+    if 'stage' in changes:
+        stage = changes.get('stage')
+        if stage not in REVIEW_RESOLUTION_STAGES:
+            raise ValueError('Invalid review resolution stage')
+        updates['workflow_stage'] = stage
+        updates['status'] = 'Resolved' if stage == REVIEW_RESOLUTION_STAGES[-1] else (
+            'Open' if stage == REVIEW_RESOLUTION_STAGES[0] else 'In Progress'
+        )
+
+    if 'priority' in changes:
+        priority = changes.get('priority')
+        if priority not in TICKET_PRIORITIES:
+            raise ValueError('Invalid review resolution priority')
+        updates['priority'] = priority
+
+    if 'assigned_user_id' in changes:
+        assigned_user_id = changes.get('assigned_user_id')
+        if assigned_user_id in ('', None):
+            updates['assigned_user_id'] = None
+        else:
+            try:
+                assigned_user_id = int(assigned_user_id)
+            except (TypeError, ValueError):
+                raise ValueError('Invalid assigned operator')
+            user = get_user_by_id(assigned_user_id)
+            if not user or not user.is_approved:
+                raise ValueError('Assigned operator must be an approved user')
+            updates['assigned_user_id'] = assigned_user_id
+
+    if 'due_date' in changes:
+        due_date_value = changes.get('due_date')
+        if due_date_value in ('', None):
+            updates['due_date'] = None
+        else:
+            try:
+                updates['due_date'] = date.fromisoformat(str(due_date_value))
+            except ValueError:
+                raise ValueError('Due date must use YYYY-MM-DD format')
+
+    if not updates:
+        raise ValueError('No editable fields were supplied')
+
+    workflow_session = get_workflow_session()
+    try:
+        ticket = workflow_session.query(Ticket).filter(
+            Ticket.ticket_id == ticket_id,
+            Ticket.ticket_type == REVIEW_RESOLUTION_TICKET_TYPE,
+        ).first()
+        if not ticket:
+            raise LookupError('Review resolution not found')
+        for field_name, value in updates.items():
+            setattr(ticket, field_name, value)
+        ticket.updated_at = datetime.utcnow()
+        workflow_session.commit()
+    except Exception:
+        workflow_session.rollback()
+        raise
+    finally:
+        workflow_session.close()
+
+    return get_review_resolution_detail(ticket_id)
+
+
+def add_review_resolution_note(ticket_id: int, current_user_id: int, note_text: str) -> Dict:
+    """Append a permanent operator note to one review-resolution case."""
+    note_text = str(note_text or '').strip()
+    if not note_text:
+        raise ValueError('Write a note before posting')
+    if len(note_text) > 5000:
+        raise ValueError('Notes must be 5,000 characters or fewer')
+
+    workflow_session = get_workflow_session()
+    try:
+        exists = workflow_session.query(Ticket.ticket_id).filter(
+            Ticket.ticket_id == ticket_id,
+            Ticket.ticket_type == REVIEW_RESOLUTION_TICKET_TYPE,
+        ).first()
+        if not exists:
+            raise LookupError('Review resolution not found')
+    finally:
+        workflow_session.close()
+
+    return add_ticket_comment(ticket_id, current_user_id, note_text).to_dict()
 
 
 def get_unresponded_reviews(tag_ids: Optional[List[int]] = None) -> List[Dict]:

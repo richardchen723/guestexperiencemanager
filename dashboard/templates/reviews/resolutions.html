@@ -3,7 +3,7 @@
 {% block title %}Review Resolutions - Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260807-4') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260814-2') }}">
 {% endblock %}
 
 {% block content %}
@@ -73,9 +73,38 @@
     </section>
 </div>
 
+<div id="resolutionDetail" class="review-resolution-detail" hidden>
+    <button class="review-resolution-detail__backdrop" type="button" data-action="close-resolution" aria-label="Close resolution case"></button>
+    <aside class="review-resolution-detail__drawer" role="dialog" aria-modal="true" aria-labelledby="resolutionDetailTitle">
+        <header class="review-resolution-detail__head">
+            <div>
+                <span id="resolutionDetailEyebrow" class="review-ops-eyebrow">Resolution case</span>
+                <h2 id="resolutionDetailTitle">Review resolution</h2>
+                <p id="resolutionDetailSubtitle"></p>
+            </div>
+            <button class="review-action-close" type="button" data-action="close-resolution" aria-label="Close resolution case">&times;</button>
+        </header>
+
+        <div id="resolutionDetailBody" class="review-resolution-detail__body">
+            <div class="review-ops-loading">
+                <span class="review-ops-spinner" aria-hidden="true"></span>
+                <span>Loading case details…</span>
+            </div>
+        </div>
+
+        <footer class="review-resolution-detail__foot">
+            <span id="resolutionDetailSaveStatus" role="status" aria-live="polite"></span>
+            <div>
+                <button class="review-action-secondary" type="button" data-action="close-resolution">Cancel</button>
+                <button class="review-action-primary" type="submit" form="resolutionDetailForm" id="resolutionSaveButton">Save changes</button>
+            </div>
+        </footer>
+    </aside>
+</div>
+
 <div id="reviewToast" class="review-ops-toast" role="status" aria-live="polite"></div>
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/review-resolutions.js', v='20260807-6') }}"></script>
+<script src="{{ url_for('static', filename='js/review-resolutions.js', v='20260814-2') }}"></script>
 {% endblock %}
