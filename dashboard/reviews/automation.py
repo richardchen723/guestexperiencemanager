@@ -7,6 +7,7 @@ import os
 import re
 from datetime import date, datetime
 from typing import Callable, Dict, Optional
+from urllib.parse import quote
 
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
@@ -42,6 +43,10 @@ REVIEW_TEMPLATE_PLACEHOLDERS = (
 )
 _PLACEHOLDER_PATTERN = re.compile(r'\{([a-zA-Z_][a-zA-Z0-9_]*)\}')
 _MAX_CONTENT_LENGTH = 5000
+_AIRBNB_CONFIRMATION_CODE = re.compile(r'^[A-Za-z0-9]{6,20}$')
+
+AIRBNB_COMPLETED_RESERVATIONS_URL = 'https://www.airbnb.com/hosting/reservations/completed'
+VRBO_OWNER_REVIEWS_URL = 'https://www.vrbo.com/owner/reviews'
 
 
 class HostReviewPublishingUnavailable(RuntimeError):
@@ -126,6 +131,74 @@ def _template_values(reservation: Reservation, portfolio_name: str) -> Dict[str,
         'guest_first_name': guest_first_name,
         'property_name': _listing_name(reservation.listing),
         'portfolio_name': portfolio_name,
+    }
+
+
+def host_review_destination(reservation: Reservation) -> Dict:
+    """Return the safest operator destination for a selective host review."""
+    channel = str(reservation.channel_name or reservation.source or '').strip().lower()
+
+    if 'airbnb' in channel:
+        confirmation_code = str(reservation.confirmation_code or '').strip()
+        has_direct_booking_link = bool(_AIRBNB_CONFIRMATION_CODE.fullmatch(confirmation_code))
+        url = (
+            f'https://www.airbnb.com/hosting/reservations/details/{quote(confirmation_code)}'
+            if has_direct_booking_link
+            else AIRBNB_COMPLETED_RESERVATIONS_URL
+        )
+        return {
+            'supported': True,
+            'platform': 'Airbnb',
+            'url': url,
+            'label': 'Open Airbnb booking' if has_direct_booking_link else 'Open Airbnb completed stays',
+            'direct': has_direct_booking_link,
+            'note': (
+                'Copy the review, open Airbnb, and choose the option to review this guest.'
+                if has_direct_booking_link
+                else 'Copy the review, then find this guest in Airbnb’s completed stays.'
+            ),
+        }
+
+    if channel in {'homeaway', 'homeawayical', 'vrbo', 'vrboofficial'} or 'vrbo' in channel:
+        return {
+            'supported': True,
+            'platform': 'Vrbo',
+            'url': VRBO_OWNER_REVIEWS_URL,
+            'label': 'Open Vrbo reviews',
+            'direct': False,
+            'note': (
+                'Copy the draft as a reference, then select this guest in Vrbo Reviews. '
+                'Vrbo may request ratings and a recommendation instead of public review text.'
+            ),
+        }
+
+    if 'bookingcom' in channel or 'booking.com' in channel or channel in {'booking', 'bdc'}:
+        return {
+            'supported': False,
+            'platform': 'Booking.com',
+            'url': None,
+            'label': None,
+            'direct': False,
+            'note': 'Booking.com does not support hosts reviewing guests.',
+        }
+
+    if channel in {'bookingengine', 'direct', 'customical', 'google', 'partner', ''}:
+        return {
+            'supported': False,
+            'platform': 'Direct booking',
+            'url': None,
+            'label': None,
+            'direct': False,
+            'note': 'This reservation has no booking-platform host review to submit.',
+        }
+
+    return {
+        'supported': False,
+        'platform': reservation.channel_name or reservation.source or 'This channel',
+        'url': None,
+        'label': None,
+        'direct': False,
+        'note': 'No verified host-review destination is available for this channel.',
     }
 
 
@@ -295,18 +368,21 @@ def get_review_automation_preview(
         rendered = render_review_template(raw_template, values)
         mode = review_automation_mode()
         live_host_review_supported = False
-        execution_enabled = mode == 'dry_run' or (
-            mode == 'live' and action_type == REVIEW_ACTION_CHASE
-        )
-        if mode == 'disabled':
+        assisted_host_review = action_type == REVIEW_ACTION_HOST
+        review_destination = host_review_destination(reservation) if assisted_host_review else None
+        execution_enabled = (
+            mode == 'dry_run' if action_type == REVIEW_ACTION_CHASE
+            else False
+        ) or (mode == 'live' and action_type == REVIEW_ACTION_CHASE)
+        if assisted_host_review:
+            capability_note = (
+                'This is a human-controlled review. Copy the final text and post it on the '
+                'booking platform; the next sync will confirm when the host review is submitted.'
+            )
+        elif mode == 'disabled':
             capability_note = 'Review automation is disabled in this environment.'
         elif mode == 'dry_run':
             capability_note = 'Test mode is active. Nothing will be sent or posted to Hostaway.'
-        elif action_type == REVIEW_ACTION_HOST and not live_host_review_supported:
-            capability_note = (
-                'Hostaway’s public review API is read-only. Live host-review posting is locked '
-                'until a supported publishing method is configured.'
-            )
         else:
             capability_note = 'This message will be sent through the existing Hostaway conversation.'
 
@@ -327,6 +403,8 @@ def get_review_automation_preview(
             'simulated': mode == 'dry_run',
             'execution_enabled': execution_enabled,
             'live_host_review_supported': live_host_review_supported,
+            'assisted_host_review': assisted_host_review,
+            'review_destination': review_destination,
             'capability_note': capability_note,
         }
     finally:

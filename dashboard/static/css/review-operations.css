@@ -878,6 +878,12 @@ body.review-modal-open { overflow: hidden; }
     border-color: #bae3d5;
 }
 .review-action-safety.is-live::before { background: #258168; }
+.review-action-safety.is-assisted {
+    color: #315b8a;
+    background: #f1f6ff;
+    border-color: #c9daf6;
+}
+.review-action-safety.is-assisted::before { background: #2f64bc; }
 .review-action-safety.is-locked {
     color: #83312d;
     background: #fff2f1;
@@ -936,6 +942,70 @@ body.review-modal-open { overflow: hidden; }
     margin-top: .4rem;
     color: #8b95a6;
     font-size: .66rem;
+}
+
+.review-platform-destination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .85rem .9rem;
+    margin-top: 1rem;
+    background: #f7f9fc;
+    border: 1px solid #dce3ee;
+    border-radius: 11px;
+}
+
+.review-platform-destination[hidden] { display: none; }
+
+.review-platform-destination-copy { min-width: 0; }
+
+.review-platform-destination-copy > span {
+    display: block;
+    margin-bottom: .18rem;
+    color: #667085;
+    font-size: .64rem;
+    font-weight: 750;
+    letter-spacing: .045em;
+    text-transform: uppercase;
+}
+
+.review-platform-destination-copy strong {
+    display: block;
+    color: #25334a;
+    font-size: .76rem;
+}
+
+.review-platform-destination-copy p {
+    margin: .2rem 0 0;
+    color: #667085;
+    font-size: .68rem;
+    line-height: 1.45;
+}
+
+.review-platform-link {
+    flex: 0 0 auto;
+    padding: .56rem .72rem;
+    color: #fff;
+    background: #204fae;
+    border: 1px solid #204fae;
+    border-radius: 8px;
+    font-size: .7rem;
+    font-weight: 750;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.review-platform-link:hover { background: #183f91; }
+
+.review-platform-destination.is-unavailable {
+    background: #fafafa;
+    border-color: #e4e7ec;
+}
+
+@media (max-width: 640px) {
+    .review-platform-destination { align-items: stretch; flex-direction: column; }
+    .review-platform-link { text-align: center; }
 }
 
 .review-action-dialog-foot {

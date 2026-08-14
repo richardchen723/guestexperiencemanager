@@ -200,7 +200,7 @@ function createQueueCard(review) {
         : '';
     const hostButton = hostComplete
         ? '<button type="button" class="review-card-button review-card-button--success" disabled>✓ Host reviewed</button>'
-        : `<button type="button" class="review-card-button review-card-button--primary" data-action="host_review" data-reservation-id="${review.reservation_id}">Post host review</button>`;
+        : `<button type="button" class="review-card-button review-card-button--primary" data-action="host_review" data-reservation-id="${review.reservation_id}">Prepare host review</button>`;
     const manualButton = hostComplete
         ? ''
         : `<button type="button" class="review-manual-link" data-action="host-reviewed" data-reservation-id="${review.reservation_id}" aria-label="Mark the host review as already posted">Mark complete</button>`;
@@ -315,19 +315,21 @@ async function openReviewActionModal(reservationId, actionType, triggerButton) {
         activeReviewAction = preview;
         const isChase = actionType === 'chase_review';
         setText('reviewActionEyebrow', isChase ? 'Guest outreach' : 'Host review');
-        setText('reviewActionTitle', isChase ? 'Chase a great review' : 'Post host review');
+        setText('reviewActionTitle', isChase ? 'Chase a great review' : 'Prepare host review');
         setText('reviewActionContext', `${preview.guest_name} · ${preview.listing_name} · ${preview.channel_name}`);
         setText('reviewActionEditorLabel', isChase ? 'Message to guest' : 'Public review of guest');
         const content = document.getElementById('reviewActionContent');
         content.value = preview.content || '';
         content.disabled = false;
         const safety = document.getElementById('reviewActionSafety');
-        safety.className = `review-action-safety ${preview.simulated ? 'is-simulation' : (preview.execution_enabled ? 'is-live' : 'is-locked')}`;
-        safety.innerHTML = `<strong>${preview.simulated ? 'Safe simulation' : (preview.execution_enabled ? 'Live Hostaway action' : 'Publishing locked')}</strong><span>${escapeHtml(preview.capability_note)}</span>`;
-        submit.disabled = !preview.execution_enabled;
-        submit.textContent = preview.simulated
-            ? (isChase ? 'Simulate message' : 'Simulate review post')
-            : (isChase ? 'Send via Hostaway' : 'Post via Hostaway');
+        const isAssistedHostReview = !isChase && preview.assisted_host_review;
+        safety.className = `review-action-safety ${isAssistedHostReview ? 'is-assisted' : (preview.simulated ? 'is-simulation' : (preview.execution_enabled ? 'is-live' : 'is-locked'))}`;
+        safety.innerHTML = `<strong>${isAssistedHostReview ? 'Human-controlled review' : (preview.simulated ? 'Safe simulation' : (preview.execution_enabled ? 'Live Hostaway action' : 'Publishing locked'))}</strong><span>${escapeHtml(preview.capability_note)}</span>`;
+        submit.disabled = isAssistedHostReview ? false : !preview.execution_enabled;
+        submit.textContent = isAssistedHostReview
+            ? 'Copy review'
+            : (preview.simulated ? 'Simulate message' : 'Send via Hostaway');
+        renderReviewPlatformDestination(isAssistedHostReview ? preview.review_destination : null);
         updateReviewActionCharacterCount();
         content.focus();
     } catch (error) {
@@ -336,6 +338,34 @@ async function openReviewActionModal(reservationId, actionType, triggerButton) {
     } finally {
         triggerButton.disabled = false;
         triggerButton.textContent = originalText;
+    }
+}
+
+function renderReviewPlatformDestination(destination) {
+    const container = document.getElementById('reviewPlatformDestination');
+    const link = document.getElementById('reviewPlatformLink');
+    if (!container || !link) return;
+    if (!destination) {
+        container.hidden = true;
+        return;
+    }
+
+    container.hidden = false;
+    container.classList.toggle('is-unavailable', !destination.supported);
+    setText('reviewPlatformName', destination.platform || 'Booking platform');
+    setText(
+        'reviewPlatformHeading',
+        destination.supported ? 'Finish the review on the booking platform' : 'Host review unavailable',
+    );
+    setText('reviewPlatformNote', destination.note || '');
+    if (destination.supported && destination.url) {
+        link.hidden = false;
+        link.href = destination.url;
+        link.textContent = `${destination.label || `Open ${destination.platform}`} ↗`;
+        link.setAttribute('aria-label', `${destination.label || `Open ${destination.platform}`} in a new tab`);
+    } else {
+        link.hidden = true;
+        link.removeAttribute('href');
     }
 }
 
@@ -363,6 +393,19 @@ async function submitReviewAction() {
         showToast('Please enter at least 20 characters.', true);
         return;
     }
+    if (activeReviewAction.assisted_host_review) {
+        try {
+            await copyReviewText(content);
+            showToast(
+                activeReviewAction.review_destination?.supported
+                    ? `Review copied. Open ${activeReviewAction.review_destination.platform} to post it.`
+                    : 'Review copied. This channel does not support a host review.',
+            );
+        } catch (error) {
+            showToast('Could not copy the review. Select the text and copy it manually.', true);
+        }
+        return;
+    }
     submit.disabled = true;
     const originalText = submit.textContent;
     submit.textContent = activeReviewAction.simulated ? 'Running simulation…' : 'Sending…';
@@ -385,9 +428,21 @@ async function submitReviewAction() {
     }
 }
 
+async function copyReviewText(content) {
+    if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(content);
+        return;
+    }
+    const editor = document.getElementById('reviewActionContent');
+    editor.focus();
+    editor.select();
+    if (!document.execCommand('copy')) throw new Error('Copy failed');
+}
+
 function closeReviewActionModal() {
     const modal = document.getElementById('reviewActionModal');
     if (modal) modal.hidden = true;
+    renderReviewPlatformDestination(null);
     activeReviewAction = null;
     if (document.getElementById('reviewTemplatesModal')?.hidden !== false) {
         document.body.classList.remove('review-modal-open');

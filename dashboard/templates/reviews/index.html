@@ -125,9 +125,19 @@
             <div id="reviewActionSafety" class="review-action-safety" role="status"></div>
             <label class="review-action-editor">
                 <span id="reviewActionEditorLabel">Message to guest</span>
-                <textarea id="reviewActionContent" rows="9" maxlength="5000"></textarea>
+                <textarea id="reviewActionContent" rows="7" maxlength="5000"></textarea>
                 <small><span id="reviewActionCharacterCount">0</span>/5,000 characters · Review and edit before continuing</small>
             </label>
+            <div id="reviewPlatformDestination" class="review-platform-destination" hidden>
+                <div class="review-platform-destination-copy">
+                    <span id="reviewPlatformName">Booking platform</span>
+                    <strong id="reviewPlatformHeading">Finish the review on the booking platform</strong>
+                    <p id="reviewPlatformNote"></p>
+                </div>
+                <a id="reviewPlatformLink" class="review-platform-link" href="#" target="_blank" rel="noopener noreferrer">
+                    Open platform <span aria-hidden="true">↗</span>
+                </a>
+            </div>
         </div>
         <footer class="review-action-dialog-foot">
             <button type="button" class="review-action-secondary" data-close-review-action>Cancel</button>

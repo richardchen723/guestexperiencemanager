@@ -6,12 +6,14 @@ from dashboard.reviews.automation import (
     DEFAULT_HOST_REVIEW_TEMPLATE,
     DryRunReviewAutomationGateway,
     HostReviewPublishingUnavailable,
+    host_review_destination,
     perform_review_automation_action,
     render_review_template,
     validate_review_template,
 )
 from dashboard.tickets.models import REVIEW_ACTION_CHASE, REVIEW_ACTION_HOST
 from sync.api_client import HostawayAPIClient
+from database.models import Reservation
 
 
 class ReviewTemplateTests(unittest.TestCase):
@@ -46,6 +48,40 @@ class ReviewTemplateTests(unittest.TestCase):
             validate_review_template('Thank you {guest_namme} for being a wonderful guest.')
 
 
+class HostReviewDestinationTests(unittest.TestCase):
+    def test_airbnb_confirmation_code_opens_reservation(self):
+        destination = host_review_destination(Reservation(
+            channel_name='airbnbOfficial',
+            confirmation_code='HMABC12345',
+        ))
+
+        self.assertTrue(destination['supported'])
+        self.assertTrue(destination['direct'])
+        self.assertEqual(destination['platform'], 'Airbnb')
+        self.assertTrue(destination['url'].endswith('/HMABC12345'))
+
+    def test_airbnb_without_confirmation_code_uses_completed_stays(self):
+        destination = host_review_destination(Reservation(channel_name='airbnbOfficial'))
+
+        self.assertTrue(destination['supported'])
+        self.assertFalse(destination['direct'])
+        self.assertIn('/hosting/reservations/completed', destination['url'])
+
+    def test_vrbo_uses_owner_reviews_queue(self):
+        destination = host_review_destination(Reservation(channel_name='Homeaway'))
+
+        self.assertTrue(destination['supported'])
+        self.assertEqual(destination['platform'], 'Vrbo')
+        self.assertIn('/owner/reviews', destination['url'])
+
+    def test_booking_com_does_not_offer_host_review(self):
+        destination = host_review_destination(Reservation(channel_name='bookingcom'))
+
+        self.assertFalse(destination['supported'])
+        self.assertIsNone(destination['url'])
+        self.assertIn('does not support', destination['note'])
+
+
 class DryRunAutomationTests(unittest.TestCase):
     def preview(self, action_type):
         return {
@@ -63,6 +99,8 @@ class DryRunAutomationTests(unittest.TestCase):
             'simulated': True,
             'execution_enabled': True,
             'live_host_review_supported': False,
+            'assisted_host_review': action_type == REVIEW_ACTION_HOST,
+            'review_destination': None,
             'capability_note': 'Nothing will be sent.',
         }
 
@@ -85,20 +123,21 @@ class DryRunAutomationTests(unittest.TestCase):
         hostaway_client.assert_not_called()
 
     @patch('dashboard.reviews.automation.get_review_automation_preview')
-    def test_host_review_simulation_never_posts_a_real_review(self, preview_mock):
-        preview_mock.return_value = self.preview(REVIEW_ACTION_HOST)
-        gateway = DryRunReviewAutomationGateway()
+    def test_assisted_host_review_never_posts_from_the_application(self, preview_mock):
+        preview = self.preview(REVIEW_ACTION_HOST)
+        preview.update({
+            'execution_enabled': False,
+            'capability_note': 'Copy and post this review manually.',
+        })
+        preview_mock.return_value = preview
 
-        result = perform_review_automation_action(
-            44,
-            REVIEW_ACTION_HOST,
-            'Test Guest was respectful and welcome back any time.',
-            7,
-            gateway=gateway,
-        )
-
-        self.assertEqual(result['status'], 'simulated')
-        self.assertTrue(result['simulated'])
+        with self.assertRaises(HostReviewPublishingUnavailable):
+            perform_review_automation_action(
+                44,
+                REVIEW_ACTION_HOST,
+                'Test Guest was respectful and welcome back any time.',
+                7,
+            )
 
     @patch('dashboard.reviews.automation.get_review_automation_preview')
     def test_live_host_review_fails_closed_without_supported_api(self, preview_mock):
