@@ -16,14 +16,16 @@ TAG_PORTFOLIOS = (
         "aliases": ("pt300", "urban stays", "urbans stays"),
     },
     {
-        "name": "Middlefork",
+        "name": "Crockett’s Run",
         "aliases": (
-            "middlefork",
-            "middlefork ridge",
             "crockett's run",
             "crockett’s run",
             "crocketts run",
         ),
+    },
+    {
+        "name": "Middlefork",
+        "aliases": ("middlefork", "middlefork ridge"),
     },
     {
         "name": "crestwood",

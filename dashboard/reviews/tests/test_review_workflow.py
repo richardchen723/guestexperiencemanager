@@ -155,7 +155,9 @@ class ReviewResolutionPolicyTests(unittest.TestCase):
     def test_new_hostaway_portfolio_tags_map_without_brain_runtime(self):
         self.assertEqual(portfolio_name_for_tags(['San Gabriel Units']), 'LA St Gabe')
         self.assertEqual(portfolio_name_for_tags(['Crestwood']), 'crestwood')
-        self.assertEqual(portfolio_name_for_tags(["Crockett's Run"]), 'Middlefork')
+        self.assertEqual(portfolio_name_for_tags(["Crockett's Run"]), 'Crockett’s Run')
+        self.assertEqual(portfolio_name_for_tags(['Crocketts Run']), 'Crockett’s Run')
+        self.assertEqual(portfolio_name_for_tags(['Middlefork Ridge']), 'Middlefork')
         self.assertEqual(portfolio_name_for_listing(558675, []), 'crestwood')
 
 
