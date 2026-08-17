@@ -293,7 +293,9 @@
 .review-ops-select-wrap {
     display: flex;
     align-items: center;
+    min-width: 0;
     height: 40px;
+    overflow: hidden;
     background: #fff;
     border: 1px solid #d0d5dd;
     border-radius: 9px;
@@ -307,6 +309,7 @@
 }
 
 .review-ops-search > span {
+    flex: 0 0 auto;
     padding-left: .75rem;
     color: #98a2b3;
     font-size: 1.15rem;
@@ -322,6 +325,31 @@
     border: 0;
     outline: 0;
     font-size: .82rem;
+}
+
+/* product-shell.css loads after this stylesheet and applies generic input focus
+   treatment. Keep the search as one continuous field instead of a focused
+   220px input floating inside a much wider bordered wrapper. */
+.review-ops-page .review-ops-search input[type="search"] {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    padding: 0 .8rem;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    outline: 0;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.review-ops-page .review-ops-search input[type="search"]:focus,
+.review-ops-page .review-ops-search input[type="search"]:focus-visible {
+    border: 0;
+    box-shadow: none;
+    outline: 0;
 }
 
 .review-ops-select-wrap select {
