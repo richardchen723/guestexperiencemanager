@@ -219,7 +219,7 @@
 
 .review-ops-panel-head {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
     gap: var(--space-5);
     padding-bottom: var(--space-5);
@@ -239,9 +239,24 @@
 }
 
 .review-ops-toolbar {
-    display: flex;
-    align-items: center;
+    display: grid;
+    grid-template-columns: minmax(240px, 1fr) repeat(3, minmax(165px, auto));
+    align-items: end;
     gap: .65rem;
+    padding-top: 1rem;
+}
+
+.review-ops-control {
+    display: grid;
+    min-width: 0;
+    gap: .35rem;
+}
+
+.review-ops-control-label {
+    color: #667085;
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .015em;
 }
 
 .review-templates-button {
@@ -309,7 +324,12 @@
     font-size: .82rem;
 }
 
-.review-ops-select-wrap select { min-width: 175px; }
+.review-ops-select-wrap select {
+    width: 100%;
+    min-width: 165px;
+    padding-right: 2rem;
+    cursor: pointer;
+}
 
 .review-risk-scale {
     display: flex;
@@ -1808,9 +1828,8 @@ body.review-modal-open { overflow: hidden; }
 
 @media (max-width: 1050px) {
     .review-ops-summary { grid-template-columns: repeat(2, 1fr); }
-    .review-ops-panel-head { align-items: flex-start; flex-direction: column; }
-    .review-ops-toolbar { width: 100%; flex-wrap: wrap; }
-    .review-ops-search { flex: 1; }
+    .review-ops-toolbar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .review-ops-control--search { grid-column: 1 / -1; }
     .review-ops-search input { width: 100%; min-width: 0; }
     .review-resolution-rule-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -1830,7 +1849,9 @@ body.review-modal-open { overflow: hidden; }
     .review-ops-metric > strong { font-size: 1.65rem; }
     .review-ops-panel,
     .review-resolution-board-shell { padding: 1rem; border-radius: 12px; }
-    .review-ops-toolbar { align-items: stretch; flex-direction: column; }
+    .review-ops-panel-head { align-items: flex-start; flex-direction: column; }
+    .review-ops-toolbar { grid-template-columns: 1fr; }
+    .review-ops-control--search { grid-column: auto; }
     .review-templates-button { width: 100%; }
     .review-ops-search,
     .review-ops-select-wrap { width: 100%; }

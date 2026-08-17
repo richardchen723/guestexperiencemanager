@@ -3,7 +3,7 @@
 {% block title %}Review Operations - Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260813-8') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260817-1') }}">
 {% endblock %}
 
 {% block content %}
@@ -50,28 +50,49 @@
                 <h2 id="reviewQueueHeading">Open review windows</h2>
                 <p id="reviewWindowDescription">Loading the current 14-day window…</p>
             </div>
-            <div class="review-ops-toolbar">
-                <button type="button" id="reviewTemplatesBtn" class="review-templates-button">
-                    <span aria-hidden="true">✎</span>
-                    Review templates
-                </button>
-                <label class="review-ops-search">
-                    <span class="sr-only">Search guest or property</span>
+            <button type="button" id="reviewTemplatesBtn" class="review-templates-button">
+                <span aria-hidden="true">✎</span>
+                Review templates
+            </button>
+        </div>
+
+        <div class="review-ops-toolbar" aria-label="Review queue filters">
+            <label class="review-ops-control review-ops-control--search">
+                <span class="review-ops-control-label">Search</span>
+                <span class="review-ops-search">
                     <span aria-hidden="true">⌕</span>
-                    <input id="reviewQueueSearch" type="search" placeholder="Search guest or property">
-                </label>
-                <label class="review-ops-select-wrap">
-                    <span class="sr-only">Filter by review risk</span>
-                    <select id="reviewRiskFilter">
-                        <option value="all">All risk levels</option>
+                    <input id="reviewQueueSearch" type="search" placeholder="Guest or property">
+                </span>
+            </label>
+            <label class="review-ops-control">
+                <span class="review-ops-control-label">Severity</span>
+                <span class="review-ops-select-wrap">
+                    <select id="reviewRiskFilter" aria-label="Filter by severity">
+                        <option value="all">All severities</option>
                         <option value="bad_high">High bad-review risk</option>
                         <option value="bad_elevated">Elevated bad-review risk</option>
                         <option value="mixed">Unclear outcome</option>
                         <option value="good_likely">Likely good</option>
                         <option value="good_high">High chance of good</option>
                     </select>
-                </label>
-            </div>
+                </span>
+            </label>
+            <label class="review-ops-control">
+                <span class="review-ops-control-label">Portfolio</span>
+                <span class="review-ops-select-wrap">
+                    <select id="reviewPortfolioFilter" aria-label="Filter by portfolio">
+                        <option value="all">All portfolios</option>
+                    </select>
+                </span>
+            </label>
+            <label class="review-ops-control">
+                <span class="review-ops-control-label">OTA channel</span>
+                <span class="review-ops-select-wrap">
+                    <select id="reviewChannelFilter" aria-label="Filter by OTA channel">
+                        <option value="all">All OTA channels</option>
+                    </select>
+                </span>
+            </label>
         </div>
 
         <div class="review-risk-scale" aria-label="Review risk scale">
@@ -239,5 +260,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/reviews-page.js', v='20260813-8') }}"></script>
+<script src="{{ url_for('static', filename='js/reviews-page.js', v='20260817-1') }}"></script>
 {% endblock %}

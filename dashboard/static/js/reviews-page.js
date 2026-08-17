@@ -2,6 +2,8 @@ const reviewQueueState = {
     reviews: [],
     search: '',
     risk: 'all',
+    portfolio: 'all',
+    channel: 'all',
     summaryFilter: 'all',
 };
 
@@ -27,6 +29,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         document.getElementById('reviewRiskFilter')?.addEventListener('change', (event) => {
             reviewQueueState.risk = event.target.value;
+            renderReviewQueue();
+        });
+        document.getElementById('reviewPortfolioFilter')?.addEventListener('change', (event) => {
+            reviewQueueState.portfolio = event.target.value;
+            renderReviewQueue();
+        });
+        document.getElementById('reviewChannelFilter')?.addEventListener('change', (event) => {
+            reviewQueueState.channel = event.target.value;
             renderReviewQueue();
         });
         document.querySelectorAll('[data-queue-filter]').forEach((metric) => {
@@ -70,6 +80,7 @@ async function loadReviewQueue() {
     try {
         const data = await fetchJson('/reviews/api/queue');
         reviewQueueState.reviews = data.reviews || [];
+        populateQueueDimensionFilters();
         updateQueueSummary(data.summary || {});
         updateWindowDescription(data.window || {});
         renderReviewQueue();
@@ -77,6 +88,82 @@ async function loadReviewQueue() {
         console.error('Error loading review queue:', error);
         container.innerHTML = `<div class="review-ops-error">${escapeHtml(error.message)}</div>`;
     }
+}
+
+function reviewChannelKey(channelName) {
+    const compact = String(channelName || 'direct').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (compact === 'airbnb' || compact === 'airbnbofficial') return 'airbnb';
+    if (compact === 'homeaway' || compact === 'vrbo') return 'vrbo';
+    if (compact === 'bookingcom' || compact === 'bookingdotcom') return 'bookingcom';
+    if (compact === 'bookingengine' || compact === 'direct') return 'direct';
+    return compact || 'direct';
+}
+
+function reviewChannelLabel(channelName) {
+    const key = reviewChannelKey(channelName);
+    const knownLabels = {
+        airbnb: 'Airbnb',
+        vrbo: 'Vrbo',
+        bookingcom: 'Booking.com',
+        direct: 'Direct booking',
+    };
+    if (knownLabels[key]) return knownLabels[key];
+    return String(channelName || 'Other')
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .replace(/[-_]+/g, ' ')
+        .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function populateQueueDimensionFilters() {
+    const portfolioCounts = new Map();
+    const channelCounts = new Map();
+    reviewQueueState.reviews.forEach((review) => {
+        const portfolio = review.portfolio || 'Unmapped';
+        portfolioCounts.set(portfolio, (portfolioCounts.get(portfolio) || 0) + 1);
+
+        const channel = reviewChannelKey(review.channel_name);
+        const existing = channelCounts.get(channel) || {
+            label: reviewChannelLabel(review.channel_name),
+            count: 0,
+        };
+        existing.count += 1;
+        channelCounts.set(channel, existing);
+    });
+
+    const portfolios = [...portfolioCounts.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([value, count]) => ({ value, label: `${value} (${count})` }));
+    const channels = [...channelCounts.entries()]
+        .sort(([, left], [, right]) => left.label.localeCompare(right.label))
+        .map(([value, item]) => ({ value, label: `${item.label} (${item.count})` }));
+
+    reviewQueueState.portfolio = populateQueueSelect(
+        'reviewPortfolioFilter',
+        'All portfolios',
+        portfolios,
+        reviewQueueState.portfolio,
+    );
+    reviewQueueState.channel = populateQueueSelect(
+        'reviewChannelFilter',
+        'All OTA channels',
+        channels,
+        reviewQueueState.channel,
+    );
+}
+
+function populateQueueSelect(selectId, allLabel, options, selectedValue) {
+    const select = document.getElementById(selectId);
+    if (!select) return 'all';
+    const availableValues = new Set(options.map((option) => option.value));
+    const nextValue = selectedValue === 'all' || availableValues.has(selectedValue) ? selectedValue : 'all';
+    select.innerHTML = [
+        `<option value="all">${escapeHtml(allLabel)}</option>`,
+        ...options.map((option) => (
+            `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`
+        )),
+    ].join('');
+    select.value = nextValue;
+    return nextValue;
 }
 
 function updateQueueSummary(summary) {
@@ -127,11 +214,23 @@ function renderReviewQueue() {
         const haystack = `${review.guest_name || ''} ${review.listing_name || ''} ${review.portfolio || ''}`.toLowerCase();
         const matchesSearch = !reviewQueueState.search || haystack.includes(reviewQueueState.search);
         const matchesRisk = reviewQueueState.risk === 'all' || review.risk?.key === reviewQueueState.risk;
-        return matchesSearch && matchesRisk && matchesSummaryFilter(review);
+        const matchesPortfolio = reviewQueueState.portfolio === 'all'
+            || (review.portfolio || 'Unmapped') === reviewQueueState.portfolio;
+        const matchesChannel = reviewQueueState.channel === 'all'
+            || reviewChannelKey(review.channel_name) === reviewQueueState.channel;
+        return matchesSearch
+            && matchesRisk
+            && matchesPortfolio
+            && matchesChannel
+            && matchesSummaryFilter(review);
     });
 
     if (!filtered.length) {
-        const message = reviewQueueState.search || reviewQueueState.risk !== 'all' || reviewQueueState.summaryFilter !== 'all'
+        const message = reviewQueueState.search
+            || reviewQueueState.risk !== 'all'
+            || reviewQueueState.portfolio !== 'all'
+            || reviewQueueState.channel !== 'all'
+            || reviewQueueState.summaryFilter !== 'all'
             ? 'No review windows match the current filters.'
             : 'No open review windows. Five-star matches close automatically; lower ratings move to resolution.';
         container.innerHTML = `<div class="review-ops-empty">${escapeHtml(message)}</div>`;
@@ -254,7 +353,7 @@ function createQueueCard(review) {
                     ${hostButton}
                 </div>
                 <div class="review-action-meta">
-                    <span class="review-channel-pill">${escapeHtml(review.channel_name || 'Direct')}</span>
+                    <span class="review-channel-pill">${escapeHtml(reviewChannelLabel(review.channel_name))}</span>
                     <span class="review-action-links">
                         ${hostawayLink}
                         ${manualButton}
