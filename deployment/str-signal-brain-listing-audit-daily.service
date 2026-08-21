@@ -1,0 +1,20 @@
+[Unit]
+Description=Daily Hostaway listing health audit
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=hostaway
+Group=hostaway
+WorkingDirectory=/opt/hostaway-messages/app
+Environment="PATH=/opt/hostaway-messages/venv/bin"
+EnvironmentFile=/opt/hostaway-messages/.env
+ExecStart=/usr/bin/flock -n /opt/hostaway-messages/app/data/listing-audit.lock /opt/hostaway-messages/venv/bin/python3 -m brain.jobs listing-audit-daily
+TimeoutStartSec=90min
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/hostaway-messages/logs /opt/hostaway-messages/app/data /opt/hostaway-messages/app/conversations /opt/hostaway-messages/conversations

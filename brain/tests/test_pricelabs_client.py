@@ -6,8 +6,10 @@ from brain.pricelabs import PriceLabsClient
 
 
 class FakeResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, *, status_code=200, headers=None):
         self.payload = payload
+        self.status_code = status_code
+        self.headers = headers or {}
 
     def raise_for_status(self):
         return None
@@ -67,6 +69,29 @@ class PriceLabsClientTests(unittest.TestCase):
         self.assertIn("dateFrom", price_request)
         self.assertIn("dateTo", price_request)
         self.assertEqual(get.call_args.kwargs["params"], {"listing_id": "558675", "pms_name": "hostaway"})
+
+    @patch("brain.pricelabs.time.sleep")
+    @patch("brain.pricelabs.requests.post")
+    def test_listing_prices_retries_rate_limit_using_retry_after(self, post, sleep):
+        post.side_effect = [
+            FakeResponse({}, status_code=429, headers={"Retry-After": "2.5"}),
+            FakeResponse([{"id": "558675", "data": []}]),
+        ]
+
+        with patch.dict(
+            os.environ,
+            {
+                "PRICELABS_API_KEY": "test-key",
+                "PRICELABS_MAX_RETRIES": "3",
+                "PRICELABS_RETRY_BACKOFF_SECONDS": "1",
+            },
+            clear=False,
+        ):
+            result = PriceLabsClient().fetch_listing_prices(558675)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(post.call_count, 2)
+        sleep.assert_called_once_with(2.5)
 
 
 if __name__ == "__main__":

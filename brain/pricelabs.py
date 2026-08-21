@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import date, timedelta
 from typing import Any
 
@@ -25,6 +26,8 @@ class PriceLabsClient:
         self.price_window_days = int(os.getenv("PRICELABS_PRICE_WINDOW_DAYS", "365"))
         self.include_price_reason = os.getenv("PRICELABS_INCLUDE_PRICE_REASON", "true").lower() not in {"0", "false", "no"}
         self.fetch_metrics = os.getenv("PRICELABS_FETCH_METRICS", "true").lower() not in {"0", "false", "no"}
+        self.max_retries = max(1, int(os.getenv("PRICELABS_MAX_RETRIES", "4")))
+        self.retry_backoff_seconds = max(1.0, float(os.getenv("PRICELABS_RETRY_BACKOFF_SECONDS", "5")))
 
     @property
     def is_configured(self) -> bool:
@@ -111,7 +114,13 @@ class PriceLabsClient:
             ]
         }
         try:
-            response = requests.post(f"{self.base_url}/listing_prices", headers=headers, json=payload, timeout=self.timeout)
+            response = self._request(
+                "post",
+                f"{self.base_url}/listing_prices",
+                headers=headers,
+                json=payload,
+                timeout=self.timeout,
+            )
             response.raise_for_status()
             data = response.json()
         except Exception as exc:
@@ -163,7 +172,13 @@ class PriceLabsClient:
             "pms_name": self.pms_name,
         }
         try:
-            response = requests.get(f"{self.base_url}/listing_metrics", headers=headers, params=params, timeout=self.timeout)
+            response = self._request(
+                "get",
+                f"{self.base_url}/listing_metrics",
+                headers=headers,
+                params=params,
+                timeout=self.timeout,
+            )
             response.raise_for_status()
             data = response.json()
         except Exception as exc:
@@ -191,3 +206,31 @@ class PriceLabsClient:
             "request": params,
             "error": None if data else "PriceLabs returned an empty metrics response",
         }
+
+    def _request(self, method: str, url: str, **kwargs):
+        """Retry rate-limited and transient PriceLabs reads with bounded backoff."""
+        last_response = None
+        for attempt in range(self.max_retries):
+            request_fn = requests.post if method == "post" else requests.get
+            response = request_fn(url, **kwargs)
+            last_response = response
+            status_code = int(getattr(response, "status_code", 200) or 200)
+            retryable = status_code == 429 or status_code >= 500
+            if not retryable or attempt >= self.max_retries - 1:
+                return response
+
+            headers = getattr(response, "headers", {}) or {}
+            try:
+                retry_after = float(headers.get("Retry-After") or 0)
+            except (TypeError, ValueError):
+                retry_after = 0
+            wait_seconds = retry_after or min(self.retry_backoff_seconds * (2 ** attempt), 30.0)
+            logger.warning(
+                "PriceLabs returned HTTP %s; retrying in %.1fs (%s/%s)",
+                status_code,
+                wait_seconds,
+                attempt + 1,
+                self.max_retries,
+            )
+            time.sleep(wait_seconds)
+        return last_response

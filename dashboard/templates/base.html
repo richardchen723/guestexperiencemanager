@@ -25,7 +25,8 @@
     data-features="{{ accessible_feature_keys | join(',') }}"
 >
     {% set endpoint = request.endpoint or '' %}
-    {% if 'kpi' in endpoint %}{% set workspace_name = 'KPI' %}
+    {% if 'listing_audit' in endpoint %}{% set workspace_name = 'Listing health' %}
+    {% elif 'kpi' in endpoint %}{% set workspace_name = 'KPI' %}
     {% elif 'tickets' in endpoint %}{% set workspace_name = 'Tickets' %}
     {% elif 'reviews' in endpoint %}{% set workspace_name = 'Reviews' %}
     {% elif 'knowledge' in endpoint %}{% set workspace_name = 'Knowledge base' %}
@@ -68,6 +69,12 @@
                     <a href="{{ url_for('kpi.kpi_page') }}" class="app-nav-link {% if 'kpi' in endpoint %}active{% endif %}" title="KPI">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19V3"/><path d="M2 21h20"/></svg>
                         <span>KPI</span>
+                    </a>
+                    {% endif %}
+                    {% if feature_access.listing_audit %}
+                    <a href="{{ url_for('listing_audit.listing_audit_page') }}" class="app-nav-link {% if 'listing_audit' in endpoint %}active{% endif %}" title="Listing health">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9Z"/><path d="m8 15 2.3 2.3L16 11.5"/></svg>
+                        <span>Listing health</span>
                     </a>
                     {% endif %}
                     {% if feature_access.properties %}

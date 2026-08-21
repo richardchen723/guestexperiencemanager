@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import statistics
+import time
 from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -3162,6 +3163,7 @@ class BrainRunService:
         self.session = get_session()
         self.main_session = get_main_session(config.MAIN_DATABASE_PATH)
         self.pricelabs = PriceLabsClient()
+        self._hostaway_listing_client = None
         self._listing_name_cache: dict[int, str] = {}
         self._last_ai_retired_signal_count = 0
 
@@ -3461,7 +3463,8 @@ class BrainRunService:
         self.session.commit()
 
     def _refresh_pricelabs_snapshots(self, run_id: int, listing_map: dict[int, int]):
-        for listing_id in listing_map:
+        request_delay = max(0.0, float(os.getenv("PRICELABS_LISTING_DELAY_SECONDS", "0.75")))
+        for index, listing_id in enumerate(listing_map):
             snapshot_payload = self.pricelabs.fetch_listing_snapshot(listing_id)
             snapshot = PriceLabsSnapshot(
                 run_id=run_id,
@@ -3473,6 +3476,8 @@ class BrainRunService:
                 error_message=snapshot_payload.get("error"),
             )
             self.session.add(snapshot)
+            if request_delay and index < len(listing_map) - 1:
+                time.sleep(request_delay)
         self.session.commit()
 
     def _compute_booking_health(self, run_id: int, listing_map: dict[int, int]) -> list[BookingHealthSnapshot]:
@@ -3941,7 +3946,9 @@ class BrainRunService:
         try:
             from sync.api_client import HostawayAPIClient
 
-            data = HostawayAPIClient().get_listing(listing_id)
+            if self._hostaway_listing_client is None:
+                self._hostaway_listing_client = HostawayAPIClient()
+            data = self._hostaway_listing_client.get_listing(listing_id)
             return _extract_airbnb_url(data) or (data or {}).get("airbnbListingUrl")
         except Exception as exc:
             logger.info("Hostaway listing detail fetch skipped for Airbnb URL %s: %s", listing_id, exc)

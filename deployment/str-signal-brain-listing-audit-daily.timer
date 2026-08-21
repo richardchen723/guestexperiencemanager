@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the listing health audit every day at 9:00 AM Malaysia time
+
+[Timer]
+OnCalendar=*-*-* 09:00:00 Asia/Kuala_Lumpur
+Persistent=true
+Unit=str-signal-brain-listing-audit-daily.service
+
+[Install]
+WantedBy=timers.target

@@ -24,6 +24,8 @@ def main():
             "manual",
             "aggregate",
             "audit",
+            "listing-audit-daily",
+            "listing-audit-weekly",
             "intelligence-pack",
             "intelligence-import",
             "intelligence-list",
@@ -82,6 +84,18 @@ def main():
         service = BrainService(system_user())
         try:
             result = service.data_foundation_audit()
+            print(json.dumps(result, indent=2, sort_keys=True))
+        finally:
+            service.close()
+        return
+
+    if args.job in {"listing-audit-daily", "listing-audit-weekly"}:
+        from brain.listing_audit import ListingAuditRunner
+
+        cadence = "weekly" if args.job.endswith("weekly") else "daily"
+        service = ListingAuditRunner()
+        try:
+            result = service.run(cadence=cadence, deep=cadence == "weekly")
             print(json.dumps(result, indent=2, sort_keys=True))
         finally:
             service.close()

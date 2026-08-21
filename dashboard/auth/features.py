@@ -23,6 +23,13 @@ FEATURES = OrderedDict((feature['key'], feature) for feature in (
         'endpoint': 'kpi.kpi_page',
     },
     {
+        'key': 'listing_audit',
+        'label': 'Listing Health',
+        'description': 'Daily channel, booking, pricing, and market health checks for every active listing.',
+        'default_access': True,
+        'endpoint': 'listing_audit.listing_audit_page',
+    },
+    {
         'key': 'properties',
         'label': 'Properties',
         'description': 'Listings, insights, tags, and portfolio mapping.',

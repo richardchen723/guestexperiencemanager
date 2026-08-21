@@ -571,6 +571,80 @@ class BookingHealthAnalysis(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
+class ListingAuditRun(Base):
+    """One portfolio-wide listing audit execution."""
+
+    __tablename__ = "listing_audit_runs"
+    __table_args__ = (
+        Index("idx_brain_listing_audit_runs_cadence_completed", "cadence", "completed_at"),
+        Index("idx_brain_listing_audit_runs_status_started", "status", "started_at"),
+        {"schema": BRAIN_SCHEMA} if os.getenv("DATABASE_URL") else {},
+    )
+
+    listing_audit_run_id = Column(Integer, primary_key=True, autoincrement=True)
+    cadence = Column(String, nullable=False, default="daily", index=True)
+    status = Column(String, nullable=False, default="running", index=True)
+    snapshot_date = Column(Date, default=date.today, nullable=False, index=True)
+    listing_count = Column(Integer, nullable=False, default=0)
+    critical_count = Column(Integer, nullable=False, default=0)
+    high_count = Column(Integer, nullable=False, default=0)
+    watch_count = Column(Integer, nullable=False, default=0)
+    healthy_count = Column(Integer, nullable=False, default=0)
+    source_statuses = Column(_json_type())
+    error_message = Column(Text)
+    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    snapshots = relationship(
+        "ListingAuditSnapshot",
+        back_populates="run",
+        cascade="all, delete-orphan",
+    )
+
+
+class ListingAuditSnapshot(Base):
+    """Human-readable audit result for one active listing in one run."""
+
+    __tablename__ = "listing_audit_snapshots"
+    __table_args__ = (
+        UniqueConstraint("run_id", "listing_id", name="uq_brain_listing_audit_snapshot_run_listing"),
+        Index("idx_brain_listing_audit_snapshots_date_severity", "snapshot_date", "severity"),
+        Index("idx_brain_listing_audit_snapshots_portfolio", "portfolio_id", "snapshot_date"),
+        {"schema": BRAIN_SCHEMA} if os.getenv("DATABASE_URL") else {},
+    )
+
+    listing_audit_snapshot_id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(
+        Integer,
+        ForeignKey(
+            f"{BRAIN_SCHEMA}.listing_audit_runs.listing_audit_run_id",
+            ondelete="CASCADE",
+        ) if os.getenv("DATABASE_URL") else ForeignKey(
+            "listing_audit_runs.listing_audit_run_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    portfolio_id = Column(Integer, nullable=True, index=True)
+    listing_id = Column(Integer, nullable=False, index=True)
+    listing_name = Column(String, nullable=False)
+    snapshot_date = Column(Date, default=date.today, nullable=False, index=True)
+    severity = Column(String, nullable=False, default="watch", index=True)
+    health_score = Column(Float, nullable=False, default=0.0)
+    booking_health = Column(_json_type())
+    pricing_health = Column(_json_type())
+    market_comparison = Column(_json_type())
+    online_assets = Column(_json_type())
+    action_items = Column(_json_type())
+    source_statuses = Column(_json_type())
+    raw_payload = Column(_json_type())
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    run = relationship("ListingAuditRun", back_populates="snapshots")
+
+
 class OpenLoop(Base):
     """Unresolved issue inferred from conversations or WhatsApp context."""
 
@@ -950,6 +1024,17 @@ def init_kpi_tables():
         conn.execute(sqlalchemy.text(f"CREATE SCHEMA IF NOT EXISTS {BRAIN_SCHEMA}"))
         StayOutcomeClassification.__table__.create(bind=conn, checkfirst=True)
         _ensure_stay_outcome_once_index(conn)
+    return engine
+
+
+def init_listing_audit_tables():
+    """Create the additive Workspace listing-audit tables."""
+    engine = get_engine()
+    with engine.begin() as conn:
+        if os.getenv("DATABASE_URL"):
+            conn.execute(sqlalchemy.text(f"CREATE SCHEMA IF NOT EXISTS {BRAIN_SCHEMA}"))
+        ListingAuditRun.__table__.create(bind=conn, checkfirst=True)
+        ListingAuditSnapshot.__table__.create(bind=conn, checkfirst=True)
     return engine
 
 
