@@ -294,14 +294,36 @@ class ListingAuditRunner:
     def _latest_pricelabs_snapshots(self, listing_ids: list[int]) -> dict[int, PriceLabsAuditContext]:
         if not listing_ids:
             return {}
+        ordering = (
+            PriceLabsSnapshot.snapshot_date.desc(),
+            PriceLabsSnapshot.created_at.desc(),
+            PriceLabsSnapshot.pricelabs_snapshot_id.desc(),
+        )
+
+        def ranked_snapshot_ids(*, statuses: tuple[str, ...] | None, limit: int) -> list[int]:
+            ranked_query = self.brain_session.query(
+                PriceLabsSnapshot.pricelabs_snapshot_id.label("snapshot_id"),
+                func.row_number().over(
+                    partition_by=PriceLabsSnapshot.listing_id,
+                    order_by=ordering,
+                ).label("snapshot_rank"),
+            ).filter(PriceLabsSnapshot.listing_id.in_(listing_ids))
+            if statuses:
+                ranked_query = ranked_query.filter(PriceLabsSnapshot.status.in_(statuses))
+            ranked = ranked_query.subquery()
+            return [
+                int(row[0])
+                for row in self.brain_session.query(ranked.c.snapshot_id)
+                .filter(ranked.c.snapshot_rank <= limit)
+                .all()
+            ]
+
+        snapshot_ids = set(ranked_snapshot_ids(statuses=None, limit=3))
+        snapshot_ids.update(ranked_snapshot_ids(statuses=("ok", "partial"), limit=1))
         rows = (
             self.brain_session.query(PriceLabsSnapshot)
-            .filter(PriceLabsSnapshot.listing_id.in_(listing_ids))
-            .order_by(
-                PriceLabsSnapshot.snapshot_date.desc(),
-                PriceLabsSnapshot.created_at.desc(),
-                PriceLabsSnapshot.pricelabs_snapshot_id.desc(),
-            )
+            .filter(PriceLabsSnapshot.pricelabs_snapshot_id.in_(snapshot_ids))
+            .order_by(*ordering)
             .all()
         )
         grouped: dict[int, list[PriceLabsSnapshot]] = {}

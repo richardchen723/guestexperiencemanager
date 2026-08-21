@@ -3479,9 +3479,10 @@ class BrainRunService:
                 error_message=snapshot_payload.get("error"),
             )
             self.session.add(snapshot)
+            self.session.commit()
+            self.session.expunge(snapshot)
             if request_delay and index < len(listing_map) - 1:
                 time.sleep(request_delay)
-        self.session.commit()
 
     def _compute_booking_health(self, run_id: int, listing_map: dict[int, int]) -> list[BookingHealthSnapshot]:
         today = date.today()
