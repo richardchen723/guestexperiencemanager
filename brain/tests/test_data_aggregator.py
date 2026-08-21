@@ -1,8 +1,10 @@
 import unittest
 from datetime import datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from brain.aggregator import (
+    FactBatch,
     build_fact_key,
     build_metric_key,
     data_source_health_status,
@@ -26,6 +28,34 @@ from brain.aggregator import (
 
 
 class DataAggregatorTests(unittest.TestCase):
+    def test_fact_batch_flushes_and_detaches_in_bounded_chunks(self):
+        session = Mock()
+        facts = [Mock(), Mock()]
+        aggregator = SimpleNamespace(
+            session=session,
+            _upsert_fact=Mock(side_effect=[("created", facts[0]), ("updated", facts[1])]),
+        )
+        batch = FactBatch(
+            aggregator,
+            SimpleNamespace(data_ingestion_run_id=9),
+            "hostaway_messages",
+            {"guest_message"},
+            flush_size=2,
+        )
+
+        with patch("brain.aggregator.inspect", side_effect=[
+            SimpleNamespace(session=session),
+            SimpleNamespace(session=session),
+        ]):
+            batch.upsert(fact_type="guest_message", source_id=1)
+            session.flush.assert_not_called()
+            batch.upsert(fact_type="guest_message", source_id=2)
+
+        session.flush.assert_called_once_with()
+        self.assertEqual(session.expunge.call_count, 2)
+        self.assertEqual(batch.fact_cache, {})
+        self.assertEqual(batch.pending_upserts, 0)
+
     def test_fact_key_is_stable_and_readable(self):
         self.assertEqual(
             build_fact_key("PriceLabs Daily Price", "PriceLabs", "123:2026-07-07"),

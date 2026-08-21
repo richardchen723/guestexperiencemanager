@@ -43,6 +43,9 @@ from database.models import (
 
 logger = logging.getLogger(__name__)
 
+FACT_BATCH_FLUSH_SIZE = 250
+SOURCE_STREAM_BATCH_SIZE = 500
+
 
 @dataclass(frozen=True)
 class SourceDefinition:
@@ -1223,7 +1226,11 @@ class BrainDataAggregator:
 
     def _materialize_hostaway_messages(self, run: DataIngestionRun) -> MaterializationResult:
         batch = FactBatch(self, run, "hostaway_messages", {"guest_message"})
-        rows = self.main_session.query(MessageMetadata).order_by(MessageMetadata.message_id).all()
+        rows = (
+            self.main_session.query(MessageMetadata)
+            .order_by(MessageMetadata.message_id)
+            .yield_per(SOURCE_STREAM_BATCH_SIZE)
+        )
         for row in rows:
             batch.upsert(
                 fact_type="guest_message",
@@ -1252,7 +1259,10 @@ class BrainDataAggregator:
                 confidence=0.95,
             )
         latest_sync = self._latest_sync_log("messages")
-        return batch.finish(record_counts={"messages": len(rows)}, metadata={"latest_sync": latest_sync})
+        return batch.finish(
+            record_counts={"messages": batch.records_seen},
+            metadata={"latest_sync": latest_sync},
+        )
 
     def _materialize_hostaway_reviews(self, run: DataIngestionRun) -> MaterializationResult:
         batch = FactBatch(self, run, "hostaway_reviews", {"guest_review"})
@@ -2114,17 +2124,27 @@ class BrainDataAggregator:
 class FactBatch:
     """Tracks fact writes and stale withdrawals for one source run."""
 
-    def __init__(self, aggregator: BrainDataAggregator, run: DataIngestionRun, source_key: str, fact_types: set[str]):
+    def __init__(
+        self,
+        aggregator: BrainDataAggregator,
+        run: DataIngestionRun,
+        source_key: str,
+        fact_types: set[str],
+        *,
+        flush_size: int = FACT_BATCH_FLUSH_SIZE,
+    ):
         self.aggregator = aggregator
         self.run = run
         self.source_key = source_key
         self.fact_types = fact_types
+        self.flush_size = max(int(flush_size), 1)
         self.active_fact_keys: set[str] = set()
         self.records_seen = 0
         self.facts_created = 0
         self.facts_updated = 0
         self.facts_unchanged = 0
         self.fact_cache: dict[str, BusinessFact] = {}
+        self.pending_upserts = 0
 
     def upsert(self, **kwargs):
         self.records_seen += 1
@@ -2143,6 +2163,26 @@ class FactBatch:
             self.facts_updated += 1
         else:
             self.facts_unchanged += 1
+        self.pending_upserts += 1
+        if self.pending_upserts >= self.flush_size:
+            self._flush_fact_cache()
+
+    def _flush_fact_cache(self):
+        """Flush and detach facts so large source runs have bounded memory use."""
+        if not self.pending_upserts:
+            return
+        session = self.aggregator.session
+        session.flush()
+        detached_ids: set[int] = set()
+        for fact in self.fact_cache.values():
+            fact_identity = id(fact)
+            if fact_identity in detached_ids:
+                continue
+            detached_ids.add(fact_identity)
+            if inspect(fact).session is session:
+                session.expunge(fact)
+        self.fact_cache.clear()
+        self.pending_upserts = 0
 
     def finish(
         self,
@@ -2150,6 +2190,7 @@ class FactBatch:
         record_counts: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> MaterializationResult:
+        self._flush_fact_cache()
         facts_withdrawn = self.aggregator._withdraw_missing_facts(
             ingestion_run_id=self.run.data_ingestion_run_id,
             source_key=self.source_key,
