@@ -193,6 +193,8 @@ def snapshot_dict(snapshot: Any) -> dict[str, Any]:
         "action_items": snapshot.action_items or [],
         "source_statuses": snapshot.source_statuses or {},
         "thumbnail_url": raw.get("thumbnail_url"),
+        "cover_image_source": raw.get("cover_image_source") or "legacy_thumbnail",
+        "cover_image_status": raw.get("cover_image_status") or ("unchecked" if raw.get("thumbnail_url") else "missing"),
         "location": ", ".join(value for value in (raw.get("city"), raw.get("state")) if value),
         "photo_count": int(raw.get("photo_count") or 0),
         "currency": raw.get("currency") or "USD",

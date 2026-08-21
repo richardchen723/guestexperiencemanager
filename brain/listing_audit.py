@@ -41,6 +41,9 @@ AUDIT_TIMEZONE = os.getenv("LISTING_AUDIT_TIMEZONE", "Asia/Kuala_Lumpur")
 PUBLIC_PAGE_TIMEOUT = int(os.getenv("LISTING_AUDIT_PAGE_TIMEOUT_SECONDS", "12"))
 PUBLIC_PAGE_WORKERS = max(1, min(int(os.getenv("LISTING_AUDIT_PAGE_WORKERS", "8")), 16))
 HOSTAWAY_DETAIL_WORKERS = max(1, min(int(os.getenv("LISTING_AUDIT_HOSTAWAY_WORKERS", "8")), 16))
+COVER_IMAGE_TIMEOUT = max(2, min(int(os.getenv("LISTING_AUDIT_IMAGE_TIMEOUT_SECONDS", "5")), 15))
+COVER_IMAGE_WORKERS = max(1, min(int(os.getenv("LISTING_AUDIT_IMAGE_WORKERS", "8")), 16))
+COVER_IMAGE_CANDIDATE_LIMIT = max(1, min(int(os.getenv("LISTING_AUDIT_IMAGE_CANDIDATE_LIMIT", "5")), 20))
 CHECK_PUBLIC_PAGES = os.getenv("LISTING_AUDIT_CHECK_PUBLIC_PAGES", "true").lower() not in {
     "0",
     "false",
@@ -270,6 +273,19 @@ class ListingAuditRunner:
                     logger.warning("Hostaway listing detail failed for %s: %s", listing_id, exc)
                     detail = summary
                 details[listing_id] = {**summary, **detail}
+
+        with ThreadPoolExecutor(max_workers=COVER_IMAGE_WORKERS) as executor:
+            futures = {
+                executor.submit(resolve_cover_image, detail): listing_id
+                for listing_id, detail in details.items()
+            }
+            for future in as_completed(futures):
+                listing_id = futures[future]
+                try:
+                    details[listing_id]["_audit_cover_image"] = future.result()
+                except Exception as exc:
+                    logger.warning("Listing cover image check failed for %s: %s", listing_id, exc)
+                    details[listing_id]["_audit_cover_image"] = fallback_cover_image(details[listing_id])
         return details
 
     def _latest_booking_analyses(self, listing_ids: list[int]) -> dict[int, BookingHealthAnalysis]:
@@ -402,6 +418,7 @@ def build_listing_audit_result(
     ]
     booking_health = booking_health_payload(booking_analysis)
     pricing_health, market_comparison = pricing_market_payload(pricelabs_snapshot)
+    cover_image = detail.get("_audit_cover_image") or fallback_cover_image(detail)
 
     booking_score = booking_health["score"]
     configured_asset_scores = [
@@ -448,7 +465,10 @@ def build_listing_audit_result(
         "source_statuses": source_statuses,
         "raw_payload": {
             "portfolio_name": portfolio_name,
-            "thumbnail_url": detail.get("thumbnailUrl"),
+            "thumbnail_url": cover_image.get("url"),
+            "cover_image_source": cover_image.get("source"),
+            "cover_image_status": cover_image.get("status"),
+            "channel_thumbnail_url": normalize_url(detail.get("thumbnailUrl")),
             "city": detail.get("city"),
             "state": detail.get("state"),
             "currency": detail.get("currencyCode") or detail.get("currency"),
@@ -836,6 +856,102 @@ def first_url(value: Any) -> str | None:
 def normalize_url(value: Any) -> str | None:
     text = str(value or "").strip()
     return text if text.startswith(("https://", "http://")) else None
+
+
+def cover_image_candidates(detail: dict[str, Any]) -> list[tuple[str, str]]:
+    """Return stable cover candidates with Hostaway gallery images first."""
+    ordered_images: list[tuple[float, int, str]] = []
+    images = detail.get("listingImages") or []
+    if isinstance(images, list):
+        for index, image in enumerate(images):
+            if not isinstance(image, dict):
+                continue
+            url = normalize_url(image.get("url"))
+            if not url:
+                continue
+            sort_order = _number(image.get("sortOrder"))
+            ordered_images.append((sort_order if sort_order is not None else float("inf"), index, url))
+
+    candidates: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for _, _, url in sorted(ordered_images)[:COVER_IMAGE_CANDIDATE_LIMIT]:
+        if url not in seen:
+            candidates.append((url, "hostaway_gallery"))
+            seen.add(url)
+
+    channel_thumbnail = normalize_url(detail.get("thumbnailUrl"))
+    if channel_thumbnail and channel_thumbnail not in seen:
+        candidates.append((channel_thumbnail, "channel_thumbnail"))
+    return candidates
+
+
+def fallback_cover_image(detail: dict[str, Any]) -> dict[str, Any]:
+    """Choose the best unvalidated cover for pure/offline audit construction."""
+    candidates = cover_image_candidates(detail)
+    if not candidates:
+        return {"url": None, "source": "placeholder", "status": "missing"}
+    url, source = candidates[0]
+    return {"url": url, "source": source, "status": "unchecked"}
+
+
+def resolve_cover_image(detail: dict[str, Any]) -> dict[str, Any]:
+    """Validate cover candidates once per audit so page rendering stays fast."""
+    checked_at = datetime.utcnow().isoformat()
+    attempted = 0
+    last_http_status = None
+    for url, source in cover_image_candidates(detail):
+        attempted += 1
+        result = fetch_image_status(url)
+        last_http_status = result.get("http_status")
+        if result.get("status") == "ok":
+            return {
+                "url": result.get("url") or url,
+                "source": source,
+                "status": "ok",
+                "checked_at": checked_at,
+                "http_status": last_http_status,
+                "content_type": result.get("content_type"),
+                "attempted": attempted,
+            }
+    return {
+        "url": None,
+        "source": "placeholder",
+        "status": "unavailable" if attempted else "missing",
+        "checked_at": checked_at,
+        "http_status": last_http_status,
+        "attempted": attempted,
+    }
+
+
+def fetch_image_status(url: str) -> dict[str, Any]:
+    if not is_safe_public_url(url):
+        return {"status": "unsafe", "url": url}
+    response = None
+    try:
+        response = requests.get(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            },
+            timeout=COVER_IMAGE_TIMEOUT,
+            allow_redirects=True,
+            stream=True,
+        )
+        content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        final_url = normalize_url(response.url) or url
+        available = response.status_code in {200, 206} and content_type.startswith("image/")
+        return {
+            "status": "ok" if available else "unavailable",
+            "url": final_url,
+            "http_status": response.status_code,
+            "content_type": content_type,
+        }
+    except Exception as exc:
+        return {"status": "unavailable", "url": url, "error": str(exc)[:500]}
+    finally:
+        if response is not None:
+            response.close()
 
 
 def is_safe_public_url(url: str) -> bool:

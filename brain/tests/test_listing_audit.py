@@ -13,7 +13,9 @@ from brain.listing_audit import (
     build_channel_asset,
     build_listing_audit_result,
     configure_pricelabs_for_listing_audit,
+    cover_image_candidates,
     pricing_market_payload,
+    resolve_cover_image,
     resolve_pricelabs_audit_context,
 )
 
@@ -42,6 +44,47 @@ def listing_detail(**overrides):
 
 
 class ListingAuditTests(unittest.TestCase):
+    def test_cover_candidates_prefer_sorted_hostaway_gallery_then_channel_thumbnail(self):
+        detail = listing_detail(
+            thumbnailUrl="https://a0.muscache.com/stale.jpg",
+            listingImages=[
+                {"url": "https://hostaway.example/second.jpg", "sortOrder": 2},
+                {"url": "https://hostaway.example/first.jpg", "sortOrder": 1},
+            ],
+        )
+
+        self.assertEqual(
+            cover_image_candidates(detail),
+            [
+                ("https://hostaway.example/first.jpg", "hostaway_gallery"),
+                ("https://hostaway.example/second.jpg", "hostaway_gallery"),
+                ("https://a0.muscache.com/stale.jpg", "channel_thumbnail"),
+            ],
+        )
+
+    def test_cover_resolution_skips_broken_image_and_uses_next_valid_candidate(self):
+        detail = listing_detail(
+            thumbnailUrl="https://a0.muscache.com/stale.jpg",
+            listingImages=[
+                {"url": "https://hostaway.example/broken.jpg", "sortOrder": 1},
+                {"url": "https://hostaway.example/cover.jpg", "sortOrder": 2},
+            ],
+        )
+
+        with patch(
+            "brain.listing_audit.fetch_image_status",
+            side_effect=[
+                {"status": "unavailable", "http_status": 404},
+                {"status": "ok", "url": "https://hostaway.example/cover.jpg", "http_status": 200, "content_type": "image/jpeg"},
+            ],
+        ):
+            result = resolve_cover_image(detail)
+
+        self.assertEqual(result["url"], "https://hostaway.example/cover.jpg")
+        self.assertEqual(result["source"], "hostaway_gallery")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["attempted"], 2)
+
     def test_audit_pricelabs_refresh_uses_bounded_window_without_reasons(self):
         client = SimpleNamespace(price_window_days=365, include_price_reason=True)
 
@@ -205,6 +248,30 @@ class ListingAuditTests(unittest.TestCase):
         self.assertEqual(result["booking_health"]["horizons"][0]["occupancy_percent"], 30)
         self.assertGreater(len(result["action_items"]), 1)
         self.assertNotIn("doorSecurityCode", result["raw_payload"])
+
+    def test_combined_result_persists_validated_cover_instead_of_stale_channel_thumbnail(self):
+        detail = listing_detail(
+            thumbnailUrl="https://a0.muscache.com/stale.jpg",
+            _audit_cover_image={
+                "url": "https://hostaway.example/cover.jpg",
+                "source": "hostaway_gallery",
+                "status": "ok",
+            },
+        )
+
+        result = build_listing_audit_result(
+            detail,
+            booking_analysis=None,
+            pricelabs_snapshot=None,
+            public_pages={},
+            portfolio_id=None,
+            portfolio_name=None,
+        )
+
+        self.assertEqual(result["raw_payload"]["thumbnail_url"], "https://hostaway.example/cover.jpg")
+        self.assertEqual(result["raw_payload"]["cover_image_source"], "hostaway_gallery")
+        self.assertEqual(result["raw_payload"]["cover_image_status"], "ok")
+        self.assertEqual(result["raw_payload"]["channel_thumbnail_url"], "https://a0.muscache.com/stale.jpg")
 
 
 if __name__ == "__main__":

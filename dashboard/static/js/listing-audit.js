@@ -13,6 +13,17 @@
     const channelPanels = Array.from(page.querySelectorAll('.channel-missing-panel'));
     const channelTriggers = Array.from(page.querySelectorAll('[data-channel-panel]'));
 
+    function showCoverFallback(image) {
+        const container = image.closest('.property-thumb');
+        if (container) container.classList.add('is-fallback');
+        image.hidden = true;
+    }
+
+    page.querySelectorAll('[data-audit-cover]').forEach(image => {
+        image.addEventListener('error', () => showCoverFallback(image), { once: true });
+        if (image.complete && image.naturalWidth === 0) showCoverFallback(image);
+    });
+
     function applyFilters() {
         const search = (searchInput?.value || '').trim().toLowerCase();
         const severity = severityFilter?.value || '';

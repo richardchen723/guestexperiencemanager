@@ -3,7 +3,7 @@
 {% block title %}Listing Health - Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/listing-audit.css', v='20260821-5') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/listing-audit.css', v='20260822-1') }}">
 {% endblock %}
 
 {% block content %}
@@ -190,8 +190,9 @@
             <details class="audit-property-card severity-{{ item.severity }}" id="listing-{{ item.listing_id }}" data-severity="{{ item.severity }}" data-portfolio="{{ item.portfolio_name | lower }}" data-search="{{ (item.listing_name ~ ' ' ~ item.portfolio_name ~ ' ' ~ item.location) | lower }}" {% if loop.index <= 2 and item.severity in ['critical', 'high'] %}open{% endif %}>
                 <summary>
                     <div class="property-identity">
-                        <div class="property-thumb">
-                            {% if item.thumbnail_url %}<img src="{{ item.thumbnail_url }}" alt="" loading="lazy">{% else %}<span>{{ item.listing_name[0] }}</span>{% endif %}
+                        <div class="property-thumb" data-cover-source="{{ item.cover_image_source }}">
+                            <span aria-hidden="true">{{ item.listing_name[0] }}</span>
+                            {% if item.thumbnail_url %}<img src="{{ item.thumbnail_url }}" alt="" loading="lazy" data-audit-cover>{% endif %}
                         </div>
                         <div><div class="property-badges"><span class="health-badge health-{{ item.severity }}">{{ item.severity }}</span><span>{{ item.portfolio_name }}</span></div><h3>{{ item.listing_name }}</h3><p>{{ item.location or 'Location not available' }} · {{ item.photo_count }} photos · ID {{ item.listing_id }}</p></div>
                     </div>
@@ -275,5 +276,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/listing-audit.js', v='20260821-3') }}"></script>
+<script src="{{ url_for('static', filename='js/listing-audit.js', v='20260822-1') }}"></script>
 {% endblock %}
