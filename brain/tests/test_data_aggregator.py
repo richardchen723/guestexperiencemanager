@@ -106,6 +106,10 @@ class DataAggregatorTests(unittest.TestCase):
 
         session = Mock()
         session.query.side_effect = lambda *args: PagedQuery()
+        session.get.side_effect = lambda model, key: next(
+            (row for row in rows if getattr(row, primary_key) == key),
+            None,
+        )
         return session
 
     def test_calendar_materializer_pages_source_rows(self):

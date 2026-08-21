@@ -1368,8 +1368,21 @@ class BrainDataAggregator:
                     if inspect(snapshot).session is self.session:
                         self.session.expunge(snapshot)
 
-        rows = _latest_pricelabs_snapshot_rows(iter_snapshot_rows())
-        for row in rows:
+        latest_snapshot_ids: dict[int, tuple[tuple[int, datetime, int], int]] = {}
+        for snapshot in iter_snapshot_rows():
+            listing_id = int(snapshot.listing_id)
+            candidate = (_pricelabs_snapshot_rank(snapshot), int(snapshot.pricelabs_snapshot_id))
+            current = latest_snapshot_ids.get(listing_id)
+            if current is None or candidate[0] > current[0]:
+                latest_snapshot_ids[listing_id] = candidate
+
+        snapshot_ids = [latest_snapshot_ids[listing_id][1] for listing_id in sorted(latest_snapshot_ids)]
+        processed_snapshots = 0
+        for snapshot_id in snapshot_ids:
+            row = self.session.get(PriceLabsSnapshot, snapshot_id)
+            if row is None:
+                continue
+            processed_snapshots += 1
             raw_payload = row.raw_payload or {}
             prices_payload = raw_payload.get("prices") if isinstance(raw_payload, dict) and "prices" in raw_payload else raw_payload
             metrics_payload = raw_payload.get("metrics") if isinstance(raw_payload, dict) else None
@@ -1499,7 +1512,9 @@ class BrainDataAggregator:
                     },
                     confidence=row.confidence or 0.0,
                 )
-        return batch.finish(record_counts={"pricelabs_snapshots": len(rows)})
+            if inspect(row).session is self.session:
+                self.session.expunge(row)
+        return batch.finish(record_counts={"pricelabs_snapshots": processed_snapshots})
 
     def _materialize_booking_health(self, run: DataIngestionRun) -> MaterializationResult:
         batch = FactBatch(self, run, "booking_health", {"booking_health_analysis", "booking_health_horizon"})
