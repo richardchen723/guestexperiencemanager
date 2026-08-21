@@ -52,6 +52,9 @@ class ListingAuditTests(unittest.TestCase):
 
         self.assertEqual(client.price_window_days, 90)
         self.assertFalse(client.include_price_reason)
+        self.assertEqual(client.timeout, 60)
+        self.assertEqual(client.max_retries, 2)
+        self.assertEqual(client.retry_backoff_seconds, 3)
 
     def test_audit_pricelabs_refresh_honors_bounded_overrides(self):
         client = SimpleNamespace(price_window_days=365, include_price_reason=False)
@@ -61,12 +64,18 @@ class ListingAuditTests(unittest.TestCase):
             {
                 "LISTING_AUDIT_PRICELABS_WINDOW_DAYS": "120",
                 "LISTING_AUDIT_PRICELABS_INCLUDE_PRICE_REASON": "true",
+                "LISTING_AUDIT_PRICELABS_TIMEOUT_SECONDS": "45",
+                "LISTING_AUDIT_PRICELABS_MAX_RETRIES": "3",
+                "LISTING_AUDIT_PRICELABS_RETRY_BACKOFF_SECONDS": "2.5",
             },
         ):
             configure_pricelabs_for_listing_audit(client)
 
         self.assertEqual(client.price_window_days, 120)
         self.assertTrue(client.include_price_reason)
+        self.assertEqual(client.timeout, 45)
+        self.assertEqual(client.max_retries, 3)
+        self.assertEqual(client.retry_backoff_seconds, 2.5)
 
     def test_airbnb_asset_scores_complete_guest_content(self):
         asset = build_channel_asset(

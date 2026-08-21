@@ -82,7 +82,22 @@ def configure_pricelabs_for_listing_audit(client: Any) -> Any:
         "LISTING_AUDIT_PRICELABS_INCLUDE_PRICE_REASON",
         "false",
     ).strip().lower() not in {"0", "false", "no", "off"}
+    client.timeout = bounded_env_int("LISTING_AUDIT_PRICELABS_TIMEOUT_SECONDS", 60, 10, 120)
+    client.max_retries = bounded_env_int("LISTING_AUDIT_PRICELABS_MAX_RETRIES", 2, 1, 4)
+    try:
+        backoff_seconds = float(os.getenv("LISTING_AUDIT_PRICELABS_RETRY_BACKOFF_SECONDS", "3"))
+    except (TypeError, ValueError):
+        backoff_seconds = 3.0
+    client.retry_backoff_seconds = max(1.0, min(backoff_seconds, 15.0))
     return client
+
+
+def bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(value, maximum))
 
 
 class ListingAuditRunner:
@@ -202,12 +217,24 @@ class ListingAuditRunner:
         runner = BrainRunService()
         configure_pricelabs_for_listing_audit(runner.pricelabs)
         try:
-            result = runner.refresh_source_snapshots(
-                run_type=f"listing_audit_source_{cadence}",
-                pull_hostaway=False,
-                force_hostaway=False,
-                include_booking_analysis=True,
-            )
+            try:
+                result = runner.refresh_source_snapshots(
+                    run_type=f"listing_audit_source_{cadence}",
+                    pull_hostaway=False,
+                    force_hostaway=False,
+                    include_booking_analysis=True,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Listing audit source refresh degraded; using the latest stored source data: %s",
+                    exc,
+                    exc_info=True,
+                )
+                result = {
+                    "status": "degraded",
+                    "error": str(exc)[:1000],
+                    "source_counts": {},
+                }
             result["hostaway_pull"] = as_json_safe(hostaway_pull)
             return result
         finally:
