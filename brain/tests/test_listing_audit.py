@@ -2,6 +2,7 @@ import os
 import unittest
 from datetime import date
 from types import SimpleNamespace
+from unittest.mock import patch
 
 os.environ.setdefault("DATABASE_URL", "postgresql://user:pass@localhost/db")
 os.environ.setdefault("OPENAI_API_KEY", "test")
@@ -11,6 +12,7 @@ from brain.listing_audit import (
     booking_health_payload,
     build_channel_asset,
     build_listing_audit_result,
+    configure_pricelabs_for_listing_audit,
     pricing_market_payload,
     resolve_pricelabs_audit_context,
 )
@@ -40,6 +42,32 @@ def listing_detail(**overrides):
 
 
 class ListingAuditTests(unittest.TestCase):
+    def test_audit_pricelabs_refresh_uses_bounded_window_without_reasons(self):
+        client = SimpleNamespace(price_window_days=365, include_price_reason=True)
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("LISTING_AUDIT_PRICELABS_WINDOW_DAYS", None)
+            os.environ.pop("LISTING_AUDIT_PRICELABS_INCLUDE_PRICE_REASON", None)
+            configure_pricelabs_for_listing_audit(client)
+
+        self.assertEqual(client.price_window_days, 90)
+        self.assertFalse(client.include_price_reason)
+
+    def test_audit_pricelabs_refresh_honors_bounded_overrides(self):
+        client = SimpleNamespace(price_window_days=365, include_price_reason=False)
+
+        with patch.dict(
+            os.environ,
+            {
+                "LISTING_AUDIT_PRICELABS_WINDOW_DAYS": "120",
+                "LISTING_AUDIT_PRICELABS_INCLUDE_PRICE_REASON": "true",
+            },
+        ):
+            configure_pricelabs_for_listing_audit(client)
+
+        self.assertEqual(client.price_window_days, 120)
+        self.assertTrue(client.include_price_reason)
+
     def test_airbnb_asset_scores_complete_guest_content(self):
         asset = build_channel_asset(
             listing_detail(),

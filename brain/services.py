@@ -3268,10 +3268,13 @@ class BrainRunService:
             }
         except Exception as exc:
             logger.error("Brain source snapshot refresh failed: %s", exc, exc_info=True)
-            run.status = "error"
-            run.error_message = str(exc)
-            run.completed_at = datetime.utcnow()
-            self.session.commit()
+            self.session.rollback()
+            persisted_run = self.session.get(SignalRun, run.signal_run_id)
+            if persisted_run:
+                persisted_run.status = "error"
+                persisted_run.error_message = str(exc)
+                persisted_run.completed_at = datetime.utcnow()
+                self.session.commit()
             raise
 
     def _refresh_foundation_sources(

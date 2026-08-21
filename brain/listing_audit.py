@@ -71,6 +71,20 @@ class PriceLabsAuditContext:
     using_fallback: bool = False
 
 
+def configure_pricelabs_for_listing_audit(client: Any) -> Any:
+    """Keep audit refreshes focused on the forward window the audit actually scores."""
+    try:
+        window_days = int(os.getenv("LISTING_AUDIT_PRICELABS_WINDOW_DAYS", "90"))
+    except (TypeError, ValueError):
+        window_days = 90
+    client.price_window_days = max(30, min(window_days, 365))
+    client.include_price_reason = os.getenv(
+        "LISTING_AUDIT_PRICELABS_INCLUDE_PRICE_REASON",
+        "false",
+    ).strip().lower() not in {"0", "false", "no", "off"}
+    return client
+
+
 class ListingAuditRunner:
     """Collect, score, and persist one listing audit run."""
 
@@ -186,6 +200,7 @@ class ListingAuditRunner:
 
         hostaway_pull = incremental_sync(force=bool(deep), include_messages=False)
         runner = BrainRunService()
+        configure_pricelabs_for_listing_audit(runner.pricelabs)
         try:
             result = runner.refresh_source_snapshots(
                 run_type=f"listing_audit_source_{cadence}",
