@@ -10,7 +10,7 @@ Group=hostaway
 WorkingDirectory=/opt/hostaway-messages/app
 Environment="PATH=/opt/hostaway-messages/venv/bin"
 EnvironmentFile=/opt/hostaway-messages/.env
-ExecStart=/usr/bin/flock -n /opt/hostaway-messages/app/data/listing-audit.lock /opt/hostaway-messages/venv/bin/python3 -m brain.jobs listing-audit-weekly
+ExecStart=/usr/bin/flock -n /opt/hostaway-messages/app/data/listing-audit.lock /usr/bin/env BRAIN_ENABLE_OPENAI_BOOKING_HEALTH=False BRAIN_ENABLE_OPENAI_SIGNALS=False KPI_ENABLE_STAY_OUTCOME_CLASSIFICATION=False /opt/hostaway-messages/venv/bin/python3 -m brain.jobs listing-audit-weekly
 TimeoutStartSec=120min
 
 NoNewPrivileges=true

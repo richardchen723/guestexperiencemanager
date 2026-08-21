@@ -147,6 +147,13 @@ if compgen -G "$APP_DIR/deployment/str-signal-brain*.service" > /dev/null || com
     for timer in "$APP_DIR"/deployment/str-signal-brain*.timer; do
         [ -f "$timer" ] || continue
         timer_name="$(basename "$timer")"
+        case "$timer_name" in
+            str-signal-brain-listing-audit-daily.timer|str-signal-brain-listing-audit-weekly.timer)
+                systemctl disable --now "$timer_name" >/dev/null 2>&1 || true
+                echo -e "${GREEN}Listing audit timer disabled; Codex automation owns this schedule${NC}"
+                continue
+                ;;
+        esac
         systemctl enable "$timer_name"
         systemctl start "$timer_name"
     done
