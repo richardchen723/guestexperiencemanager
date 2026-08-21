@@ -17,3 +17,12 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/opt/hostaway-messages/conversations /opt/hostaway-messages/app/conversations /opt/hostaway-messages/logs /opt/hostaway-messages/app/data
+
+# This is a background refresh. Keep it from competing with or exhausting the
+# interactive dashboard if a source unexpectedly returns an oversized dataset.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+MemoryHigh=1G
+MemoryMax=1536M
+OOMPolicy=stop
