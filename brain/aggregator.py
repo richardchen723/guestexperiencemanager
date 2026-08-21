@@ -1994,10 +1994,12 @@ class BrainDataAggregator:
             return "created", fact
 
         changed = fact.fact_hash != fact_hash or any(getattr(fact, key) != value for key, value in fields.items() if key not in {"ingestion_run_id"})
+        if not changed:
+            return "unchanged", fact
         for key, value in fields.items():
             setattr(fact, key, value)
         fact.updated_at = now
-        return ("updated" if changed else "unchanged"), fact
+        return "updated", fact
 
     def _withdraw_missing_facts(
         self,

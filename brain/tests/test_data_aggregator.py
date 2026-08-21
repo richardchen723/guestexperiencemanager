@@ -26,9 +26,60 @@ from brain.aggregator import (
     _reservation_value_coverage,
     _severity_metric_status,
 )
+from brain.models import stable_hash
 
 
 class DataAggregatorTests(unittest.TestCase):
+    def test_unchanged_fact_does_not_generate_database_update(self):
+        original_updated_at = datetime(2026, 8, 19, 12, 0)
+        payload = {"message_id": 1, "content": "Thanks"}
+        fact = SimpleNamespace(
+            ingestion_run_id=7,
+            fact_type="guest_message",
+            grain="message",
+            source_key="hostaway_messages",
+            source_table="messages_metadata",
+            source_id="1",
+            portfolio_id=None,
+            listing_id=10,
+            reservation_id=20,
+            guest_id=30,
+            occurred_at=datetime(2026, 8, 18, 9, 0),
+            effective_start=None,
+            effective_end=None,
+            numeric_value=None,
+            text_value="Thanks",
+            confidence=0.95,
+            status="active",
+            fact_payload=payload,
+            fact_hash=stable_hash(payload),
+            updated_at=original_updated_at,
+        )
+        aggregator = SimpleNamespace(now_fn=lambda: datetime(2026, 8, 21, 3, 0))
+
+        outcome, returned = BrainDataAggregator._upsert_fact(
+            aggregator,
+            ingestion_run_id=99,
+            fact_type="guest_message",
+            source_key="hostaway_messages",
+            source_table="messages_metadata",
+            source_id=1,
+            grain="message",
+            payload=payload,
+            listing_id=10,
+            reservation_id=20,
+            guest_id=30,
+            occurred_at=datetime(2026, 8, 18, 9, 0),
+            text_value="Thanks",
+            confidence=0.95,
+            cached_fact=fact,
+        )
+
+        self.assertEqual(outcome, "unchanged")
+        self.assertIs(returned, fact)
+        self.assertEqual(fact.ingestion_run_id, 7)
+        self.assertEqual(fact.updated_at, original_updated_at)
+
     @staticmethod
     def _paged_session(rows, primary_key):
         class PagedQuery:
