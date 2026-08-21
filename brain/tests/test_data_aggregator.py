@@ -1,9 +1,10 @@
 import unittest
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from brain.aggregator import (
+    BrainDataAggregator,
     FactBatch,
     build_fact_key,
     build_metric_key,
@@ -28,6 +29,128 @@ from brain.aggregator import (
 
 
 class DataAggregatorTests(unittest.TestCase):
+    @staticmethod
+    def _paged_session(rows, primary_key):
+        class PagedQuery:
+            def __init__(self):
+                self.lower_bound = 0
+                self.page_size = len(rows)
+
+            def filter(self, criterion):
+                self.lower_bound = criterion.right.value
+                return self
+
+            def order_by(self, *args):
+                return self
+
+            def limit(self, value):
+                self.page_size = value
+                return self
+
+            def all(self):
+                return [
+                    row for row in rows
+                    if getattr(row, primary_key) > self.lower_bound
+                ][:self.page_size]
+
+        session = Mock()
+        session.query.side_effect = lambda *args: PagedQuery()
+        return session
+
+    def test_calendar_materializer_pages_source_rows(self):
+        rows = [
+            SimpleNamespace(
+                calendar_snapshot_id=index,
+                listing_id=10,
+                created_at=datetime(2026, 8, 20),
+                calendar_date=date(2026, 8, 20 + index),
+                snapshot_date=date(2026, 8, 20),
+                is_available=True,
+                status="available",
+                price=100 + index,
+                minimum_stay=2,
+                maximum_stay=None,
+                run_id=4,
+            )
+            for index in range(1, 4)
+        ]
+        session = self._paged_session(rows, "calendar_snapshot_id")
+        aggregator = SimpleNamespace(
+            session=session,
+            _upsert_fact=Mock(side_effect=[("created", Mock()) for _ in rows]),
+            _withdraw_missing_facts=Mock(return_value=0),
+        )
+
+        with (
+            patch("brain.aggregator.SOURCE_STREAM_BATCH_SIZE", 2),
+            patch("brain.aggregator.inspect", return_value=SimpleNamespace(session=session)),
+        ):
+            result = BrainDataAggregator._materialize_hostaway_calendar(
+                aggregator,
+                SimpleNamespace(data_ingestion_run_id=5),
+            )
+
+        self.assertEqual(result.records_seen, 3)
+        self.assertEqual(result.record_counts, {"calendar_snapshots": 3})
+        self.assertEqual(aggregator._upsert_fact.call_count, 3)
+        self.assertGreaterEqual(session.query.call_count, 3)
+
+    def test_pricelabs_materializer_pages_before_selecting_latest_rows(self):
+        rows = [
+            SimpleNamespace(
+                pricelabs_snapshot_id=1,
+                listing_id=10,
+                external_listing_id="10",
+                snapshot_date=date(2026, 8, 19),
+                created_at=datetime(2026, 8, 19),
+                status="unavailable",
+                confidence=0.1,
+                error_message="missing",
+                raw_payload=None,
+            ),
+            SimpleNamespace(
+                pricelabs_snapshot_id=2,
+                listing_id=10,
+                external_listing_id="10",
+                snapshot_date=date(2026, 8, 20),
+                created_at=datetime(2026, 8, 20),
+                status="unavailable",
+                confidence=0.1,
+                error_message="missing",
+                raw_payload=None,
+            ),
+            SimpleNamespace(
+                pricelabs_snapshot_id=3,
+                listing_id=20,
+                external_listing_id="20",
+                snapshot_date=date(2026, 8, 20),
+                created_at=datetime(2026, 8, 20),
+                status="unavailable",
+                confidence=0.1,
+                error_message="missing",
+                raw_payload=None,
+            ),
+        ]
+        session = self._paged_session(rows, "pricelabs_snapshot_id")
+        aggregator = SimpleNamespace(
+            session=session,
+            _upsert_fact=Mock(side_effect=[("created", Mock()), ("created", Mock())]),
+            _withdraw_missing_facts=Mock(return_value=0),
+        )
+
+        with (
+            patch("brain.aggregator.SOURCE_STREAM_BATCH_SIZE", 2),
+            patch("brain.aggregator.inspect", return_value=SimpleNamespace(session=session)),
+        ):
+            result = BrainDataAggregator._materialize_pricelabs(
+                aggregator,
+                SimpleNamespace(data_ingestion_run_id=6),
+            )
+
+        source_ids = [call.kwargs["source_id"] for call in aggregator._upsert_fact.call_args_list]
+        self.assertEqual(source_ids, [2, 3])
+        self.assertEqual(result.record_counts, {"pricelabs_snapshots": 2})
+
     def test_fact_batch_flushes_and_detaches_in_bounded_chunks(self):
         session = Mock()
         facts = [Mock(), Mock()]

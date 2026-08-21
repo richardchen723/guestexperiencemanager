@@ -1300,33 +1300,47 @@ class BrainDataAggregator:
 
     def _materialize_hostaway_calendar(self, run: DataIngestionRun) -> MaterializationResult:
         batch = FactBatch(self, run, "hostaway_calendar", {"calendar_day"})
-        rows = self.session.query(CalendarSnapshot).order_by(CalendarSnapshot.snapshot_date, CalendarSnapshot.listing_id, CalendarSnapshot.calendar_date).all()
-        for row in rows:
-            batch.upsert(
-                fact_type="calendar_day",
-                grain="listing_day",
-                source_table="brain.calendar_snapshots",
-                source_id=row.calendar_snapshot_id,
-                listing_id=row.listing_id,
-                occurred_at=row.created_at,
-                effective_start=row.calendar_date,
-                effective_end=row.calendar_date,
-                numeric_value=row.price,
-                text_value=row.status,
-                payload={
-                    "calendar_snapshot_id": row.calendar_snapshot_id,
-                    "listing_id": row.listing_id,
-                    "calendar_date": row.calendar_date,
-                    "snapshot_date": row.snapshot_date,
-                    "is_available": row.is_available,
-                    "status": row.status,
-                    "price": row.price,
-                    "minimum_stay": row.minimum_stay,
-                    "maximum_stay": row.maximum_stay,
-                    "run_id": row.run_id,
-                },
+        last_snapshot_id = 0
+        while True:
+            rows = (
+                self.session.query(CalendarSnapshot)
+                .filter(CalendarSnapshot.calendar_snapshot_id > last_snapshot_id)
+                .order_by(CalendarSnapshot.calendar_snapshot_id)
+                .limit(SOURCE_STREAM_BATCH_SIZE)
+                .all()
             )
-        return batch.finish(record_counts={"calendar_snapshots": len(rows)})
+            if not rows:
+                break
+            for row in rows:
+                batch.upsert(
+                    fact_type="calendar_day",
+                    grain="listing_day",
+                    source_table="brain.calendar_snapshots",
+                    source_id=row.calendar_snapshot_id,
+                    listing_id=row.listing_id,
+                    occurred_at=row.created_at,
+                    effective_start=row.calendar_date,
+                    effective_end=row.calendar_date,
+                    numeric_value=row.price,
+                    text_value=row.status,
+                    payload={
+                        "calendar_snapshot_id": row.calendar_snapshot_id,
+                        "listing_id": row.listing_id,
+                        "calendar_date": row.calendar_date,
+                        "snapshot_date": row.snapshot_date,
+                        "is_available": row.is_available,
+                        "status": row.status,
+                        "price": row.price,
+                        "minimum_stay": row.minimum_stay,
+                        "maximum_stay": row.maximum_stay,
+                        "run_id": row.run_id,
+                    },
+                )
+            last_snapshot_id = rows[-1].calendar_snapshot_id
+            for row in rows:
+                if inspect(row).session is self.session:
+                    self.session.expunge(row)
+        return batch.finish(record_counts={"calendar_snapshots": batch.records_seen})
 
     def _materialize_pricelabs(self, run: DataIngestionRun) -> MaterializationResult:
         batch = FactBatch(
@@ -1335,7 +1349,26 @@ class BrainDataAggregator:
             "pricelabs",
             {"pricing_context", "pricelabs_daily_price", "pricelabs_performance_metric"},
         )
-        rows = _latest_pricelabs_snapshot_rows(self.session.query(PriceLabsSnapshot).all())
+        def iter_snapshot_rows():
+            last_snapshot_id = 0
+            while True:
+                page = (
+                    self.session.query(PriceLabsSnapshot)
+                    .filter(PriceLabsSnapshot.pricelabs_snapshot_id > last_snapshot_id)
+                    .order_by(PriceLabsSnapshot.pricelabs_snapshot_id)
+                    .limit(SOURCE_STREAM_BATCH_SIZE)
+                    .all()
+                )
+                if not page:
+                    break
+                for snapshot in page:
+                    yield snapshot
+                last_snapshot_id = page[-1].pricelabs_snapshot_id
+                for snapshot in page:
+                    if inspect(snapshot).session is self.session:
+                        self.session.expunge(snapshot)
+
+        rows = _latest_pricelabs_snapshot_rows(iter_snapshot_rows())
         for row in rows:
             raw_payload = row.raw_payload or {}
             prices_payload = raw_payload.get("prices") if isinstance(raw_payload, dict) and "prices" in raw_payload else raw_payload
