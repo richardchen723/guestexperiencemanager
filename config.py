@@ -9,6 +9,18 @@ For production use, set these as environment variables:
 """
 
 import os
+from pathlib import Path
+
+try:
+    from dotenv import load_dotenv
+
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+    else:
+        load_dotenv()
+except ImportError:
+    pass
 
 # API Configuration
 # MUST be set via environment variables in production

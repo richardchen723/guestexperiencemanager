@@ -1,0 +1,37 @@
+{% extends "brain/base.html" %}
+
+{% block title %}STR Signal Brain{% endblock %}
+
+{% block content %}
+<div
+    id="brainApp"
+    class="brain-page"
+    data-page="{{ active_page }}"
+    data-portfolio-id="{{ portfolio_id if portfolio_id is defined else '' }}"
+>
+    <header class="brain-page-header">
+        <div>
+            <p class="eyebrow">STR Signal Brain</p>
+            <h1 id="pageTitle">Today</h1>
+        </div>
+        <div class="header-actions">
+            <label class="global-filter" for="globalPortfolioFilter">
+                <span>Portfolio</span>
+                <select id="globalPortfolioFilter">
+                    <option value="">All portfolios</option>
+                </select>
+            </label>
+            <button class="icon-button" id="refreshButton" type="button" title="Refresh">Refresh</button>
+            <button class="primary-button admin-run-button" id="runButton" type="button" hidden>Run Brain</button>
+        </div>
+    </header>
+
+    <section id="loadingState" class="state-panel">Loading...</section>
+    <section id="errorState" class="state-panel error" hidden></section>
+    <section id="pageContent" hidden></section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/brain.js') }}?v=20260701-manager-todos"></script>
+{% endblock %}

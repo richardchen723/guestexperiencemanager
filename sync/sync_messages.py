@@ -1111,7 +1111,9 @@ def sync_messages_from_api(
                         sender_name=sender,
                         is_incoming=1 if is_incoming else 0,
                         message_type='text',
-                        content_preview=message_body[:200] if message_body else '',
+                        # Text is retained in full so reservation-level KPI classification can
+                        # evaluate the complete conversation rather than a clipped preview.
+                        content_preview=message_body if message_body else '',
                         has_attachment=0,
                         created_at=created_at,
                         message_file_path=None
@@ -1179,6 +1181,34 @@ def sync_messages_from_api(
                     [*all_db_messages, *new_message_records],
                     key=lambda message: message.created_at or datetime.min,
                 )
+
+                # Refresh existing metadata from the authoritative API payload. Historically
+                # rows were clipped to 200 characters and automation labels were not always
+                # retained, which made response and stay-outcome KPIs unreliable.
+                db_messages_by_key = {
+                    (message.conversation_id, message.created_at): message
+                    for message in all_message_records
+                    if message.created_at is not None
+                }
+                for message_key, api_message in all_api_messages_dict.items():
+                    db_message = db_messages_by_key.get(message_key)
+                    if not db_message:
+                        continue
+                    api_is_incoming = api_message.get('messageType') == 'incoming'
+                    api_sender = api_message.get('sender') or ('Host' if not api_is_incoming else guest_name)
+                    api_content = api_message.get('content') or ''
+                    changed = (
+                        db_message.is_incoming != (1 if api_is_incoming else 0)
+                        or db_message.sender_type != ('guest' if api_is_incoming else 'host')
+                        or db_message.sender_name != api_sender
+                        or db_message.content_preview != api_content
+                    )
+                    db_message.is_incoming = 1 if api_is_incoming else 0
+                    db_message.sender_type = 'guest' if api_is_incoming else 'host'
+                    db_message.sender_name = api_sender
+                    db_message.content_preview = api_content
+                    if changed and db_message not in new_message_records:
+                        records_updated += 1
                 
                 # Update conversation with latest message counts and timestamps
                 conversation.message_count = len(all_message_records)
@@ -1595,7 +1625,7 @@ def sync_messages_from_files(full_sync: bool = True, progress_tracker: Optional[
                             sender_name=sender_name,
                             is_incoming=1 if is_incoming else 0,
                             message_type='text',
-                            content_preview=msg_data['content'][:200] if msg_data['content'] else '',
+                            content_preview=msg_data['content'] if msg_data['content'] else '',
                             has_attachment=0,
                             created_at=msg_data['timestamp'],
                             message_file_path=file_path
@@ -1615,7 +1645,7 @@ def sync_messages_from_files(full_sync: bool = True, progress_tracker: Optional[
                             existing.sender_type = sender_type
                             existing.sender_name = sender_name
                             existing.is_incoming = 1 if is_incoming else 0
-                            existing.content_preview = msg_data['content'][:200] if msg_data['content'] else ''
+                            existing.content_preview = msg_data['content'] if msg_data['content'] else ''
                             existing.message_file_path = file_path
                             records_updated += 1
                 

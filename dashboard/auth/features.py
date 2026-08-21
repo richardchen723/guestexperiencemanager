@@ -16,6 +16,13 @@ FEATURES = OrderedDict((feature['key'], feature) for feature in (
         'endpoint': 'dashboard.dashboard_page',
     },
     {
+        'key': 'kpi',
+        'label': 'KPI',
+        'description': 'Portfolio-filtered hospitality performance and guest-outcome metrics.',
+        'default_access': True,
+        'endpoint': 'kpi.kpi_page',
+    },
+    {
         'key': 'properties',
         'label': 'Properties',
         'description': 'Listings, insights, tags, and portfolio mapping.',

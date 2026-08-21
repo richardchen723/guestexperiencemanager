@@ -65,6 +65,70 @@ curl -X POST \\
 - `GET /dashboard/api/data`
   - Query params: `ticket_limit`, `occupancy_months`
 
+## STR Signal Brain
+Brain is served by the separate `brain.yourcottoncandy.com` service, but uses the same Google session and API-key authentication patterns.
+For local HTTP OAuth testing, set `BRAIN_ALLOW_INSECURE_OAUTH=True`; production should leave it `False` and rely on the Nginx `X-Forwarded-Proto` header.
+PriceLabs read-only snapshots use `PRICELABS_API_KEY`, `PRICELABS_BASE_URL=https://api.pricelabs.co/v1`, and `PRICELABS_PMS_NAME=hostaway` by default.
+For high-confidence revenue analysis, the PriceLabs connector reads `listing_prices` with a forward date window and `reason=true`, normalizes day-level booking indicators from price rows, and also reads `listing_metrics` for occupancy, revenue, ADR, RevPAR, and market comparisons when credentials allow it.
+
+- `GET /api/brain/today`
+- `GET /api/brain/portfolios`
+- `GET /api/brain/portfolios/{portfolio_id}`
+- `GET /api/brain/signals`
+  - Query params: `portfolio_id`, `category`, `status`, `severity`, `audience`, `limit`
+- `PATCH /api/brain/signals/{signal_id}/status`
+  - Body: `{ "status": "acknowledged|watching|resolved|ignored|escalated" }`
+- `GET /api/brain/booking-health`
+- `GET /api/brain/open-loops`
+- `GET /api/brain/data-foundation`
+  - Query params: `portfolio_id`
+  - Returns source health, active fact counts by source/type, derived metric counts, recent normalized facts, and recent metric snapshots.
+- `GET /api/brain/data-foundation/audit`
+  - Query params: `portfolio_id`
+  - Returns readiness status, score, source gaps, source freshness, required fact/metric coverage, per-listing coverage, and PriceLabs pricing-to-booking-pattern match coverage for the analytical data foundation.
+- `GET /api/brain/data-foundation/facts`
+  - Query params: `portfolio_id`, `source_key`, `fact_type`, `status`, `listing_id`, `reservation_id`, `guest_id`, `occurred_from`, `occurred_to`, `limit`
+  - Returns normalized provenance-backed facts for future Brain product surfaces.
+- `GET /api/brain/data-foundation/metrics`
+  - Query params: `portfolio_id`, `metric_name`, `category`, `grain`, `status`, `listing_id`, `metric_date`, `metric_from`, `metric_to`, `horizon_days`, `limit`
+  - Returns decision-ready metric snapshots derived from the fact layer, such as booking occupancy, booking-health severity, PriceLabs 30-day pricing/min-stay indicators, message/review risk, and month-to-date finance totals.
+  - Forward booking occupancy uses Hostaway reserved nights divided by reserved plus available nights; blocked inventory is excluded from the denominator and cannot be interpreted as weak demand.
+  - `booked_nights_next_30d` counts unique occupied dates from confirmed stays only. `reservation_revenue_next_30d` prorates reservation revenue to nights inside the forward window.
+  - `pricelabs_avg_available_price_30d` matches PriceLabs recommended rates to dates Hostaway marks available. Price decisions should use this metric rather than the all-date PriceLabs average.
+- `GET /api/brain/intelligence`
+  - Query params: `category`, `status`, `limit`
+  - Returns durable Codex-authored cross-source intelligence rows. These are generated from local data packets and imported by Codex; this layer does not call the OpenAI API from the app.
+- `POST /api/brain/ask`
+  - Body: `{ "question": "What are the biggest risks today?" }`
+- `POST /api/brain/runs/morning`
+- `POST /api/brain/runs/afternoon`
+- `POST /api/brain/runs/manual`
+- `POST /api/brain/runs/aggregate`
+  - Query params: `pull=true` to refresh due Hostaway sources, a bounded recent Hostaway message tail, PriceLabs, calendar, booking-health, and memory snapshots before materializing facts.
+  - The normal message tail is controlled by `BRAIN_HOSTAWAY_MESSAGE_TAIL_HOURS` and `BRAIN_HOSTAWAY_MESSAGE_TAIL_MAX_RESERVATIONS`.
+  - Add `deep=true` only for an intentional expensive Hostaway refresh, including full message backfill when the normal Hostaway sync would stay bounded.
+- `GET /api/brain/settings/data`
+- `POST /api/brain/settings/bootstrap`
+- `POST /api/brain/settings/portfolios`
+- `POST /api/brain/settings/portfolio-listings`
+- `POST /api/brain/settings/portfolio-users`
+- `DELETE /api/brain/settings/portfolio-users`
+
+### Brain Webhooks
+- `POST /webhooks/twilio/whatsapp`
+  - Public Twilio WhatsApp inbound webhook. Validates `X-Twilio-Signature` when `BRAIN_TWILIO_VALIDATE_SIGNATURE=True`.
+- `POST /webhooks/twilio/whatsapp/status`
+  - Public Twilio delivery-status callback for outbound WhatsApp messages and brief delivery logs.
+
+### Codex Intelligence Workflow
+- `python3 -m brain.jobs intelligence-pack --window-days 30`
+  - Writes a compact JSON/Markdown packet under `data/brain/intelligence/packets/` for weekly Codex reasoning.
+  - Packet v2 exposes decision readiness, evidence dates/confidence, open-date prices, and same-portfolio plus same-inventory-profile peer benchmarks. Bundle listings are not compared with their component units, and bundle calendar holds without direct confirmed reservations are blocked from demand interpretation.
+- `python3 -m brain.jobs intelligence-import --insights-file path/to/insights.json --run-key <packet-run-key>`
+  - Imports Codex-authored insights into `codex_intelligence_runs` and `codex_intelligence_insights`.
+- `python3 -m brain.jobs intelligence-list`
+  - Lists stored intelligence rows for verification.
+
 ## Tickets
 All ticket APIs are prefixed with `/tickets`.
 

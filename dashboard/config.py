@@ -66,6 +66,24 @@ OPENAI_MODEL = "gpt-5.4"  # Flagship model for complex reasoning and coding
 FLASK_HOST = os.getenv("FLASK_HOST", "127.0.0.1")
 FLASK_PORT = int(os.getenv("FLASK_PORT", "5001"))  # Changed to 5001 to avoid macOS AirPlay conflict
 FLASK_DEBUG = os.getenv("FLASK_DEBUG", "False").lower() == "true"
+BRAIN_FLASK_HOST = os.getenv("BRAIN_FLASK_HOST", "127.0.0.1")
+BRAIN_FLASK_PORT = int(os.getenv("BRAIN_FLASK_PORT", "5002"))
+BRAIN_PUBLIC_BASE_URL = os.getenv("BRAIN_PUBLIC_BASE_URL", "https://brain.yourcottoncandy.com")
+BRAIN_ENABLE_OPENAI_SIGNALS = os.getenv("BRAIN_ENABLE_OPENAI_SIGNALS", "True").lower() == "true"
+BRAIN_ENABLE_OPENAI_BOOKING_HEALTH = os.getenv("BRAIN_ENABLE_OPENAI_BOOKING_HEALTH", "True").lower() == "true"
+KPI_ENABLE_STAY_OUTCOME_CLASSIFICATION = os.getenv(
+    "KPI_ENABLE_STAY_OUTCOME_CLASSIFICATION",
+    "False",
+).lower() == "true"
+KPI_STAY_OUTCOME_MAX_PER_RUN = int(os.getenv("KPI_STAY_OUTCOME_MAX_PER_RUN", "120"))
+KPI_STAY_OUTCOME_MODEL = os.getenv("KPI_STAY_OUTCOME_MODEL", "gpt-5.6-luna")
+# Set once when stay-outcome analysis is first enabled in production. The
+# classifier uses it as a fixed anchor and never backfills checkouts older than
+# one calendar month before this timestamp.
+KPI_STAY_OUTCOME_ACTIVATED_AT = os.getenv("KPI_STAY_OUTCOME_ACTIVATED_AT", "").strip()
+BRAIN_ALLOW_INSECURE_OAUTH = os.getenv("BRAIN_ALLOW_INSECURE_OAUTH", "False").lower() == "true"
+BRAIN_HOSTAWAY_MESSAGE_TAIL_HOURS = int(os.getenv("BRAIN_HOSTAWAY_MESSAGE_TAIL_HOURS", "48"))
+BRAIN_HOSTAWAY_MESSAGE_TAIL_MAX_RESERVATIONS = int(os.getenv("BRAIN_HOSTAWAY_MESSAGE_TAIL_MAX_RESERVATIONS", "250"))
 # SECRET_KEY: Must be set in production for security
 # Generate a secure random key: python3 -c "import secrets; print(secrets.token_hex(32))"
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -160,6 +178,20 @@ TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_FROM = os.getenv("TWILIO_WHATSAPP_FROM")  # e.g., "whatsapp:+14155238886"
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://127.0.0.1:5001")  # Base URL for ticket links
+BRAIN_TWILIO_VALIDATE_SIGNATURE = os.getenv("BRAIN_TWILIO_VALIDATE_SIGNATURE", "True").lower() == "true"
+BRAIN_WHATSAPP_BRIDGE_TOKEN = os.getenv("BRAIN_WHATSAPP_BRIDGE_TOKEN")
+
+# STR Signal Brain integrations
+PRICELABS_API_KEY = os.getenv("PRICELABS_API_KEY")
+PRICELABS_ACCOUNT_ID = os.getenv("PRICELABS_ACCOUNT_ID")
+PRICELABS_BASE_URL = os.getenv("PRICELABS_BASE_URL") or "https://api.pricelabs.co/v1"
+PRICELABS_PMS_NAME = os.getenv("PRICELABS_PMS_NAME") or "hostaway"
+BRAIN_EMAIL_FROM = os.getenv("BRAIN_EMAIL_FROM")
+SMTP_HOST = os.getenv("SMTP_HOST")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USERNAME = os.getenv("SMTP_USERNAME")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "True").lower() == "true"
 
 # Debug Log Configuration
 def get_debug_log_path():

@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+
+{% block title %}KPI - Hostaway Insights{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/kpi.css', v='20260820-4') }}">
+{% endblock %}
+
+{% block content %}
+<div class="kpi-page" id="kpiPage">
+    <header class="kpi-page-header">
+        <div class="kpi-page-heading">
+            <span class="kpi-eyebrow">Hospitality north star</span>
+            <h1>Team performance, grounded in guest and booking data</h1>
+            <p>One shared view of response speed, guest advocacy, booking value, forward demand and stay outcomes.</p>
+        </div>
+        <div class="kpi-header-controls">
+            <div class="kpi-filter-control">
+                <label class="kpi-filter-label" for="portfolioFilter">Portfolio</label>
+                <div class="kpi-select-wrap">
+                    <select id="portfolioFilter" aria-label="Filter KPI dashboard by portfolio">
+                        <option value="all">All properties</option>
+                    </select>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
+                </div>
+            </div>
+            <div class="kpi-filter-control">
+                <label class="kpi-filter-label" for="periodFilter">Reporting period</label>
+                <div class="kpi-select-wrap">
+                    <select id="periodFilter" aria-label="Select KPI reporting period">
+                        <option value="current_month">Current month</option>
+                        <option value="last_month">Last month</option>
+                        <option value="last_3_months">Last 3 months</option>
+                        <option value="custom">Custom range</option>
+                    </select>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
+                </div>
+            </div>
+            {% if current_user and current_user.is_admin() %}
+            <button type="button" class="kpi-refresh-button" id="kpiRefreshButton" aria-label="Pull the latest KPI source data from Hostaway">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-5V2M4 17h5v5"/><path d="M6.1 8A7 7 0 0 1 18 6l2 1M4 17l2 1A7 7 0 0 0 18 16"/></svg>
+                <span id="kpiRefreshLabel">Refresh data</span>
+            </button>
+            {% endif %}
+            <div class="kpi-custom-range" id="kpiCustomRange" hidden>
+                <label><span>From</span><input type="date" id="kpiCustomFrom" aria-label="Custom reporting period from date"></label>
+                <label><span>To</span><input type="date" id="kpiCustomTo" aria-label="Custom reporting period to date"></label>
+                <button type="button" id="kpiApplyRange">Apply dates</button>
+                <p id="kpiRangeError" role="alert" hidden></p>
+            </div>
+        </div>
+    </header>
+
+    <div class="kpi-context-strip" id="kpiContextStrip" aria-live="polite">
+        <div class="kpi-scope-summary">
+            <span class="kpi-live-dot" aria-hidden="true"></span>
+            <strong id="kpiScopeName">All properties</strong>
+            <span id="kpiPropertyCount">Loading property scope…</span>
+            <span class="kpi-scope-divider" aria-hidden="true"></span>
+            <strong class="kpi-date-range-label" id="kpiDateRangeLabel">Current month</strong>
+        </div>
+        <button type="button" class="kpi-freshness-button" id="kpiFreshnessButton">
+            <span>Data freshness</span>
+            <strong id="kpiFreshnessValue">Checking…</strong>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+    </div>
+
+    <div class="kpi-loading" id="kpiLoading">
+        <div class="kpi-loading-grid" aria-hidden="true">
+            <span></span><span></span><span></span><span class="wide"></span><span class="wide"></span>
+        </div>
+        <p>Calculating the latest portfolio KPIs…</p>
+    </div>
+
+    <div class="kpi-error" id="kpiError" hidden>
+        <div>
+            <strong>KPI data could not be loaded</strong>
+            <p id="kpiErrorMessage">Please try refreshing the page.</p>
+        </div>
+        <button type="button" class="btn btn-secondary" id="kpiErrorRetry">Try again</button>
+    </div>
+
+    <main class="kpi-grid" id="kpiContent" hidden>
+        <article class="kpi-card kpi-card-response" data-kpi-card="response">
+            <div class="kpi-card-header">
+                <div>
+                    <span class="kpi-card-kicker">Service responsiveness</span>
+                    <h2>Human reply time</h2>
+                </div>
+                <button type="button" class="kpi-info-button" data-metric="response" aria-label="How human reply time is calculated">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+                    <span class="kpi-info-preview" role="tooltip"></span>
+                </button>
+            </div>
+            <div class="kpi-value-row">
+                <strong class="kpi-primary-value" id="responseValue">—</strong>
+                <span class="kpi-value-unit">median</span>
+            </div>
+            <p class="kpi-card-caption" id="responseCaption">Waiting for message data</p>
+            <div class="kpi-chart-shell"><canvas id="responseChart" aria-label="Weekly median human reply time"></canvas></div>
+            <div class="kpi-support-grid">
+                <div><span>P90 reply</span><strong id="responseP90">—</strong></div>
+                <div><span>Within 15 min</span><strong id="responseSla">—</strong></div>
+                <div><span>Open over 4h</span><strong id="responseOpen">—</strong></div>
+            </div>
+        </article>
+
+        <article class="kpi-card kpi-card-advocacy" data-kpi-card="advocacy">
+            <div class="kpi-card-header">
+                <div>
+                    <span class="kpi-card-kicker">Guest advocacy</span>
+                    <h2>Perfect-score reviews</h2>
+                </div>
+                <button type="button" class="kpi-info-button" data-metric="advocacy" aria-label="How guest advocacy is calculated">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+                    <span class="kpi-info-preview" role="tooltip"></span>
+                </button>
+            </div>
+            <div class="kpi-value-row">
+                <strong class="kpi-primary-value" id="advocacyValue">—</strong>
+                <span class="kpi-value-unit">10 / 10</span>
+            </div>
+            <p class="kpi-card-caption" id="advocacyCaption">Waiting for review data</p>
+            <div class="kpi-chart-shell"><canvas id="advocacyChart" aria-label="Weekly perfect-score review rate"></canvas></div>
+            <div class="kpi-support-grid">
+                <div><span>Review coverage</span><strong id="advocacyCoverage">—</strong></div>
+                <div><span>Average rating</span><strong id="advocacyAverage">—</strong></div>
+                <div><span>Below 8/10</span><strong id="advocacyLow">—</strong></div>
+            </div>
+        </article>
+
+        <article class="kpi-card kpi-card-revenue" data-kpi-card="revenue">
+            <div class="kpi-card-header">
+                <div>
+                    <span class="kpi-card-kicker">Commercial performance</span>
+                    <h2>Gross stay value</h2>
+                </div>
+                <button type="button" class="kpi-info-button" data-metric="revenue" aria-label="How gross stay value is calculated">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+                    <span class="kpi-info-preview" role="tooltip"></span>
+                </button>
+            </div>
+            <div class="kpi-value-row">
+                <strong class="kpi-primary-value" id="revenueValue">—</strong>
+                <span class="kpi-value-unit" id="revenuePeriodUnit">selected stay dates</span>
+            </div>
+            <p class="kpi-card-caption" id="revenueCaption">Waiting for reservation data</p>
+            <div class="kpi-chart-shell"><canvas id="revenueChart" aria-label="Weekly allocated gross stay value"></canvas></div>
+            <div class="kpi-support-grid">
+                <div><span>Gross ADR</span><strong id="revenueAdr">—</strong></div>
+                <div><span>Reservation-nights</span><strong id="revenueNights">—</strong></div>
+                <div><span>Booking cancellations</span><strong id="revenueCancellation">—</strong></div>
+            </div>
+        </article>
+
+        <article class="kpi-card kpi-card-wide kpi-card-forward" data-kpi-card="forward">
+            <div class="kpi-card-header kpi-card-header-wide">
+                <div>
+                    <span class="kpi-card-kicker">Forward demand</span>
+                    <h2>On-the-books occupancy</h2>
+                    <p id="forwardCaption">Reserved nights as a share of currently sellable inventory</p>
+                </div>
+                <div class="kpi-card-tools">
+                    <span class="kpi-source-badge" id="forwardSnapshot">Snapshot —</span>
+                    <button type="button" class="kpi-info-button" data-metric="forward" aria-label="How forward booking health is calculated">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+                        <span class="kpi-info-preview" role="tooltip"></span>
+                    </button>
+                </div>
+            </div>
+            <div class="forward-horizon-list" id="forwardHorizons"></div>
+            <div class="kpi-wide-footer">
+                <span id="forwardCoverage">Calendar coverage —</span>
+                <span class="kpi-method-note">Blocked nights are excluded from sellable inventory.</span>
+            </div>
+        </article>
+
+        <article class="kpi-card kpi-card-wide kpi-card-outcome" data-kpi-card="outcome">
+            <div class="kpi-card-header kpi-card-header-wide">
+                <div>
+                    <span class="kpi-card-kicker">Guest experience outcome</span>
+                    <h2>Stay outcome health</h2>
+                </div>
+                <div class="kpi-card-tools">
+                    <span class="kpi-confidence-badge" id="outcomeCoverageBadge">Coverage —</span>
+                    <button type="button" class="kpi-info-button" data-metric="outcome" aria-label="How stay outcome health is calculated">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+                        <span class="kpi-info-preview" role="tooltip"></span>
+                    </button>
+                </div>
+            </div>
+            <div class="outcome-layout">
+                <div class="outcome-headline">
+                    <strong id="outcomeValue">—</strong>
+                    <span>guest outcome rate</span>
+                    <p id="outcomeCaption">Smooth or recovered completed stays</p>
+                </div>
+                <div class="outcome-breakdown">
+                    <div class="outcome-stacked-bar" id="outcomeStackedBar" role="img" aria-label="Stay outcome distribution"></div>
+                    <div class="outcome-legend" id="outcomeLegend"></div>
+                </div>
+                <div class="outcome-trend"><canvas id="outcomeChart" aria-label="Weekly guest outcome rate"></canvas></div>
+            </div>
+            <div class="kpi-support-grid kpi-support-grid-wide">
+                <div><span>Problem incidence</span><strong id="outcomeProblems">—</strong></div>
+                <div><span>Recovery rate</span><strong id="outcomeRecovery">—</strong></div>
+                <div><span>Classified stays</span><strong id="outcomeSample">—</strong></div>
+                <div><span>Average confidence</span><strong id="outcomeConfidence">—</strong></div>
+            </div>
+        </article>
+    </main>
+</div>
+
+<dialog class="kpi-dialog" id="kpiDefinitionDialog" aria-labelledby="kpiDefinitionTitle">
+    <div class="kpi-dialog-shell">
+        <div class="kpi-dialog-header">
+            <div>
+                <span class="kpi-card-kicker">Metric definition</span>
+                <h2 id="kpiDefinitionTitle">How this KPI is calculated</h2>
+            </div>
+            <button type="button" class="kpi-dialog-close" id="kpiDefinitionClose" aria-label="Close metric definition">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+            </button>
+        </div>
+        <div class="kpi-definition-formula" id="kpiDefinitionFormula"></div>
+        <p class="kpi-definition-why" id="kpiDefinitionWhy"></p>
+        <dl class="kpi-definition-grid">
+            <div><dt>Numerator</dt><dd id="kpiDefinitionNumerator"></dd></div>
+            <div><dt>Denominator</dt><dd id="kpiDefinitionDenominator"></dd></div>
+            <div><dt>Time window</dt><dd id="kpiDefinitionWindow"></dd></div>
+            <div><dt>Data source</dt><dd id="kpiDefinitionSource"></dd></div>
+        </dl>
+        <div class="kpi-definition-columns">
+            <section><h3>Included</h3><ul id="kpiDefinitionIncluded"></ul></section>
+            <section><h3>Excluded</h3><ul id="kpiDefinitionExcluded"></ul></section>
+        </div>
+        <section class="kpi-raw-fields"><h3>Raw fields used</h3><div id="kpiDefinitionFields"></div></section>
+    </div>
+</dialog>
+
+<dialog class="kpi-dialog kpi-freshness-dialog" id="kpiFreshnessDialog" aria-labelledby="kpiFreshnessTitle">
+    <div class="kpi-dialog-shell">
+        <div class="kpi-dialog-header">
+            <div><span class="kpi-card-kicker">Source status</span><h2 id="kpiFreshnessTitle">Data freshness</h2></div>
+            <button type="button" class="kpi-dialog-close" id="kpiFreshnessClose" aria-label="Close data freshness">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+            </button>
+        </div>
+        <div class="kpi-freshness-list" id="kpiFreshnessList"></div>
+        {% if current_user and current_user.is_admin() %}
+        <section class="kpi-refresh-panel" id="kpiRefreshPanel" aria-live="polite">
+            <div class="kpi-refresh-panel-copy">
+                <strong id="kpiRefreshStatusTitle">Refresh source data</strong>
+                <p id="kpiRefreshStatusText">Pull the latest listings, reservations, guest messages, reviews and forward calendar from Hostaway. Stay-outcome classification remains separately controlled.</p>
+            </div>
+            <button type="button" class="kpi-refresh-button kpi-dialog-refresh-button" id="kpiDialogRefreshButton">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-5V2M4 17h5v5"/><path d="M6.1 8A7 7 0 0 1 18 6l2 1M4 17l2 1A7 7 0 0 0 18 16"/></svg>
+                <span>Refresh now</span>
+            </button>
+            <div class="kpi-refresh-progress" id="kpiRefreshProgress" hidden>
+                <div class="kpi-refresh-progress-track"><span id="kpiRefreshProgressBar"></span></div>
+                <span id="kpiRefreshProgressMeta">Preparing refresh…</span>
+            </div>
+        </section>
+        {% endif %}
+    </div>
+</dialog>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/kpi.js', v='20260820-3') }}"></script>
+{% endblock %}

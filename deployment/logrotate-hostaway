@@ -1,34 +1,23 @@
 # Log rotation configuration for Hostaway Messages
-# Place this file in /etc/logrotate.d/hostaway
-# Logs will be rotated daily, kept for 30 days, and compressed
+# Installed by deployment/deploy.sh as /etc/logrotate.d/hostaway.
+# A size cap prevents a noisy service from filling the root filesystem between
+# daily logrotate runs.
 
 /opt/hostaway-messages/logs/*.log {
     daily
+    maxsize 50M
     missingok
-    rotate 30
+    rotate 14
     compress
     delaycompress
     notifempty
     create 0640 hostaway hostaway
+    su hostaway hostaway
     sharedscripts
     postrotate
-        # Reload systemd to reopen log files
-        systemctl reload hostaway-dashboard > /dev/null 2>&1 || true
+        # HUP makes Gunicorn replace workers and reopen both application and
+        # access/error log handles without taking the site offline.
+        systemctl kill --kill-who=main --signal=HUP hostaway-dashboard.service > /dev/null 2>&1 || true
+        systemctl kill --kill-who=main --signal=HUP str-signal-brain.service > /dev/null 2>&1 || true
     endscript
 }
-
-# Gunicorn logs
-/opt/hostaway-messages/logs/gunicorn-*.log {
-    daily
-    missingok
-    rotate 30
-    compress
-    delaycompress
-    notifempty
-    create 0640 hostaway hostaway
-    sharedscripts
-    postrotate
-        systemctl reload hostaway-dashboard > /dev/null 2>&1 || true
-    endscript
-}
-

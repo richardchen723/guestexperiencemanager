@@ -10,6 +10,12 @@ from typing import Optional
 
 from config import VERBOSE
 
+SENSITIVE_THIRD_PARTY_LOGGERS = (
+    "openai",
+    "httpx",
+    "httpcore",
+)
+
 
 def setup_logging(log_file: Optional[str] = None) -> None:
     """
@@ -52,3 +58,10 @@ def setup_logging(log_file: Optional[str] = None) -> None:
     logging.getLogger('urllib3').setLevel(logging.WARNING)
     logging.getLogger('sqlalchemy').setLevel(logging.WARNING)
     logging.getLogger('werkzeug').setLevel(logging.INFO)  # Flask request logs
+    suppress_sensitive_third_party_logs()
+
+
+def suppress_sensitive_third_party_logs() -> None:
+    """Keep API payloads and transport traces out of application logs."""
+    for logger_name in SENSITIVE_THIRD_PARTY_LOGGERS:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)

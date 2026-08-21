@@ -42,6 +42,16 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
+set_env_value() {
+    local key="$1"
+    local value="$2"
+    if grep -q "^${key}=" "$ENV_FILE"; then
+        sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+    else
+        printf '\n%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+    fi
+}
+
 echo -e "${GREEN}Step 1: Pulling latest code from git...${NC}"
 cd "$APP_DIR"
 sudo -u hostaway git fetch origin
@@ -69,12 +79,18 @@ env PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_DIR" \
 sudo -u hostaway env PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_DIR" \
     "$VENV_DIR/bin/python" -m playwright install chromium
 
-echo -e "${GREEN}Step 4: Copying .env file to app directory (if needed)...${NC}"
-# Copy .env to app directory for local access (app loads from project root)
-if [ -f "$ENV_FILE" ] && [ ! -f "$APP_DIR/.env" ]; then
-    sudo -u hostaway cp "$ENV_FILE" "$APP_DIR/.env"
-    chmod 600 "$APP_DIR/.env"
+echo -e "${GREEN}Step 4: Enabling one-time stay outcome analysis and syncing .env...${NC}"
+set_env_value "KPI_ENABLE_STAY_OUTCOME_CLASSIFICATION" "True"
+set_env_value "KPI_STAY_OUTCOME_MODEL" "gpt-5.6-luna"
+STAY_OUTCOME_ACTIVATED_AT="$(sed -n 's/^KPI_STAY_OUTCOME_ACTIVATED_AT=//p' "$ENV_FILE" | head -n 1)"
+if [ -z "$STAY_OUTCOME_ACTIVATED_AT" ]; then
+    STAY_OUTCOME_ACTIVATED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    set_env_value "KPI_STAY_OUTCOME_ACTIVATED_AT" "$STAY_OUTCOME_ACTIVATED_AT"
 fi
+# Keep the application-local dotenv copy identical to the systemd EnvironmentFile.
+cp "$ENV_FILE" "$APP_DIR/.env"
+chown hostaway:hostaway "$APP_DIR/.env"
+chmod 600 "$APP_DIR/.env"
 
 echo -e "${GREEN}Step 5: Running database migrations...${NC}"
 # Run migrations explicitly before service restart
@@ -83,10 +99,30 @@ sudo -u hostaway "$VENV_DIR/bin/python" "$APP_DIR/database/migrations.py" || {
 }
 
 echo -e "${GREEN}Step 6: Installing/updating systemd services...${NC}"
+# Install disk-usage safeguards before restarting the application services.
+if [ -f "$APP_DIR/deployment/logrotate-hostaway" ]; then
+    install -o root -g root -m 0644 \
+        "$APP_DIR/deployment/logrotate-hostaway" /etc/logrotate.d/hostaway
+fi
+if [ -f "$APP_DIR/deployment/journald-hostaway.conf" ]; then
+    install -d -o root -g root -m 0755 /etc/systemd/journald.conf.d
+    install -o root -g root -m 0644 \
+        "$APP_DIR/deployment/journald-hostaway.conf" \
+        /etc/systemd/journald.conf.d/hostaway.conf
+    systemctl restart systemd-journald
+fi
+
 # Copy service files
 if [ -f "$APP_DIR/deployment/hostaway-dashboard.service" ]; then
     cp "$APP_DIR/deployment/hostaway-dashboard.service" /etc/systemd/system/
     systemctl daemon-reload
+fi
+if [ -f "$APP_DIR/deployment/hostaway-kpi-worker.service" ]; then
+    cp "$APP_DIR/deployment/hostaway-kpi-worker.service" /etc/systemd/system/
+    systemctl daemon-reload
+    systemctl enable hostaway-kpi-worker
+    systemctl restart hostaway-kpi-worker
+    echo -e "${GREEN}KPI refresh worker enabled${NC}"
 fi
 if [ -f "$APP_DIR/deployment/hostaway-recurring-tasks.service" ]; then
     cp "$APP_DIR/deployment/hostaway-recurring-tasks.service" /etc/systemd/system/
@@ -103,6 +139,18 @@ if [ -f "$APP_DIR/deployment/hostaway-review-sync.service" ]; then
     systemctl enable hostaway-review-sync.timer
     systemctl restart hostaway-review-sync.timer
     echo -e "${GREEN}Review status sync timer enabled${NC}"
+fi
+if compgen -G "$APP_DIR/deployment/str-signal-brain*.service" > /dev/null || compgen -G "$APP_DIR/deployment/str-signal-brain*.timer" > /dev/null; then
+    cp "$APP_DIR"/deployment/str-signal-brain*.service /etc/systemd/system/ 2>/dev/null || true
+    cp "$APP_DIR"/deployment/str-signal-brain*.timer /etc/systemd/system/ 2>/dev/null || true
+    systemctl daemon-reload
+    for timer in "$APP_DIR"/deployment/str-signal-brain*.timer; do
+        [ -f "$timer" ] || continue
+        timer_name="$(basename "$timer")"
+        systemctl enable "$timer_name"
+        systemctl start "$timer_name"
+    done
+    echo -e "${GREEN}STR Signal Brain services/timers installed${NC}"
 fi
 
 echo -e "${GREEN}Step 7: Restarting systemd services...${NC}"

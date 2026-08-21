@@ -25,7 +25,8 @@
     data-features="{{ accessible_feature_keys | join(',') }}"
 >
     {% set endpoint = request.endpoint or '' %}
-    {% if 'tickets' in endpoint %}{% set workspace_name = 'Tickets' %}
+    {% if 'kpi' in endpoint %}{% set workspace_name = 'KPI' %}
+    {% elif 'tickets' in endpoint %}{% set workspace_name = 'Tickets' %}
     {% elif 'reviews' in endpoint %}{% set workspace_name = 'Reviews' %}
     {% elif 'knowledge' in endpoint %}{% set workspace_name = 'Knowledge base' %}
     {% elif 'bookkeeping' in endpoint %}{% set workspace_name = 'Bookkeeping' %}
@@ -61,6 +62,12 @@
                     <a href="{{ url_for('dashboard.dashboard_page') }}" class="app-nav-link {% if 'dashboard' in endpoint %}active{% endif %}" title="Overview">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
                         <span>Overview</span>
+                    </a>
+                    {% endif %}
+                    {% if feature_access.kpi %}
+                    <a href="{{ url_for('kpi.kpi_page') }}" class="app-nav-link {% if 'kpi' in endpoint %}active{% endif %}" title="KPI">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19V3"/><path d="M2 21h20"/></svg>
+                        <span>KPI</span>
                     </a>
                     {% endif %}
                     {% if feature_access.properties %}

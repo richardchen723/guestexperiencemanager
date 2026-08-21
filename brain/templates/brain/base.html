@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}STR Signal Brain{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/brain.css') }}?v=20260701-manager-todos">
+</head>
+<body>
+    <div class="brain-shell">
+        <aside class="brain-sidebar">
+            <a class="brain-brand" href="{{ url_for('brain.today_page') }}">
+                <span class="brain-brand-mark">SB</span>
+                <span>
+                    <strong>STR Signal Brain</strong>
+                    <small>Portfolio intelligence</small>
+                </span>
+            </a>
+            <nav class="brain-nav">
+                <a href="{{ url_for('brain.today_page') }}" data-nav="today">Today</a>
+                <a href="{{ url_for('brain.portfolios_page') }}" data-nav="portfolios">Portfolios</a>
+                <a href="{{ url_for('brain.todos_page') }}" data-nav="todos">Manager Todos</a>
+                <a href="{{ url_for('brain.signals_page') }}" data-nav="signals">Signal Inbox</a>
+                <a href="{{ url_for('brain.booking_health_page') }}" data-nav="booking-health">Booking Health</a>
+                <a href="{{ url_for('brain.open_loops_page') }}" data-nav="open-loops">Open Loops</a>
+                <a href="{{ url_for('brain.ask_page') }}" data-nav="ask">Ask Brain</a>
+                <a class="admin-nav-link" href="{{ url_for('brain.settings_page') }}" data-nav="settings">Settings</a>
+            </nav>
+            <div class="brain-user">
+                {% if current_user %}
+                <span>{{ current_user.name or current_user.email }}</span>
+                <a href="{{ url_for('auth.logout') }}">Logout</a>
+                {% else %}
+                <a href="{{ url_for('auth.login') }}">Login</a>
+                {% endif %}
+            </div>
+        </aside>
+        <main class="brain-main">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

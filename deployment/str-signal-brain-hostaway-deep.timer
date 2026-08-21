@@ -1,0 +1,10 @@
+[Unit]
+Description=Run STR Signal Brain deep Hostaway refresh daily
+
+[Timer]
+OnCalendar=*-*-* 00:15:00 America/Los_Angeles
+Persistent=true
+Unit=str-signal-brain-hostaway-deep.service
+
+[Install]
+WantedBy=timers.target

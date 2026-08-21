@@ -1,0 +1,10 @@
+{% extends "brain/base.html" %}
+
+{% block title %}STR Signal Brain{% endblock %}
+
+{% block content %}
+<section class="state-panel error">
+    <h1>{{ message }}</h1>
+    <a href="{{ url_for('brain.today_page') }}">Return to Today</a>
+</section>
+{% endblock %}

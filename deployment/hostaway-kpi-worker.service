@@ -1,0 +1,30 @@
+[Unit]
+Description=Hostaway KPI Refresh Worker
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=hostaway
+Group=hostaway
+WorkingDirectory=/opt/hostaway-messages/app
+Environment="PATH=/opt/hostaway-messages/venv/bin"
+Environment="KPI_WORKER_LOG_FILE=/opt/hostaway-messages/logs/kpi-worker.log"
+EnvironmentFile=/opt/hostaway-messages/.env
+ExecStart=/opt/hostaway-messages/venv/bin/python3 -m dashboard.kpi.worker
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=30min
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/hostaway-messages/conversations /opt/hostaway-messages/app/conversations /opt/hostaway-messages/logs /opt/hostaway-messages/app/data
+
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target
