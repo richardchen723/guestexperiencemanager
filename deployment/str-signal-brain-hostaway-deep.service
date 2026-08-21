@@ -16,4 +16,4 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/hostaway-messages/logs /opt/hostaway-messages/app/data
+ReadWritePaths=/opt/hostaway-messages/conversations /opt/hostaway-messages/app/conversations /opt/hostaway-messages/logs /opt/hostaway-messages/app/data
