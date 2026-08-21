@@ -194,7 +194,7 @@ class DataAggregatorTests(unittest.TestCase):
         )
 
         with (
-            patch("brain.aggregator.SOURCE_STREAM_BATCH_SIZE", 2),
+            patch("brain.aggregator.PRICELABS_STREAM_BATCH_SIZE", 2),
             patch("brain.aggregator.inspect", return_value=SimpleNamespace(session=session)),
         ):
             result = BrainDataAggregator._materialize_pricelabs(

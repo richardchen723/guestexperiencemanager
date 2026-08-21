@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 
 FACT_BATCH_FLUSH_SIZE = 250
 SOURCE_STREAM_BATCH_SIZE = 500
+PRICELABS_STREAM_BATCH_SIZE = 10
 
 
 @dataclass(frozen=True)
@@ -1356,7 +1357,7 @@ class BrainDataAggregator:
                     self.session.query(PriceLabsSnapshot)
                     .filter(PriceLabsSnapshot.pricelabs_snapshot_id > last_snapshot_id)
                     .order_by(PriceLabsSnapshot.pricelabs_snapshot_id)
-                    .limit(SOURCE_STREAM_BATCH_SIZE)
+                    .limit(PRICELABS_STREAM_BATCH_SIZE)
                     .all()
                 )
                 if not page:
