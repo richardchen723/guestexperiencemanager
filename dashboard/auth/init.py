@@ -5,6 +5,7 @@ Initialize owner account on first app run.
 
 import sys
 import os
+from contextlib import contextmanager
 
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
@@ -97,10 +98,12 @@ def initialize_all_databases():
         logger.warning(f"Error initializing cache database: {e}")
 
 
-def ensure_owner_exists():
-    """Initialize databases once across all workers, then ensure the owner."""
+@contextmanager
+def database_initialization_lock():
+    """Serialize all startup DDL across independent application workers."""
     if not os.getenv("DATABASE_URL"):
-        return _ensure_owner_exists_unlocked()
+        yield
+        return
 
     from database.models import get_engine as get_main_engine
 
@@ -110,12 +113,20 @@ def ensure_owner_exists():
         # advisory lock prevents concurrent DDL and ticket data migrations from
         # deadlocking one another during startup.
         connection.exec_driver_sql("SELECT pg_advisory_lock(779481504)")
-        return _ensure_owner_exists_unlocked()
+        yield
     finally:
         try:
             connection.exec_driver_sql("SELECT pg_advisory_unlock(779481504)")
         finally:
             connection.close()
+
+
+def ensure_owner_exists(*, acquire_lock=True):
+    """Initialize databases once across all workers, then ensure the owner."""
+    if not acquire_lock:
+        return _ensure_owner_exists_unlocked()
+    with database_initialization_lock():
+        return _ensure_owner_exists_unlocked()
 
 
 def _ensure_owner_exists_unlocked():

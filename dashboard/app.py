@@ -63,7 +63,7 @@ from dashboard.dashboard.routes import dashboard_bp
 from brain.models import init_guest_experience_tables, init_kpi_tables, init_listing_audit_tables
 from database.models import init_models
 from dashboard.auth.oauth import create_google_blueprint
-from dashboard.auth.init import ensure_owner_exists
+from dashboard.auth.init import database_initialization_lock, ensure_owner_exists
 from dashboard.auth.features import accessible_feature_keys, effective_feature_access
 from dashboard.auth.session import get_current_user
 
@@ -98,12 +98,14 @@ def create_app():
     app.config['SECRET_KEY'] = config.SECRET_KEY
     app.config['SESSION_PERMANENT'] = False  # Session expires on browser close
     
-    # Initialize owner account
-    ensure_owner_exists()
-    init_models(None)
-    init_kpi_tables()
-    init_listing_audit_tables()
-    init_guest_experience_tables()
+    # Gunicorn imports this factory independently in every worker. Keep the
+    # complete startup DDL sequence under one cross-process PostgreSQL lock.
+    with database_initialization_lock():
+        ensure_owner_exists(acquire_lock=False)
+        init_models(None)
+        init_kpi_tables()
+        init_listing_audit_tables()
+        init_guest_experience_tables()
     
     # Register Google OAuth blueprint
     google_bp = create_google_blueprint(app)
