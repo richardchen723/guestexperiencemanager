@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 COMPREHENSIVE_STAY_PROMPT_VERSION = "guest-experience-stay-v1"
 GUEST_REVIEW_ISSUE_PROMPT_VERSION = "guest-experience-review-v1"
-ANALYSIS_LOOKBACK_MONTHS = 3
+ANALYSIS_LOOKBACK_MONTHS = 1
 ANALYSIS_DELAY = timedelta(hours=24)
 DEFAULT_CHECKOUT_HOUR = 11
 GUEST_EXPERIENCE_LOCK_ID = 780_411_944
@@ -88,7 +88,7 @@ def calendar_months_before(value: datetime, months: int) -> datetime:
 
 
 def analysis_window(reference_time: datetime) -> tuple[datetime, datetime]:
-    """Return the exact three-calendar-month checkout window for one run."""
+    """Return the exact one-calendar-month checkout window for one run."""
     end_at = normalize_utc(reference_time) - ANALYSIS_DELAY
     return calendar_months_before(normalize_utc(reference_time), ANALYSIS_LOOKBACK_MONTHS), end_at
 
@@ -130,7 +130,7 @@ def is_analysis_eligible(
     *,
     reference_time: datetime,
 ) -> bool:
-    """Require a checkout between three calendar months and 24 hours ago."""
+    """Require a checkout between one calendar month and 24 hours ago."""
     window_start, window_end = analysis_window(reference_time)
     checkout_at = scheduled_checkout_at_utc(reservation, listing)
     return window_start <= checkout_at <= window_end

@@ -43,7 +43,7 @@ def guest_issues_page():
             "stay_issues/index.html",
             dashboard=service.get_dashboard(
                 view=view,
-                window_key=request.args.get("window", "3m"),
+                window_key=request.args.get("window", "1m"),
                 start_date=request.args.get("start"),
                 end_date=request.args.get("end"),
             ),

@@ -3,7 +3,7 @@
 {% block title %}Guest Issues · Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/guest-issues.css', v='20260822-5') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/guest-issues.css', v='20260822-6') }}">
 {% endblock %}
 
 {% block content %}
@@ -22,7 +22,6 @@
                 <small>{% if dashboard.latest_run %}Updated {{ dashboard.latest_run.started_at.strftime('%b %-d at %-I:%M %p') }}{% else %}Waiting for the first analysis{% endif %}</small>
             </div>
             <nav class="analysis-window-presets" aria-label="Choose analysis window">
-                <a href="{{ url_for('guest_issues.guest_issues_page', view=dashboard.view, window='3m') }}" class="{{ 'is-active' if dashboard.window.key == '3m' else '' }}">3 months</a>
                 <a href="{{ url_for('guest_issues.guest_issues_page', view=dashboard.view, window='1m') }}" class="{{ 'is-active' if dashboard.window.key == '1m' else '' }}">1 month</a>
                 <a href="{{ url_for('guest_issues.guest_issues_page', view=dashboard.view, window='1w') }}" class="{{ 'is-active' if dashboard.window.key == '1w' else '' }}">1 week</a>
                 <button type="button" class="{{ 'is-active' if dashboard.window.key == 'custom' else '' }}" data-custom-window-toggle aria-expanded="false" aria-controls="customWindowForm">Custom</button>

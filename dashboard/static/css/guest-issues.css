@@ -57,7 +57,7 @@
 .analysis-window-heading span { color: var(--issue-subtle); font-size: 8px; font-weight: 850; letter-spacing: .09em; text-transform: uppercase; }
 .analysis-window-heading strong { margin-top: 3px; font-size: 11px; }
 .analysis-window-heading small { flex: 0 0 auto; color: var(--issue-muted); font-size: 8px; }
-.analysis-window-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin-top: 8px; padding: 3px; border: 1px solid var(--issue-line-strong); border-radius: 9px; background: #f2f5f3; }
+.analysis-window-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-top: 8px; padding: 3px; border: 1px solid var(--issue-line-strong); border-radius: 9px; background: #f2f5f3; }
 .analysis-window-presets a, .analysis-window-presets button { display: grid; min-height: 28px; place-items: center; padding: 0 7px; border: 0; border-radius: 6px; color: var(--issue-muted); background: transparent; font: inherit; font-size: 8px; font-weight: 800; text-decoration: none; cursor: pointer; }
 .analysis-window-presets a:hover, .analysis-window-presets button:hover { color: var(--issue-green); background: rgba(255,255,255,.7); }
 .analysis-window-presets .is-active { color: #fff; background: var(--issue-green-dark); box-shadow: 0 2px 6px rgba(18, 76, 59, .16); }

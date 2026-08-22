@@ -33,7 +33,6 @@ from database.models import (
 
 QUALITY_ORDER = ("unresolved", "recovered", "smooth", "muted")
 WINDOW_PRESETS = {
-    "3m": "Past 3 months",
     "1m": "Past month",
     "1w": "Past week",
     "custom": "Custom",
@@ -43,18 +42,17 @@ WINDOW_PRESETS = {
 def resolve_dashboard_window(
     reference_time: datetime,
     *,
-    window_key: str = "3m",
+    window_key: str = "1m",
     start_date: str | date | None = None,
     end_date: str | date | None = None,
 ) -> dict[str, Any]:
     """Resolve a UI reporting window inside the analyzer's retained range."""
     available_start, available_end = analysis_window(reference_time)
-    key = window_key if window_key in WINDOW_PRESETS else "3m"
+    key = window_key if window_key in WINDOW_PRESETS else "1m"
     notice = None
 
     if key == "1m":
-        selected_start = max(available_start, calendar_months_before(available_end, 1))
-        selected_end = available_end
+        selected_start, selected_end = available_start, available_end
     elif key == "1w":
         selected_start = max(available_start, available_end - timedelta(days=7))
         selected_end = available_end
@@ -82,7 +80,7 @@ def resolve_dashboard_window(
                     datetime.combine(bounded_end, time.max),
                 )
                 if bounded_start != parsed_start or bounded_end != parsed_end:
-                    notice = "Custom dates are limited to the analyzed three-month range."
+                    notice = "Custom dates are limited to the analyzed one-month range."
     else:
         selected_start, selected_end = available_start, available_end
 
@@ -136,7 +134,7 @@ class GuestIssueDashboardService:
         self,
         *,
         view: str = "active",
-        window_key: str = "3m",
+        window_key: str = "1m",
         start_date: str | date | None = None,
         end_date: str | date | None = None,
     ) -> dict[str, Any]:

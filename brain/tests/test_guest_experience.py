@@ -94,10 +94,10 @@ def test_eligibility_is_exactly_24_hours_after_property_local_checkout():
     )
 
 
-def test_analysis_window_uses_three_calendar_months_not_unbounded_history():
+def test_analysis_window_uses_one_calendar_month_not_unbounded_history():
     start, end = analysis_window(datetime(2026, 8, 31, 18, 0))
 
-    assert start == datetime(2026, 5, 31, 18, 0)
+    assert start == datetime(2026, 7, 31, 18, 0)
     assert end == datetime(2026, 8, 30, 18, 0)
 
 

@@ -149,16 +149,16 @@ def test_archive_view_is_separate_from_recently_resolved():
 def test_dashboard_window_presets_end_at_the_analysis_cutoff():
     now = datetime(2026, 8, 22, 12, 0)
 
-    three_months = resolve_dashboard_window(now, window_key="3m")
     one_month = resolve_dashboard_window(now, window_key="1m")
     one_week = resolve_dashboard_window(now, window_key="1w")
+    invalid_window = resolve_dashboard_window(now, window_key="3m")
 
-    assert three_months["start"] == datetime(2026, 5, 22, 12, 0)
-    assert three_months["end"] == datetime(2026, 8, 21, 12, 0)
-    assert one_month["start"] == datetime(2026, 7, 21, 12, 0)
-    assert one_month["end"] == three_months["end"]
+    assert one_month["start"] == datetime(2026, 7, 22, 12, 0)
+    assert one_month["end"] == datetime(2026, 8, 21, 12, 0)
     assert one_week["start"] == datetime(2026, 8, 14, 12, 0)
-    assert one_week["end"] == three_months["end"]
+    assert one_week["end"] == one_month["end"]
+    assert invalid_window["key"] == "1m"
+    assert invalid_window["start"] == one_month["start"]
 
 
 def test_custom_dashboard_window_is_inclusive_and_bounded_by_retained_data():
@@ -180,6 +180,6 @@ def test_custom_dashboard_window_is_inclusive_and_bounded_by_retained_data():
     assert selected["start"] == datetime(2026, 8, 1, 0, 0)
     assert selected["end"] == datetime(2026, 8, 10, 23, 59, 59, 999999)
     assert selected["notice"] is None
-    assert bounded["start"] == datetime(2026, 5, 22, 12, 0)
+    assert bounded["start"] == datetime(2026, 7, 22, 12, 0)
     assert bounded["end"] == datetime(2026, 8, 21, 12, 0)
-    assert bounded["notice"] == "Custom dates are limited to the analyzed three-month range."
+    assert bounded["notice"] == "Custom dates are limited to the analyzed one-month range."
