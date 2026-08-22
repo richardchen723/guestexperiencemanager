@@ -12,6 +12,10 @@ TAG_PORTFOLIOS = (
         "aliases": ("luminary resorts", "luminary resort"),
     },
     {
+        "name": "Smoky Cabins",
+        "aliases": ("smoky cabins",),
+    },
+    {
         "name": "Urban Stays",
         "aliases": ("pt300", "urban stays", "urbans stays"),
     },

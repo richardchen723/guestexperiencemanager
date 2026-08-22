@@ -2,383 +2,50 @@
 
 {% block title %}Properties - Hostaway Insights Dashboard{% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/properties.css', v='20260822-2') }}">
+{% endblock %}
+
 {% block content %}
-<div class="properties-page">
-    <div class="page-header">
+<div class="properties-workspace">
+    <div class="page-header properties-header">
         <div>
             <h1 class="page-title">Properties</h1>
-            <p class="page-description">Manage portfolio details, quality, and operating tags.</p>
+            <p class="page-description">A compact portfolio view of property details, guest reviews, capacity, and operating tags.</p>
         </div>
-        <div class="page-actions"><span id="propertyCount" class="result-count">Loading portfolio…</span></div>
+        <div class="page-actions">
+            <span id="propertyCount" class="result-count">Loading portfolio…</span>
+        </div>
     </div>
-    
-    <div class="search-section">
-        <div class="search-box">
-            <svg class="search-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M9 17C13.4183 17 17 13.4183 17 9C17 4.58172 13.4183 1 9 1C4.58172 1 1 4.58172 1 9C1 13.4183 4.58172 17 9 17Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M19 19L14.65 14.65" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <div class="property-toolbar" role="search" aria-label="Filter properties">
+        <label class="property-search" for="searchInput">
+            <svg aria-hidden="true" viewBox="0 0 20 20" fill="none">
+                <circle cx="8.5" cy="8.5" r="5.75" stroke="currentColor" stroke-width="1.7"/>
+                <path d="m13 13 4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
             </svg>
-            <input type="text" id="searchInput" class="form-input search-input" placeholder="Search by property name or address..." onkeyup="filterListings()">
-        </div>
-        <div id="tagFilterContainer" class="tag-filter"></div>
+            <span class="sr-only">Search properties</span>
+            <input type="search" id="searchInput" class="property-search-input" placeholder="Search properties, locations, or portfolios…" autocomplete="off">
+        </label>
+        <div id="tagFilterContainer" class="property-tag-filter"></div>
     </div>
-    
-    <div id="loading" class="loading" style="display: none;">
+
+    <div id="loading" class="property-loading" hidden>
         <div class="spinner"></div>
-        <span>Loading properties...</span>
+        <span>Loading properties and review health…</span>
     </div>
-    
-    <div id="listingsContainer" class="listings-grid grid grid-auto-fit">
-        <!-- Listings will be loaded here -->
-    </div>
-    
-    <div id="noResults" class="empty-state" style="display: none;">
-        <div class="empty-state-icon" aria-hidden="true"><svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 21v-8h6v8" stroke="currentColor" stroke-width="1.5"/></svg></div>
+
+    <div id="listingsContainer" class="property-portfolios" aria-live="polite"></div>
+
+    <div id="noResults" class="empty-state" hidden>
+        <div class="empty-state-icon" aria-hidden="true">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 21v-8h6v8" stroke="currentColor" stroke-width="1.5"/></svg>
+        </div>
         <h3 class="empty-state-title">No properties found</h3>
-        <p class="empty-state-description">No properties match your search criteria. Try adjusting your search terms.</p>
+        <p class="empty-state-description">Try a different property, location, portfolio, or tag.</p>
     </div>
 </div>
 
 <script src="{{ url_for('static', filename='js/tags.js', v='20260808-4') }}"></script>
-<script>
-let tagFilter = null;
-let selectedTagIds = [];
-let tagLogic = 'AND';
-
-// Load listings on page load
-document.addEventListener('DOMContentLoaded', function() {
-    // Initialize tag filter (with error handling)
-    try {
-        tagFilter = new TagFilter('#tagFilterContainer', {
-            onFilterChange: (tagIds, logic) => {
-                selectedTagIds = tagIds;
-                tagLogic = logic;
-                loadListings();
-            }
-        });
-    } catch (error) {
-        console.error('Error initializing tag filter:', error);
-        // Continue without tag filter - page should still work
-        tagFilter = null;
-    }
-    
-    loadListings();
-});
-
-function loadListings() {
-    const container = document.getElementById('listingsContainer');
-    const loading = document.getElementById('loading');
-    const noResults = document.getElementById('noResults');
-    
-    loading.style.display = 'block';
-    container.innerHTML = '';
-    
-    // Build query params
-    const params = new URLSearchParams();
-    if (selectedTagIds.length > 0 && tagFilter && tagFilter.allTags) {
-        // Get tag names from selected IDs
-        const selectedTags = tagFilter.allTags.filter(t => selectedTagIds.includes(t.tag_id));
-        if (selectedTags.length > 0) {
-            params.append('tags', selectedTags.map(t => t.name).join(','));
-            params.append('tag_logic', tagLogic);
-        }
-    }
-    
-    fetch(`/api/listings?${params.toString()}`)
-        .then(response => response.json())
-        .then(listings => {
-            loading.style.display = 'none';
-            const propertyCount = document.getElementById('propertyCount');
-            if (propertyCount) {
-                propertyCount.textContent = `${listings.length} ${listings.length === 1 ? 'property' : 'properties'}`;
-            }
-            
-            if (listings.length === 0) {
-                noResults.style.display = 'block';
-                return;
-            }
-            
-            listings.forEach(listing => {
-                const card = document.createElement('div');
-                card.className = 'listing-card';
-                const displayName = listing.internal_listing_name || listing.name || '';
-                card.setAttribute('data-name', displayName.toLowerCase());
-                card.setAttribute('data-address', (listing.address || '').toLowerCase());
-                
-                // Get quality rating and create badge
-                const qualityRating = listing.quality_rating;
-                let ratingBadge;
-                if (qualityRating && (qualityRating === 'Good' || qualityRating === 'Fair' || qualityRating === 'Poor')) {
-                    const ratingClass = qualityRating.toLowerCase();
-                    ratingBadge = `<span class="quality-badge quality-badge-${ratingClass}">${qualityRating}</span>`;
-                } else {
-                    ratingBadge = `<span class="quality-badge quality-badge-not-rated">Not Rated</span>`;
-                }
-                
-                card.innerHTML = `
-                    <div class="listing-card-header">
-                        <div class="listing-card-title-section">
-                            <h3 class="listing-card-title">${escapeHtml(listing.internal_listing_name || listing.name || 'Unnamed Property')}</h3>
-                            ${ratingBadge}
-                        </div>
-                    </div>
-                    <div class="listing-card-body">
-                        <div class="listing-card-location">
-                            <svg class="location-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M8 8.5C9.10457 8.5 10 7.60457 10 6.5C10 5.39543 9.10457 4.5 8 4.5C6.89543 4.5 6 5.39543 6 6.5C6 7.60457 6.89543 8.5 8 8.5Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                                <path d="M8 1C6.34315 1 5 2.34315 5 4C5 5.65685 8 11 8 11C8 11 11 5.65685 11 4C11 2.34315 9.65685 1 8 1Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                            <div>
-                                <p class="listing-card-address">${escapeHtml(listing.address || 'No address')}</p>
-                                ${listing.city ? `<p class="listing-card-city">${escapeHtml(listing.city)}</p>` : ''}
-                            </div>
-                        </div>
-                        <div class="listing-card-tags-section">
-                            <div class="listing-card-tags-header">
-                                <label>Tags</label>
-                                <button class="btn btn-link btn-sm" onclick="toggleTagEdit(${listing.listing_id})" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; color: #2563eb;">
-                                    <span id="tagEditBtn-${listing.listing_id}">+ Add</span>
-                                </button>
-                            </div>
-                            <div id="tagsDisplay-${listing.listing_id}" class="tags-display"></div>
-                            <div id="tagsInput-${listing.listing_id}" class="tag-input-container" style="display: none; margin-top: 0.5rem;"></div>
-                        </div>
-                    </div>
-                    <div class="listing-card-footer">
-                        <a href="/insights/${listing.listing_id}" class="btn btn-primary btn-block">View Details</a>
-                    </div>
-                `;
-                
-                container.appendChild(card);
-                
-                // Initialize tags display and input for this listing
-                initializeListingTags(listing.listing_id, listing.tags || []);
-            });
-        })
-        .catch(error => {
-            loading.style.display = 'none';
-            container.innerHTML = `<div class="error">Error loading listings: ${error.message}</div>`;
-        });
-}
-
-function filterListings() {
-    const input = document.getElementById('searchInput');
-    const filter = input.value.toLowerCase();
-    const cards = document.querySelectorAll('.listing-card');
-    const noResults = document.getElementById('noResults');
-    
-    let visibleCount = 0;
-    
-    cards.forEach(card => {
-        const name = card.getAttribute('data-name');
-        const address = card.getAttribute('data-address');
-        const matches = name.includes(filter) || address.includes(filter);
-        
-        card.style.display = matches ? 'block' : 'none';
-        if (matches) visibleCount++;
-    });
-    
-    noResults.style.display = visibleCount === 0 && filter ? 'block' : 'none';
-    const propertyCount = document.getElementById('propertyCount');
-    if (propertyCount) {
-        propertyCount.textContent = filter
-            ? `${visibleCount} ${visibleCount === 1 ? 'match' : 'matches'}`
-            : `${cards.length} ${cards.length === 1 ? 'property' : 'properties'}`;
-    }
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-// Tag management for listings
-const listingTagInputs = {};
-
-function initializeListingTags(listingId, tags) {
-    // Store tags for this listing
-    if (!window.listingTagsMap) {
-        window.listingTagsMap = {};
-    }
-    window.listingTagsMap[listingId] = tags;
-    
-    // Display current tags
-    const displayContainer = document.getElementById(`tagsDisplay-${listingId}`);
-    if (displayContainer) {
-        renderTags(displayContainer, tags, {
-            onRemove: (tag, index) => {
-                removeListingTag(listingId, tag.tag_id);
-            }
-        });
-    }
-    
-    // Initialize tag input (hidden by default)
-    const inputContainer = document.getElementById(`tagsInput-${listingId}`);
-    if (inputContainer && !listingTagInputs[listingId]) {
-        // Temporarily show container to ensure input is properly initialized
-        const wasHidden = inputContainer.style.display === 'none';
-        if (wasHidden) {
-            inputContainer.style.display = 'block';
-            inputContainer.style.visibility = 'hidden';
-            inputContainer.style.position = 'absolute';
-        }
-        
-        listingTagInputs[listingId] = new TagInput(inputContainer, {
-            existingTags: tags,
-            onTagsChange: (newTags) => {
-                // Get tags that were added
-                const currentTags = window.listingTagsMap[listingId] || [];
-                const currentTagIds = currentTags.map(t => t.tag_id);
-                const tagsToAdd = newTags.filter(t => !currentTagIds.includes(t.tag_id));
-                if (tagsToAdd.length > 0) {
-                    addListingTags(listingId, tagsToAdd.map(t => t.name));
-                }
-            }
-        });
-        
-        // Restore original state
-        if (wasHidden) {
-            inputContainer.style.display = 'none';
-            inputContainer.style.visibility = '';
-            inputContainer.style.position = '';
-        }
-    }
-}
-
-function toggleTagEdit(listingId) {
-    const inputContainer = document.getElementById(`tagsInput-${listingId}`);
-    const displayContainer = document.getElementById(`tagsDisplay-${listingId}`);
-    const editBtn = document.getElementById(`tagEditBtn-${listingId}`);
-    
-    if (inputContainer && displayContainer) {
-        const isEditing = inputContainer.style.display !== 'none';
-        inputContainer.style.display = isEditing ? 'none' : 'block';
-        displayContainer.style.display = isEditing ? 'flex' : 'none';
-        if (editBtn) {
-            editBtn.textContent = isEditing ? '+ Add' : 'Done';
-        }
-        
-        // Focus input when showing - ensure it's accessible
-        if (!isEditing) {
-            // Ensure container is visible first
-            inputContainer.style.visibility = 'visible';
-            inputContainer.style.opacity = '1';
-            
-            // Use requestAnimationFrame to ensure DOM is updated
-            requestAnimationFrame(() => {
-                setTimeout(() => {
-                    const tagInput = listingTagInputs[listingId];
-                    if (tagInput) {
-                        // If input doesn't exist, re-render the TagInput
-                        if (!tagInput.input) {
-                            const existingTags = window.listingTagsMap[listingId] || [];
-                            tagInput.setTags(existingTags);
-                        }
-                        
-                        // Now focus the input
-                        if (tagInput.input) {
-                            const input = tagInput.input;
-                            // Ensure input is visible and accessible
-                            input.style.pointerEvents = 'auto';
-                            input.style.visibility = 'visible';
-                            input.style.opacity = '1';
-                            input.disabled = false;
-                            input.readOnly = false;
-                            // Remove any attributes that might block input
-                            input.removeAttribute('disabled');
-                            input.removeAttribute('readonly');
-                            // Ensure input is in viewport and focusable
-                            input.tabIndex = 0;
-                            // Focus the input - use multiple attempts to ensure it works
-                            try {
-                                input.focus();
-                                // Also trigger a click to ensure it's interactive
-                                input.click();
-                            } catch (e) {
-                                console.warn('Could not focus input:', e);
-                                // Fallback: scroll to input and try again
-                                input.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                                setTimeout(() => input.focus(), 100);
-                            }
-                        }
-                    }
-                }, 100);
-            });
-        }
-    }
-}
-
-async function addListingTags(listingId, tagNames) {
-    try {
-        const response = await fetch(`/api/listings/${listingId}/tags`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tags: tagNames })
-        });
-        
-        if (response.ok) {
-            const addedTags = await response.json();
-            // Reload tags for this listing
-            loadListingTags(listingId);
-        } else {
-            const error = await response.json();
-            alert(error.error || 'Failed to add tags');
-        }
-    } catch (error) {
-        console.error('Error adding tags:', error);
-        alert('Failed to add tags');
-    }
-}
-
-async function removeListingTag(listingId, tagId) {
-    try {
-        const response = await fetch(`/api/listings/${listingId}/tags/${tagId}`, {
-            method: 'DELETE'
-        });
-        
-        if (response.ok) {
-            // Reload tags for this listing
-            loadListingTags(listingId);
-        } else {
-            const error = await response.json();
-            alert(error.error || 'Failed to remove tag');
-        }
-    } catch (error) {
-        console.error('Error removing tag:', error);
-        alert('Failed to remove tag');
-    }
-}
-
-async function loadListingTags(listingId) {
-    try {
-        const response = await fetch(`/api/listings/${listingId}/tags`);
-        if (response.ok) {
-            const tags = await response.json();
-            
-            // Update stored tags
-            if (!window.listingTagsMap) {
-                window.listingTagsMap = {};
-            }
-            window.listingTagsMap[listingId] = tags;
-            
-            const displayContainer = document.getElementById(`tagsDisplay-${listingId}`);
-            if (displayContainer) {
-                renderTags(displayContainer, tags, {
-                    onRemove: (tag, index) => {
-                        removeListingTag(listingId, tag.tag_id);
-                    }
-                });
-            }
-            
-            // Update tag input if it exists
-            if (listingTagInputs[listingId]) {
-                listingTagInputs[listingId].setTags(tags);
-            }
-        }
-    } catch (error) {
-        console.error('Error loading listing tags:', error);
-    }
-}
-</script>
+<script src="{{ url_for('static', filename='js/properties.js', v='20260822-2') }}"></script>
 {% endblock %}

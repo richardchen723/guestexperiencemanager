@@ -158,6 +158,7 @@ class ReviewResolutionPolicyTests(unittest.TestCase):
         self.assertEqual(portfolio_name_for_tags(["Crockett's Run"]), 'Crockett’s Run')
         self.assertEqual(portfolio_name_for_tags(['Crocketts Run']), 'Crockett’s Run')
         self.assertEqual(portfolio_name_for_tags(['Middlefork Ridge']), 'Middlefork')
+        self.assertEqual(portfolio_name_for_tags(['Smoky Cabins']), 'Smoky Cabins')
         self.assertEqual(portfolio_name_for_listing(558675, []), 'crestwood')
 
 

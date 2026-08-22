@@ -11,13 +11,14 @@ from flask import render_template, jsonify, request, redirect, url_for
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
-from database.models import get_session, Listing, Tag, ListingTag
+from database.models import get_session, Listing, ListingPhoto, Review, Tag, ListingTag
 from database.schema import get_database_path
 import dashboard.config as config
 from dashboard.ai.analyzer import get_insights
 from dashboard.auth.decorators import approved_required, feature_required
 from dashboard.auth.features import first_accessible_endpoint
 from dashboard.auth.session import get_current_user
+from dashboard.portfolio_mapping import TAG_PORTFOLIO_NAMES, portfolio_name_for_listing
 from sqlalchemy import func, or_, and_
 from sqlalchemy.orm import joinedload
 
@@ -107,11 +108,57 @@ def register_routes(app):
                         'name': lt.tag.name,
                         'color': lt.tag.color
                     })
+
+            # Keep the property catalog fast by loading cover photos and guest-review
+            # rollups in two aggregate queries instead of per-property lookups.
+            cover_photo_map = {}
+            review_stats_map = {}
+            if listing_ids:
+                photos = session.query(ListingPhoto).filter(
+                    ListingPhoto.listing_id.in_(listing_ids)
+                ).order_by(
+                    ListingPhoto.listing_id,
+                    func.coalesce(ListingPhoto.display_order, 999999),
+                    ListingPhoto.photo_id,
+                ).all()
+                for photo in photos:
+                    cover_photo_map.setdefault(
+                        photo.listing_id,
+                        photo.thumbnail_url or photo.photo_url,
+                    )
+
+                review_rows = session.query(
+                    Review.listing_id,
+                    func.count(Review.review_id),
+                    func.count(Review.overall_rating),
+                    func.avg(Review.overall_rating),
+                    func.max(Review.review_date),
+                ).filter(
+                    Review.listing_id.in_(listing_ids),
+                    func.lower(func.coalesce(Review.origin, '')) == 'guest',
+                    func.lower(func.coalesce(Review.status, '')) != 'rejected',
+                ).group_by(Review.listing_id).all()
+                review_stats_map = {
+                    row[0]: {
+                        'review_count': int(row[1] or 0),
+                        'rated_review_count': int(row[2] or 0),
+                        # Hostaway stores the overall score on a ten-point scale.
+                        'average_review_rating': round(float(row[3]) / 2, 2) if row[3] is not None else None,
+                        'latest_review_date': row[4].isoformat() if row[4] else None,
+                    }
+                    for row in review_rows
+                }
             
             result = []
             for l in listings:
                 insights = insights_map.get(l.listing_id)
                 quality_rating = insights.get('quality_rating') if insights else None
+                tags = listing_tags_map.get(l.listing_id, [])
+                review_stats = review_stats_map.get(l.listing_id, {})
+                portfolio_name = portfolio_name_for_listing(
+                    l.listing_id,
+                    [tag['name'] for tag in tags],
+                ) or 'Unassigned'
                 
                 result.append({
                     'listing_id': l.listing_id,
@@ -119,10 +166,31 @@ def register_routes(app):
                     'internal_listing_name': l.internal_listing_name,
                     'address': l.address,
                     'city': l.city,
+                    'state': l.state,
+                    'country': l.country,
                     'status': l.status,
                     'quality_rating': quality_rating,  # Good, Fair, Poor, or None
-                    'tags': listing_tags_map.get(l.listing_id, [])
+                    'portfolio': portfolio_name,
+                    'thumbnail_url': cover_photo_map.get(l.listing_id),
+                    'accommodates': l.accommodates,
+                    'bedrooms': l.bedrooms,
+                    'bathrooms': l.bathrooms,
+                    'beds': l.beds,
+                    'base_price': l.base_price,
+                    'currency': l.currency,
+                    'review_count': review_stats.get('review_count', 0),
+                    'rated_review_count': review_stats.get('rated_review_count', 0),
+                    'average_review_rating': review_stats.get('average_review_rating'),
+                    'latest_review_date': review_stats.get('latest_review_date'),
+                    'tags': tags,
                 })
+
+            portfolio_order = {name: index for index, name in enumerate(TAG_PORTFOLIO_NAMES)}
+            result.sort(key=lambda listing: (
+                portfolio_order.get(listing['portfolio'], len(portfolio_order)),
+                listing['portfolio'].lower(),
+                (listing['internal_listing_name'] or listing['name'] or '').lower(),
+            ))
             
             return jsonify(result)
         finally:
