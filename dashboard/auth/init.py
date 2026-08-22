@@ -98,7 +98,28 @@ def initialize_all_databases():
 
 
 def ensure_owner_exists():
-    """Ensure the owner account exists, create if it doesn't."""
+    """Initialize databases once across all workers, then ensure the owner."""
+    if not os.getenv("DATABASE_URL"):
+        return _ensure_owner_exists_unlocked()
+
+    from database.models import get_engine as get_main_engine
+
+    connection = get_main_engine(None).connect()
+    try:
+        # Gunicorn imports the app independently in every worker. A session-level
+        # advisory lock prevents concurrent DDL and ticket data migrations from
+        # deadlocking one another during startup.
+        connection.exec_driver_sql("SELECT pg_advisory_lock(779481504)")
+        return _ensure_owner_exists_unlocked()
+    finally:
+        try:
+            connection.exec_driver_sql("SELECT pg_advisory_unlock(779481504)")
+        finally:
+            connection.close()
+
+
+def _ensure_owner_exists_unlocked():
+    """Ensure the owner account exists after serialized database setup."""
     # Initialize all databases first (idempotent - safe to call multiple times)
     initialize_all_databases()
     
