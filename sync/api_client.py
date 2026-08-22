@@ -11,7 +11,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from datetime import datetime
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 
 from config import HOSTAWAY_API_KEY, HOSTAWAY_ACCOUNT_ID, HOSTAWAY_BASE_URL, VERBOSE
 
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # Constants
 RATE_LIMIT_RETRY_DELAY = 10  # seconds
 TOKEN_EXPIRATION_BUFFER = 60  # seconds
+TOKEN_ACTIVATION_DELAY = 1.0  # Hostaway tokens are not usable immediately
 DEFAULT_TOKEN_EXPIRATION = 3600  # seconds
 MAX_RETRIES = 5  # Maximum retries for DNS/network errors
 BASE_DELAY = 1  # Base delay in seconds for exponential backoff
@@ -29,6 +30,13 @@ MAX_DELAY = 30  # Maximum delay cap in seconds
 
 class HostawayAPIClient:
     """API client for Hostaway with OAuth 2.0 authentication and rate limiting."""
+
+    # API clients are intentionally short-lived in several dashboard flows. Keep
+    # tokens at the process level so every new client does not mint a new token.
+    # The cache key prevents credentials for different accounts/environments from
+    # sharing a token if they are ever used in the same process.
+    _token_cache: Dict[Tuple[str, str, str], Tuple[str, float]] = {}
+    _token_lock = threading.RLock()
     
     def __init__(self):
         """Initialize the API client with credentials."""
@@ -43,14 +51,29 @@ class HostawayAPIClient:
         self.account_id = HOSTAWAY_ACCOUNT_ID
         self.api_key = HOSTAWAY_API_KEY
         self.base_url = HOSTAWAY_BASE_URL
-        self.access_token: Optional[str] = None
-        self.token_expires_at: Optional[float] = None
+        self._token_cache_key = (
+            str(self.base_url),
+            str(self.account_id),
+            str(self.api_key),
+        )
         
         # Keep one requests session per worker thread. ``requests.Session`` is not
         # documented as thread-safe, while message sync intentionally fetches
         # several reservation conversations in parallel.
         self._thread_local = threading.local()
-        self._token_lock = threading.RLock()
+
+    @staticmethod
+    def _token_from_headers(headers: Dict[str, str]) -> Optional[str]:
+        authorization = str(headers.get('Authorization') or '')
+        prefix = 'Bearer '
+        return authorization[len(prefix):] if authorization.startswith(prefix) else None
+
+    def _invalidate_access_token(self, rejected_token: Optional[str] = None) -> None:
+        """Remove the cached token only if it is the token that was rejected."""
+        with type(self)._token_lock:
+            cached = type(self)._token_cache.get(self._token_cache_key)
+            if cached and (rejected_token is None or cached[0] == rejected_token):
+                type(self)._token_cache.pop(self._token_cache_key, None)
 
     def _build_session(self) -> requests.Session:
         """Create a pooled HTTP session for the current worker thread."""
@@ -88,12 +111,13 @@ class HostawayAPIClient:
         Returns:
             Access token string if successful, None otherwise.
         """
-        with self._token_lock:
-            # Re-check inside the lock because another worker may have refreshed it.
-            if (self.access_token and
-                self.token_expires_at and
-                datetime.now().timestamp() < self.token_expires_at):
-                return self.access_token
+        with type(self)._token_lock:
+            # Re-check inside the lock because another client/thread may have refreshed it.
+            cached = type(self)._token_cache.get(self._token_cache_key)
+            if cached and time.time() < cached[1]:
+                return cached[0]
+            if cached:
+                type(self)._token_cache.pop(self._token_cache_key, None)
 
             if VERBOSE:
                 logger.info("Getting new access token...")
@@ -117,9 +141,9 @@ class HostawayAPIClient:
                     response = self.session.post(url, headers=headers, data=data, timeout=30)
                     response.raise_for_status()
                     token_data = response.json()
-                    self.access_token = token_data.get('access_token')
+                    access_token = token_data.get('access_token')
 
-                    if not self.access_token:
+                    if not access_token:
                         logger.error("No access token in response")
                         return None
 
@@ -130,14 +154,21 @@ class HostawayAPIClient:
                         )
                     except (TypeError, ValueError):
                         expires_in = float(DEFAULT_TOKEN_EXPIRATION)
-                    self.token_expires_at = (
-                        datetime.now().timestamp() + expires_in - TOKEN_EXPIRATION_BUFFER
+                    expires_at = time.time() + expires_in - TOKEN_EXPIRATION_BUFFER
+
+                    # Hostaway documents that a newly issued token becomes valid
+                    # one second after the token response. Hold the shared refresh
+                    # lock during that delay so no other client can use it early.
+                    time.sleep(TOKEN_ACTIVATION_DELAY)
+                    type(self)._token_cache[self._token_cache_key] = (
+                        str(access_token),
+                        expires_at,
                     )
 
                     if attempt > 0:
                         logger.info(f"Successfully got access token after {attempt} retries")
 
-                    return self.access_token
+                    return str(access_token)
                 
                 except (requests.exceptions.Timeout,
                         requests.exceptions.ConnectTimeout,
@@ -253,9 +284,7 @@ class HostawayAPIClient:
                 # A token can be revoked before its advertised expiry. Refresh it
                 # once instead of turning a valid sync into a silent empty result.
                 if response.status_code in (401, 403) and attempt == 0:
-                    with self._token_lock:
-                        self.access_token = None
-                        self.token_expires_at = None
+                    self._invalidate_access_token(self._token_from_headers(headers))
                     headers = self.get_headers()
                     if not headers:
                         return None
@@ -345,6 +374,8 @@ class HostawayAPIClient:
         except requests.exceptions.RequestException as exc:
             status_code = exc.response.status_code if exc.response is not None else None
             status_suffix = f" ({status_code})" if status_code else ""
+            if status_code in (401, 403):
+                self._invalidate_access_token(self._token_from_headers(headers))
             logger.error("Hostaway POST failed for %s%s", endpoint, status_suffix)
             raise RuntimeError(f"Hostaway rejected the outbound action{status_suffix}") from exc
 
