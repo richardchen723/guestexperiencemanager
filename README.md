@@ -63,6 +63,7 @@ A production-ready data synchronization system for Hostaway that stores listings
 
 For production deployment to AWS Lightsail, see:
 - [Lightsail Deployment Guide](deployment/LIGHTSAIL_DEPLOYMENT.md)
+- [Guest-experience result replication](deployment/GUEST_EXPERIENCE_PRODUCTION_SYNC.md)
 - [General Deployment Guide](DEPLOYMENT.md)
 
 ## Usage

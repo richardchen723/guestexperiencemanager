@@ -11,10 +11,30 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+
+def _load_runtime_environment():
+    """Load the app environment before database models choose PostgreSQL types."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    project_root = Path(__file__).resolve().parent.parent
+    configured = os.getenv("HOSTAWAY_ENV_FILE")
+    candidates = [Path(configured).expanduser()] if configured else []
+    candidates.extend((project_root / ".env", project_root.parent / ".env"))
+    for candidate in candidates:
+        if candidate.is_file():
+            load_dotenv(candidate)
+            return
+
+
+_load_runtime_environment()
 
 from sqlalchemy import func, text
 
@@ -40,6 +60,12 @@ from brain.models import (
     as_json_safe,
     get_session as get_brain_session,
     init_guest_experience_tables,
+)
+from brain.guest_experience_replication import (
+    GuestExperienceReplicationError,
+    GuestExperienceReplicationService,
+    ProductionSshClient,
+    ProductionSshConfig,
 )
 from brain.scoring import is_confirmed_reservation_status
 from database.models import (
@@ -708,37 +734,150 @@ def main():
     import_parser.add_argument("--results", required=True)
     import_parser.add_argument("--batch")
     import_parser.add_argument("--cleanup", action="store_true")
+    sync_import_parser = subparsers.add_parser("sync-import")
+    sync_import_parser.add_argument("--input", default="-")
+    sync_production_parser = subparsers.add_parser("sync-production")
+    sync_scope = sync_production_parser.add_mutually_exclusive_group(required=True)
+    sync_scope.add_argument("--run-id", type=int)
+    sync_scope.add_argument("--pending", action="store_true")
+    sync_production_parser.add_argument(
+        "--ssh-target",
+        default=os.getenv("GUEST_EXPERIENCE_PRODUCTION_SSH_TARGET"),
+    )
+    sync_production_parser.add_argument(
+        "--identity-file",
+        default=os.getenv("GUEST_EXPERIENCE_PRODUCTION_SSH_KEY"),
+    )
+    sync_production_parser.add_argument(
+        "--ssh-port",
+        type=int,
+        default=int(os.getenv("GUEST_EXPERIENCE_PRODUCTION_SSH_PORT", "22")),
+    )
+    sync_production_parser.add_argument(
+        "--remote-app-dir",
+        default=os.getenv(
+            "GUEST_EXPERIENCE_PRODUCTION_APP_DIR",
+            "/opt/hostaway-messages/app",
+        ),
+    )
+    sync_production_parser.add_argument(
+        "--remote-python",
+        default=os.getenv(
+            "GUEST_EXPERIENCE_PRODUCTION_PYTHON",
+            "/opt/hostaway-messages/venv/bin/python",
+        ),
+    )
+    sync_production_parser.add_argument(
+        "--remote-env-file",
+        default=os.getenv(
+            "GUEST_EXPERIENCE_PRODUCTION_ENV_FILE",
+            "/opt/hostaway-messages/.env",
+        ),
+    )
+    sync_production_parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=int(os.getenv("GUEST_EXPERIENCE_PRODUCTION_TIMEOUT_SECONDS", "120")),
+    )
     args = parser.parse_args()
 
-    init_models(None)
+    if args.action in {"export", "import"}:
+        init_models(None)
     init_guest_experience_tables()
-    service = CodexGuestExperienceBatchService()
+    if args.action in {"export", "import"}:
+        service = CodexGuestExperienceBatchService()
+        try:
+            if args.action == "export":
+                payload = service.export_batch(
+                    max_stays=args.max_stays,
+                    max_reviews=args.max_reviews,
+                )
+                _write_private_json(args.output, payload)
+                print(json.dumps({
+                    "run_id": payload["run_id"],
+                    "stays_exported": len(payload["stays"]),
+                    "reviews_exported": len(payload["reviews"]),
+                    "muted_stays_analyzed": payload["local_results"]["muted_stays_analyzed"],
+                    "backlog": payload["backlog"],
+                    "output": str(Path(args.output).expanduser().resolve()),
+                }, indent=2))
+            else:
+                results_path = Path(args.results).expanduser().resolve()
+                with results_path.open("r", encoding="utf-8") as handle:
+                    result = service.import_results(json.load(handle))
+                print(json.dumps(result, indent=2))
+                if args.cleanup:
+                    results_path.unlink(missing_ok=True)
+                    if args.batch:
+                        Path(args.batch).expanduser().resolve().unlink(missing_ok=True)
+        finally:
+            service.close()
+        return
+
+    brain_session = get_brain_session()
+    replication = GuestExperienceReplicationService(brain_session)
     try:
-        if args.action == "export":
-            payload = service.export_batch(
-                max_stays=args.max_stays,
-                max_reviews=args.max_reviews,
+        if args.action == "sync-import":
+            if brain_session.get_bind().dialect.name != "postgresql":
+                raise GuestExperienceReplicationError("Production sync-import requires PostgreSQL")
+            if args.input == "-":
+                payload = json.load(sys.stdin)
+            else:
+                with Path(args.input).expanduser().resolve().open("r", encoding="utf-8") as handle:
+                    payload = json.load(handle)
+            print(json.dumps(replication.import_payload(payload), indent=2))
+            return
+
+        if not args.ssh_target:
+            raise GuestExperienceReplicationError(
+                "Production SSH target is required via --ssh-target or "
+                "GUEST_EXPERIENCE_PRODUCTION_SSH_TARGET"
             )
-            _write_private_json(args.output, payload)
-            print(json.dumps({
-                "run_id": payload["run_id"],
-                "stays_exported": len(payload["stays"]),
-                "reviews_exported": len(payload["reviews"]),
-                "muted_stays_analyzed": payload["local_results"]["muted_stays_analyzed"],
-                "backlog": payload["backlog"],
-                "output": str(Path(args.output).expanduser().resolve()),
-            }, indent=2))
-        else:
-            results_path = Path(args.results).expanduser().resolve()
-            with results_path.open("r", encoding="utf-8") as handle:
-                result = service.import_results(json.load(handle))
-            print(json.dumps(result, indent=2))
-            if args.cleanup:
-                results_path.unlink(missing_ok=True)
-                if args.batch:
-                    Path(args.batch).expanduser().resolve().unlink(missing_ok=True)
+        if not args.identity_file:
+            raise GuestExperienceReplicationError(
+                "Production SSH identity is required via --identity-file or "
+                "GUEST_EXPERIENCE_PRODUCTION_SSH_KEY"
+            )
+        client = ProductionSshClient(ProductionSshConfig(
+            target=args.ssh_target,
+            identity_file=Path(args.identity_file),
+            remote_app_dir=args.remote_app_dir,
+            remote_python=args.remote_python,
+            remote_env_file=args.remote_env_file,
+            port=args.ssh_port,
+            timeout_seconds=max(1, args.timeout_seconds),
+        ))
+        run_ids = (
+            replication.pending_run_ids()
+            if args.pending
+            else [int(args.run_id)]
+        )
+        synced = []
+        for run_id in run_ids:
+            try:
+                payload = replication.export_run(run_id)
+                result = client.import_payload(payload)
+                replication.mark_sync_completed(
+                    run_id,
+                    target=args.ssh_target,
+                    result=result,
+                )
+                synced.append(result)
+            except Exception as exc:
+                replication.mark_sync_failed(
+                    run_id,
+                    target=args.ssh_target,
+                    error=exc,
+                )
+                raise
+        print(json.dumps({
+            "status": "completed",
+            "runs_synced": len(synced),
+            "run_ids": run_ids,
+            "results": synced,
+        }, indent=2))
     finally:
-        service.close()
+        brain_session.close()
 
 
 if __name__ == "__main__":
