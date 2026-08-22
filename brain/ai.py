@@ -15,6 +15,8 @@ SIGNAL_PROMPT_VERSION = "brain-signals-v1"
 ASK_PROMPT_VERSION = "brain-ask-v1"
 BOOKING_HEALTH_PROMPT_VERSION = "brain-booking-health-v1"
 STAY_OUTCOME_PROMPT_VERSION = "kpi-stay-outcome-v1"
+COMPREHENSIVE_STAY_PROMPT_VERSION = "guest-experience-stay-v1"
+GUEST_REVIEW_ISSUE_PROMPT_VERSION = "guest-experience-review-v1"
 
 
 class BrainAIClient:
@@ -240,6 +242,180 @@ class BrainAIClient:
                 "role": "user",
                 "content": json.dumps(context, default=str),
             },
+        ]
+        return self._chat_json(messages, schema)
+
+    def analyze_comprehensive_stays(self, context: dict[str, Any]) -> dict[str, Any]:
+        """Analyze completed stays for quality, complaints, and exact evidence."""
+        raise RuntimeError(
+            "API-backed guest-experience analysis is disabled; use the Codex scheduled-task bridge."
+        )
+        issue_schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "issue_category": {"type": "string"},
+                "summary": {"type": "string"},
+                "details": {"type": "string"},
+                "suggested_improvement": {"type": "string"},
+                "severity": {"type": "string", "enum": ["minor", "material", "critical"]},
+                "resolution_state": {"type": "string", "enum": ["resolved", "unresolved", "unclear"]},
+                "source_references": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "source_type": {"type": "string", "enum": ["message"]},
+                            "source_id": {"type": "integer"},
+                            "role": {"type": "string", "enum": ["complaint", "resolution", "context"]},
+                        },
+                        "required": ["source_type", "source_id", "role"],
+                    },
+                },
+            },
+            "required": [
+                "issue_category",
+                "summary",
+                "details",
+                "suggested_improvement",
+                "severity",
+                "resolution_state",
+                "source_references",
+            ],
+        }
+        schema = {
+            "name": "comprehensive_stay_analysis_response",
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "stays": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "reservation_id": {"type": "integer"},
+                                "stay_quality": {
+                                    "type": "string",
+                                    "enum": ["smooth", "recovered", "unresolved", "muted"],
+                                },
+                                "summary": {"type": "string"},
+                                "detailed_summary": {"type": "string"},
+                                "issues": {"type": "array", "items": issue_schema},
+                            },
+                            "required": [
+                                "reservation_id",
+                                "stay_quality",
+                                "summary",
+                                "detailed_summary",
+                                "issues",
+                            ],
+                        },
+                    }
+                },
+                "required": ["stays"],
+            },
+            "strict": True,
+        }
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a rigorous short-term-rental guest-experience analyst. Analyze every supplied "
+                    "stay field and the entire supplied message history. Identify only issues the guest actually "
+                    "complained about; do not turn routine questions, preferences, requests, or thanks into issues. "
+                    "For every issue, write a short human-readable summary and a specific detailed account, then "
+                    "suggest a practical property or process improvement. Cite exact supplied message IDs. Use "
+                    "recovered only when every complaint has credible resolution evidence, unresolved when any "
+                    "complaint remained open or unclear, smooth when the guest communicated but made no complaint, "
+                    "and muted only when there was no guest communication. Do not infer facts beyond the input."
+                ),
+            },
+            {"role": "user", "content": json.dumps(context, default=str)},
+        ]
+        return self._chat_json(messages, schema)
+
+    def analyze_guest_review_issues(self, context: dict[str, Any]) -> dict[str, Any]:
+        """Extract issues and improvements from public and private guest reviews."""
+        raise RuntimeError(
+            "API-backed guest-experience analysis is disabled; use the Codex scheduled-task bridge."
+        )
+        issue_schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "issue_category": {"type": "string"},
+                "summary": {"type": "string"},
+                "details": {"type": "string"},
+                "suggested_improvement": {"type": "string"},
+                "severity": {"type": "string", "enum": ["minor", "material", "critical"]},
+                "evidence_basis": {"type": "string", "enum": ["explicit_feedback", "rating_signal"]},
+                "source_references": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "source_type": {"type": "string", "enum": ["review"]},
+                            "source_id": {"type": "integer"},
+                            "source_part": {
+                                "type": "string",
+                                "enum": ["public_review", "private_feedback", "overall_rating", "sub_rating"],
+                            },
+                        },
+                        "required": ["source_type", "source_id", "source_part"],
+                    },
+                },
+            },
+            "required": [
+                "issue_category",
+                "summary",
+                "details",
+                "suggested_improvement",
+                "severity",
+                "evidence_basis",
+                "source_references",
+            ],
+        }
+        schema = {
+            "name": "guest_review_issue_response",
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "reviews": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "review_id": {"type": "integer"},
+                                "summary": {"type": "string"},
+                                "issues": {"type": "array", "items": issue_schema},
+                            },
+                            "required": ["review_id", "summary", "issues"],
+                        },
+                    }
+                },
+                "required": ["reviews"],
+            },
+            "strict": True,
+        }
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You extract property and operating issues from guest-written reviews. Inspect publicReview, "
+                    "privateFeedback, overall rating, and category ratings. Preserve the distinction between "
+                    "public and private evidence. Capture each concrete complaint and any improvement the guest "
+                    "suggests; when no explicit suggestion exists, propose a restrained operational improvement. "
+                    "A low score without written detail may be a rating_signal but must not be embellished. Positive "
+                    "feedback is not an issue. Cite only the supplied review ID and exact source part."
+                ),
+            },
+            {"role": "user", "content": json.dumps(context, default=str)},
         ]
         return self._chat_json(messages, schema)
 

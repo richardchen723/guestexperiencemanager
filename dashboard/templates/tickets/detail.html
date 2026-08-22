@@ -2,6 +2,12 @@
 
 {% block title %}Ticket #{{ ticket.ticket_id }} - Hostaway Insights Dashboard{% endblock %}
 
+{% block extra_head %}
+<style>
+.linked-guest-issue{display:flex;gap:12px;align-items:center;margin:0 0 18px;padding:13px 15px;border:1px solid #cfe1d8;border-radius:12px;background:#f3f8f5}.linked-guest-issue__icon{display:grid;width:32px;height:32px;flex:0 0 auto;place-items:center;border-radius:9px;color:#176b50;background:#deeee6;font-weight:850}.linked-guest-issue__copy{min-width:0;flex:1}.linked-guest-issue__copy span{display:block;color:#176b50;font-size:9px;font-weight:850;letter-spacing:.08em;text-transform:uppercase}.linked-guest-issue__copy strong{display:block;margin-top:2px;color:#20342b;font-size:12px}.linked-guest-issue>a{color:#176b50;font-size:11px;font-weight:800;text-decoration:none}@media(max-width:680px){.linked-guest-issue{align-items:flex-start;flex-wrap:wrap}.linked-guest-issue>a{width:100%;padding-left:44px}}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="ticket-detail-page">
     <a href="{{ url_for('tickets.tickets_list') }}" class="ticket-back-link">
@@ -31,6 +37,14 @@
             {% endif %}
         </div>
     </div>
+
+    {% if linked_guest_issue %}
+    <aside class="linked-guest-issue">
+        <div class="linked-guest-issue__icon">#</div>
+        <div class="linked-guest-issue__copy"><span>Linked guest issue #{{ linked_guest_issue.issue_id }}</span><strong>{{ linked_guest_issue.summary }}</strong></div>
+        <a href="/workspace/guest-issues/?view={{ linked_guest_issue_view }}&amp;issue={{ linked_guest_issue.issue_id }}">View source issue →</a>
+    </aside>
+    {% endif %}
     
     <div class="ticket-detail-content">
         <div class="ticket-info">

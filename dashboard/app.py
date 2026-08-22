@@ -58,8 +58,10 @@ from dashboard.bookkeeping.routes import register_bookkeeping_routes
 from dashboard.boost.routes import register_boost_routes
 from dashboard.kpi.routes import register_kpi_routes
 from dashboard.listing_audit.routes import register_listing_audit_routes
+from dashboard.stay_issues.routes import register_guest_issue_routes
 from dashboard.dashboard.routes import dashboard_bp
-from brain.models import init_kpi_tables, init_listing_audit_tables
+from brain.models import init_guest_experience_tables, init_kpi_tables, init_listing_audit_tables
+from database.models import init_models
 from dashboard.auth.oauth import create_google_blueprint
 from dashboard.auth.init import ensure_owner_exists
 from dashboard.auth.features import accessible_feature_keys, effective_feature_access
@@ -98,8 +100,10 @@ def create_app():
     
     # Initialize owner account
     ensure_owner_exists()
+    init_models(None)
     init_kpi_tables()
     init_listing_audit_tables()
+    init_guest_experience_tables()
     
     # Register Google OAuth blueprint
     google_bp = create_google_blueprint(app)
@@ -117,6 +121,7 @@ def create_app():
     register_boost_routes(app)
     register_kpi_routes(app)
     register_listing_audit_routes(app)
+    register_guest_issue_routes(app)
     app.register_blueprint(dashboard_bp)
     
     # Health check endpoint for monitoring

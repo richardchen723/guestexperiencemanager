@@ -838,6 +838,129 @@ class StayOutcomeClassification(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
+class GuestExperienceAnalysisRun(Base):
+    """One auditable invocation of the independent guest-experience analyzer."""
+
+    __tablename__ = "guest_experience_analysis_runs"
+    __table_args__ = (
+        Index("idx_brain_guest_experience_runs_started", "started_at", "status"),
+        {"schema": BRAIN_SCHEMA} if os.getenv("DATABASE_URL") else {},
+    )
+
+    run_id = Column(Integer, primary_key=True, autoincrement=True)
+    status = Column(String, nullable=False, default="running", index=True)
+    window_start_at = Column(DateTime, nullable=False)
+    window_end_at = Column(DateTime, nullable=False)
+    eligible_stay_count = Column(Integer, nullable=False, default=0)
+    stays_analyzed = Column(Integer, nullable=False, default=0)
+    stays_already_analyzed = Column(Integer, nullable=False, default=0)
+    reviews_analyzed = Column(Integer, nullable=False, default=0)
+    reviews_already_analyzed = Column(Integer, nullable=False, default=0)
+    error_count = Column(Integer, nullable=False, default=0)
+    details = Column(_json_type())
+    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = Column(DateTime)
+
+
+class ComprehensiveStayAnalysis(Base):
+    """Immutable, comprehensive analysis of one eligible completed stay."""
+
+    __tablename__ = "comprehensive_stay_analyses"
+    __table_args__ = (
+        UniqueConstraint("reservation_id", name="uq_brain_comprehensive_stay_once"),
+        Index("idx_brain_comprehensive_stay_listing_checkout", "listing_id", "checkout_at"),
+        Index("idx_brain_comprehensive_stay_quality", "stay_quality", "checkout_at"),
+        {"schema": BRAIN_SCHEMA} if os.getenv("DATABASE_URL") else {},
+    )
+
+    stay_analysis_id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(Integer, nullable=True, index=True)
+    listing_id = Column(Integer, nullable=False, index=True)
+    reservation_id = Column(Integer, nullable=False, index=True)
+    arrival_date = Column(Date, nullable=False)
+    departure_date = Column(Date, nullable=False, index=True)
+    checkout_at = Column(DateTime, nullable=False, index=True)
+    eligible_at = Column(DateTime, nullable=False)
+    stay_quality = Column(String, nullable=False, index=True)
+    summary = Column(Text, nullable=False)
+    detailed_summary = Column(Text, nullable=False)
+    issue_count = Column(Integer, nullable=False, default=0)
+    message_count = Column(Integer, nullable=False, default=0)
+    guest_message_count = Column(Integer, nullable=False, default=0)
+    source_message_ids = Column(_json_type())
+    input_hash = Column(String, nullable=False, index=True)
+    prompt_version = Column(String, nullable=False, index=True)
+    model = Column(String)
+    source_metadata = Column(_json_type())
+    analyzed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class GuestReviewIssueAnalysis(Base):
+    """Immutable issue extraction for one submitted guest review."""
+
+    __tablename__ = "guest_review_issue_analyses"
+    __table_args__ = (
+        UniqueConstraint("review_id", name="uq_brain_guest_review_issue_once"),
+        Index("idx_brain_guest_review_issue_listing_date", "listing_id", "review_date"),
+        {"schema": BRAIN_SCHEMA} if os.getenv("DATABASE_URL") else {},
+    )
+
+    review_analysis_id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(Integer, nullable=True, index=True)
+    review_id = Column(Integer, nullable=False, index=True)
+    listing_id = Column(Integer, nullable=False, index=True)
+    reservation_id = Column(Integer, nullable=True, index=True)
+    review_date = Column(Date, nullable=True, index=True)
+    summary = Column(Text, nullable=False)
+    issue_count = Column(Integer, nullable=False, default=0)
+    has_public_review = Column(Boolean, nullable=False, default=False)
+    has_private_feedback = Column(Boolean, nullable=False, default=False)
+    input_hash = Column(String, nullable=False, index=True)
+    prompt_version = Column(String, nullable=False, index=True)
+    model = Column(String)
+    source_metadata = Column(_json_type())
+    analyzed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PropertyGuestIssue(Base):
+    """A normalized property issue linked to the exact guest evidence."""
+
+    __tablename__ = "property_guest_issues"
+    __table_args__ = (
+        UniqueConstraint("source_kind", "source_issue_key", name="uq_brain_property_issue_source"),
+        Index("idx_brain_property_issue_listing_date", "listing_id", "source_date"),
+        Index("idx_brain_property_issue_category", "issue_category", "severity"),
+        {"schema": BRAIN_SCHEMA} if os.getenv("DATABASE_URL") else {},
+    )
+
+    issue_id = Column(Integer, primary_key=True, autoincrement=True)
+    source_kind = Column(String, nullable=False, index=True)  # stay or review
+    source_issue_key = Column(String, nullable=False)
+    stay_analysis_id = Column(Integer, nullable=True, index=True)
+    review_analysis_id = Column(Integer, nullable=True, index=True)
+    listing_id = Column(Integer, nullable=False, index=True)
+    reservation_id = Column(Integer, nullable=True, index=True)
+    review_id = Column(Integer, nullable=True, index=True)
+    source_date = Column(Date, nullable=False, index=True)
+    issue_category = Column(String, nullable=False, index=True)
+    summary = Column(String, nullable=False)
+    details = Column(Text, nullable=False)
+    suggested_improvement = Column(Text)
+    severity = Column(String, nullable=False, default="material", index=True)
+    resolution_state = Column(String, nullable=True, index=True)
+    source_references = Column(_json_type(), nullable=False)
+    workflow_status = Column(String, nullable=False, default="open", index=True)
+    resolution_comment = Column(Text)
+    resolution_method = Column(String, nullable=True, index=True)
+    resolved_at = Column(DateTime, nullable=True, index=True)
+    resolved_by_user_id = Column(Integer, nullable=True, index=True)
+    linked_ticket_id = Column(Integer, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class WhatsAppThread(Base):
     """WhatsApp conversation thread mapped from a provider sender."""
 
@@ -1027,6 +1150,23 @@ def init_kpi_tables():
     return engine
 
 
+def init_guest_experience_tables():
+    """Create only the additive tables for the independent analysis pipeline."""
+    engine = get_engine()
+    with engine.begin() as conn:
+        if os.getenv("DATABASE_URL"):
+            conn.execute(sqlalchemy.text(f"CREATE SCHEMA IF NOT EXISTS {BRAIN_SCHEMA}"))
+        for table in (
+            GuestExperienceAnalysisRun.__table__,
+            ComprehensiveStayAnalysis.__table__,
+            GuestReviewIssueAnalysis.__table__,
+            PropertyGuestIssue.__table__,
+        ):
+            table.create(bind=conn, checkfirst=True)
+        _migrate_guest_issue_lifecycle(conn)
+    return engine
+
+
 def init_listing_audit_tables():
     """Create the additive Workspace listing-audit tables."""
     engine = get_engine()
@@ -1046,6 +1186,7 @@ def _migrate_brain_tables(bind):
 
     def migrate(conn):
         _ensure_stay_outcome_once_index(conn)
+        _migrate_guest_issue_lifecycle(conn)
         result = conn.execute(
             sqlalchemy.text(
                 """
@@ -1070,6 +1211,62 @@ def _migrate_brain_tables(bind):
     else:
         with bind.begin() as conn:
             migrate(conn)
+
+
+def _migrate_guest_issue_lifecycle(conn):
+    """Add the operator workflow to pre-existing guest-issue tables."""
+    if not os.getenv("DATABASE_URL"):
+        return
+
+    table_exists = conn.execute(
+        sqlalchemy.text("SELECT to_regclass(:table_name)"),
+        {"table_name": f"{BRAIN_SCHEMA}.property_guest_issues"},
+    ).scalar()
+    if not table_exists:
+        return
+
+    result = conn.execute(
+        sqlalchemy.text(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = :schema AND table_name = 'property_guest_issues'
+            """
+        ),
+        {"schema": BRAIN_SCHEMA},
+    )
+    columns = {row[0] for row in result.fetchall()}
+    additions = (
+        ("workflow_status", "VARCHAR NOT NULL DEFAULT 'open'"),
+        ("resolution_comment", "TEXT"),
+        ("resolution_method", "VARCHAR"),
+        ("resolved_at", "TIMESTAMP WITHOUT TIME ZONE"),
+        ("resolved_by_user_id", "INTEGER"),
+        ("linked_ticket_id", "INTEGER"),
+        ("updated_at", "TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+    )
+    for column_name, column_type in additions:
+        if column_name not in columns:
+            conn.execute(
+                sqlalchemy.text(
+                    f"ALTER TABLE {BRAIN_SCHEMA}.property_guest_issues "
+                    f"ADD COLUMN {column_name} {column_type}"
+                )
+            )
+
+    for index_name, column_name in (
+        ("idx_brain_property_issue_workflow", "workflow_status"),
+        ("idx_brain_property_issue_resolved_at", "resolved_at"),
+        ("idx_brain_property_issue_resolved_by", "resolved_by_user_id"),
+        ("idx_brain_property_issue_ticket", "linked_ticket_id"),
+        ("idx_brain_property_issue_resolution_method", "resolution_method"),
+    ):
+        conn.execute(
+            sqlalchemy.text(
+                f"CREATE INDEX IF NOT EXISTS {index_name} "
+                f"ON {BRAIN_SCHEMA}.property_guest_issues ({column_name})"
+            )
+        )
 
 
 def _ensure_stay_outcome_once_index(conn):

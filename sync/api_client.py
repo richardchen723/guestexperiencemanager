@@ -722,7 +722,8 @@ class HostawayAPIClient:
                     order: Optional[str] = None,
                     statuses: Optional[List[str]] = None,
                     departure_date_start: Optional[str] = None,
-                    departure_date_end: Optional[str] = None) -> List[Dict]:
+                    departure_date_end: Optional[str] = None,
+                    preview: bool = True) -> List[Dict]:
         """
         Get reviews with optional filters.
         
@@ -751,6 +752,7 @@ class HostawayAPIClient:
             statuses=statuses,
             departure_date_start=departure_date_start,
             departure_date_end=departure_date_end,
+            preview=preview,
         )
         return page if page is not None else []
 
@@ -764,7 +766,8 @@ class HostawayAPIClient:
                          order: Optional[str] = None,
                          statuses: Optional[List[str]] = None,
                          departure_date_start: Optional[str] = None,
-                         departure_date_end: Optional[str] = None) -> Optional[List[Dict]]:
+                         departure_date_end: Optional[str] = None,
+                         preview: bool = True) -> Optional[List[Dict]]:
         """Return one review page using the current Hostaway parameter names."""
         params: Dict[str, Any] = {}
         if listing_id:
@@ -787,6 +790,8 @@ class HostawayAPIClient:
             params['departureDateStart'] = departure_date_start
         if departure_date_end:
             params['departureDateEnd'] = departure_date_end
+        if preview:
+            params['preview'] = 'true'
         
         data = self._make_request("reviews", params)
         if not isinstance(data, dict) or 'result' not in data:

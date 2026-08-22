@@ -25,7 +25,8 @@
     data-features="{{ accessible_feature_keys | join(',') }}"
 >
     {% set endpoint = request.endpoint or '' %}
-    {% if 'listing_audit' in endpoint %}{% set workspace_name = 'Listing health' %}
+    {% if 'guest_issues' in endpoint %}{% set workspace_name = 'Guest issues' %}
+    {% elif 'listing_audit' in endpoint %}{% set workspace_name = 'Listing health' %}
     {% elif 'kpi' in endpoint %}{% set workspace_name = 'KPI' %}
     {% elif 'tickets' in endpoint %}{% set workspace_name = 'Tickets' %}
     {% elif 'reviews' in endpoint %}{% set workspace_name = 'Reviews' %}
@@ -81,6 +82,10 @@
                     <a href="{{ url_for('properties') }}" class="app-nav-link {% if endpoint == 'properties' or endpoint == 'insights_page' %}active{% endif %}" title="Properties">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9Z"/><path d="M9 21v-8h6v8"/></svg>
                         <span>Properties</span>
+                    </a>
+                    <a href="{{ url_for('guest_issues.guest_issues_page') }}" class="app-nav-link {% if 'guest_issues' in endpoint %}active{% endif %}" title="Guest issues">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4V5Z"/><path d="M8 9h8M8 13h5"/></svg>
+                        <span>Guest issues</span>
                     </a>
                     {% endif %}
                     {% if feature_access.tickets %}

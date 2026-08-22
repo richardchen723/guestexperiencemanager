@@ -404,6 +404,10 @@ def _review_dict(review_data: Dict, lookups: Dict) -> Tuple[Optional[Dict], Opti
             or review_data.get('text')
             or review_data.get('review_text')
         ),
+        'private_feedback': (
+            review_data.get('privateFeedback')
+            or review_data.get('private_feedback')
+        ),
         'reviewer_name': reviewer_name,
         'reviewer_picture': (
             review_data.get('reviewerPicture') or review_data.get('reviewer_picture')
@@ -574,7 +578,7 @@ def sync_reviews(
 
                     supplied_sub_ratings = next((
                         review_data[key]
-                        for key in ('subRatings', 'sub_ratings', 'ratings')
+                        for key in ('subRatings', 'sub_ratings', 'ratings', 'reviewCategory')
                         if key in review_data
                     ), None)
                     if supplied_sub_ratings is not None:

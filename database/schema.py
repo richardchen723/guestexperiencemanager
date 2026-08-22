@@ -243,6 +243,7 @@ def create_schema(db_path: str):
             channel_name TEXT,
             overall_rating REAL,
             review_text TEXT,
+            private_feedback TEXT,
             reviewer_name TEXT,
             reviewer_picture TEXT,
             review_date DATE,

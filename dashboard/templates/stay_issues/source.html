@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Raw Guest Evidence · Hostaway Insights{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/guest-issues.css', v='20260822-1') }}">
+{% endblock %}
+
+{% block content %}
+<main class="guest-source-page">
+    <a class="source-back" href="{{ url_for('guest_issues.guest_issues_page') }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg> Back to guest issues
+    </a>
+
+    <section class="source-header">
+        <div><span>Raw {{ source.kind }} evidence</span><h1>{{ source.title }}</h1><p>{{ source.listing_name }} · Rental unit {{ source.listing_id }}{% if source.reservation_id %} · Reservation {{ source.reservation_id }}{% endif %}</p></div>
+        <div><small>Source ID</small><strong>{{ source.source_id }}</strong></div>
+    </section>
+
+    {% if source.kind == 'message' %}
+    <section class="raw-source-card" id="message-{{ source.source_id }}">
+        <div class="raw-source-meta"><span>{{ source.direction }}</span><span>{{ source.sender }}</span><span>{{ source.created_at.strftime('%b %-d, %Y at %-I:%M %p') if source.created_at else 'Time unavailable' }}</span><span>Conversation {{ source.conversation_id }}</span></div>
+        <div class="raw-message-body">{{ source.content or 'This message has no text content.' }}</div>
+    </section>
+    {% else %}
+    <section class="review-source-summary">
+        <div><span>Rating</span><strong>{{ source.overall_rating if source.overall_rating is not none else '—' }}</strong></div>
+        <div><span>Guest</span><strong>{{ source.reviewer_name or 'Unknown' }}</strong></div>
+        <div><span>Channel</span><strong>{{ source.channel_name or 'Unknown' }}</strong></div>
+        <div><span>Review date</span><strong>{{ source.review_date.strftime('%b %-d, %Y') if source.review_date else 'Unavailable' }}</strong></div>
+    </section>
+    <div class="review-source-grid">
+        <section class="raw-source-card" id="public-review"><span class="raw-card-label">Public review</span><div class="raw-review-body">{{ source.public_review or 'No public review text was supplied.' }}</div></section>
+        <section class="raw-source-card private-source" id="private-feedback"><span class="raw-card-label">Private feedback</span><div class="raw-review-body">{{ source.private_feedback or 'No private feedback was supplied.' }}</div></section>
+    </div>
+    {% if source.sub_ratings %}
+    <section class="source-subratings" id="sub-rating"><span>Category ratings</span><div>{% for rating in source.sub_ratings %}<p><strong>{{ rating.category | replace('_', ' ') | title }}</strong><span>{{ rating.value }}</span></p>{% endfor %}</div></section>
+    {% endif %}
+    {% endif %}
+</main>
+{% endblock %}

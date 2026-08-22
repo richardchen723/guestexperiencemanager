@@ -51,7 +51,8 @@ def run_all_migrations(engine=None):
             _migrate_review_filters_table,
             _migrate_documents_table,
             _migrate_document_listings_table,
-            _migrate_document_tags_table
+            _migrate_document_tags_table,
+            _migrate_review_private_feedback_column,
         )
         database_url = os.getenv("DATABASE_URL")
         
@@ -70,6 +71,7 @@ def run_all_migrations(engine=None):
             _migrate_documents_table(engine)
             _migrate_document_listings_table(engine)
             _migrate_document_tags_table(engine)
+            _migrate_review_private_feedback_column(engine)
             # Tickets DB migrations
             from dashboard.tickets.models import (
                 _migrate_tickets_table,
@@ -91,6 +93,7 @@ def run_all_migrations(engine=None):
             _migrate_documents_table(engine)
             _migrate_document_listings_table(engine)
             _migrate_document_tags_table(engine)
+            _migrate_review_private_feedback_column(engine)
             # Tickets DB migrations
             from dashboard.tickets.models import (
                 _migrate_listing_id_nullable,
@@ -139,4 +142,3 @@ if __name__ == "__main__":
     else:
         logger.error("Migrations failed")
         sys.exit(1)
-

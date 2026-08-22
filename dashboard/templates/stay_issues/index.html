@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}Guest Issues · Hostaway Insights{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/guest-issues.css', v='20260822-5') }}">
+{% endblock %}
+
+{% block content %}
+<main class="guest-issues-page">
+    <header class="issues-page-header">
+        <div class="issues-page-heading">
+            <div class="issues-title-row">
+                <h1>Guest issues</h1>
+                <span class="issues-live-badge"><i></i> Operational queue</span>
+            </div>
+            <p>Review guest feedback, resolve small issues quickly, or turn larger work into a tracked ticket.</p>
+        </div>
+        <aside class="analysis-freshness" aria-label="Analysis window">
+            <div class="analysis-window-heading">
+                <div><span>Analysis window</span><strong>{{ dashboard.window.label }}</strong></div>
+                <small>{% if dashboard.latest_run %}Updated {{ dashboard.latest_run.started_at.strftime('%b %-d at %-I:%M %p') }}{% else %}Waiting for the first analysis{% endif %}</small>
+            </div>
+            <nav class="analysis-window-presets" aria-label="Choose analysis window">
+                <a href="{{ url_for('guest_issues.guest_issues_page', view=dashboard.view, window='3m') }}" class="{{ 'is-active' if dashboard.window.key == '3m' else '' }}">3 months</a>
+                <a href="{{ url_for('guest_issues.guest_issues_page', view=dashboard.view, window='1m') }}" class="{{ 'is-active' if dashboard.window.key == '1m' else '' }}">1 month</a>
+                <a href="{{ url_for('guest_issues.guest_issues_page', view=dashboard.view, window='1w') }}" class="{{ 'is-active' if dashboard.window.key == '1w' else '' }}">1 week</a>
+                <button type="button" class="{{ 'is-active' if dashboard.window.key == 'custom' else '' }}" data-custom-window-toggle aria-expanded="false" aria-controls="customWindowForm">Custom</button>
+            </nav>
+            <form method="get" action="{{ url_for('guest_issues.guest_issues_page') }}" class="custom-window-form" id="customWindowForm" data-custom-window-form hidden>
+                <input type="hidden" name="view" value="{{ dashboard.view }}">
+                <input type="hidden" name="window" value="custom">
+                <label><span>From</span><input type="date" name="start" value="{{ dashboard.window.start_date }}" min="{{ dashboard.window.available_start_date }}" max="{{ dashboard.window.available_end_date }}" required></label>
+                <label><span>To</span><input type="date" name="end" value="{{ dashboard.window.end_date }}" min="{{ dashboard.window.available_start_date }}" max="{{ dashboard.window.available_end_date }}" required></label>
+                <button type="submit">Apply</button>
+                {% if dashboard.window.notice %}<p role="status">{{ dashboard.window.notice }}</p>{% endif %}
+            </form>
+        </aside>
+    </header>
+
+    {% if dashboard.latest_run and dashboard.latest_run.status != 'completed' %}
+    <div class="analysis-notice analysis-notice-warning">
+        <span aria-hidden="true">!</span>
+        <div><strong>The latest analysis completed with {{ dashboard.latest_run.error_count }} error{{ '' if dashboard.latest_run.error_count == 1 else 's' }}.</strong><p>Successful records were kept; failed records remain eligible for the next run.</p></div>
+    </div>
+    {% elif not dashboard.latest_run %}
+    <div class="analysis-notice">
+        <span aria-hidden="true">i</span>
+        <div><strong>The analyzer has not completed its first run.</strong><p>This queue will populate after the scheduled job processes eligible stays and reviews.</p></div>
+    </div>
+    {% endif %}
+
+    <nav class="issue-view-tabs" aria-label="Issue views">
+        <a href="{{ url_for('guest_issues.guest_issues_page', view='active', window=dashboard.window.key, start=dashboard.window.start_date, end=dashboard.window.end_date) }}" class="{{ 'is-active' if dashboard.view == 'active' else '' }}"><span>Active</span><strong>{{ dashboard.summary.active_issue_count }}</strong></a>
+        <a href="{{ url_for('guest_issues.guest_issues_page', view='resolved', window=dashboard.window.key, start=dashboard.window.start_date, end=dashboard.window.end_date) }}" class="{{ 'is-active' if dashboard.view == 'resolved' else '' }}"><span>Recently resolved</span><strong>{{ dashboard.summary.recently_resolved_count }}</strong></a>
+        <a href="{{ url_for('guest_issues.guest_issues_page', view='archived', window=dashboard.window.key, start=dashboard.window.start_date, end=dashboard.window.end_date) }}" class="{{ 'is-active' if dashboard.view == 'archived' else '' }}"><span>Archive</span><strong>{{ dashboard.summary.archived_issue_count }}</strong></a>
+    </nav>
+
+    <section class="issue-command-bar" aria-label="Queue overview">
+        <div class="queue-metrics">
+            <article><span class="metric-icon metric-icon-open">!</span><div><strong>{{ dashboard.summary.open_issue_count }}</strong><span>Need a decision</span></div></article>
+            <article><span class="metric-icon metric-icon-ticket">↗</span><div><strong>{{ dashboard.summary.ticketed_issue_count }}</strong><span>Tracked in tickets</span></div></article>
+            <article><span class="metric-icon metric-icon-home">⌂</span><div><strong>{{ dashboard.summary.properties_with_issues }}</strong><span>Rental units in view</span></div></article>
+        </div>
+        <div class="analysis-context">
+            <span>Stay quality</span>
+            <div class="quality-inline" title="Muted means the guest sent no messages">
+                <i class="quality-smooth"></i><b>{{ dashboard.summary.quality_counts.smooth }}</b> smooth
+                <i class="quality-recovered"></i><b>{{ dashboard.summary.quality_counts.recovered }}</b> recovered
+                <i class="quality-unresolved"></i><b>{{ dashboard.summary.quality_counts.unresolved }}</b> unresolved
+                <i class="quality-muted"></i><b>{{ dashboard.summary.quality_counts.muted }}</b> muted
+            </div>
+        </div>
+    </section>
+
+    <section class="issues-workspace">
+        <div class="issues-workspace-heading">
+            <div>
+                <span class="section-kicker">{{ {'active': 'Current work', 'resolved': 'Last 30 days', 'archived': 'Older resolutions'}[dashboard.view] }}</span>
+                <h2>{{ {'active': 'Issues needing attention', 'resolved': 'Recently resolved issues', 'archived': 'Archived issues'}[dashboard.view] }}</h2>
+                {% if dashboard.view == 'archived' %}<p>Issues move here one calendar month after resolution and stay out of the active queue.</p>{% elif dashboard.view == 'resolved' %}<p>Resolution notes remain visible here for one calendar month.</p>{% else %}<p>Organized by portfolio and rental unit. Open the raw evidence before deciding what to do.</p>{% endif %}
+            </div>
+            <div class="issue-filters">
+                <div class="fold-controls" aria-label="Expand or collapse issue groups">
+                    <button type="button" data-expand-groups>Expand groups</button>
+                    <button type="button" data-collapse-groups>Collapse all</button>
+                </div>
+                <label class="issue-search">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                    <input type="search" id="guestIssueSearch" placeholder="Search issues or rental units" autocomplete="off">
+                </label>
+                <label class="source-filter"><span>Source</span><select id="guestIssueSource"><option value="">All sources</option><option value="stay">Stay messages</option><option value="review">Guest reviews</option></select></label>
+            </div>
+        </div>
+
+        {% if dashboard.portfolios %}
+        <div class="portfolio-issue-list" id="portfolioIssueList">
+            {% for portfolio in dashboard.portfolios %}
+            <details class="portfolio-issue-section" data-portfolio-section {% if loop.first %}open{% endif %}>
+                <summary class="portfolio-heading">
+                    <div class="portfolio-monogram" aria-hidden="true">{{ portfolio.name[0] }}</div>
+                    <div><span>Portfolio</span><h3>{{ portfolio.name }}</h3></div>
+                    <p><strong data-portfolio-issue-count>{{ portfolio.issue_count }}</strong> issue{{ '' if portfolio.issue_count == 1 else 's' }} across {{ portfolio.unit_count }} home{{ '' if portfolio.unit_count == 1 else 's' }}</p>
+                    <span class="fold-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></svg></span>
+                </summary>
+
+                <div class="rental-unit-list">
+                    {% for unit in portfolio.units %}
+                    <details class="rental-unit-card" data-unit data-search="{{ unit.search_text }}" {% if loop.first %}open{% endif %}>
+                        <summary class="rental-unit-heading">
+                            <div class="unit-thumb"><span>{{ unit.listing_name[0] }}</span>{% if unit.thumbnail_url %}<img src="{{ unit.thumbnail_url }}" alt="" loading="lazy">{% endif %}</div>
+                            <div class="unit-identity"><div><span>Rental unit {{ unit.listing_id }}</span>{% if unit.location %}<span>{{ unit.location }}</span>{% endif %}</div><h4>{{ unit.listing_name }}</h4></div>
+                            <div class="unit-count"><strong data-unit-issue-count>{{ unit.issue_count }}</strong><span>issue{{ '' if unit.issue_count == 1 else 's' }}</span></div>
+                            <span class="fold-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></svg></span>
+                        </summary>
+
+                        <div class="issue-card-list">
+                            {% for issue in unit.issues %}
+                            <details class="guest-issue-card severity-{{ issue.severity }}" id="issue-{{ issue.issue_id }}" data-issue data-source="{{ issue.source_kind }}" data-status="{{ issue.workflow_status }}">
+                                <summary class="issue-card-summary">
+                                    <div class="issue-card-content">
+                                    <div class="issue-card-header">
+                                        <div class="issue-meta"><span>{{ issue.category_label }}</span><span>{{ issue.source_label }}</span><span>{{ issue.source_date.strftime('%b %-d, %Y') }}</span></div>
+                                        <span class="workflow-pill workflow-{{ issue.workflow_status }}">{{ issue.workflow_label }}</span>
+                                    </div>
+                                    <h5>{{ issue.summary }}</h5>
+                                    <p class="issue-details">{{ issue.details }}</p>
+                                    <div class="issue-card-toggle"><span>Issue details</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></div>
+                                    </div>
+                                </summary>
+                                <div class="issue-card-expanded">
+                                    <div class="issue-evidence-row">
+                                        <span>Raw evidence</span>
+                                        <div>{% for reference in issue.references %}<a href="{{ reference.url }}">{{ reference.label }} <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>{% else %}<small>Source record unavailable</small>{% endfor %}</div>
+                                    </div>
+
+                                    {% if issue.workflow_status == 'open' %}
+                                    <footer class="issue-actions">
+                                        <button type="button" class="resolve-issue-button" data-resolve-issue="{{ issue.issue_id }}" data-issue-title="{{ issue.summary|e }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>Mark resolved</button>
+                                        <a class="create-ticket-button" href="{{ issue.create_ticket_url }}">Create a ticket<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>
+                                    </footer>
+                                    {% elif issue.workflow_status == 'ticketed' %}
+                                    <footer class="issue-actions issue-actions-ticketed">
+                                        <a class="open-ticket-button" href="{{ issue.ticket_url }}">Open ticket #{{ issue.linked_ticket_id }} <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>
+                                        <span>This issue resolves automatically when its ticket is marked Resolved or Closed.</span>
+                                    </footer>
+                                    {% else %}
+                                    <div class="resolution-record">
+                                        <div class="resolution-check"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></div>
+                                        <div><span>Resolution note{% if issue.resolution_method == 'ticket' and issue.linked_ticket_id %} · <a href="{{ issue.ticket_url }}">Ticket #{{ issue.linked_ticket_id }}</a>{% endif %}</span><p>{{ issue.resolution_comment or 'Marked resolved.' }}</p><small>{% if issue.resolved_at %}Resolved {{ issue.resolved_at.strftime('%b %-d, %Y at %-I:%M %p') }}{% if issue.resolved_by_name %} by {{ issue.resolved_by_name }}{% endif %}{% endif %}</small></div>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </details>
+                            {% endfor %}
+                        </div>
+                    </details>
+                    {% endfor %}
+                </div>
+            </details>
+            {% endfor %}
+        </div>
+        <div class="issue-filter-empty" id="guestIssueEmpty" hidden><span>⌕</span><strong>No matches</strong><p>Try a different rental unit, issue, or source.</p></div>
+        {% else %}
+        <div class="issue-page-empty">
+            <span>{% if dashboard.view == 'active' %}✓{% else %}◇{% endif %}</span>
+            <h3>{% if dashboard.view == 'active' %}The queue is clear{% elif dashboard.view == 'resolved' %}Nothing resolved recently{% else %}No archived issues yet{% endif %}</h3>
+            <p>{% if dashboard.view == 'active' %}No guest issues currently need action.{% elif dashboard.view == 'resolved' %}Resolved issues will remain here for one month.{% else %}Issues appear here one month after they are resolved.{% endif %}</p>
+        </div>
+        {% endif %}
+    </section>
+</main>
+
+<dialog class="resolve-dialog" id="resolveIssueDialog" aria-labelledby="resolveDialogTitle">
+    <form method="dialog" id="resolveIssueForm">
+        <div class="resolve-dialog-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></div>
+        <div class="resolve-dialog-heading"><span>Quick resolution</span><h2 id="resolveDialogTitle">Mark issue as resolved</h2><p id="resolveIssueName"></p></div>
+        <label for="resolutionComment">What happened, and what did we do to resolve it?</label>
+        <textarea id="resolutionComment" maxlength="2000" rows="5" required placeholder="Example: The cleaner returned the same afternoon and replaced the missing linens. We confirmed completion with the guest."></textarea>
+        <p class="resolve-dialog-error" id="resolveDialogError" role="alert" hidden></p>
+        <footer><button type="button" class="dialog-cancel" data-close-resolve>Cancel</button><button type="submit" class="dialog-confirm"><span>Mark resolved</span><i aria-hidden="true"></i></button></footer>
+    </form>
+</dialog>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/guest-issues.js', v='20260822-5') }}"></script>
+{% endblock %}

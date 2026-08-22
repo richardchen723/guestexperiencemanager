@@ -265,6 +265,7 @@ class Review(Base):
     channel_name = Column(String)
     overall_rating = Column(Float)
     review_text = Column(Text)
+    private_feedback = Column(Text)
     reviewer_name = Column(String)
     reviewer_picture = Column(String)
     review_date = Column(Date)
@@ -644,8 +645,41 @@ def init_models(db_path: str):
     else:
         # PostgreSQL migrations
         _migrate_listings_table(engine)
+        _migrate_review_private_feedback_column(engine)
     
     return engine
+
+
+def _migrate_review_private_feedback_column(engine):
+    """Add Hostaway's privateFeedback field without disturbing review history."""
+    database_url = os.getenv("DATABASE_URL")
+    with engine.begin() as conn:
+        if database_url:
+            table_exists = conn.execute(sqlalchemy.text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name = 'reviews'
+                )
+            """)).scalar()
+            if table_exists:
+                conn.execute(sqlalchemy.text(
+                    "ALTER TABLE public.reviews "
+                    "ADD COLUMN IF NOT EXISTS private_feedback TEXT"
+                ))
+            return
+
+        table_exists = conn.execute(sqlalchemy.text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='reviews'"
+        )).first()
+        if not table_exists:
+            return
+        columns = {
+            row[1] for row in conn.execute(sqlalchemy.text("PRAGMA table_info(reviews)"))
+        }
+        if "private_feedback" not in columns:
+            conn.execute(sqlalchemy.text(
+                "ALTER TABLE reviews ADD COLUMN private_feedback TEXT"
+            ))
 
 
 def _migrate_sync_logs_table(engine):

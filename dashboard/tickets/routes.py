@@ -30,6 +30,15 @@ from dashboard.auth.session import get_current_user
 from dashboard.auth.models import get_all_users, get_user_by_id
 from database.models import get_session as get_main_session, Listing
 from dashboard.ai.cache import get_cached_insights
+from dashboard.stay_issues.workflow import (
+    GuestIssueWorkflowError,
+    get_issue_context,
+    get_issue_context_for_ticket,
+    link_issue_to_ticket,
+    sync_issue_from_ticket_status,
+    unlink_issue_from_ticket,
+    validate_issue_for_ticket,
+)
 import dashboard.config as config
 
 tickets_bp = Blueprint('tickets', __name__, url_prefix='/tickets')
@@ -120,11 +129,25 @@ def ticket_detail_page(ticket_id):
         recurrence_description = format_recurrence_description(recurrence_type, recurrence_config)
         next_occurrence_date = get_next_occurrence_date(ticket)
     
+    linked_guest_issue = get_issue_context_for_ticket(ticket_id)
+    linked_guest_issue_view = "active"
+    if linked_guest_issue and linked_guest_issue.get("workflow_status") == "resolved":
+        from brain.guest_experience import calendar_months_before
+
+        resolved_at = linked_guest_issue.get("resolved_at")
+        linked_guest_issue_view = (
+            "archived"
+            if resolved_at and resolved_at < calendar_months_before(datetime.utcnow(), 1)
+            else "resolved"
+        )
+
     return render_template('tickets/detail.html', 
                          ticket=ticket, 
                          listing=listing,
                          listings=listings,
                          current_user=get_current_user(),
+                         linked_guest_issue=linked_guest_issue,
+                         linked_guest_issue_view=linked_guest_issue_view,
                          recurrence_description=recurrence_description,
                          next_occurrence_date=next_occurrence_date)
 
@@ -143,13 +166,21 @@ def ticket_create_form():
     finally:
         main_session.close()
     
-    listing_id = request.args.get('listing_id', type=int)
-    issue_title = request.args.get('issue_title', '')
+    guest_issue_id = request.args.get('guest_issue_id', type=int)
+    guest_issue = get_issue_context(guest_issue_id) if guest_issue_id else None
+    if guest_issue_id and not guest_issue:
+        return "Guest issue not found", 404
+
+    listing_id = guest_issue['listing_id'] if guest_issue else request.args.get('listing_id', type=int)
+    issue_title = guest_issue['summary'] if guest_issue else request.args.get('issue_title', '')
+    ticket_prefill = _guest_issue_ticket_prefill(guest_issue) if guest_issue else None
     
     return render_template('tickets/form.html', 
                          listings=listings,
                          listing_id=listing_id,
                          issue_title=issue_title,
+                         guest_issue=guest_issue,
+                         ticket_prefill=ticket_prefill,
                          current_user=get_current_user())
 
 
@@ -564,6 +595,19 @@ def api_create_ticket():
         listing_ids = [int(lid) for lid in listing_ids if lid is not None and str(lid).strip() != '']
     except (ValueError, TypeError):
         return jsonify({'error': 'Invalid listing_ids. Must be an array of integers.'}), 400
+
+    guest_issue_id = data.get('guest_issue_id')
+    if guest_issue_id is not None:
+        try:
+            guest_issue_id = int(guest_issue_id)
+            validate_issue_for_ticket(
+                guest_issue_id,
+                listing_ids=listing_ids or ([listing_id] if listing_id else []),
+            )
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Invalid guest_issue_id. Must be an integer.'}), 400
+        except GuestIssueWorkflowError as exc:
+            return jsonify({'error': str(exc)}), exc.status_code
     
     issue_title = data.get('issue_title', '').strip()
     title = data.get('title', '').strip()
@@ -775,6 +819,26 @@ def api_create_ticket():
             recurrence_quarter_day=recurrence_quarter_day,
             recurrence_annual_dates=recurrence_annual_dates
         )
+
+        if guest_issue_id is not None:
+            try:
+                link_issue_to_ticket(
+                    guest_issue_id,
+                    ticket_id=ticket.ticket_id,
+                    ticket_status=ticket.status,
+                    user_id=current_user.user_id,
+                )
+            except GuestIssueWorkflowError as exc:
+                delete_ticket(ticket.ticket_id)
+                return jsonify({'error': str(exc)}), exc.status_code
+            except Exception:
+                delete_ticket(ticket.ticket_id)
+                logging.getLogger(__name__).exception(
+                    "Could not link guest issue %s to new ticket %s",
+                    guest_issue_id,
+                    ticket.ticket_id,
+                )
+                return jsonify({'error': 'The ticket could not be linked to this issue.'}), 500
         
         # Get the ticket again with relationships loaded to avoid lazy loading issues
         from sqlalchemy.orm import joinedload
@@ -1083,6 +1147,19 @@ def api_update_ticket(ticket_id):
         old_status = ticket.status or 'Open'  # Ensure we have a default if None
         
         updated_ticket = update_ticket(ticket_id, **update_data)
+
+        if updated_ticket and 'status' in update_data:
+            try:
+                sync_issue_from_ticket_status(
+                    ticket_id,
+                    ticket_status=updated_ticket.status,
+                    user_id=current_user.user_id,
+                )
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Ticket %s was updated but its linked guest issue could not be synchronized",
+                    ticket_id,
+                )
         
         # Update tags if tag_ids provided
         if tag_ids is not None:
@@ -1317,10 +1394,46 @@ def api_delete_ticket(ticket_id):
         
         success = delete_ticket(ticket_id)
         if success:
+            try:
+                unlink_issue_from_ticket(ticket_id)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Could not unlink guest issue from deleted ticket %s", ticket_id
+                )
             return jsonify({'message': 'Ticket deleted successfully'})
         return jsonify({'error': 'Failed to delete ticket'}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+def _guest_issue_ticket_prefill(issue):
+    """Translate a guest issue into sensible ticket defaults without AI calls."""
+    if not issue:
+        return None
+    category = str(issue.get('category') or '').lower()
+    if category in {'cleanliness', 'cleaning'}:
+        ticket_category = 'cleaning'
+    elif category in {'maintenance', 'amenity', 'safety', 'security', 'access'}:
+        ticket_category = 'maintenance'
+    elif category in {'listing_accuracy', 'online'}:
+        ticket_category = 'online'
+    else:
+        ticket_category = 'other'
+    priority = {
+        'critical': 'Critical',
+        'material': 'Medium',
+        'minor': 'Low',
+    }.get(str(issue.get('severity') or '').lower(), 'Medium')
+    return {
+        'title': issue['summary'],
+        'description': (
+            f"Guest issue #{issue['issue_id']}\n\n"
+            f"{issue['details']}\n\n"
+            f"Raw evidence: /workspace/guest-issues/?issue={issue['issue_id']}"
+        ),
+        'category': ticket_category,
+        'priority': priority,
+    }
 
 
 @tickets_bp.route('/api/tickets/<int:ticket_id>/comments', methods=['GET'])
