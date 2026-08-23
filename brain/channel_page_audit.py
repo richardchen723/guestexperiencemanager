@@ -338,17 +338,12 @@ def build_deep_channel_inspection(
 
     deep_field_count = sum(bool(observed.get(field)) for field in ("title", "description", "location", "amenities", "guest_notes", "house_rules"))
     deep_content = page.get("deep_content") or {}
-    page_readable = page_status == "ok" and deep_field_count >= 3 and (
+    page_accessible = page_status == "ok" and (
         int(deep_content.get("visible_text_length") or 0) >= 500
         or int(deep_content.get("structured_data_blocks") or 0) > 0
+        or bool(observed.get("title"))
     )
-    if page_status == "ok" and not page_readable:
-        issue(
-            "high",
-            "page",
-            "deep_content_unverified",
-            f"The {label} link is live, but its dynamic page content could not be expanded enough for a detailed automated review.",
-        )
+    deep_content_complete = deep_field_count >= 3
     for field in ("title", "description", "location", "amenities", "guest_notes", "house_rules"):
         expected_value = source.get(field)
         observed_value = observed.get(field)
@@ -369,7 +364,7 @@ def build_deep_channel_inspection(
             review["status"] = "source_missing"
             priority = "medium" if field in {"title", "description", "location", "amenities", "house_rules"} else "low"
             issue(priority, field, f"source_missing_{field}", f"Add {review['label'].lower()} to the Hostaway source content used by {label}.")
-        elif not page_readable:
+        elif not page_accessible:
             review["status"] = "unverified"
         elif not observed_present:
             search_match = _token_coverage(expected_value, search_text)
@@ -377,10 +372,12 @@ def build_deep_channel_inspection(
                 review["status"] = "match"
                 review["match_score"] = search_match
                 review["page_present"] = True
-            else:
+            elif deep_content_complete:
                 review["status"] = "not_found_on_page"
                 priority = "high" if field == "title" else "medium" if field in {"description", "location", "amenities"} else "low"
                 issue(priority, field, f"page_missing_{field}", f"Verify {review['label'].lower()} on {label}; it was not found in the public page source.")
+            else:
+                review["status"] = "unverified"
         else:
             match_score = _field_match_score(field, expected_value, observed_value, search_text)
             review["match_score"] = match_score
@@ -396,6 +393,15 @@ def build_deep_channel_inspection(
                 priority = "high" if field in {"title", "location"} else "medium"
                 issue(priority, field, f"page_mismatch_{field}", f"Reconcile the {label} {review['label'].lower()} with Hostaway; the public content appears inconsistent.")
         fields[field] = review
+
+    verified_count = sum(1 for item in fields.values() if item["status"] in {"match", "present"})
+    if page_status == "ok" and verified_count < 4:
+        issue(
+            "high",
+            "page",
+            "deep_content_unverified",
+            f"The {label} link is live, but fewer than four detailed content areas could be verified from its dynamic guest page.",
+        )
 
     source_title_text = clean_text(source.get("title"), limit=500)
     source_description_text = clean_text(source.get("description"))
@@ -414,7 +420,6 @@ def build_deep_channel_inspection(
     priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     issues.sort(key=lambda item: (priority_order.get(item["priority"], 9), item["field"], item["code"]))
     counts = {priority: sum(1 for item in issues if item["priority"] == priority) for priority in priority_order}
-    verified_count = sum(1 for item in fields.values() if item["status"] in {"match", "present"})
     if counts["critical"]:
         status = "critical"
     elif counts["high"]:
