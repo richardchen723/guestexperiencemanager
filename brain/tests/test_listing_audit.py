@@ -223,7 +223,7 @@ class ListingAuditTests(unittest.TestCase):
 
         inspection = asset["deep_inspection"]
         self.assertEqual(inspection["status"], "high")
-        self.assertEqual(inspection["fields"]["location"]["status"], "mismatch")
+        self.assertEqual(inspection["fields"]["location"]["status"], "partial")
         self.assertTrue(any(issue["code"] == "title_too_short" for issue in inspection["issues"]))
         self.assertNotIn("_deep_search_text", asset["page"])
 

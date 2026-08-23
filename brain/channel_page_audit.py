@@ -388,6 +388,9 @@ def build_deep_channel_inspection(
             elif field == "amenities" and match_score > 0:
                 review["status"] = "partial"
                 issue("medium", field, "page_partial_amenities", f"Review {label} amenities; only part of the Hostaway amenity set was confirmed in the public page source.")
+            elif field == "location":
+                review["status"] = "partial"
+                issue("medium", field, "page_location_unconfirmed", f"Manually confirm the {label} location; the public page uses broader or different location wording than Hostaway.")
             else:
                 review["status"] = "mismatch"
                 priority = "high" if field in {"title", "location"} else "medium"
@@ -610,6 +613,10 @@ def _field_match_score(field: str, expected: Any, observed: Any, search_text: st
     observed_tokens |= _tokens(search_text)
     if not expected_tokens or not observed_tokens:
         return None
+    if field == "location":
+        city_tokens = _tokens(str(expected or "").split("·", 1)[0])
+        if city_tokens and city_tokens.issubset(observed_tokens):
+            return 1.0
     return round(len(expected_tokens & observed_tokens) / len(expected_tokens), 2)
 
 
