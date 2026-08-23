@@ -261,7 +261,7 @@
 .section-heading-row h2 { margin: 5px 0 0; font-size: 25px; letter-spacing: -.025em; }
 .section-heading-row > p { max-width: 500px; margin: 0; color: var(--audit-muted); font-size: 13px; text-align: right; }
 
-.channel-coverage-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.channel-coverage-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
 .channel-coverage-card {
     display: grid;
     grid-template-columns: 42px 1fr;
@@ -287,6 +287,7 @@
 
 .channel-vrbo .channel-monogram, .asset-icon-vrbo { background: #3066be; }
 .channel-bookingcom .channel-monogram, .asset-icon-bookingcom { background: #154d9b; }
+.channel-googlevr .channel-monogram, .asset-icon-googlevr { background: #4285f4; }
 .channel-direct .channel-monogram, .asset-icon-direct { background: var(--audit-green); }
 .channel-coverage-card strong, .channel-coverage-card span { display: block; }
 .channel-coverage-card strong { font-size: 13px; }
@@ -337,6 +338,7 @@
 .channel-missing-panel-airbnb { box-shadow: inset 3px 0 0 #f05a62; }
 .channel-missing-panel-vrbo { box-shadow: inset 3px 0 0 #3066be; }
 .channel-missing-panel-bookingcom { box-shadow: inset 3px 0 0 #154d9b; }
+.channel-missing-panel-googlevr { box-shadow: inset 3px 0 0 #4285f4; }
 .channel-missing-header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
 .channel-missing-header h3 { margin: 5px 0 3px; font-size: 17px; letter-spacing: -.015em; }
 .channel-missing-header p { margin: 0; color: var(--audit-muted); font-size: 11px; }
@@ -537,7 +539,7 @@
 .market-ahead { background: #e7f4ed; }
 
 .online-assets-panel, .property-actions-panel { margin-top: 13px; }
-.online-asset-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 15px; }
+.online-asset-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 15px; }
 .online-asset-card { display: flex; min-height: 215px; flex-direction: column; padding: 13px; border: 1px solid #e5e9e6; border-radius: 13px; background: #fcfdfc; }
 .online-asset-card.asset-critical, .online-asset-card.asset-high { border-color: #efc8bd; background: #fffaf8; }
 .online-asset-card.asset-healthy { border-color: #cce4d7; background: #f9fdfb; }

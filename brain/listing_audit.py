@@ -54,6 +54,7 @@ CHANNEL_LABELS = {
     "airbnb": "Airbnb",
     "vrbo": "Vrbo",
     "bookingcom": "Booking.com",
+    "googlevr": "Google Vacation Rentals",
     "direct": "Direct booking",
 }
 
@@ -508,6 +509,11 @@ def build_channel_asset(
         title = _text(detail.get("bookingcomPropertyName") or detail.get("bookingcomPropertyRoomName") or detail.get("name"))
         description = _join_text(detail.get("bookingcomPropertyDescription"))
         configured = export_status == "exported"
+    elif channel == "googlevr":
+        export_status = _text(detail.get("googleExportStatus"))
+        title = _text(detail.get("name") or detail.get("externalListingName"))
+        description = _join_text(detail.get("description"))
+        configured = export_status == "exported" or bool(url)
     else:
         export_status = "connected" if url else "missing"
         title = _text(detail.get("name") or detail.get("externalListingName"))
@@ -807,6 +813,12 @@ def channel_urls(detail: dict[str, Any]) -> dict[str, str | None]:
         "airbnb": normalize_url(overrides.get("airbnb") or detail.get("airbnbListingUrl")),
         "vrbo": normalize_url(overrides.get("vrbo") or detail.get("vrboListingUrl")),
         "bookingcom": normalize_url(overrides.get("bookingcom") or overrides.get("booking.com")),
+        "googlevr": normalize_url(
+            overrides.get("googlevr")
+            or overrides.get("google_vacation_rentals")
+            or overrides.get("google")
+            or detail.get("googleVrListingUrl")
+        ),
         "direct": normalize_url(overrides.get("direct") or first_url(detail.get("bookingEngineUrls"))),
     }
 

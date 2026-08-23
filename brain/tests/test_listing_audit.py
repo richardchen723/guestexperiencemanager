@@ -24,6 +24,8 @@ def listing_detail(**overrides):
     base = {
         "id": 41,
         "internalListingName": "Skyline Retreat",
+        "name": "Skyline Retreat",
+        "description": "A polished downtown stay with skyline views, a full kitchen, fast Wi-Fi, and walkable access to the city. " * 3,
         "city": "Atlanta",
         "state": "GA",
         "airbnbExportStatus": "exported",
@@ -37,6 +39,8 @@ def listing_detail(**overrides):
         "bookingcomExportStatus": "exported",
         "bookingcomPropertyName": "Skyline Retreat",
         "bookingcomPropertyDescription": "A central stay with practical details for a smooth arrival. " * 10,
+        "googleExportStatus": "exported",
+        "googleVrListingUrl": "https://www.google.com/travel/hotels/entity/example/overview",
         "listingImages": [{"url": f"https://images.example/{i}.jpg"} for i in range(24)],
     }
     base.update(overrides)
@@ -139,6 +143,18 @@ class ListingAuditTests(unittest.TestCase):
         self.assertEqual(asset["status"], "not_configured")
         self.assertIn("direct-booking URL", asset["actions"][0])
 
+    def test_google_vacation_rentals_asset_uses_hostaway_export_and_guest_url(self):
+        asset = build_channel_asset(listing_detail(), "googlevr")
+
+        self.assertTrue(asset["configured"])
+        self.assertEqual(asset["label"], "Google Vacation Rentals")
+        self.assertEqual(asset["export_status"], "exported")
+        self.assertEqual(
+            asset["url"],
+            "https://www.google.com/travel/hotels/entity/example/overview",
+        )
+        self.assertEqual(asset["status"], "healthy")
+
     def test_pricelabs_payload_compares_listing_with_market(self):
         snapshot = SimpleNamespace(
             status="ok",
@@ -226,7 +242,7 @@ class ListingAuditTests(unittest.TestCase):
         self.assertEqual(pricing["connection_status"], "connected")
         self.assertTrue(any("sync is turned off" in action for action in pricing["actions"]))
 
-    def test_combined_result_contains_all_four_channels_and_actions(self):
+    def test_combined_result_contains_all_five_channels_and_actions(self):
         analysis = SimpleNamespace(
             severity="high",
             snapshot_date=date(2026, 8, 21),
@@ -244,7 +260,10 @@ class ListingAuditTests(unittest.TestCase):
             portfolio_name="Urban Stays",
         )
 
-        self.assertEqual([asset["channel"] for asset in result["online_assets"]], ["airbnb", "vrbo", "bookingcom", "direct"])
+        self.assertEqual(
+            [asset["channel"] for asset in result["online_assets"]],
+            ["airbnb", "vrbo", "bookingcom", "googlevr", "direct"],
+        )
         self.assertEqual(result["booking_health"]["horizons"][0]["occupancy_percent"], 30)
         self.assertGreater(len(result["action_items"]), 1)
         self.assertNotIn("doorSecurityCode", result["raw_payload"])

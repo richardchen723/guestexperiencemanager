@@ -37,6 +37,7 @@ class ListingAuditDashboardPayloadTests(unittest.TestCase):
                 {"channel": "airbnb", "configured": True, "status": "healthy"},
                 {"channel": "vrbo", "configured": True, "status": "watch"},
                 {"channel": "bookingcom", "configured": False, "status": "not_exported"},
+                {"channel": "googlevr", "configured": True, "status": "healthy"},
             ],
             "action_items": [{"priority": "high", "category": "Booking", "text": "Close the near-term gap."}],
         }
@@ -50,6 +51,10 @@ class ListingAuditDashboardPayloadTests(unittest.TestCase):
         self.assertEqual(booking_coverage["missing_count"], 1)
         self.assertEqual(booking_coverage["missing_units"][0]["listing_name"], "Skyline Retreat")
         self.assertEqual(booking_coverage["missing_units"][0]["connection_status"], "not exported")
+        google_coverage = result["summary"]["channel_coverage"]["googlevr"]
+        self.assertEqual(google_coverage["label"], "Google Vacation Rentals")
+        self.assertEqual(google_coverage["configured"], 1)
+        self.assertEqual(google_coverage["healthy"], 1)
         self.assertEqual(result["top_actions"][0]["listing_name"], "Skyline Retreat")
         self.assertEqual(result["profile_label"], "All properties")
         self.assertFalse(result["is_stale"])
