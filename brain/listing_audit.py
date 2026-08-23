@@ -21,6 +21,11 @@ import requests
 from sqlalchemy import func
 
 import dashboard.config as config
+from brain.channel_page_audit import (
+    build_deep_channel_inspection,
+    channel_destination_valid,
+    extract_deep_page_content,
+)
 from brain.models import (
     BookingHealthAnalysis,
     ListingAuditRun,
@@ -140,7 +145,7 @@ class ListingAuditRunner:
             analyses = self._latest_booking_analyses(listing_ids)
             pricelabs = self._latest_pricelabs_snapshots(listing_ids)
             portfolio_map, portfolio_names = self._portfolio_maps(listing_ids)
-            page_results = self._public_page_results(details)
+            page_results = self._public_page_results(details, deep=deep)
 
             severity_counts = {"critical": 0, "high": 0, "watch": 0, "healthy": 0}
             for listing_id in listing_ids:
@@ -152,6 +157,7 @@ class ListingAuditRunner:
                         channel: page_results.get((listing_id, channel))
                         for channel in CHANNEL_LABELS
                     },
+                    deep=deep,
                     portfolio_id=portfolio_map.get(listing_id),
                     portfolio_name=portfolio_names.get(portfolio_map.get(listing_id)),
                 )
@@ -365,7 +371,12 @@ class ListingAuditRunner:
         } if portfolio_ids else {}
         return portfolio_map, names
 
-    def _public_page_results(self, details: dict[int, dict[str, Any]]) -> dict[tuple[int, str], dict[str, Any]]:
+    def _public_page_results(
+        self,
+        details: dict[int, dict[str, Any]],
+        *,
+        deep: bool = False,
+    ) -> dict[tuple[int, str], dict[str, Any]]:
         if not CHECK_PUBLIC_PAGES:
             return {}
         targets: dict[tuple[int, str], str] = {}
@@ -377,7 +388,7 @@ class ListingAuditRunner:
         results: dict[tuple[int, str], dict[str, Any]] = {}
         with ThreadPoolExecutor(max_workers=PUBLIC_PAGE_WORKERS) as executor:
             futures = {
-                executor.submit(fetch_public_page, url, channel): key
+                executor.submit(fetch_public_page, url, channel, deep=deep): key
                 for key, url in targets.items()
                 for channel in (key[1],)
             }
@@ -401,6 +412,7 @@ def build_listing_audit_result(
     booking_analysis: Any | None,
     pricelabs_snapshot: Any | None,
     public_pages: dict[str, dict[str, Any] | None] | None = None,
+    deep: bool = False,
     portfolio_id: int | None = None,
     portfolio_name: str | None = None,
 ) -> dict[str, Any]:
@@ -414,7 +426,7 @@ def build_listing_audit_result(
     )
     public_pages = public_pages or {}
     assets = [
-        build_channel_asset(detail, channel, public_pages.get(channel))
+        build_channel_asset(detail, channel, public_pages.get(channel), deep=deep)
         for channel in CHANNEL_LABELS
     ]
     booking_health = booking_health_payload(booking_analysis)
@@ -443,6 +455,12 @@ def build_listing_audit_result(
                 "priority": "high" if asset["status"] in {"critical", "not_found"} else "medium",
                 "category": asset["label"],
                 "text": action,
+            })
+        for issue in (asset.get("deep_inspection") or {}).get("issues") or []:
+            actions.append({
+                "priority": issue.get("priority") or "medium",
+                "category": asset["label"],
+                "text": issue.get("message") or "Review the detailed channel finding.",
             })
     actions = dedupe_actions(actions)[:12]
 
@@ -482,6 +500,8 @@ def build_channel_asset(
     detail: dict[str, Any],
     channel: str,
     page_result: dict[str, Any] | None = None,
+    *,
+    deep: bool = False,
 ) -> dict[str, Any]:
     """Normalize one marketplace or direct-booking asset."""
     listing_id = int(detail.get("id") or detail.get("listingId") or 0)
@@ -525,6 +545,8 @@ def build_channel_asset(
         page = {
             "status": "not_checked" if url else "missing_url",
             "url": url,
+            "domain_valid": bool(url),
+            "inspection_mode": "deep" if deep else "link",
             "summary": "No public URL is available for an automated page check." if not url else "Public page check is pending.",
         }
     page_title = _text(page.get("title"))
@@ -540,11 +562,13 @@ def build_channel_asset(
             title=effective_title,
             description=effective_description,
             photo_count=photo_count,
-            has_url=bool(url) or channel == "bookingcom",
+            has_url=bool(url),
             page_status=page.get("status"),
         )
-        if page.get("status") == "not_found":
+        if page.get("status") in {"not_found", "invalid_domain"}:
             status = "critical"
+        elif not url or page.get("status") == "missing_url":
+            status = "watch" if score >= 62 else "high"
         elif score >= 82 and page.get("status") in {"ok", "not_checked", "missing_url"}:
             status = "healthy"
         elif score >= 62:
@@ -560,7 +584,7 @@ def build_channel_asset(
         else:
             actions.append(f"Confirm whether this property should be live on {label}; Hostaway does not show it as exported.")
     else:
-        if not url and channel != "bookingcom":
+        if not url:
             actions.append(f"Store the public {label} URL in Hostaway or the audit URL mapping.")
         if len(effective_title) < 24:
             actions.append(f"Strengthen the {label} title with the property’s clearest guest benefit and location cue.")
@@ -570,8 +594,30 @@ def build_channel_asset(
             actions.append(f"Increase and reorder {label} photo coverage; only {photo_count} source photos are available.")
         if page.get("status") == "not_found":
             actions.append(f"Repair the {label} public URL or export immediately; the guest page appears unavailable.")
+        elif page.get("status") == "invalid_domain":
+            actions.append(f"Repair the {label} public URL; it redirects outside the expected channel domain.")
         elif page.get("status") in {"blocked", "unavailable"}:
             actions.append(f"Manually verify the {label} guest page because the automated public check could not confirm it.")
+
+    deep_inspection = None
+    if deep:
+        deep_inspection = build_deep_channel_inspection(
+            detail=detail,
+            channel=channel,
+            label=label,
+            page=page,
+            source_title=title,
+            source_description=description,
+        )
+        page.pop("_deep_search_text", None)
+        if configured:
+            rank = {"critical": 0, "high": 1, "watch": 2, "healthy": 3}
+            deep_status = deep_inspection.get("status") or "healthy"
+            if rank.get(deep_status, 9) < rank.get(status, 9):
+                status = deep_status
+            score_caps = {"critical": 35.0, "high": 60.0, "watch": 78.0}
+            if deep_status in score_caps:
+                score = min(score, score_caps[deep_status])
 
     return {
         "channel": channel,
@@ -587,7 +633,8 @@ def build_channel_asset(
         "description_length": len(effective_description),
         "photo_count": photo_count,
         "page": page,
-        "actions": actions[:4],
+        "actions": actions[:6],
+        "deep_inspection": deep_inspection,
     }
 
 
@@ -799,9 +846,9 @@ def channel_profile_score(*, title: str, description: str, photo_count: int, has
     score += min(len(title) / 35.0, 1.0) * 20.0
     score += min(len(description) / 300.0, 1.0) * 25.0
     score += min(max(photo_count, 0) / 20.0, 1.0) * 20.0
-    if page_status == "not_found":
+    if page_status in {"not_found", "invalid_domain"}:
         score -= 35.0
-    elif page_status in {"blocked", "unavailable"}:
+    elif page_status in {"blocked", "unavailable", "non_html"}:
         score -= 8.0
     return max(0.0, min(score, 100.0))
 
@@ -981,7 +1028,7 @@ def is_safe_public_url(url: str) -> bool:
         return False
 
 
-def fetch_public_page(url: str, channel: str) -> dict[str, Any]:
+def fetch_public_page(url: str, channel: str, *, deep: bool = False) -> dict[str, Any]:
     """Fetch public guest-facing metadata without using stored browser sessions."""
     checked_at = datetime.utcnow().isoformat()
     try:
@@ -998,7 +1045,11 @@ def fetch_public_page(url: str, channel: str) -> dict[str, Any]:
         return {
             "status": "unavailable",
             "url": url,
+            "requested_url": url,
             "checked_at": checked_at,
+            "domain_valid": channel_destination_valid(url, channel),
+            "redirected": False,
+            "inspection_mode": "deep" if deep else "link",
             "summary": f"{CHANNEL_LABELS.get(channel, channel)} did not return a public page.",
             "error": str(exc)[:500],
         }
@@ -1008,23 +1059,44 @@ def fetch_public_page(url: str, channel: str) -> dict[str, Any]:
     description = clean_html(match_html(META_DESCRIPTION_PATTERN, text))
     visible = clean_html(TAG_PATTERN.sub(" ", text))[:1800]
     lower = f"{title} {visible[:700]}".lower()
+    final_url = response.url or url
+    content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+    domain_valid = channel_destination_valid(final_url, channel)
     if response.status_code in {404, 410} or "page not found" in lower:
         status = "not_found"
+    elif not domain_valid:
+        status = "invalid_domain"
     elif response.status_code >= 400:
         status = "unavailable"
+    elif content_type and "html" not in content_type:
+        status = "non_html"
     elif any(token in lower for token in ("verify you are human", "captcha", "access denied", "robot check")):
         status = "blocked"
     else:
         status = "ok"
-    return {
+    result = {
         "status": status,
-        "url": response.url or url,
+        "url": final_url,
+        "requested_url": url,
         "checked_at": checked_at,
         "http_status": response.status_code,
+        "content_type": content_type,
+        "domain_valid": domain_valid,
+        "redirected": bool(response.history) or final_url.rstrip("/") != url.rstrip("/"),
+        "inspection_mode": "deep" if deep else "link",
         "title": title,
         "meta_description": description,
         "summary": description or title or visible[:280] or "Public page responded without extractable text.",
     }
+    if deep and status == "ok":
+        deep_content = extract_deep_page_content(
+            text,
+            fallback_title=title,
+            fallback_description=description,
+        )
+        result["_deep_search_text"] = deep_content.pop("_search_text", "")
+        result["deep_content"] = deep_content
+    return result
 
 
 def horizon_metric(values: Any, horizon: int) -> float | None:

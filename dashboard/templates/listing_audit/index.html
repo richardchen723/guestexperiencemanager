@@ -3,7 +3,7 @@
 {% block title %}Listing Health - Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/listing-audit.css', v='20260823-1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/listing-audit.css', v='20260823-2') }}">
 {% endblock %}
 
 {% block content %}
@@ -118,6 +118,9 @@
                     <span class="channel-all-connected"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>All connected</span>
                     {% endif %}
                 </div>
+                {% if channel.deep_reviewed %}
+                <div class="channel-deep-meta"><strong>{{ channel.deep_reviewed }} deep-reviewed</strong><span>{{ channel.deep_issues }} detailed findings</span></div>
+                {% endif %}
             </article>
             {% endfor %}
         </div>
@@ -255,6 +258,45 @@
                             </article>
                             {% endfor %}
                         </div>
+                        {% if audit.has_deep_review %}
+                        <div class="deep-channel-review">
+                            <div class="deep-review-heading">
+                                <div><span>Weekly deep inspection</span><h5>Detailed guest-page findings</h5></div>
+                                <small>{{ audit.summary.deep_issue_count }} findings across {{ audit.summary.deep_reviewed_count }} channel pages</small>
+                            </div>
+                            <div class="deep-channel-grid">
+                                {% for asset in item.online_assets %}
+                                {% if asset.deep_inspection %}
+                                {% set inspection = asset.deep_inspection %}
+                                <details class="deep-channel-card deep-status-{{ inspection.status }}">
+                                    <summary>
+                                        <span class="asset-icon asset-icon-{{ asset.channel }}">{{ 'B' if asset.channel == 'bookingcom' else 'D' if asset.channel == 'direct' else asset.label[0] }}</span>
+                                        <span><strong>{{ asset.label }}</strong><small>{{ inspection.summary }}</small></span>
+                                        <span class="deep-status-pill">{{ inspection.status }}</span>
+                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
+                                    </summary>
+                                    <div class="deep-channel-body">
+                                        <div class="deep-field-grid">
+                                            {% for field_key, field in inspection.fields.items() %}
+                                            <article class="deep-field deep-field-{{ field.status }}">
+                                                <div><strong>{{ field.label }}</strong><span>{{ field.status | replace('_', ' ') }}</span></div>
+                                                {% if field.page_excerpt %}<p><b>Channel</b>{{ field.page_excerpt | join(', ') if field.page_excerpt is not string else field.page_excerpt }}</p>{% endif %}
+                                                {% if field.source_excerpt and field.status in ['mismatch', 'not_found_on_page', 'source_missing'] %}<p><b>Hostaway</b>{{ field.source_excerpt | join(', ') if field.source_excerpt is not string else field.source_excerpt }}</p>{% endif %}
+                                            </article>
+                                            {% endfor %}
+                                        </div>
+                                        {% if inspection.issues %}
+                                        <ul class="deep-issue-list">
+                                            {% for issue in inspection.issues %}<li class="deep-issue-{{ issue.priority }}"><span>{{ issue.priority }}</span><p>{{ issue.message }}</p></li>{% endfor %}
+                                        </ul>
+                                        {% else %}<div class="deep-review-clear">No detailed channel-content issues found.</div>{% endif %}
+                                    </div>
+                                </details>
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
                     </section>
 
                     <section class="property-actions-panel">
@@ -276,5 +318,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/listing-audit.js', v='20260823-1') }}"></script>
+<script src="{{ url_for('static', filename='js/listing-audit.js', v='20260823-2') }}"></script>
 {% endblock %}

@@ -18,6 +18,7 @@ from brain.listing_audit import (
     resolve_cover_image,
     resolve_pricelabs_audit_context,
 )
+from brain.channel_page_audit import channel_destination_valid, extract_deep_page_content
 
 
 def listing_detail(**overrides):
@@ -41,6 +42,9 @@ def listing_detail(**overrides):
         "bookingcomPropertyDescription": "A central stay with practical details for a smooth arrival. " * 10,
         "googleExportStatus": "exported",
         "googleVrListingUrl": "https://www.google.com/travel/hotels/entity/example/overview",
+        "listingAmenities": [{"name": name} for name in ("Wifi", "Kitchen", "Parking", "Pool", "Washer", "Dryer", "Air conditioning", "Heating", "TV", "Workspace")],
+        "airbnbNotes": "Guests should review parking instructions and quiet hours before arrival.",
+        "houseRules": "No smoking. No parties. Quiet hours are from 10 PM to 8 AM.",
         "listingImages": [{"url": f"https://images.example/{i}.jpg"} for i in range(24)],
     }
     base.update(overrides)
@@ -154,6 +158,77 @@ class ListingAuditTests(unittest.TestCase):
             "https://www.google.com/travel/hotels/entity/example/overview",
         )
         self.assertEqual(asset["status"], "healthy")
+
+    def test_channel_destination_validation_rejects_cross_channel_redirects(self):
+        self.assertTrue(channel_destination_valid("https://www.airbnb.com/rooms/41", "airbnb"))
+        self.assertTrue(channel_destination_valid("https://www.google.com/travel/hotels/entity/41", "googlevr"))
+        self.assertFalse(channel_destination_valid("https://example.com/rooms/41", "airbnb"))
+        self.assertTrue(channel_destination_valid("https://stay.example.com/property/41", "direct"))
+
+    def test_deep_page_extraction_reads_structured_listing_content(self):
+        html = """
+        <html><head>
+          <title>Skyline Retreat</title>
+          <meta name="description" content="A polished downtown stay with skyline views and a full kitchen.">
+          <script type="application/ld+json">
+          {"@type":"VacationRental","name":"Skyline Retreat","address":{"addressLocality":"Atlanta","addressRegion":"GA"},
+           "amenityFeature":[{"name":"Wifi"},{"name":"Kitchen"}],
+           "houseRules":"No smoking. Quiet hours after 10 PM.",
+           "guestNotes":"Review the parking instructions before arrival."}
+          </script>
+        </head><body><h1>Skyline Retreat</h1><p>Guest-ready downtown home.</p></body></html>
+        """
+
+        content = extract_deep_page_content(html)
+
+        self.assertEqual(content["fields"]["title"], "Skyline Retreat")
+        self.assertIn("Atlanta", content["fields"]["location"])
+        self.assertEqual(content["fields"]["amenities"], ["Wifi", "Kitchen"])
+        self.assertIn("No smoking", content["fields"]["house_rules"])
+        self.assertGreater(content["structured_data_blocks"], 0)
+
+    def test_deep_asset_persists_field_reviews_and_improvement_findings(self):
+        detail = listing_detail(airbnbName="Short title")
+        page = {
+            "status": "ok",
+            "url": detail["airbnbListingUrl"],
+            "checked_at": "2026-08-23T10:00:00Z",
+            "domain_valid": True,
+            "redirected": False,
+            "inspection_mode": "deep",
+            "title": "Different Downtown Apartment",
+            "meta_description": "Brief description.",
+            "deep_content": {
+                "fields": {
+                    "title": "Different Downtown Apartment",
+                    "description": "Brief description.",
+                    "location": "Miami, FL",
+                    "amenities": ["Wifi"],
+                    "guest_notes": "",
+                    "house_rules": "",
+                },
+                "visible_text_length": 800,
+                "structured_data_blocks": 1,
+                "page_image_count": 8,
+            },
+            "_deep_search_text": "Different Downtown Apartment Miami FL Wifi",
+        }
+
+        asset = build_channel_asset(detail, "airbnb", page, deep=True)
+
+        inspection = asset["deep_inspection"]
+        self.assertEqual(inspection["status"], "high")
+        self.assertEqual(inspection["fields"]["location"]["status"], "mismatch")
+        self.assertTrue(any(issue["code"] == "title_too_short" for issue in inspection["issues"]))
+        self.assertNotIn("_deep_search_text", asset["page"])
+
+    def test_exported_bookingcom_without_public_url_is_not_treated_as_valid(self):
+        asset = build_channel_asset(listing_detail(), "bookingcom")
+
+        self.assertTrue(asset["configured"])
+        self.assertFalse(asset["url"])
+        self.assertEqual(asset["status"], "watch")
+        self.assertTrue(any("public Booking.com URL" in action for action in asset["actions"]))
 
     def test_pricelabs_payload_compares_listing_with_market(self):
         snapshot = SimpleNamespace(

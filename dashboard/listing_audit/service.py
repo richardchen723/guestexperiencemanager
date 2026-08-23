@@ -50,6 +50,19 @@ class ListingAuditDashboardService:
             .all()
         )
         all_items = [snapshot_dict(snapshot) for snapshot in snapshots]
+        if latest_weekly and latest_weekly.listing_audit_run_id != latest_run.listing_audit_run_id:
+            weekly_snapshots = (
+                self.session.query(ListingAuditSnapshot)
+                .filter(ListingAuditSnapshot.run_id == latest_weekly.listing_audit_run_id)
+                .all()
+            )
+            merge_deep_inspections(
+                all_items,
+                [snapshot_dict(snapshot) for snapshot in weekly_snapshots],
+                source_run_id=latest_weekly.listing_audit_run_id,
+            )
+        elif latest_weekly:
+            annotate_deep_inspection_source(all_items, latest_weekly.listing_audit_run_id)
         items, portfolio_options, selected_portfolio = scope_items_by_portfolio(
             all_items,
             portfolio_name,
@@ -130,6 +143,8 @@ def dashboard_payload(
             "missing_units": missing_units,
             "healthy": sum(1 for asset in assets if asset.get("status") == "healthy"),
             "needs_attention": sum(1 for asset in assets if asset.get("status") not in {"healthy", "not_configured", "not_exported"}),
+            "deep_reviewed": sum(1 for asset in assets if asset.get("deep_inspection")),
+            "deep_issues": sum(len((asset.get("deep_inspection") or {}).get("issues") or []) for asset in assets),
         }
 
     top_actions = []
@@ -158,6 +173,17 @@ def dashboard_payload(
         "healthy_count": sum(1 for item in items if item["severity"] == "healthy"),
         "average_score": round(sum(item["health_score"] for item in items) / len(items), 1) if items else 0,
         "channel_coverage": channel_coverage,
+        "deep_reviewed_count": sum(
+            1
+            for item in items
+            for asset in item["online_assets"]
+            if asset.get("deep_inspection")
+        ),
+        "deep_issue_count": sum(
+            len((asset.get("deep_inspection") or {}).get("issues") or [])
+            for item in items
+            for asset in item["online_assets"]
+        ),
     }
     return {
         "has_data": True,
@@ -173,7 +199,66 @@ def dashboard_payload(
         "profile_label": selected_portfolio or "All properties",
         "freshness_days": freshness_days,
         "is_stale": freshness_days is None or freshness_days > 1,
+        "has_deep_review": bool(summary["deep_reviewed_count"]),
     }
+
+
+def annotate_deep_inspection_source(items: list[dict[str, Any]], source_run_id: int) -> None:
+    for item in items:
+        for asset in item.get("online_assets") or []:
+            inspection = asset.get("deep_inspection")
+            if inspection:
+                inspection["source_run_id"] = source_run_id
+
+
+def merge_deep_inspections(
+    current_items: list[dict[str, Any]],
+    weekly_items: list[dict[str, Any]],
+    *,
+    source_run_id: int,
+) -> None:
+    """Carry the latest weekly channel findings onto fresher daily metrics."""
+    weekly_by_listing = {int(item["listing_id"]): item for item in weekly_items}
+    for item in current_items:
+        weekly_item = weekly_by_listing.get(int(item["listing_id"]))
+        if not weekly_item:
+            continue
+        weekly_assets = {
+            asset.get("channel"): asset
+            for asset in weekly_item.get("online_assets") or []
+            if asset.get("deep_inspection")
+        }
+        existing_actions = {
+            str(action.get("text") or "").strip().casefold()
+            for action in item.get("action_items") or []
+        }
+        for asset in item.get("online_assets") or []:
+            weekly_asset = weekly_assets.get(asset.get("channel"))
+            if not weekly_asset:
+                continue
+            inspection = dict(weekly_asset["deep_inspection"])
+            inspection["source_run_id"] = source_run_id
+            asset["deep_inspection"] = inspection
+            if asset.get("configured"):
+                rank = {"critical": 0, "high": 1, "watch": 2, "healthy": 3}
+                deep_status = inspection.get("status") or "healthy"
+                current_status = asset.get("status") or "healthy"
+                if rank.get(deep_status, 9) < rank.get(current_status, 9):
+                    asset["status"] = deep_status
+                    asset["status_source"] = "weekly_deep_review"
+            for issue in inspection.get("issues") or []:
+                text = str(issue.get("message") or "").strip()
+                if not text or text.casefold() in existing_actions:
+                    continue
+                item.setdefault("action_items", []).append({
+                    "priority": issue.get("priority") or "medium",
+                    "category": asset.get("label") or asset.get("channel") or "Channel",
+                    "text": text,
+                    "source": "weekly_deep_review",
+                })
+                existing_actions.add(text.casefold())
+        priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        item["action_items"].sort(key=lambda action: priority_order.get(action.get("priority"), 9))
 
 
 def snapshot_dict(snapshot: Any) -> dict[str, Any]:
@@ -244,6 +329,8 @@ def empty_dashboard(*, recent_runs: list[Any] | None = None) -> dict[str, Any]:
             "healthy_count": 0,
             "average_score": 0,
             "channel_coverage": {},
+            "deep_reviewed_count": 0,
+            "deep_issue_count": 0,
         },
         "top_actions": [],
         "items": [],
@@ -252,4 +339,5 @@ def empty_dashboard(*, recent_runs: list[Any] | None = None) -> dict[str, Any]:
         "profile_label": "All properties",
         "freshness_days": None,
         "is_stale": True,
+        "has_deep_review": False,
     }
