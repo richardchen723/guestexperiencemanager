@@ -402,6 +402,22 @@ def build_deep_channel_inspection(
             "deep_content_unverified",
             f"The {label} link is live, but fewer than four detailed content areas could be verified from its dynamic guest page.",
         )
+    elif page_status == "ok":
+        required_fields = ["title", "description", "location", "amenities", "house_rules"]
+        if channel == "airbnb":
+            required_fields.append("guest_notes")
+        unverified_labels = [
+            fields[field]["label"].lower()
+            for field in required_fields
+            if fields[field]["status"] == "unverified"
+        ]
+        if unverified_labels:
+            issue(
+                "medium",
+                "page",
+                "deep_fields_unverified",
+                f"Manually verify {', '.join(unverified_labels)} on {label}; those sections could not be confirmed from the rendered guest page.",
+            )
 
     source_title_text = clean_text(source.get("title"), limit=500)
     source_description_text = clean_text(source.get("description"))
