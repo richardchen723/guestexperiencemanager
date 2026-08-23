@@ -24,7 +24,9 @@ import dashboard.config as config
 from brain.channel_page_audit import (
     build_deep_channel_inspection,
     channel_destination_valid,
+    deep_content_is_sparse,
     extract_deep_page_content,
+    render_deep_public_pages,
 )
 from brain.models import (
     BookingHealthAnalysis,
@@ -403,6 +405,23 @@ class ListingAuditRunner:
                         "summary": "The public page check failed.",
                         "error": str(exc)[:500],
                     }
+        if deep:
+            sparse_targets = {
+                key: (targets[key], key[1])
+                for key, result in results.items()
+                if deep_content_is_sparse(result)
+            }
+            rendered_results = render_deep_public_pages(sparse_targets)
+            for key, rendered in rendered_results.items():
+                original = results[key]
+                original["browser_render"] = {
+                    "attempted": True,
+                    "status": rendered.get("status") or "unavailable",
+                    "error": rendered.get("error"),
+                }
+                if rendered.get("status") == "ok":
+                    rendered["browser_render"] = {"attempted": True, "status": "ok"}
+                    results[key] = rendered
         return results
 
 

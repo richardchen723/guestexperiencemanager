@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import re
 from collections import defaultdict
 from html.parser import HTMLParser
@@ -23,6 +25,9 @@ MAX_SCRIPT_TEXT = 2_000_000
 MAX_JSON_NODES = 25_000
 MAX_FIELD_TEXT = 1_500
 MAX_AMENITIES = 60
+DEEP_BROWSER_WORKERS = max(1, min(int(os.getenv("LISTING_AUDIT_DEEP_BROWSER_WORKERS", "4")), 8))
+DEEP_BROWSER_TIMEOUT_MS = max(5_000, min(int(os.getenv("LISTING_AUDIT_DEEP_BROWSER_TIMEOUT_MS", "18000")), 45_000))
+DEEP_BROWSER_SETTLE_MS = max(500, min(int(os.getenv("LISTING_AUDIT_DEEP_BROWSER_SETTLE_MS", "1500")), 5_000))
 
 _SPACE_PATTERN = re.compile(r"\s+")
 _WORD_PATTERN = re.compile(r"[a-z0-9]+")
@@ -170,13 +175,133 @@ def extract_deep_page_content(html_text: str, *, fallback_title: str = "", fallb
         "guest_notes": _best_text(structured["guest_notes"]) or _visible_section(visible_text, "guest_notes"),
         "house_rules": _best_text(structured["house_rules"]) or _visible_section(visible_text, "house_rules"),
     }
+    structured_search = " ".join(
+        _flatten_value(value, limit=2_000)
+        for values in structured.values()
+        for value in values[:200]
+    )
     return {
         "fields": fields,
         "visible_text_length": len(visible_text),
         "structured_data_blocks": len(parser.json_scripts),
         "page_image_count": parser.image_count,
-        "_search_text": visible_text,
+        "_search_text": clean_text(f"{visible_text} {structured_search}", limit=MAX_VISIBLE_TEXT),
     }
+
+
+def deep_content_is_sparse(page: dict[str, Any]) -> bool:
+    if page.get("status") != "ok":
+        return False
+    deep_content = page.get("deep_content") or {}
+    fields = deep_content.get("fields") or {}
+    present = sum(bool(fields.get(field)) for field in ("title", "description", "location", "amenities", "guest_notes", "house_rules"))
+    return present < 3
+
+
+def render_deep_public_pages(targets: dict[Any, tuple[str, str]]) -> dict[Any, dict[str, Any]]:
+    """Render sparse JavaScript pages with one bounded headless Chromium pool."""
+    if not targets:
+        return {}
+
+    async def run() -> dict[Any, dict[str, Any]]:
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            return {
+                key: {"status": "unavailable", "error": "Playwright is not installed."}
+                for key in targets
+            }
+
+        results: dict[Any, dict[str, Any]] = {}
+        semaphore = asyncio.Semaphore(DEEP_BROWSER_WORKERS)
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+                locale="en-US",
+                java_script_enabled=True,
+            )
+
+            async def inspect(key: Any, url: str, channel: str):
+                async with semaphore:
+                    checked_at = _utc_now()
+                    page = await context.new_page()
+                    try:
+                        response = await page.goto(url, wait_until="domcontentloaded", timeout=DEEP_BROWSER_TIMEOUT_MS)
+                        await page.wait_for_timeout(DEEP_BROWSER_SETTLE_MS)
+                        final_url = page.url or url
+                        html_text = await page.content()
+                        title = clean_text(await page.title(), limit=500)
+                        try:
+                            body_text = await page.locator("body").inner_text(timeout=3_000)
+                        except Exception:
+                            body_text = title
+                        lower = clean_text(body_text, limit=8_000).lower()
+                        http_status = response.status if response else None
+                        domain_valid = channel_destination_valid(final_url, channel)
+                        if http_status in {404, 410} or "page not found" in lower:
+                            status = "not_found"
+                        elif not domain_valid:
+                            status = "invalid_domain"
+                        elif http_status and http_status >= 400:
+                            status = "unavailable"
+                        elif any(token in lower for token in ("verify you are human", "captcha", "access denied", "robot check")):
+                            status = "blocked"
+                        else:
+                            status = "ok"
+                        result = {
+                            "status": status,
+                            "url": final_url,
+                            "requested_url": url,
+                            "checked_at": checked_at,
+                            "http_status": http_status,
+                            "content_type": "text/html",
+                            "domain_valid": domain_valid,
+                            "redirected": final_url.rstrip("/") != url.rstrip("/"),
+                            "inspection_mode": "deep",
+                            "browser_rendered": True,
+                            "title": title,
+                            "summary": title or "Rendered public page returned without extractable text.",
+                        }
+                        if status == "ok":
+                            content = extract_deep_page_content(html_text, fallback_title=title)
+                            result["_deep_search_text"] = content.pop("_search_text", "")
+                            result["deep_content"] = content
+                            result["meta_description"] = content.get("fields", {}).get("description") or ""
+                        results[key] = result
+                    except Exception as exc:
+                        results[key] = {
+                            "status": "unavailable",
+                            "url": url,
+                            "requested_url": url,
+                            "checked_at": checked_at,
+                            "domain_valid": channel_destination_valid(url, channel),
+                            "redirected": False,
+                            "inspection_mode": "deep",
+                            "browser_rendered": True,
+                            "error": str(exc)[:500],
+                        }
+                    finally:
+                        await page.close()
+
+            await asyncio.gather(*(
+                inspect(key, url, channel)
+                for key, (url, channel) in targets.items()
+            ))
+            await context.close()
+            await browser.close()
+        return results
+
+    try:
+        return asyncio.run(run())
+    except Exception as exc:
+        return {
+            key: {"status": "unavailable", "error": str(exc)[:500], "browser_rendered": True}
+            for key in targets
+        }
 
 
 def build_deep_channel_inspection(
@@ -211,7 +336,19 @@ def build_deep_channel_inspection(
     elif page_status in {"blocked", "unavailable", "non_html"}:
         issue("high", "link", f"public_page_{page_status}", f"Manually inspect the {label} guest page; the deep audit could not read its public content.")
 
-    page_readable = page_status == "ok" and bool(observed.get("title") or search_text)
+    deep_field_count = sum(bool(observed.get(field)) for field in ("title", "description", "location", "amenities", "guest_notes", "house_rules"))
+    deep_content = page.get("deep_content") or {}
+    page_readable = page_status == "ok" and deep_field_count >= 3 and (
+        int(deep_content.get("visible_text_length") or 0) >= 500
+        or int(deep_content.get("structured_data_blocks") or 0) > 0
+    )
+    if page_status == "ok" and not page_readable:
+        issue(
+            "high",
+            "page",
+            "deep_content_unverified",
+            f"The {label} link is live, but its dynamic page content could not be expanded enough for a detailed automated review.",
+        )
     for field in ("title", "description", "location", "amenities", "guest_notes", "house_rules"):
         expected_value = source.get(field)
         observed_value = observed.get(field)
@@ -226,23 +363,34 @@ def build_deep_channel_inspection(
             "page_excerpt": _field_excerpt(observed_value),
         }
 
-        if not expected_present:
+        if field == "guest_notes" and channel != "airbnb" and not expected_present:
+            review["status"] = "not_applicable"
+        elif not expected_present:
             review["status"] = "source_missing"
             priority = "medium" if field in {"title", "description", "location", "amenities", "house_rules"} else "low"
             issue(priority, field, f"source_missing_{field}", f"Add {review['label'].lower()} to the Hostaway source content used by {label}.")
         elif not page_readable:
             review["status"] = "unverified"
         elif not observed_present:
-            review["status"] = "not_found_on_page"
-            priority = "high" if field == "title" else "medium" if field in {"description", "location", "amenities"} else "low"
-            issue(priority, field, f"page_missing_{field}", f"Verify {review['label'].lower()} on {label}; it was not found in the public page source.")
+            search_match = _token_coverage(expected_value, search_text)
+            if search_match is not None and search_match >= _match_threshold(field):
+                review["status"] = "match"
+                review["match_score"] = search_match
+                review["page_present"] = True
+            else:
+                review["status"] = "not_found_on_page"
+                priority = "high" if field == "title" else "medium" if field in {"description", "location", "amenities"} else "low"
+                issue(priority, field, f"page_missing_{field}", f"Verify {review['label'].lower()} on {label}; it was not found in the public page source.")
         else:
             match_score = _field_match_score(field, expected_value, observed_value, search_text)
             review["match_score"] = match_score
             if match_score is None:
                 review["status"] = "present"
-            elif match_score >= (0.45 if field == "title" else 0.3):
+            elif match_score >= _match_threshold(field):
                 review["status"] = "match"
+            elif field == "amenities" and match_score > 0:
+                review["status"] = "partial"
+                issue("medium", field, "page_partial_amenities", f"Review {label} amenities; only part of the Hostaway amenity set was confirmed in the public page source.")
             else:
                 review["status"] = "mismatch"
                 priority = "high" if field in {"title", "location"} else "medium"
@@ -438,8 +586,32 @@ def _tokens(value: Any) -> set[str]:
 def _field_match_score(field: str, expected: Any, observed: Any, search_text: str) -> float | None:
     expected_tokens = _tokens(expected)
     observed_tokens = _tokens(observed)
-    if field in {"location", "amenities"}:
-        observed_tokens |= _tokens(search_text)
+    observed_tokens |= _tokens(search_text)
     if not expected_tokens or not observed_tokens:
         return None
     return round(len(expected_tokens & observed_tokens) / len(expected_tokens), 2)
+
+
+def _token_coverage(expected: Any, observed: Any) -> float | None:
+    expected_tokens = _tokens(expected)
+    observed_tokens = _tokens(observed)
+    if not expected_tokens or not observed_tokens:
+        return None
+    return round(len(expected_tokens & observed_tokens) / len(expected_tokens), 2)
+
+
+def _match_threshold(field: str) -> float:
+    return {
+        "title": 0.45,
+        "description": 0.15,
+        "location": 0.3,
+        "amenities": 0.15,
+        "guest_notes": 0.2,
+        "house_rules": 0.2,
+    }.get(field, 0.3)
+
+
+def _utc_now() -> str:
+    from datetime import datetime
+
+    return datetime.utcnow().isoformat()

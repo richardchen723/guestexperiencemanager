@@ -18,7 +18,7 @@ from brain.listing_audit import (
     resolve_cover_image,
     resolve_pricelabs_audit_context,
 )
-from brain.channel_page_audit import channel_destination_valid, extract_deep_page_content
+from brain.channel_page_audit import channel_destination_valid, deep_content_is_sparse, extract_deep_page_content
 
 
 def listing_detail(**overrides):
@@ -186,6 +186,11 @@ class ListingAuditTests(unittest.TestCase):
         self.assertEqual(content["fields"]["amenities"], ["Wifi", "Kitchen"])
         self.assertIn("No smoking", content["fields"]["house_rules"])
         self.assertGreater(content["structured_data_blocks"], 0)
+        self.assertFalse(deep_content_is_sparse({"status": "ok", "deep_content": content}))
+        self.assertTrue(deep_content_is_sparse({
+            "status": "ok",
+            "deep_content": {"fields": {"title": "Only a shell"}},
+        }))
 
     def test_deep_asset_persists_field_reviews_and_improvement_findings(self):
         detail = listing_detail(airbnbName="Short title")
