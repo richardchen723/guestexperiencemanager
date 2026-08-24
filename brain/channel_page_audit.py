@@ -35,6 +35,14 @@ _PLACEHOLDER_PATTERN = re.compile(
     r"\b(?:lorem ipsum|todo|tbd|coming soon|test listing|sample text|xxx+)\b",
     re.IGNORECASE,
 )
+_RENDERED_PAGE_ERROR_MARKERS = (
+    ("oops, something went wrong",),
+    ("having trouble loading details",),
+    ("we couldn't find the page",),
+    ("we can't find the page",),
+    ("this page isn't available",),
+    ("this page is no longer available",),
+)
 _STOP_WORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is",
     "it", "of", "on", "or", "our", "the", "this", "to", "with", "your",
@@ -63,6 +71,15 @@ _SECTION_MARKERS = {
 def clean_text(value: Any, *, limit: int = MAX_FIELD_TEXT) -> str:
     text = _SPACE_PATTERN.sub(" ", str(value or "")).strip()
     return text[:limit]
+
+
+def rendered_page_error_message(value: Any) -> str:
+    """Return visible channel error text while ignoring sparse-but-working pages."""
+    text = clean_text(value, limit=8_000)
+    lower = text.casefold()
+    if any(all(marker in lower for marker in markers) for markers in _RENDERED_PAGE_ERROR_MARKERS):
+        return text[:280]
+    return ""
 
 
 def channel_destination_valid(url: str | None, channel: str) -> bool:
@@ -240,16 +257,25 @@ def render_deep_public_pages(targets: dict[Any, tuple[str, str]]) -> dict[Any, d
                         except Exception:
                             body_text = title
                         lower = clean_text(body_text, limit=8_000).lower()
+                        rendered_error = rendered_page_error_message(body_text)
                         http_status = response.status if response else None
                         domain_valid = channel_destination_valid(final_url, channel)
+                        failure_kind = None
                         if http_status in {404, 410} or "page not found" in lower:
                             status = "not_found"
+                            failure_kind = "not_found"
                         elif not domain_valid:
                             status = "invalid_domain"
+                            failure_kind = "invalid_domain"
                         elif http_status and http_status >= 400:
                             status = "unavailable"
+                            failure_kind = "http_error"
                         elif any(token in lower for token in ("verify you are human", "captcha", "access denied", "robot check")):
                             status = "blocked"
+                            failure_kind = "automation_blocked"
+                        elif rendered_error:
+                            status = "unavailable"
+                            failure_kind = "rendered_error"
                         else:
                             status = "ok"
                         result = {
@@ -264,8 +290,10 @@ def render_deep_public_pages(targets: dict[Any, tuple[str, str]]) -> dict[Any, d
                             "inspection_mode": "deep",
                             "browser_rendered": True,
                             "title": title,
-                            "summary": title or "Rendered public page returned without extractable text.",
+                            "summary": rendered_error or title or "Rendered public page returned without extractable text.",
                         }
+                        if failure_kind:
+                            result["failure_kind"] = failure_kind
                         if status == "ok":
                             content = extract_deep_page_content(html_text, fallback_title=title)
                             result["_deep_search_text"] = content.pop("_search_text", "")
@@ -282,6 +310,7 @@ def render_deep_public_pages(targets: dict[Any, tuple[str, str]]) -> dict[Any, d
                             "redirected": False,
                             "inspection_mode": "deep",
                             "browser_rendered": True,
+                            "failure_kind": "request_error",
                             "error": str(exc)[:500],
                         }
                     finally:

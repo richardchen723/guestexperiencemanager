@@ -27,6 +27,7 @@ from brain.channel_page_audit import (
     deep_content_is_sparse,
     extract_deep_page_content,
     render_deep_public_pages,
+    rendered_page_error_message,
 )
 from brain.models import (
     BookingHealthAnalysis,
@@ -48,6 +49,7 @@ AUDIT_TIMEZONE = os.getenv("LISTING_AUDIT_TIMEZONE", "Asia/Kuala_Lumpur")
 PUBLIC_PAGE_TIMEOUT = int(os.getenv("LISTING_AUDIT_PAGE_TIMEOUT_SECONDS", "12"))
 PUBLIC_PAGE_WORKERS = max(1, min(int(os.getenv("LISTING_AUDIT_PAGE_WORKERS", "8")), 16))
 HOSTAWAY_DETAIL_WORKERS = max(1, min(int(os.getenv("LISTING_AUDIT_HOSTAWAY_WORKERS", "8")), 16))
+CONFIRMED_RENDER_FAILURE_KINDS = {"rendered_error", "http_error", "not_found", "invalid_domain", "non_html"}
 COVER_IMAGE_TIMEOUT = max(2, min(int(os.getenv("LISTING_AUDIT_IMAGE_TIMEOUT_SECONDS", "5")), 15))
 COVER_IMAGE_WORKERS = max(1, min(int(os.getenv("LISTING_AUDIT_IMAGE_WORKERS", "8")), 16))
 COVER_IMAGE_CANDIDATE_LIMIT = max(1, min(int(os.getenv("LISTING_AUDIT_IMAGE_CANDIDATE_LIMIT", "5")), 20))
@@ -71,6 +73,22 @@ META_DESCRIPTION_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 TAG_PATTERN = re.compile(r"<[^>]+>")
+
+
+def merge_rendered_page_result(original: dict[str, Any], rendered: dict[str, Any]) -> dict[str, Any]:
+    """Prefer rendered content only when it succeeds or confirms a real page failure."""
+    browser_render = {
+        "attempted": True,
+        "status": rendered.get("status") or "unavailable",
+        "error": rendered.get("error"),
+    }
+    if rendered.get("status") == "ok" or rendered.get("failure_kind") in CONFIRMED_RENDER_FAILURE_KINDS:
+        result = dict(rendered)
+        result["browser_render"] = browser_render
+        return result
+    result = dict(original)
+    result["browser_render"] = browser_render
+    return result
 
 
 @dataclass(frozen=True)
@@ -413,15 +431,7 @@ class ListingAuditRunner:
             }
             rendered_results = render_deep_public_pages(sparse_targets)
             for key, rendered in rendered_results.items():
-                original = results[key]
-                original["browser_render"] = {
-                    "attempted": True,
-                    "status": rendered.get("status") or "unavailable",
-                    "error": rendered.get("error"),
-                }
-                if rendered.get("status") == "ok":
-                    rendered["browser_render"] = {"attempted": True, "status": "ok"}
-                    results[key] = rendered
+                results[key] = merge_rendered_page_result(results[key], rendered)
         return results
 
 
@@ -1077,20 +1087,30 @@ def fetch_public_page(url: str, channel: str, *, deep: bool = False) -> dict[str
     title = clean_html(match_html(TITLE_PATTERN, text))
     description = clean_html(match_html(META_DESCRIPTION_PATTERN, text))
     visible = clean_html(TAG_PATTERN.sub(" ", text))[:1800]
+    visible_error = rendered_page_error_message(f"{title} {visible[:700]}")
     lower = f"{title} {visible[:700]}".lower()
     final_url = response.url or url
     content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
     domain_valid = channel_destination_valid(final_url, channel)
+    failure_kind = None
     if response.status_code in {404, 410} or "page not found" in lower:
         status = "not_found"
+        failure_kind = "not_found"
     elif not domain_valid:
         status = "invalid_domain"
+        failure_kind = "invalid_domain"
     elif response.status_code >= 400:
         status = "unavailable"
+        failure_kind = "http_error"
     elif content_type and "html" not in content_type:
         status = "non_html"
+        failure_kind = "non_html"
     elif any(token in lower for token in ("verify you are human", "captcha", "access denied", "robot check")):
         status = "blocked"
+        failure_kind = "automation_blocked"
+    elif visible_error:
+        status = "unavailable"
+        failure_kind = "rendered_error"
     else:
         status = "ok"
     result = {
@@ -1105,8 +1125,10 @@ def fetch_public_page(url: str, channel: str, *, deep: bool = False) -> dict[str
         "inspection_mode": "deep" if deep else "link",
         "title": title,
         "meta_description": description,
-        "summary": description or title or visible[:280] or "Public page responded without extractable text.",
+        "summary": visible_error or description or title or visible[:280] or "Public page responded without extractable text.",
     }
+    if failure_kind:
+        result["failure_kind"] = failure_kind
     if deep and status == "ok":
         deep_content = extract_deep_page_content(
             text,

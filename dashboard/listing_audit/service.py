@@ -18,6 +18,25 @@ CHANNEL_PROBLEM_ORDER = {
     "not_exported": 3,
     "not_configured": 3,
 }
+CONFIRMED_PAGE_FAILURE_KINDS = {"rendered_error", "http_error", "not_found", "invalid_domain", "non_html"}
+
+
+def confirmed_channel_link_problem(asset: dict[str, Any]) -> bool:
+    """Return true only for an original connection gap or a confirmed guest-page failure."""
+    if not asset.get("configured"):
+        return True
+    if not asset.get("url"):
+        return False
+    page = asset.get("page") or {}
+    status = page.get("status")
+    if status in {"missing_url", "not_found", "invalid_domain", "non_html"}:
+        return True
+    if page.get("failure_kind") in CONFIRMED_PAGE_FAILURE_KINDS:
+        return True
+    try:
+        return int(page.get("http_status") or 0) >= 400
+    except (TypeError, ValueError):
+        return False
 
 
 def channel_problem_unit(item: dict[str, Any], asset: dict[str, Any]) -> dict[str, Any]:
@@ -30,7 +49,13 @@ def channel_problem_unit(item: dict[str, Any], asset: dict[str, Any]) -> dict[st
     page = asset.get("page") or {}
     issue_codes = {issue.get("code") for issue in issues}
 
-    if not configured:
+    if not asset.get("url"):
+        reason = "The public guest-page URL is not stored."
+    elif page.get("failure_kind") == "rendered_error":
+        reason = page.get("summary") or "The channel page displays an error instead of listing details."
+    elif page.get("status") in {"not_found", "invalid_domain", "non_html"} or page.get("failure_kind") in CONFIRMED_PAGE_FAILURE_KINDS:
+        reason = page.get("summary") or "The public guest page did not return a valid listing."
+    elif not configured:
         reason = actions[0] if actions else "Hostaway does not show this listing as connected to the channel."
     elif issues:
         issue_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
@@ -42,7 +67,9 @@ def channel_problem_unit(item: dict[str, Any], asset: dict[str, Any]) -> dict[st
         reason = page.get("summary") or "This channel page needs review."
 
     page_status = (page.get("status") or "not_checked").replace("_", " ")
-    if "deep_content_unverified" in issue_codes:
+    if page.get("failure_kind") == "rendered_error":
+        page_status = "error"
+    elif "deep_content_unverified" in issue_codes:
         page_status = "content unverified"
     elif page.get("status") == "missing_url":
         page_status = "URL missing"
@@ -184,7 +211,16 @@ def dashboard_payload(
             unit["health_score"],
             unit["listing_name"].lower(),
         ))
-        problem_units = attention_units + missing_units
+        problem_units = [
+            channel_problem_unit(item, asset)
+            for item, asset in channel_items
+            if confirmed_channel_link_problem(asset)
+        ]
+        problem_units.sort(key=lambda unit: (
+            CHANNEL_PROBLEM_ORDER.get(unit["channel_status"], 9),
+            unit["health_score"],
+            unit["listing_name"].lower(),
+        ))
         channel_coverage[channel] = {
             "label": label,
             "total": len(assets),

@@ -7,10 +7,30 @@ os.environ.setdefault("DATABASE_URL", "postgresql://user:pass@localhost/db")
 os.environ.setdefault("OPENAI_API_KEY", "test")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 
-from dashboard.listing_audit.service import dashboard_payload, merge_deep_inspections, scope_items_by_portfolio
+from dashboard.listing_audit.service import (
+    confirmed_channel_link_problem,
+    dashboard_payload,
+    merge_deep_inspections,
+    scope_items_by_portfolio,
+)
 
 
 class ListingAuditDashboardPayloadTests(unittest.TestCase):
+    def test_top_channel_problem_filter_preserves_connection_gaps_and_confirmed_errors_only(self):
+        self.assertTrue(confirmed_channel_link_problem({"configured": False, "url": None, "page": {"status": "missing_url"}}))
+        self.assertFalse(confirmed_channel_link_problem({"configured": True, "url": None, "page": {"status": "missing_url"}}))
+        self.assertFalse(confirmed_channel_link_problem({
+            "configured": True,
+            "url": "https://channel.example/listing/41",
+            "page": {"status": "ok"},
+            "status": "high",
+        }))
+        self.assertTrue(confirmed_channel_link_problem({
+            "configured": True,
+            "url": "https://channel.example/listing/41",
+            "page": {"status": "unavailable", "failure_kind": "rendered_error"},
+        }))
+
     def test_payload_summarizes_channel_coverage_and_actions(self):
         run = SimpleNamespace(
             listing_audit_run_id=12,
@@ -74,7 +94,7 @@ class ListingAuditDashboardPayloadTests(unittest.TestCase):
         self.assertEqual(result["profile_label"], "All properties")
         self.assertFalse(result["is_stale"])
 
-    def test_payload_exposes_connected_channel_problems_with_audit_and_guest_links(self):
+    def test_payload_excludes_content_only_findings_from_link_problems(self):
         run = SimpleNamespace(
             listing_audit_run_id=15,
             cadence="weekly",
@@ -119,11 +139,55 @@ class ListingAuditDashboardPayloadTests(unittest.TestCase):
 
         self.assertEqual(coverage["configured"], 1)
         self.assertEqual(coverage["needs_attention"], 1)
+        self.assertEqual(coverage["problem_count"], 0)
+        self.assertEqual(coverage["problem_units"], [])
+
+    def test_payload_exposes_confirmed_rendered_page_errors_with_links(self):
+        run = SimpleNamespace(
+            listing_audit_run_id=16,
+            cadence="weekly",
+            status="completed",
+            snapshot_date=date.today(),
+            listing_count=1,
+            critical_count=0,
+            high_count=1,
+            watch_count=0,
+            healthy_count=0,
+            source_statuses={},
+            error_message=None,
+            started_at=datetime.utcnow(),
+            completed_at=datetime.utcnow(),
+        )
+        url = "https://www.google.com/travel/hotels/entity/example/overview"
+        item = {
+            "listing_id": 576478,
+            "listing_name": "Reflection's Edge",
+            "portfolio_name": "Enchanted Havens",
+            "health_score": 60.0,
+            "severity": "high",
+            "online_assets": [{
+                "channel": "googlevr",
+                "label": "Google Vacation Rentals",
+                "configured": True,
+                "status": "high",
+                "url": url,
+                "page": {
+                    "status": "unavailable",
+                    "failure_kind": "rendered_error",
+                    "summary": "Oops, something went wrong. Having trouble loading details.",
+                },
+                "deep_inspection": {"status": "high", "issues": []},
+            }],
+            "action_items": [],
+        }
+
+        coverage = dashboard_payload(run, [item], recent_runs=[run])["summary"]["channel_coverage"]["googlevr"]
+
         self.assertEqual(coverage["problem_count"], 1)
         self.assertEqual(coverage["problem_units"][0]["listing_name"], "Reflection's Edge")
-        self.assertEqual(coverage["problem_units"][0]["page_status"], "content unverified")
-        self.assertEqual(coverage["problem_units"][0]["url"], item["online_assets"][0]["url"])
-        self.assertIn("without verifiable listing content", coverage["problem_units"][0]["review_reason"])
+        self.assertEqual(coverage["problem_units"][0]["page_status"], "error")
+        self.assertEqual(coverage["problem_units"][0]["url"], url)
+        self.assertIn("something went wrong", coverage["problem_units"][0]["review_reason"])
 
     def test_portfolio_scope_is_case_insensitive_and_preserves_all_options(self):
         items = [

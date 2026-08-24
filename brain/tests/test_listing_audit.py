@@ -14,11 +14,17 @@ from brain.listing_audit import (
     build_listing_audit_result,
     configure_pricelabs_for_listing_audit,
     cover_image_candidates,
+    merge_rendered_page_result,
     pricing_market_payload,
     resolve_cover_image,
     resolve_pricelabs_audit_context,
 )
-from brain.channel_page_audit import channel_destination_valid, deep_content_is_sparse, extract_deep_page_content
+from brain.channel_page_audit import (
+    channel_destination_valid,
+    deep_content_is_sparse,
+    extract_deep_page_content,
+    rendered_page_error_message,
+)
 
 
 def listing_detail(**overrides):
@@ -164,6 +170,43 @@ class ListingAuditTests(unittest.TestCase):
         self.assertTrue(channel_destination_valid("https://www.google.com/travel/hotels/entity/41", "googlevr"))
         self.assertFalse(channel_destination_valid("https://example.com/rooms/41", "airbnb"))
         self.assertTrue(channel_destination_valid("https://stay.example.com/property/41", "direct"))
+
+    def test_rendered_page_error_detection_requires_visible_error_copy(self):
+        self.assertIn(
+            "Oops, something went wrong",
+            rendered_page_error_message("Oops, something went wrong. Please try again. Having trouble loading details"),
+        )
+        self.assertEqual(
+            rendered_page_error_message("A working property page with sparse dynamic listing content."),
+            "",
+        )
+
+    def test_confirmed_rendered_error_replaces_sparse_static_result(self):
+        original = {"status": "ok", "summary": "Sparse JavaScript shell."}
+        rendered = {
+            "status": "unavailable",
+            "failure_kind": "rendered_error",
+            "summary": "Oops, something went wrong. Having trouble loading details.",
+        }
+
+        result = merge_rendered_page_result(original, rendered)
+
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["failure_kind"], "rendered_error")
+        self.assertEqual(result["browser_render"]["status"], "unavailable")
+
+    def test_automation_block_does_not_turn_working_static_page_into_link_problem(self):
+        original = {"status": "ok", "summary": "Sparse JavaScript shell."}
+        rendered = {
+            "status": "blocked",
+            "failure_kind": "automation_blocked",
+            "summary": "Verify you are human.",
+        }
+
+        result = merge_rendered_page_result(original, rendered)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["browser_render"]["status"], "blocked")
 
     def test_deep_page_extraction_reads_structured_listing_content(self):
         html = """

@@ -111,17 +111,11 @@
                     <small>{{ channel.healthy }} healthy · {{ channel.needs_attention }} need review</small>
                     {% if channel.problem_count %}
                     <button class="channel-missing-trigger" type="button" data-channel-panel="channel-missing-{{ channel_key }}" aria-expanded="false" aria-controls="channel-missing-{{ channel_key }}">
-                        {% if channel.needs_attention and channel.missing_count %}
-                        <span>{{ channel.problem_count }} flagged</span>
-                        {% elif channel.needs_attention %}
-                        <span>{{ channel.needs_attention }} need review</span>
-                        {% else %}
-                        <span>{{ channel.missing_count }} not connected</span>
-                        {% endif %}
+                        <span>{{ channel.problem_count }} {{ 'missing/error' if channel.problem_count == 1 else 'missing/errors' }}</span>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
                     </button>
                     {% else %}
-                    <span class="channel-all-connected"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>All healthy</span>
+                    <span class="channel-all-connected"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>All links working</span>
                     {% endif %}
                 </div>
                 {% if channel.deep_reviewed %}
@@ -136,9 +130,9 @@
             <section class="channel-missing-panel channel-missing-panel-{{ channel_key }}" id="channel-missing-{{ channel_key }}" hidden>
                 <div class="channel-missing-header">
                     <div>
-                        <span class="section-kicker">Channel problems</span>
-                        <h3>{{ channel.problem_count }} {{ channel.label }} {{ 'listing needs' if channel.problem_count == 1 else 'listings need' }} review</h3>
-                        <p>Open the internal audit for context or the guest page to verify the live channel experience.</p>
+                        <span class="section-kicker">Missing or broken pages</span>
+                        <h3>{{ channel.problem_count }} {{ channel.label }} {{ 'listing needs' if channel.problem_count == 1 else 'listings need' }} attention</h3>
+                        <p>Only connection gaps and guest pages that displayed a confirmed error appear here. Content improvements remain in the detailed audit.</p>
                     </div>
                     <button class="channel-missing-close" type="button" aria-label="Close {{ channel.label }} problems" data-close-channel-panel="channel-missing-{{ channel_key }}">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
