@@ -20,6 +20,7 @@ from brain.listing_audit import (
     resolve_pricelabs_audit_context,
 )
 from brain.channel_page_audit import (
+    automation_blocked_page_message,
     channel_destination_valid,
     deep_content_is_sparse,
     extract_deep_page_content,
@@ -176,6 +177,10 @@ class ListingAuditTests(unittest.TestCase):
             "Oops, something went wrong",
             rendered_page_error_message("Oops, something went wrong. Please try again. Having trouble loading details"),
         )
+
+    def test_automation_block_detection_catches_channel_bot_pages(self):
+        self.assertEqual(automation_blocked_page_message("A working listing page."), "")
+        self.assertEqual(automation_blocked_page_message("Bot or Not?"), "Bot or Not?")
         self.assertEqual(
             rendered_page_error_message("A working property page with sparse dynamic listing content."),
             "",

@@ -43,6 +43,14 @@ _RENDERED_PAGE_ERROR_MARKERS = (
     ("this page isn't available",),
     ("this page is no longer available",),
 )
+_AUTOMATION_BLOCK_MARKERS = (
+    "verify you are human",
+    "captcha",
+    "access denied",
+    "robot check",
+    "are you a robot",
+    "bot or not",
+)
 _STOP_WORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is",
     "it", "of", "on", "or", "our", "the", "this", "to", "with", "your",
@@ -78,6 +86,15 @@ def rendered_page_error_message(value: Any) -> str:
     text = clean_text(value, limit=8_000)
     lower = text.casefold()
     if any(all(marker in lower for marker in markers) for markers in _RENDERED_PAGE_ERROR_MARKERS):
+        return text[:280]
+    return ""
+
+
+def automation_blocked_page_message(value: Any) -> str:
+    """Return automation-block copy that must not be reported as a guest-page failure."""
+    text = clean_text(value, limit=8_000)
+    lower = text.casefold()
+    if any(marker in lower for marker in _AUTOMATION_BLOCK_MARKERS):
         return text[:280]
     return ""
 
@@ -258,6 +275,7 @@ def render_deep_public_pages(targets: dict[Any, tuple[str, str]]) -> dict[Any, d
                             body_text = title
                         lower = clean_text(body_text, limit=8_000).lower()
                         rendered_error = rendered_page_error_message(body_text)
+                        automation_block = automation_blocked_page_message(body_text)
                         http_status = response.status if response else None
                         domain_valid = channel_destination_valid(final_url, channel)
                         failure_kind = None
@@ -267,12 +285,12 @@ def render_deep_public_pages(targets: dict[Any, tuple[str, str]]) -> dict[Any, d
                         elif not domain_valid:
                             status = "invalid_domain"
                             failure_kind = "invalid_domain"
+                        elif automation_block:
+                            status = "blocked"
+                            failure_kind = "automation_blocked"
                         elif http_status and http_status >= 400:
                             status = "unavailable"
                             failure_kind = "http_error"
-                        elif any(token in lower for token in ("verify you are human", "captcha", "access denied", "robot check")):
-                            status = "blocked"
-                            failure_kind = "automation_blocked"
                         elif rendered_error:
                             status = "unavailable"
                             failure_kind = "rendered_error"

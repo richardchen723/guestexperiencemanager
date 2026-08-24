@@ -8,6 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from brain.models import ListingAuditRun, ListingAuditSnapshot, get_session
+from brain.channel_page_audit import automation_blocked_page_message
 from brain.listing_audit import AUDIT_TIMEZONE, CHANNEL_LABELS
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "watch": 2, "healthy": 3}
@@ -29,6 +30,12 @@ def confirmed_channel_link_problem(asset: dict[str, Any]) -> bool:
         return False
     page = asset.get("page") or {}
     status = page.get("status")
+    if (
+        status == "blocked"
+        or page.get("failure_kind") == "automation_blocked"
+        or automation_blocked_page_message(" ".join(str(page.get(key) or "") for key in ("summary", "title", "error")))
+    ):
+        return False
     if status in {"missing_url", "not_found", "invalid_domain", "non_html"}:
         return True
     if page.get("failure_kind") in CONFIRMED_PAGE_FAILURE_KINDS:

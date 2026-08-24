@@ -22,6 +22,7 @@ from sqlalchemy import func
 
 import dashboard.config as config
 from brain.channel_page_audit import (
+    automation_blocked_page_message,
     build_deep_channel_inspection,
     channel_destination_valid,
     deep_content_is_sparse,
@@ -1087,7 +1088,9 @@ def fetch_public_page(url: str, channel: str, *, deep: bool = False) -> dict[str
     title = clean_html(match_html(TITLE_PATTERN, text))
     description = clean_html(match_html(META_DESCRIPTION_PATTERN, text))
     visible = clean_html(TAG_PATTERN.sub(" ", text))[:1800]
-    visible_error = rendered_page_error_message(f"{title} {visible[:700]}")
+    visible_page_text = f"{title} {visible[:700]}"
+    visible_error = rendered_page_error_message(visible_page_text)
+    automation_block = automation_blocked_page_message(visible_page_text)
     lower = f"{title} {visible[:700]}".lower()
     final_url = response.url or url
     content_type = str(response.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
@@ -1099,15 +1102,15 @@ def fetch_public_page(url: str, channel: str, *, deep: bool = False) -> dict[str
     elif not domain_valid:
         status = "invalid_domain"
         failure_kind = "invalid_domain"
+    elif automation_block:
+        status = "blocked"
+        failure_kind = "automation_blocked"
     elif response.status_code >= 400:
         status = "unavailable"
         failure_kind = "http_error"
     elif content_type and "html" not in content_type:
         status = "non_html"
         failure_kind = "non_html"
-    elif any(token in lower for token in ("verify you are human", "captcha", "access denied", "robot check")):
-        status = "blocked"
-        failure_kind = "automation_blocked"
     elif visible_error:
         status = "unavailable"
         failure_kind = "rendered_error"

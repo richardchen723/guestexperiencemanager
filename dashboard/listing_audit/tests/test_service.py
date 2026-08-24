@@ -30,6 +30,16 @@ class ListingAuditDashboardPayloadTests(unittest.TestCase):
             "url": "https://channel.example/listing/41",
             "page": {"status": "unavailable", "failure_kind": "rendered_error"},
         }))
+        self.assertFalse(confirmed_channel_link_problem({
+            "configured": True,
+            "url": "https://channel.example/listing/41",
+            "page": {
+                "status": "unavailable",
+                "failure_kind": "http_error",
+                "http_status": 429,
+                "summary": "Bot or Not?",
+            },
+        }))
 
     def test_payload_summarizes_channel_coverage_and_actions(self):
         run = SimpleNamespace(
