@@ -3,7 +3,7 @@
 {% block title %}Listing Health - Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/listing-audit.css', v='20260823-2') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/listing-audit.css', v='20260824-1') }}">
 {% endblock %}
 
 {% block content %}
@@ -109,13 +109,19 @@
                 </div>
                 <div class="channel-card-footer">
                     <small>{{ channel.healthy }} healthy · {{ channel.needs_attention }} need review</small>
-                    {% if channel.missing_count %}
+                    {% if channel.problem_count %}
                     <button class="channel-missing-trigger" type="button" data-channel-panel="channel-missing-{{ channel_key }}" aria-expanded="false" aria-controls="channel-missing-{{ channel_key }}">
+                        {% if channel.needs_attention and channel.missing_count %}
+                        <span>{{ channel.problem_count }} flagged</span>
+                        {% elif channel.needs_attention %}
+                        <span>{{ channel.needs_attention }} need review</span>
+                        {% else %}
                         <span>{{ channel.missing_count }} not connected</span>
+                        {% endif %}
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
                     </button>
                     {% else %}
-                    <span class="channel-all-connected"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>All connected</span>
+                    <span class="channel-all-connected"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>All healthy</span>
                     {% endif %}
                 </div>
                 {% if channel.deep_reviewed %}
@@ -126,26 +132,32 @@
         </div>
         <div class="channel-missing-panels" aria-live="polite">
             {% for channel_key, channel in audit.summary.channel_coverage.items() %}
-            {% if channel.missing_count %}
+            {% if channel.problem_count %}
             <section class="channel-missing-panel channel-missing-panel-{{ channel_key }}" id="channel-missing-{{ channel_key }}" hidden>
                 <div class="channel-missing-header">
                     <div>
-                        <span class="section-kicker">Connection gaps</span>
-                        <h3>{{ channel.missing_count }} {{ 'unit is' if channel.missing_count == 1 else 'units are' }} not connected to {{ channel.label }}</h3>
-                        <p>Select a unit to open its full listing audit.</p>
+                        <span class="section-kicker">Channel problems</span>
+                        <h3>{{ channel.problem_count }} {{ channel.label }} {{ 'listing needs' if channel.problem_count == 1 else 'listings need' }} review</h3>
+                        <p>Open the internal audit for context or the guest page to verify the live channel experience.</p>
                     </div>
-                    <button class="channel-missing-close" type="button" aria-label="Close {{ channel.label }} connection gaps" data-close-channel-panel="channel-missing-{{ channel_key }}">
+                    <button class="channel-missing-close" type="button" aria-label="Close {{ channel.label }} problems" data-close-channel-panel="channel-missing-{{ channel_key }}">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
                     </button>
                 </div>
                 <div class="channel-missing-unit-grid">
-                    {% for unit in channel.missing_units %}
+                    {% for unit in channel.problem_units %}
+                    <article class="channel-problem-unit channel-problem-{{ unit.channel_status }}">
                     <button class="channel-missing-unit" type="button" data-audit-target="listing-{{ unit.listing_id }}">
                         <span class="missing-unit-initial">{{ unit.listing_name[0] }}</span>
-                        <span class="missing-unit-copy"><strong>{{ unit.listing_name }}</strong><small>{{ unit.portfolio_name }} · {{ unit.connection_status }}</small></span>
+                        <span class="missing-unit-copy"><strong>{{ unit.listing_name }}</strong><small>{{ unit.connection_status }} · {{ unit.review_reason }}</small></span>
                         <span class="missing-unit-score health-{{ unit.severity }}">{{ unit.health_score | round | int }}</span>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
                     </button>
+                    <div class="channel-problem-actions">
+                        <span>{{ unit.portfolio_name }} · page {{ unit.page_status }}</span>
+                        {% if unit.url %}<a href="{{ unit.url }}" target="_blank" rel="noopener noreferrer">Open guest page <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5M10 14 19 5M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg></a>{% else %}<strong>Public URL not stored</strong>{% endif %}
+                    </div>
+                    </article>
                     {% endfor %}
                 </div>
             </section>
@@ -318,5 +330,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/listing-audit.js', v='20260823-2') }}"></script>
+<script src="{{ url_for('static', filename='js/listing-audit.js', v='20260824-1') }}"></script>
 {% endblock %}

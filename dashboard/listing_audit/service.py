@@ -11,6 +11,56 @@ from brain.models import ListingAuditRun, ListingAuditSnapshot, get_session
 from brain.listing_audit import AUDIT_TIMEZONE, CHANNEL_LABELS
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "watch": 2, "healthy": 3}
+CHANNEL_PROBLEM_ORDER = {
+    "critical": 0,
+    "high": 1,
+    "watch": 2,
+    "not_exported": 3,
+    "not_configured": 3,
+}
+
+
+def channel_problem_unit(item: dict[str, Any], asset: dict[str, Any]) -> dict[str, Any]:
+    """Build a safe, actionable channel-card drill-down row."""
+    status = asset.get("status") or "not_connected"
+    configured = bool(asset.get("configured"))
+    inspection = asset.get("deep_inspection") or {}
+    issues = inspection.get("issues") or []
+    actions = asset.get("actions") or []
+    page = asset.get("page") or {}
+    issue_codes = {issue.get("code") for issue in issues}
+
+    if not configured:
+        reason = actions[0] if actions else "Hostaway does not show this listing as connected to the channel."
+    elif issues:
+        issue_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        primary_issue = min(issues, key=lambda issue: issue_order.get(issue.get("priority"), 9))
+        reason = primary_issue.get("message") or "Review the detailed channel finding."
+    elif actions:
+        reason = actions[0]
+    else:
+        reason = page.get("summary") or "This channel page needs review."
+
+    page_status = (page.get("status") or "not_checked").replace("_", " ")
+    if "deep_content_unverified" in issue_codes:
+        page_status = "content unverified"
+    elif page.get("status") == "missing_url":
+        page_status = "URL missing"
+
+    return {
+        "listing_id": item["listing_id"],
+        "listing_name": item["listing_name"],
+        "portfolio_name": item.get("portfolio_name") or "Unassigned",
+        "health_score": item["health_score"],
+        "severity": item["severity"],
+        "channel_status": status,
+        "connection_status": status.replace("_", " "),
+        "page_status": page_status,
+        "review_reason": reason,
+        "issue_count": len(issues),
+        "url": asset.get("url"),
+        "configured": configured,
+    }
 
 
 class ListingAuditDashboardService:
@@ -122,19 +172,19 @@ def dashboard_payload(
             if asset.get("channel") == channel
         ]
         assets = [asset for _, asset in channel_items]
-        missing_units = [
-            {
-                "listing_id": item["listing_id"],
-                "listing_name": item["listing_name"],
-                "portfolio_name": item.get("portfolio_name") or "Unassigned",
-                "health_score": item["health_score"],
-                "severity": item["severity"],
-                "connection_status": (asset.get("status") or "not_connected").replace("_", " "),
-            }
-            for item, asset in channel_items
-            if not asset.get("configured")
-        ]
+        missing_units = [channel_problem_unit(item, asset) for item, asset in channel_items if not asset.get("configured")]
         missing_units.sort(key=lambda unit: (unit["portfolio_name"].lower(), unit["listing_name"].lower()))
+        attention_units = [
+            channel_problem_unit(item, asset)
+            for item, asset in channel_items
+            if asset.get("configured") and asset.get("status") not in {"healthy", "not_configured", "not_exported"}
+        ]
+        attention_units.sort(key=lambda unit: (
+            CHANNEL_PROBLEM_ORDER.get(unit["channel_status"], 9),
+            unit["health_score"],
+            unit["listing_name"].lower(),
+        ))
+        problem_units = attention_units + missing_units
         channel_coverage[channel] = {
             "label": label,
             "total": len(assets),
@@ -142,7 +192,10 @@ def dashboard_payload(
             "missing_count": len(missing_units),
             "missing_units": missing_units,
             "healthy": sum(1 for asset in assets if asset.get("status") == "healthy"),
-            "needs_attention": sum(1 for asset in assets if asset.get("status") not in {"healthy", "not_configured", "not_exported"}),
+            "needs_attention": len(attention_units),
+            "attention_units": attention_units,
+            "problem_count": len(problem_units),
+            "problem_units": problem_units,
             "deep_reviewed": sum(1 for asset in assets if asset.get("deep_inspection")),
             "deep_issues": sum(len((asset.get("deep_inspection") or {}).get("issues") or []) for asset in assets),
         }

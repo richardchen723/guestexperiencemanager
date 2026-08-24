@@ -59,6 +59,7 @@ class ListingAuditDashboardPayloadTests(unittest.TestCase):
         self.assertEqual(result["summary"]["channel_coverage"]["airbnb"]["healthy"], 1)
         booking_coverage = result["summary"]["channel_coverage"]["bookingcom"]
         self.assertEqual(booking_coverage["missing_count"], 1)
+        self.assertEqual(booking_coverage["problem_count"], 1)
         self.assertEqual(booking_coverage["missing_units"][0]["listing_name"], "Skyline Retreat")
         self.assertEqual(booking_coverage["missing_units"][0]["connection_status"], "not exported")
         google_coverage = result["summary"]["channel_coverage"]["googlevr"]
@@ -72,6 +73,57 @@ class ListingAuditDashboardPayloadTests(unittest.TestCase):
         self.assertEqual(result["top_actions"][0]["listing_name"], "Skyline Retreat")
         self.assertEqual(result["profile_label"], "All properties")
         self.assertFalse(result["is_stale"])
+
+    def test_payload_exposes_connected_channel_problems_with_audit_and_guest_links(self):
+        run = SimpleNamespace(
+            listing_audit_run_id=15,
+            cadence="weekly",
+            status="completed",
+            snapshot_date=date.today(),
+            listing_count=1,
+            critical_count=0,
+            high_count=1,
+            watch_count=0,
+            healthy_count=0,
+            source_statuses={},
+            error_message=None,
+            started_at=datetime.utcnow(),
+            completed_at=datetime.utcnow(),
+        )
+        item = {
+            "listing_id": 576478,
+            "listing_name": "Reflection's Edge",
+            "portfolio_name": "Enchanted Havens",
+            "health_score": 60.0,
+            "severity": "high",
+            "online_assets": [{
+                "channel": "googlevr",
+                "label": "Google Vacation Rentals",
+                "configured": True,
+                "status": "high",
+                "url": "https://www.google.com/travel/hotels/entity/example/overview",
+                "page": {"status": "ok"},
+                "deep_inspection": {
+                    "status": "high",
+                    "issues": [{
+                        "priority": "high",
+                        "code": "deep_content_unverified",
+                        "message": "The live link returned without verifiable listing content.",
+                    }],
+                },
+            }],
+            "action_items": [],
+        }
+
+        coverage = dashboard_payload(run, [item], recent_runs=[run])["summary"]["channel_coverage"]["googlevr"]
+
+        self.assertEqual(coverage["configured"], 1)
+        self.assertEqual(coverage["needs_attention"], 1)
+        self.assertEqual(coverage["problem_count"], 1)
+        self.assertEqual(coverage["problem_units"][0]["listing_name"], "Reflection's Edge")
+        self.assertEqual(coverage["problem_units"][0]["page_status"], "content unverified")
+        self.assertEqual(coverage["problem_units"][0]["url"], item["online_assets"][0]["url"])
+        self.assertIn("without verifiable listing content", coverage["problem_units"][0]["review_reason"])
 
     def test_portfolio_scope_is_case_insensitive_and_preserves_all_options(self):
         items = [
