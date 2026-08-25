@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from pathlib import Path
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.dialects.postgresql import JSONB
@@ -183,3 +184,19 @@ def test_custom_dashboard_window_is_inclusive_and_bounded_by_retained_data():
     assert bounded["start"] == datetime(2026, 7, 22, 12, 0)
     assert bounded["end"] == datetime(2026, 8, 21, 12, 0)
     assert bounded["notice"] == "Custom dates are limited to the analyzed one-month range."
+
+
+def test_quick_resolution_updates_the_active_queue_without_redirecting():
+    project_root = Path(__file__).resolve().parents[2]
+    script = (project_root / "dashboard/static/js/guest-issues.js").read_text()
+    template = (project_root / "dashboard/templates/stay_issues/index.html").read_text()
+
+    assert "window.location.href" not in script
+    assert "resolvedIssue?.remove()" in script
+    assert "window.scrollTo(0, scrollPosition)" in script
+    assert "adjustCount('[data-active-issue-count]', -1)" in script
+    assert "adjustCount('[data-resolved-issue-count]', 1)" in script
+    assert "adjustCount('[data-open-issue-count]', -1)" in script
+    assert "data-active-issue-count" in template
+    assert "data-resolved-issue-count" in template
+    assert "data-open-issue-count" in template
