@@ -17,10 +17,12 @@ from brain.models import (
     GuestExperienceAnalysisRun,
     GuestReviewIssueAnalysis,
     PropertyGuestIssue,
+    PropertyGuestIssueNote,
     get_session as get_brain_session,
 )
 from dashboard.portfolio_mapping import TAG_PORTFOLIO_NAMES, portfolio_name_for_listing
 from dashboard.auth.models import User, get_session as get_user_session
+from dashboard.stay_issues.workflow import ISSUE_STATUS_LABELS, issue_operational_status
 from database.models import (
     Listing,
     ListingPhoto,
@@ -188,19 +190,27 @@ class GuestIssueDashboardService:
             .order_by(PropertyGuestIssue.source_date.desc(), PropertyGuestIssue.issue_id.desc())
             .all()
         )
+        issue_ids = [int(issue.issue_id) for issue in issues]
+        notes = (
+            self.brain_session.query(PropertyGuestIssueNote)
+            .filter(PropertyGuestIssueNote.issue_id.in_(issue_ids or [-1]))
+            .order_by(PropertyGuestIssueNote.created_at, PropertyGuestIssueNote.note_id)
+            .all()
+        )
         latest_run = (
             self.brain_session.query(GuestExperienceAnalysisRun)
             .order_by(GuestExperienceAnalysisRun.started_at.desc())
             .first()
         )
-        resolver_ids = {issue.resolved_by_user_id for issue in issues if issue.resolved_by_user_id}
-        resolver_names: dict[int, str] = {}
-        if resolver_ids:
+        operator_ids = {issue.resolved_by_user_id for issue in issues if issue.resolved_by_user_id}
+        operator_ids.update(note.author_user_id for note in notes if note.author_user_id)
+        operator_names: dict[int, str] = {}
+        if operator_ids:
             user_session = get_user_session()
             try:
-                resolver_names = {
+                operator_names = {
                     user.user_id: (user.name or user.email or f"Team member {user.user_id}")
-                    for user in user_session.query(User).filter(User.user_id.in_(resolver_ids)).all()
+                    for user in user_session.query(User).filter(User.user_id.in_(operator_ids)).all()
                 }
             finally:
                 user_session.close()
@@ -208,15 +218,19 @@ class GuestIssueDashboardService:
         stay_by_listing: dict[int, list[Any]] = defaultdict(list)
         review_by_listing: dict[int, list[Any]] = defaultdict(list)
         issues_by_listing: dict[int, list[Any]] = defaultdict(list)
+        notes_by_issue: dict[int, list[Any]] = defaultdict(list)
         for row in stay_analyses:
             stay_by_listing[int(row.listing_id)].append(row)
         for row in review_analyses:
             review_by_listing[int(row.listing_id)].append(row)
         for row in issues:
             issues_by_listing[int(row.listing_id)].append(row)
+        for row in notes:
+            notes_by_issue[int(row.issue_id)].append(row)
 
         portfolios: dict[str, list[dict[str, Any]]] = defaultdict(list)
         all_quality_counts = {quality: 0 for quality in QUALITY_ORDER}
+        selected_status_counts = {status: 0 for status in ISSUE_STATUS_LABELS}
         selected_issue_count = review_issue_count = 0
         properties_with_selected_issues = 0
         active_issue_count = ticketed_issue_count = recently_resolved_count = archived_issue_count = 0
@@ -249,10 +263,13 @@ class GuestIssueDashboardService:
                 formatted = self._format_issue(
                     issue,
                     archive_cutoff=archive_cutoff,
-                    resolver_name=resolver_names.get(issue.resolved_by_user_id),
+                    resolver_name=operator_names.get(issue.resolved_by_user_id),
+                    notes=notes_by_issue.get(int(issue.issue_id), []),
+                    operator_names=operator_names,
                 )
                 if _issue_matches_view(formatted, view):
                     formatted_issues.append(formatted)
+                    selected_status_counts[formatted["operational_status"]] += 1
             if formatted_issues:
                 properties_with_selected_issues += 1
             selected_issue_count += len(formatted_issues)
@@ -311,6 +328,7 @@ class GuestIssueDashboardService:
                 "stay_analysis_count": len(stay_analyses),
                 "review_analysis_count": len(review_analyses),
                 "quality_counts": all_quality_counts,
+                "status_counts": selected_status_counts,
             },
             "portfolios": formatted_portfolios,
             "latest_run": _format_run(latest_run),
@@ -322,6 +340,8 @@ class GuestIssueDashboardService:
         *,
         archive_cutoff: datetime,
         resolver_name: str | None = None,
+        notes: list[Any] | None = None,
+        operator_names: dict[int, str] | None = None,
     ) -> dict[str, Any]:
         references = []
         for reference in issue.source_references or []:
@@ -341,6 +361,8 @@ class GuestIssueDashboardService:
                     "source_type": "review",
                 })
         workflow_status = issue.workflow_status or "open"
+        operational_status = issue_operational_status(issue)
+        operator_names = operator_names or {}
         is_archived = bool(
             workflow_status == "resolved"
             and issue.resolved_at
@@ -358,11 +380,8 @@ class GuestIssueDashboardService:
             "severity": issue.severity,
             "resolution_state": issue.resolution_state or "feedback",
             "workflow_status": workflow_status,
-            "workflow_label": {
-                "open": "Needs action",
-                "ticketed": "Ticketed",
-                "resolved": "Resolved",
-            }.get(workflow_status, workflow_status.replace("_", " ").title()),
+            "operational_status": operational_status,
+            "workflow_label": ISSUE_STATUS_LABELS[operational_status],
             "is_archived": is_archived,
             "resolution_comment": issue.resolution_comment,
             "resolution_method": issue.resolution_method,
@@ -377,6 +396,21 @@ class GuestIssueDashboardService:
             "reservation_id": issue.reservation_id,
             "review_id": issue.review_id,
             "references": references,
+            "notes": [
+                {
+                    "note_id": note.note_id,
+                    "body": note.body,
+                    "note_type": note.note_type,
+                    "note_type_label": {
+                        "status_change": "Status update",
+                        "resolution": "Resolution",
+                    }.get(note.note_type, "Note"),
+                    "created_at": note.created_at,
+                    "author_user_id": note.author_user_id,
+                    "author_name": operator_names.get(note.author_user_id, "Team member"),
+                }
+                for note in (notes or [])
+            ],
         }
 
 

@@ -15,7 +15,14 @@ from dashboard.stay_issues.service import (
     get_message_source,
     get_review_source,
 )
-from dashboard.stay_issues.workflow import GuestIssueWorkflowError, resolve_issue
+from dashboard.stay_issues.workflow import (
+    ISSUE_STATUS_LABELS,
+    GuestIssueWorkflowError,
+    add_issue_note,
+    change_issue_status,
+    issue_operational_status,
+    resolve_issue,
+)
 from database.models import get_session
 
 logger = logging.getLogger(__name__)
@@ -76,6 +83,73 @@ def resolve_guest_issue(issue_id: int):
     except Exception:
         logger.exception("Could not resolve guest issue %s", issue_id)
         return jsonify({"error": "The issue could not be resolved. Please try again."}), 500
+
+
+@guest_issues_bp.route("/api/issues/<int:issue_id>/status", methods=["POST"])
+@approved_required
+def update_guest_issue_status(issue_id: int):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Authentication required"}), 401
+    payload = request.get_json(silent=True) or {}
+    try:
+        issue, activity = change_issue_status(
+            issue_id,
+            status=payload.get("status", ""),
+            note=payload.get("note", ""),
+            user_id=current_user.user_id,
+        )
+        status = issue_operational_status(issue)
+        return jsonify({
+            "issue_id": issue.issue_id,
+            "workflow_status": issue.workflow_status,
+            "operational_status": status,
+            "status_label": ISSUE_STATUS_LABELS[status],
+            "note": _note_payload(activity, current_user) if activity else None,
+        })
+    except GuestIssueWorkflowError as exc:
+        return jsonify({"error": str(exc)}), exc.status_code
+    except Exception:
+        logger.exception("Could not update guest issue %s status", issue_id)
+        return jsonify({"error": "The issue status could not be updated. Please try again."}), 500
+
+
+@guest_issues_bp.route("/api/issues/<int:issue_id>/notes", methods=["POST"])
+@approved_required
+def add_guest_issue_note(issue_id: int):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Authentication required"}), 401
+    payload = request.get_json(silent=True) or {}
+    try:
+        note = add_issue_note(
+            issue_id,
+            note=payload.get("note", ""),
+            user_id=current_user.user_id,
+        )
+        return jsonify({"issue_id": issue_id, "note": _note_payload(note, current_user)})
+    except GuestIssueWorkflowError as exc:
+        return jsonify({"error": str(exc)}), exc.status_code
+    except Exception:
+        logger.exception("Could not add a note to guest issue %s", issue_id)
+        return jsonify({"error": "The note could not be added. Please try again."}), 500
+
+
+def _note_payload(note, user) -> dict | None:
+    if not note:
+        return None
+    return {
+        "note_id": note.note_id,
+        "body": note.body,
+        "note_type": note.note_type,
+        "note_type_label": {
+            "status_change": "Status update",
+            "resolution": "Resolution",
+        }.get(note.note_type, "Note"),
+        "created_at": note.created_at.isoformat() if note.created_at else None,
+        "author_user_id": note.author_user_id,
+        "author_name": user.name or user.email or f"Team member {user.user_id}",
+    }
 
 
 @guest_issues_bp.route("/sources/messages/<message_id>")

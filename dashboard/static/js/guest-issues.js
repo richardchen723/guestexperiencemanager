@@ -1,6 +1,7 @@
 (() => {
     const search = document.getElementById('guestIssueSearch');
     const source = document.getElementById('guestIssueSource');
+    const status = document.getElementById('guestIssueStatus');
     const empty = document.getElementById('guestIssueEmpty');
     const expandGroups = document.querySelector('[data-expand-groups]');
     const collapseGroups = document.querySelector('[data-collapse-groups]');
@@ -18,9 +19,21 @@
         customWindowForm.querySelector('input[type="date"]')?.focus();
     });
 
+    const renderStatusCounts = (counts) => {
+        if (!status) return;
+        Array.from(status.options).forEach((option) => {
+            const label = option.dataset.statusLabel;
+            if (!label) return;
+            const count = option.value ? (counts[option.value] || 0) : (counts.all || 0);
+            option.dataset.statusCount = count;
+            option.textContent = `${label} (${count})`;
+        });
+    };
+
     const applyFilters = () => {
-        if (!search || !source) return;
+        if (!search || !source || !status) return;
         const query = search.value.trim().toLowerCase();
+        const statusCounts = { all: 0 };
         let visibleUnits = 0;
 
         document.querySelectorAll('[data-portfolio-section]').forEach((portfolio) => {
@@ -31,13 +44,19 @@
                 let visibleIssues = 0;
                 unit.querySelectorAll('[data-issue]').forEach((issue) => {
                     const matchesSource = !source.value || issue.dataset.source === source.value;
-                    const visible = matchesSearch && matchesSource;
+                    const matchesScope = matchesSearch && matchesSource;
+                    const matchesStatus = !status.value || issue.dataset.status === status.value;
+                    const visible = matchesScope && matchesStatus;
+                    if (matchesScope) {
+                        statusCounts.all += 1;
+                        statusCounts[issue.dataset.status] = (statusCounts[issue.dataset.status] || 0) + 1;
+                    }
                     issue.hidden = !visible;
                     if (visible) visibleIssues += 1;
                 });
                 unit.hidden = visibleIssues === 0;
                 if (visibleIssues > 0) {
-                    if (query || source.value) unit.open = true;
+                    if (query || source.value || status.value) unit.open = true;
                     portfolioUnits += 1;
                     portfolioIssues += visibleIssues;
                     visibleUnits += 1;
@@ -46,16 +65,18 @@
                 if (count) count.textContent = visibleIssues;
             });
             portfolio.hidden = portfolioUnits === 0;
-            if (portfolioUnits > 0 && (query || source.value)) portfolio.open = true;
+            if (portfolioUnits > 0 && (query || source.value || status.value)) portfolio.open = true;
             const count = portfolio.querySelector('[data-portfolio-issue-count]');
             if (count) count.textContent = portfolioIssues;
         });
 
+        renderStatusCounts(statusCounts);
         if (empty) empty.hidden = visibleUnits > 0;
     };
 
     search?.addEventListener('input', applyFilters);
     source?.addEventListener('change', applyFilters);
+    status?.addEventListener('change', applyFilters);
     expandGroups?.addEventListener('click', () => {
         document.querySelectorAll('[data-portfolio-section], [data-unit]').forEach((group) => {
             if (!group.hidden) group.open = true;
@@ -74,6 +95,49 @@
     const error = document.getElementById('resolveDialogError');
     const confirm = dialog?.querySelector('.dialog-confirm');
     let selectedIssueId = null;
+
+    const requestJson = async (url, options) => {
+        const response = await fetch(url, options);
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'The request could not be completed.');
+        return result;
+    };
+
+    const appendIssueNote = (issue, note) => {
+        if (!issue || !note) return;
+        const list = issue.querySelector('[data-note-list]');
+        if (!list) return;
+        list.querySelector('[data-note-empty]')?.remove();
+
+        const article = document.createElement('article');
+        article.className = 'issue-note';
+        article.dataset.note = '';
+        const heading = document.createElement('div');
+        const type = document.createElement('strong');
+        type.textContent = note.note_type_label || 'Note';
+        const metadata = document.createElement('span');
+        const timestamp = note.created_at ? new Date(note.created_at) : null;
+        const formattedTime = timestamp && !Number.isNaN(timestamp.getTime())
+            ? timestamp.toLocaleString('en-US', {
+                month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+            })
+            : 'Just now';
+        metadata.textContent = `${note.author_name || 'Team member'} · ${formattedTime}`;
+        heading.append(type, metadata);
+        const body = document.createElement('p');
+        body.textContent = note.body || '';
+        article.append(heading, body);
+        list.append(article);
+
+        const counter = issue.querySelector('[data-note-count]');
+        if (counter) {
+            const current = Number.parseInt(counter.textContent, 10) || 0;
+            counter.textContent = current + 1;
+        }
+        const preview = issue.querySelector('[data-note-preview]');
+        if (preview) preview.textContent = note.body || 'New activity';
+        list.scrollTop = list.scrollHeight;
+    };
 
     const adjustCount = (selector, delta) => {
         document.querySelectorAll(selector).forEach((counter) => {
@@ -97,15 +161,101 @@
         else dialog.removeAttribute('open');
     };
 
+    const openResolveDialog = (issueId, title) => {
+        selectedIssueId = issueId;
+        issueName.textContent = title || '';
+        comment.value = '';
+        error.hidden = true;
+        if (typeof dialog.showModal === 'function') dialog.showModal();
+        else dialog.setAttribute('open', '');
+        window.setTimeout(() => comment.focus(), 50);
+    };
+
     document.querySelectorAll('[data-resolve-issue]').forEach((button) => {
         button.addEventListener('click', () => {
-            selectedIssueId = button.dataset.resolveIssue;
-            issueName.textContent = button.dataset.issueTitle || '';
-            comment.value = '';
-            error.hidden = true;
-            if (typeof dialog.showModal === 'function') dialog.showModal();
-            else dialog.setAttribute('open', '');
-            window.setTimeout(() => comment.focus(), 50);
+            openResolveDialog(button.dataset.resolveIssue, button.dataset.issueTitle);
+        });
+    });
+
+    document.querySelectorAll('[data-issue-status]').forEach((select) => {
+        select.addEventListener('change', async () => {
+            const previous = select.dataset.currentStatus || 'need_attention';
+            const next = select.value;
+            const issue = select.closest('[data-issue]');
+            const statusError = issue?.querySelector('[data-status-error]');
+            if (next === 'resolved') {
+                select.value = previous;
+                openResolveDialog(select.dataset.issueStatus, select.dataset.issueTitle);
+                return;
+            }
+
+            if (statusError) statusError.hidden = true;
+            select.disabled = true;
+            try {
+                const result = await requestJson(
+                    `/workspace/guest-issues/api/issues/${select.dataset.issueStatus}/status`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: next })
+                    }
+                );
+                select.dataset.currentStatus = result.operational_status;
+                select.value = result.operational_status;
+                if (issue) issue.dataset.status = result.operational_status;
+                const pill = issue?.querySelector('[data-status-pill]');
+                if (pill) {
+                    pill.className = `workflow-pill workflow-${result.operational_status}`;
+                    pill.textContent = result.status_label;
+                }
+                appendIssueNote(issue, result.note);
+                applyFilters();
+            } catch (requestError) {
+                select.value = previous;
+                if (statusError) {
+                    statusError.textContent = requestError.message;
+                    statusError.hidden = false;
+                }
+            } finally {
+                select.disabled = false;
+            }
+        });
+    });
+
+    document.querySelectorAll('[data-issue-note-form]').forEach((noteForm) => {
+        noteForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const issue = noteForm.closest('[data-issue]');
+            const textarea = noteForm.querySelector('textarea');
+            const submit = noteForm.querySelector('button[type="submit"]');
+            const noteError = noteForm.querySelector('[data-note-error]');
+            const note = textarea.value.trim();
+            if (!note) {
+                noteError.textContent = 'Add a note before posting.';
+                noteError.hidden = false;
+                textarea.focus();
+                return;
+            }
+
+            noteError.hidden = true;
+            submit.disabled = true;
+            try {
+                const result = await requestJson(
+                    `/workspace/guest-issues/api/issues/${noteForm.dataset.issueNoteForm}/notes`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ note })
+                    }
+                );
+                appendIssueNote(issue, result.note);
+                textarea.value = '';
+            } catch (requestError) {
+                noteError.textContent = requestError.message;
+                noteError.hidden = false;
+            } finally {
+                submit.disabled = false;
+            }
         });
     });
 
@@ -128,13 +278,11 @@
         confirm.disabled = true;
         confirm.classList.add('is-loading');
         try {
-            const response = await fetch(`/workspace/guest-issues/api/issues/${selectedIssueId}/resolve`, {
+            await requestJson(`/workspace/guest-issues/api/issues/${selectedIssueId}/resolve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ comment: note })
             });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.error || 'The issue could not be resolved.');
 
             const resolvedIssue = document.getElementById(`issue-${selectedIssueId}`);
             const visibleIssues = Array.from(document.querySelectorAll('[data-issue]')).filter((issue) => {
