@@ -50,16 +50,16 @@
     {% endif %}
 
     <nav class="issue-view-tabs" aria-label="Issue views">
-        <a href="{{ url_for('guest_issues.guest_issues_page', view='active', window=dashboard.window.key, start=dashboard.window.start_date, end=dashboard.window.end_date) }}" class="{{ 'is-active' if dashboard.view == 'active' else '' }}"><span>Active</span><strong>{{ dashboard.summary.active_issue_count }}</strong></a>
-        <a href="{{ url_for('guest_issues.guest_issues_page', view='resolved', window=dashboard.window.key, start=dashboard.window.start_date, end=dashboard.window.end_date) }}" class="{{ 'is-active' if dashboard.view == 'resolved' else '' }}"><span>Recently resolved</span><strong>{{ dashboard.summary.recently_resolved_count }}</strong></a>
+        <a href="{{ url_for('guest_issues.guest_issues_page', view='active', window=dashboard.window.key, start=dashboard.window.start_date, end=dashboard.window.end_date) }}" class="{{ 'is-active' if dashboard.view == 'active' else '' }}"><span>Active</span><strong data-active-issue-count>{{ dashboard.summary.active_issue_count }}</strong></a>
+        <a href="{{ url_for('guest_issues.guest_issues_page', view='resolved', window=dashboard.window.key, start=dashboard.window.start_date, end=dashboard.window.end_date) }}" class="{{ 'is-active' if dashboard.view == 'resolved' else '' }}"><span>Recently resolved</span><strong data-resolved-issue-count>{{ dashboard.summary.recently_resolved_count }}</strong></a>
         <a href="{{ url_for('guest_issues.guest_issues_page', view='archived', window=dashboard.window.key, start=dashboard.window.start_date, end=dashboard.window.end_date) }}" class="{{ 'is-active' if dashboard.view == 'archived' else '' }}"><span>Archive</span><strong>{{ dashboard.summary.archived_issue_count }}</strong></a>
     </nav>
 
     <section class="issue-command-bar" aria-label="Queue overview">
         <div class="queue-metrics">
-            <article><span class="metric-icon metric-icon-open">!</span><div><strong>{{ dashboard.summary.open_issue_count }}</strong><span>Need a decision</span></div></article>
+            <article><span class="metric-icon metric-icon-open">!</span><div><strong data-open-issue-count>{{ dashboard.summary.open_issue_count }}</strong><span>Need a decision</span></div></article>
             <article><span class="metric-icon metric-icon-ticket">↗</span><div><strong>{{ dashboard.summary.ticketed_issue_count }}</strong><span>Tracked in tickets</span></div></article>
-            <article><span class="metric-icon metric-icon-home">⌂</span><div><strong>{{ dashboard.summary.properties_with_issues }}</strong><span>Rental units in view</span></div></article>
+            <article><span class="metric-icon metric-icon-home">⌂</span><div><strong data-properties-with-issues>{{ dashboard.summary.properties_with_issues }}</strong><span>Rental units in view</span></div></article>
         </div>
         <div class="analysis-context">
             <span>Stay quality</span>
@@ -183,5 +183,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/guest-issues.js', v='20260822-5') }}"></script>
+<script src="{{ url_for('static', filename='js/guest-issues.js', v='20260825-1') }}"></script>
 {% endblock %}

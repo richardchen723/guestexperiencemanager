@@ -75,6 +75,22 @@
     const confirm = dialog?.querySelector('.dialog-confirm');
     let selectedIssueId = null;
 
+    const adjustCount = (selector, delta) => {
+        document.querySelectorAll(selector).forEach((counter) => {
+            const current = Number.parseInt(counter.textContent, 10);
+            if (Number.isFinite(current)) counter.textContent = Math.max(0, current + delta);
+        });
+    };
+
+    const refreshPropertiesWithIssues = () => {
+        const propertyCount = Array.from(document.querySelectorAll('[data-unit]')).filter((unit) => {
+            return unit.querySelector('[data-issue]');
+        }).length;
+        document.querySelectorAll('[data-properties-with-issues]').forEach((counter) => {
+            counter.textContent = propertyCount;
+        });
+    };
+
     const closeDialog = () => {
         if (!dialog) return;
         if (typeof dialog.close === 'function') dialog.close();
@@ -119,10 +135,34 @@
             });
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'The issue could not be resolved.');
-            const destination = new URL(window.location.href);
-            destination.searchParams.set('view', 'resolved');
-            destination.searchParams.set('issue', selectedIssueId);
-            window.location.href = destination.toString();
+
+            const resolvedIssue = document.getElementById(`issue-${selectedIssueId}`);
+            const visibleIssues = Array.from(document.querySelectorAll('[data-issue]')).filter((issue) => {
+                return !issue.hidden && !issue.closest('[data-unit]')?.hidden && !issue.closest('[data-portfolio-section]')?.hidden;
+            });
+            const resolvedIndex = visibleIssues.indexOf(resolvedIssue);
+            const continuationIssue = resolvedIndex >= 0
+                ? (visibleIssues[resolvedIndex + 1] || visibleIssues[resolvedIndex - 1])
+                : null;
+            const scrollPosition = window.scrollY;
+
+            resolvedIssue?.remove();
+            adjustCount('[data-active-issue-count]', -1);
+            adjustCount('[data-resolved-issue-count]', 1);
+            adjustCount('[data-open-issue-count]', -1);
+            applyFilters();
+            refreshPropertiesWithIssues();
+
+            confirm.disabled = false;
+            confirm.classList.remove('is-loading');
+            selectedIssueId = null;
+            closeDialog();
+            window.requestAnimationFrame(() => {
+                window.scrollTo(0, scrollPosition);
+                if (continuationIssue?.isConnected && !continuationIssue.hidden) {
+                    continuationIssue.querySelector('.issue-card-summary')?.focus({ preventScroll: true });
+                }
+            });
         } catch (requestError) {
             error.textContent = requestError.message;
             error.hidden = false;
