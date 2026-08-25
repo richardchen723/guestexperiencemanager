@@ -14,6 +14,14 @@ const reviewSummaryHeadings = {
     priority_watch: 'Priority watch',
 };
 
+const reviewRiskFilterOptions = [
+    { value: 'bad_high', label: 'High bad-review risk' },
+    { value: 'bad_elevated', label: 'Elevated bad-review risk' },
+    { value: 'mixed', label: 'Unclear outcome' },
+    { value: 'good_likely', label: 'Likely good' },
+    { value: 'good_high', label: 'High chance of good' },
+];
+
 let allTags = [];
 let currentEditingFilterId = null;
 let toastTimer = null;
@@ -115,9 +123,13 @@ function reviewChannelLabel(channelName) {
 }
 
 function populateQueueDimensionFilters() {
+    const riskCounts = new Map(reviewRiskFilterOptions.map((option) => [option.value, 0]));
     const portfolioCounts = new Map();
     const channelCounts = new Map();
     reviewQueueState.reviews.forEach((review) => {
+        const risk = review.risk?.key || 'mixed';
+        if (riskCounts.has(risk)) riskCounts.set(risk, riskCounts.get(risk) + 1);
+
         const portfolio = review.portfolio || 'Unmapped';
         portfolioCounts.set(portfolio, (portfolioCounts.get(portfolio) || 0) + 1);
 
@@ -130,6 +142,10 @@ function populateQueueDimensionFilters() {
         channelCounts.set(channel, existing);
     });
 
+    const risks = reviewRiskFilterOptions.map((option) => ({
+        value: option.value,
+        label: `${option.label} (${riskCounts.get(option.value) || 0})`,
+    }));
     const portfolios = [...portfolioCounts.entries()]
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([value, count]) => ({ value, label: `${value} (${count})` }));
@@ -137,6 +153,12 @@ function populateQueueDimensionFilters() {
         .sort(([, left], [, right]) => left.label.localeCompare(right.label))
         .map(([value, item]) => ({ value, label: `${item.label} (${item.count})` }));
 
+    reviewQueueState.risk = populateQueueSelect(
+        'reviewRiskFilter',
+        `All severities (${reviewQueueState.reviews.length})`,
+        risks,
+        reviewQueueState.risk,
+    );
     reviewQueueState.portfolio = populateQueueSelect(
         'reviewPortfolioFilter',
         'All portfolios',
@@ -213,7 +235,8 @@ function renderReviewQueue() {
     const filtered = reviewQueueState.reviews.filter((review) => {
         const haystack = `${review.guest_name || ''} ${review.listing_name || ''} ${review.portfolio || ''}`.toLowerCase();
         const matchesSearch = !reviewQueueState.search || haystack.includes(reviewQueueState.search);
-        const matchesRisk = reviewQueueState.risk === 'all' || review.risk?.key === reviewQueueState.risk;
+        const matchesRisk = reviewQueueState.risk === 'all'
+            || (review.risk?.key || 'mixed') === reviewQueueState.risk;
         const matchesPortfolio = reviewQueueState.portfolio === 'all'
             || (review.portfolio || 'Unmapped') === reviewQueueState.portfolio;
         const matchesChannel = reviewQueueState.channel === 'all'
