@@ -3,7 +3,7 @@
 {% block title %}Guest Issues · Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/guest-issues.css', v='20260822-6') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/guest-issues.css', v='20260825-2') }}">
 {% endblock %}
 
 {% block content %}
@@ -89,6 +89,14 @@
                     <input type="search" id="guestIssueSearch" placeholder="Search issues or rental units" autocomplete="off">
                 </label>
                 <label class="source-filter"><span>Source</span><select id="guestIssueSource"><option value="">All sources</option><option value="stay">Stay messages</option><option value="review">Guest reviews</option></select></label>
+                <label class="status-filter"><span>Status</span><select id="guestIssueStatus">
+                    <option value="" data-status-label="All statuses" data-status-count="{{ dashboard.summary.issue_count }}">All statuses ({{ dashboard.summary.issue_count }})</option>
+                    <option value="need_attention" data-status-label="Need attention" data-status-count="{{ dashboard.summary.status_counts.need_attention }}">Need attention ({{ dashboard.summary.status_counts.need_attention }})</option>
+                    <option value="scheduled" data-status-label="Scheduled" data-status-count="{{ dashboard.summary.status_counts.scheduled }}">Scheduled ({{ dashboard.summary.status_counts.scheduled }})</option>
+                    <option value="in_progress" data-status-label="In progress" data-status-count="{{ dashboard.summary.status_counts.in_progress }}">In progress ({{ dashboard.summary.status_counts.in_progress }})</option>
+                    <option value="stuck" data-status-label="Stuck" data-status-count="{{ dashboard.summary.status_counts.stuck }}">Stuck ({{ dashboard.summary.status_counts.stuck }})</option>
+                    <option value="resolved" data-status-label="Resolved" data-status-count="{{ dashboard.summary.status_counts.resolved }}">Resolved ({{ dashboard.summary.status_counts.resolved }})</option>
+                </select></label>
             </div>
         </div>
 
@@ -115,12 +123,12 @@
 
                         <div class="issue-card-list">
                             {% for issue in unit.issues %}
-                            <details class="guest-issue-card severity-{{ issue.severity }}" id="issue-{{ issue.issue_id }}" data-issue data-source="{{ issue.source_kind }}" data-status="{{ issue.workflow_status }}">
+                            <details class="guest-issue-card severity-{{ issue.severity }}" id="issue-{{ issue.issue_id }}" data-issue data-source="{{ issue.source_kind }}" data-status="{{ issue.operational_status }}">
                                 <summary class="issue-card-summary">
                                     <div class="issue-card-content">
                                     <div class="issue-card-header">
                                         <div class="issue-meta"><span>{{ issue.category_label }}</span><span>{{ issue.source_label }}</span><span>{{ issue.source_date.strftime('%b %-d, %Y') }}</span></div>
-                                        <span class="workflow-pill workflow-{{ issue.workflow_status }}">{{ issue.workflow_label }}</span>
+                                        <span class="workflow-pill workflow-{{ issue.operational_status }}" data-status-pill>{{ issue.workflow_label }}</span>
                                     </div>
                                     <h5>{{ issue.summary }}</h5>
                                     <p class="issue-details">{{ issue.details }}</p>
@@ -133,22 +141,55 @@
                                         <div>{% for reference in issue.references %}<a href="{{ reference.url }}">{{ reference.label }} <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>{% else %}<small>Source record unavailable</small>{% endfor %}</div>
                                     </div>
 
-                                    {% if issue.workflow_status == 'open' %}
-                                    <footer class="issue-actions">
-                                        <button type="button" class="resolve-issue-button" data-resolve-issue="{{ issue.issue_id }}" data-issue-title="{{ issue.summary|e }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>Mark resolved</button>
-                                        <a class="create-ticket-button" href="{{ issue.create_ticket_url }}">Create a ticket<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>
-                                    </footer>
-                                    {% elif issue.workflow_status == 'ticketed' %}
-                                    <footer class="issue-actions issue-actions-ticketed">
-                                        <a class="open-ticket-button" href="{{ issue.ticket_url }}">Open ticket #{{ issue.linked_ticket_id }} <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>
-                                        <span>This issue resolves automatically when its ticket is marked Resolved or Closed.</span>
-                                    </footer>
-                                    {% else %}
+                                    <div class="issue-workflow-toolbar">
+                                        <label class="issue-status-control"><span>Status</span><select data-issue-status="{{ issue.issue_id }}" data-current-status="{{ issue.operational_status }}" data-issue-title="{{ issue.summary|e }}" {% if issue.workflow_status == 'resolved' or issue.linked_ticket_id %}disabled{% endif %}><option value="need_attention" {{ 'selected' if issue.operational_status == 'need_attention' else '' }}>Need attention</option><option value="scheduled" {{ 'selected' if issue.operational_status == 'scheduled' else '' }}>Scheduled</option><option value="in_progress" {{ 'selected' if issue.operational_status == 'in_progress' else '' }}>In progress</option><option value="stuck" {{ 'selected' if issue.operational_status == 'stuck' else '' }}>Stuck</option><option value="resolved" {{ 'selected' if issue.operational_status == 'resolved' else '' }}>Resolved</option></select></label>
+                                        {% if issue.workflow_status == 'open' %}
+                                        <div class="issue-actions">
+                                            <button type="button" class="resolve-issue-button" data-resolve-issue="{{ issue.issue_id }}" data-issue-title="{{ issue.summary|e }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>Resolve</button>
+                                            <a class="create-ticket-button" href="{{ issue.create_ticket_url }}">Create ticket<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>
+                                        </div>
+                                        {% elif issue.workflow_status == 'ticketed' %}
+                                        <div class="issue-actions issue-actions-ticketed">
+                                            <a class="open-ticket-button" href="{{ issue.ticket_url }}">Open ticket #{{ issue.linked_ticket_id }} <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>
+                                        </div>
+                                        <small class="issue-status-context">Synced with ticket status</small>
+                                        {% else %}
+                                        <small class="issue-status-context">Resolved</small>
+                                        {% endif %}
+                                        <p data-status-error role="alert" hidden></p>
+                                    </div>
+
+                                    {% if issue.workflow_status == 'resolved' %}
                                     <div class="resolution-record">
                                         <div class="resolution-check"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg></div>
                                         <div><span>Resolution note{% if issue.resolution_method == 'ticket' and issue.linked_ticket_id %} · <a href="{{ issue.ticket_url }}">Ticket #{{ issue.linked_ticket_id }}</a>{% endif %}</span><p>{{ issue.resolution_comment or 'Marked resolved.' }}</p><small>{% if issue.resolved_at %}Resolved {{ issue.resolved_at.strftime('%b %-d, %Y at %-I:%M %p') }}{% if issue.resolved_by_name %} by {{ issue.resolved_by_name }}{% endif %}{% endif %}</small></div>
                                     </div>
                                     {% endif %}
+
+                                    <details class="issue-note-thread">
+                                        <summary>
+                                            <span>Activity <b data-note-count>{{ issue.notes|length }}</b></span>
+                                            <p data-note-preview>{% if issue.notes %}{{ issue.notes[-1].body }}{% else %}No updates yet{% endif %}</p>
+                                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
+                                        </summary>
+                                        <div class="issue-note-thread-body">
+                                            <div class="issue-note-list" data-note-list>
+                                                {% for note in issue.notes %}
+                                                <article class="issue-note" data-note>
+                                                    <div><strong>{{ note.note_type_label }}</strong><span>{{ note.author_name }}{% if note.created_at %} · {{ note.created_at.strftime('%b %-d at %-I:%M %p') }}{% endif %}</span></div>
+                                                    <p>{{ note.body }}</p>
+                                                </article>
+                                                {% else %}
+                                                <p class="issue-note-empty" data-note-empty>No operator notes yet.</p>
+                                                {% endfor %}
+                                            </div>
+                                            <form class="issue-note-form" data-issue-note-form="{{ issue.issue_id }}">
+                                                <textarea maxlength="2000" rows="2" required aria-label="Add an operator note" placeholder="Add an update for the team…"></textarea>
+                                                <button type="submit">Add note</button>
+                                                <p data-note-error role="alert" hidden></p>
+                                            </form>
+                                        </div>
+                                    </details>
                                 </div>
                             </details>
                             {% endfor %}
@@ -183,5 +224,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/guest-issues.js', v='20260825-1') }}"></script>
+<script src="{{ url_for('static', filename='js/guest-issues.js', v='20260825-3') }}"></script>
 {% endblock %}

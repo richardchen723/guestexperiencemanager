@@ -122,6 +122,7 @@
 .issue-search svg { position: absolute; z-index: 1; left: 11px; bottom: 10px; width: 16px; fill: none; stroke: #718078; stroke-width: 1.8; }
 .issue-search input { width: 260px; padding: 0 12px 0 35px; }
 .source-filter select { min-width: 128px; padding: 0 28px 0 10px; }
+.status-filter select { min-width: 158px; padding: 0 28px 0 10px; }
 
 .portfolio-issue-list { display: grid; gap: 12px; margin-top: 20px; }
 .portfolio-issue-section { overflow: hidden; border: 1px solid var(--issue-line); border-radius: 14px; background: #f8faf8; }
@@ -167,7 +168,9 @@ details[open] > summary > .fold-chevron { transform: rotate(180deg); }
 .issue-meta span { display: inline-flex; align-items: center; color: var(--issue-subtle); font-size: 8px; font-weight: 800; letter-spacing: .055em; text-transform: uppercase; }
 .issue-meta span + span::before { width: 3px; height: 3px; margin: 0 7px; border-radius: 50%; background: #bdc7c2; content: ""; }
 .workflow-pill { flex: 0 0 auto; padding: 5px 8px; border-radius: 999px; color: #8a5a18; background: #fff4df; font-size: 8px; font-weight: 850; letter-spacing: .045em; text-transform: uppercase; }
-.workflow-ticketed { color: #2f6188; background: #e8f1f8; }
+.workflow-scheduled { color: #2f6188; background: #e8f1f8; }
+.workflow-in_progress { color: #176b50; background: #e4f2eb; }
+.workflow-stuck { color: #9b3e34; background: #fbe9e7; }
 .workflow-resolved { color: var(--issue-green); background: var(--issue-mint); }
 .guest-issue-card h5 { margin: 9px 0 0; color: var(--issue-ink); font-size: 14px; line-height: 1.35; letter-spacing: -.006em; }
 .issue-details { display: -webkit-box; min-height: 35px; margin: 7px 0 0; overflow: hidden; color: #526159; font-size: 10px; line-height: 1.55; white-space: pre-line; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -184,14 +187,20 @@ details[open] > summary > .fold-chevron { transform: rotate(180deg); }
 .issue-evidence-row svg, .issue-actions svg { width: 12px; fill: none; stroke: currentColor; stroke-width: 2; }
 .issue-evidence-row small { color: var(--issue-subtle); font-size: 9px; }
 
-.issue-actions { display: flex; gap: 7px; align-items: stretch; margin: 11px 0 0; padding-top: 10px; border-top: 1px solid #e9eeeb; }
+.issue-workflow-toolbar { display: grid; grid-template-columns: minmax(120px, .72fr) minmax(0, 1.28fr); gap: 7px; align-items: end; margin-top: 10px; padding-top: 10px; border-top: 1px solid #e9eeeb; }
+.issue-status-control { display: flex; min-width: 0; flex-direction: column; gap: 4px; color: var(--issue-subtle); font-size: 8px; font-weight: 850; letter-spacing: .07em; text-transform: uppercase; }
+.issue-status-control select { width: 100%; height: 34px; padding: 0 28px 0 9px; border: 1px solid #cbd8d1; border-radius: 8px; color: var(--issue-ink); background: #fff; font: inherit; font-size: 9px; font-weight: 750; outline: none; text-transform: none; }
+.issue-status-control select:focus { border-color: #67a48a; box-shadow: 0 0 0 3px rgba(23, 107, 80, .09); }
+.issue-status-control select:disabled { cursor: not-allowed; opacity: .7; background: #f1f4f2; }
+.issue-status-context { align-self: center; color: var(--issue-subtle); font-size: 8px; line-height: 1.4; }
+.issue-workflow-toolbar > p { grid-column: 1 / -1; margin: 0; color: var(--issue-red); font-size: 9px; }
+
+.issue-actions { display: flex; gap: 7px; align-items: stretch; margin: 0; padding: 0; border: 0; }
 .issue-actions button, .issue-actions a { display: inline-flex; gap: 6px; align-items: center; justify-content: center; min-height: 34px; flex: 1; padding: 0 9px; border-radius: 8px; font-size: 9px; font-weight: 800; cursor: pointer; text-decoration: none; transition: .16s ease; }
 .resolve-issue-button { border: 1px solid var(--issue-green); color: #fff; background: var(--issue-green); }
 .resolve-issue-button:hover { border-color: var(--issue-green-dark); background: var(--issue-green-dark); transform: translateY(-1px); }
 .create-ticket-button, .open-ticket-button { border: 1px solid #cbd9d2; color: var(--issue-ink); background: #fff; }
 .create-ticket-button:hover, .open-ticket-button:hover { border-color: #90b5a4; color: var(--issue-green); transform: translateY(-1px); }
-.issue-actions > span { align-self: center; color: var(--issue-subtle); font-size: 8px; line-height: 1.35; }
-.issue-actions-ticketed { background: #f6f9fb; }
 .open-ticket-button { color: var(--issue-blue) !important; }
 
 .resolution-record { display: grid; grid-template-columns: 29px minmax(0, 1fr); gap: 10px; margin-top: 11px; padding: 11px 12px; border: 1px solid #d5e5dc; border-radius: 9px; background: #f3f8f5; }
@@ -201,6 +210,29 @@ details[open] > summary > .fold-chevron { transform: rotate(180deg); }
 .resolution-record span a { color: inherit; }
 .resolution-record p { margin: 3px 0; color: #41554c; font-size: 10px; line-height: 1.5; }
 .resolution-record small { color: var(--issue-subtle); font-size: 8px; }
+
+.issue-note-thread { margin-top: 10px; border-top: 1px solid #e2e8e4; }
+.issue-note-thread > summary { display: grid; grid-template-columns: auto minmax(0, 1fr) 16px; gap: 9px; align-items: center; min-height: 38px; cursor: pointer; list-style: none; }
+.issue-note-thread > summary::-webkit-details-marker { display: none; }
+.issue-note-thread > summary > span { color: var(--issue-green); font-size: 8px; font-weight: 850; letter-spacing: .075em; text-transform: uppercase; white-space: nowrap; }
+.issue-note-thread > summary b { display: inline-grid; min-width: 17px; height: 17px; margin-left: 3px; place-items: center; border-radius: 9px; color: var(--issue-ink); background: #e9efeb; font-size: 8px; letter-spacing: 0; }
+.issue-note-thread > summary p { min-width: 0; margin: 0; overflow: hidden; color: var(--issue-subtle); font-size: 8px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.issue-note-thread > summary svg { width: 15px; fill: none; stroke: #718078; stroke-width: 2; transition: transform .18s ease; }
+.issue-note-thread[open] > summary svg { transform: rotate(180deg); }
+.issue-note-thread-body { padding: 1px 0 2px; }
+.issue-note-list { display: grid; gap: 7px; max-height: 190px; overflow-y: auto; }
+.issue-note { padding: 8px 9px; border: 1px solid #dce5e0; border-radius: 8px; background: #fff; }
+.issue-note > div { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; justify-content: space-between; }
+.issue-note strong { color: var(--issue-green); font-size: 8px; letter-spacing: .045em; text-transform: uppercase; }
+.issue-note span { color: var(--issue-subtle); font-size: 8px; }
+.issue-note p { margin: 5px 0 0; color: #415048; font-size: 9px; line-height: 1.5; white-space: pre-wrap; }
+.issue-note-empty { margin: 0; padding: 8px 0; color: var(--issue-subtle); font-size: 9px; }
+.issue-note-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; margin-top: 8px; }
+.issue-note-form textarea { min-height: 44px; padding: 8px 9px; resize: vertical; border: 1px solid #cbd8d1; border-radius: 8px; color: var(--issue-ink); background: #fff; font: inherit; font-size: 9px; line-height: 1.45; outline: none; }
+.issue-note-form textarea:focus { border-color: #67a48a; box-shadow: 0 0 0 3px rgba(23, 107, 80, .09); }
+.issue-note-form button { align-self: stretch; padding: 0 11px; border: 1px solid var(--issue-green); border-radius: 8px; color: #fff; background: var(--issue-green); font-size: 9px; font-weight: 800; cursor: pointer; }
+.issue-note-form button:disabled { cursor: wait; opacity: .7; }
+.issue-note-form > p { grid-column: 1 / -1; margin: 0; color: var(--issue-red); font-size: 9px; }
 
 .issue-filter-empty, .issue-page-empty { display: flex; min-height: 225px; flex-direction: column; align-items: center; justify-content: center; margin-top: 18px; border: 1px dashed #cfdad4; border-radius: 13px; text-align: center; background: #fafcfb; }
 .issue-filter-empty > span, .issue-page-empty > span { display: grid; width: 43px; height: 43px; place-items: center; border-radius: 50%; color: var(--issue-green); background: var(--issue-mint); font-size: 18px; }
@@ -307,10 +339,14 @@ details[open] > summary > .fold-chevron { transform: rotate(180deg); }
     .issue-card-content { padding: 13px 13px 11px 16px; }
     .issue-card-expanded { padding: 0 13px 11px 16px; }
     .issue-card-header { align-items: flex-start; }
-    .issue-actions { align-items: stretch; flex-wrap: wrap; margin: 11px 0 0; padding: 10px 0 0; }
+    .issue-actions { align-items: stretch; flex-wrap: wrap; }
     .issue-actions button, .issue-actions a { flex: 1; }
     .issue-actions > span { width: 100%; margin: 1px 0 0; }
     .issue-evidence-row { align-items: flex-start; flex-direction: column; gap: 7px; }
+    .issue-workflow-toolbar { grid-template-columns: 1fr; }
+    .issue-workflow-toolbar > p { grid-column: 1; }
+    .issue-note-form { grid-template-columns: 1fr; }
+    .issue-note-form > p { grid-column: 1; }
     .source-header { align-items: flex-start; padding: 27px 24px; }
     .source-header h1 { font-size: 31px; }
     .source-header > div:last-child { display: none; }

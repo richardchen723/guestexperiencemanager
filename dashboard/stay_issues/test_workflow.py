@@ -7,10 +7,12 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from brain.models import PropertyGuestIssue
+from brain.models import PropertyGuestIssue, PropertyGuestIssueNote
 from dashboard.stay_issues.service import _issue_matches_view, resolve_dashboard_window
 from dashboard.stay_issues.workflow import (
     GuestIssueWorkflowError,
+    add_issue_note,
+    change_issue_status,
     link_issue_to_ticket,
     resolve_issue,
     sync_issue_from_ticket_status,
@@ -34,6 +36,7 @@ def _session():
         dbapi_connection.execute("ATTACH DATABASE ':memory:' AS brain")
 
     PropertyGuestIssue.__table__.create(engine)
+    PropertyGuestIssueNote.__table__.create(engine)
     return sessionmaker(bind=engine)()
 
 
@@ -74,6 +77,83 @@ def test_quick_resolution_requires_and_records_operator_note():
     assert resolved.resolution_comment == "Cleaner returned with fresh linens and we confirmed with the guest."
     assert resolved.resolved_by_user_id == 7
     assert resolved.resolved_at == resolved_at
+    activity = session.query(PropertyGuestIssueNote).one()
+    assert activity.note_type == "resolution"
+    assert activity.body == "Cleaner returned with fresh linens and we confirmed with the guest."
+
+
+def test_operator_can_move_issue_through_statuses_and_append_notes():
+    session = _session()
+    issue = _issue(session)
+
+    scheduled, scheduled_note = change_issue_status(
+        issue.issue_id,
+        status="scheduled",
+        user_id=7,
+        now=datetime(2026, 8, 22, 10, 0),
+        session=session,
+    )
+    assert scheduled.operational_status == "scheduled"
+    assert scheduled_note.body == "Status changed from Need attention to Scheduled."
+
+    in_progress, progress_note = change_issue_status(
+        issue.issue_id,
+        status="in_progress",
+        note="Vendor arrived and started the repair.",
+        user_id=8,
+        now=datetime(2026, 8, 22, 11, 0),
+        session=session,
+    )
+    assert in_progress.operational_status == "in_progress"
+    assert progress_note.body == "Vendor arrived and started the repair."
+
+    operator_note = add_issue_note(
+        issue.issue_id,
+        note="Replacement part is expected tomorrow.",
+        user_id=9,
+        now=datetime(2026, 8, 22, 12, 0),
+        session=session,
+    )
+    assert operator_note.note_type == "operator"
+    assert [row.body for row in session.query(PropertyGuestIssueNote).order_by(
+        PropertyGuestIssueNote.created_at
+    )] == [
+        "Status changed from Need attention to Scheduled.",
+        "Vendor arrived and started the repair.",
+        "Replacement part is expected tomorrow.",
+    ]
+
+
+def test_issue_status_and_notes_validate_operator_input():
+    session = _session()
+    issue = _issue(session)
+
+    for operation, expected_message in (
+        (
+            lambda: change_issue_status(
+                issue.issue_id,
+                status="waiting_forever",
+                user_id=7,
+                session=session,
+            ),
+            "Choose a valid issue status.",
+        ),
+        (
+            lambda: add_issue_note(
+                issue.issue_id,
+                note="   ",
+                user_id=7,
+                session=session,
+            ),
+            "Add a note before posting.",
+        ),
+    ):
+        try:
+            operation()
+        except GuestIssueWorkflowError as exc:
+            assert str(exc) == expected_message
+        else:
+            raise AssertionError("Invalid operator input should be rejected")
 
 
 def test_linked_ticket_closure_resolves_and_reopening_reopens_issue():
@@ -88,6 +168,7 @@ def test_linked_ticket_closure_resolves_and_reopening_reopens_issue():
         session=session,
     )
     assert linked.workflow_status == "ticketed"
+    assert linked.operational_status == "need_attention"
     assert linked.linked_ticket_id == 44
 
     closed = sync_issue_from_ticket_status(
@@ -98,6 +179,7 @@ def test_linked_ticket_closure_resolves_and_reopening_reopens_issue():
         session=session,
     )
     assert closed.workflow_status == "resolved"
+    assert closed.operational_status == "resolved"
     assert closed.resolution_method == "ticket"
     assert "ticket #44" in closed.resolution_comment
 
@@ -108,6 +190,7 @@ def test_linked_ticket_closure_resolves_and_reopening_reopens_issue():
         session=session,
     )
     assert reopened.workflow_status == "ticketed"
+    assert reopened.operational_status == "in_progress"
     assert reopened.resolved_at is None
     assert reopened.resolution_comment is None
 
@@ -134,6 +217,19 @@ def test_ticketed_issue_cannot_be_quick_resolved():
         assert exc.status_code == 409
     else:
         raise AssertionError("Ticketed issue should not support quick resolution")
+
+    try:
+        change_issue_status(
+            issue.issue_id,
+            status="stuck",
+            user_id=7,
+            session=session,
+        )
+    except GuestIssueWorkflowError as exc:
+        assert exc.status_code == 409
+        assert "follows linked ticket" in str(exc)
+    else:
+        raise AssertionError("Linked issue status should follow its ticket")
 
 
 def test_archive_view_is_separate_from_recently_resolved():
@@ -200,3 +296,23 @@ def test_quick_resolution_updates_the_active_queue_without_redirecting():
     assert "data-active-issue-count" in template
     assert "data-resolved-issue-count" in template
     assert "data-open-issue-count" in template
+
+
+def test_issue_status_filter_and_note_thread_are_wired_without_page_navigation():
+    project_root = Path(__file__).resolve().parents[2]
+    script = (project_root / "dashboard/static/js/guest-issues.js").read_text()
+    template = (project_root / "dashboard/templates/stay_issues/index.html").read_text()
+
+    assert "guestIssueStatus" in script
+    assert "matchesStatus" in script
+    assert "renderStatusCounts" in script
+    assert "statusCounts.all" in script
+    assert "/status`" in script
+    assert "/notes`" in script
+    assert "appendIssueNote" in script
+    assert "data-status-label" in template
+    assert "data-issue-status" in template
+    assert "data-issue-note-form" in template
+    assert "data-note-list" in template
+    assert "data-note-preview" in template
+    assert '<details class="issue-note-thread">' in template

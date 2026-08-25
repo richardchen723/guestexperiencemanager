@@ -952,6 +952,7 @@ class PropertyGuestIssue(Base):
     resolution_state = Column(String, nullable=True, index=True)
     source_references = Column(_json_type(), nullable=False)
     workflow_status = Column(String, nullable=False, default="open", index=True)
+    operational_status = Column(String, nullable=False, default="need_attention", index=True)
     resolution_comment = Column(Text)
     resolution_method = Column(String, nullable=True, index=True)
     resolved_at = Column(DateTime, nullable=True, index=True)
@@ -959,6 +960,23 @@ class PropertyGuestIssue(Base):
     linked_ticket_id = Column(Integer, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class PropertyGuestIssueNote(Base):
+    """Append-only operator activity attached to one guest issue."""
+
+    __tablename__ = "property_guest_issue_notes"
+    __table_args__ = (
+        Index("idx_brain_property_issue_note_timeline", "issue_id", "created_at"),
+        {"schema": BRAIN_SCHEMA} if os.getenv("DATABASE_URL") else {},
+    )
+
+    note_id = Column(Integer, primary_key=True, autoincrement=True)
+    issue_id = Column(Integer, nullable=False, index=True)
+    author_user_id = Column(Integer, nullable=True, index=True)
+    note_type = Column(String, nullable=False, default="operator", index=True)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
 class WhatsAppThread(Base):
@@ -1161,6 +1179,7 @@ def init_guest_experience_tables():
             ComprehensiveStayAnalysis.__table__,
             GuestReviewIssueAnalysis.__table__,
             PropertyGuestIssue.__table__,
+            PropertyGuestIssueNote.__table__,
         ):
             table.create(bind=conn, checkfirst=True)
         _migrate_guest_issue_lifecycle(conn)
@@ -1238,6 +1257,7 @@ def _migrate_guest_issue_lifecycle(conn):
     columns = {row[0] for row in result.fetchall()}
     additions = (
         ("workflow_status", "VARCHAR NOT NULL DEFAULT 'open'"),
+        ("operational_status", "VARCHAR NOT NULL DEFAULT 'need_attention'"),
         ("resolution_comment", "TEXT"),
         ("resolution_method", "VARCHAR"),
         ("resolved_at", "TIMESTAMP WITHOUT TIME ZONE"),
@@ -1254,8 +1274,20 @@ def _migrate_guest_issue_lifecycle(conn):
                 )
             )
 
+    conn.execute(
+        sqlalchemy.text(
+            f"""
+            UPDATE {BRAIN_SCHEMA}.property_guest_issues
+            SET operational_status = 'resolved'
+            WHERE workflow_status = 'resolved'
+              AND operational_status <> 'resolved'
+            """
+        )
+    )
+
     for index_name, column_name in (
         ("idx_brain_property_issue_workflow", "workflow_status"),
+        ("idx_brain_property_issue_operational_status", "operational_status"),
         ("idx_brain_property_issue_resolved_at", "resolved_at"),
         ("idx_brain_property_issue_resolved_by", "resolved_by_user_id"),
         ("idx_brain_property_issue_ticket", "linked_ticket_id"),
