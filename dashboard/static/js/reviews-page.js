@@ -41,6 +41,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         document.getElementById('reviewPortfolioFilter')?.addEventListener('change', (event) => {
             reviewQueueState.portfolio = event.target.value;
+            populateQueueRiskFilter();
             renderReviewQueue();
         });
         document.getElementById('reviewChannelFilter')?.addEventListener('change', (event) => {
@@ -123,13 +124,9 @@ function reviewChannelLabel(channelName) {
 }
 
 function populateQueueDimensionFilters() {
-    const riskCounts = new Map(reviewRiskFilterOptions.map((option) => [option.value, 0]));
     const portfolioCounts = new Map();
     const channelCounts = new Map();
     reviewQueueState.reviews.forEach((review) => {
-        const risk = review.risk?.key || 'mixed';
-        if (riskCounts.has(risk)) riskCounts.set(risk, riskCounts.get(risk) + 1);
-
         const portfolio = review.portfolio || 'Unmapped';
         portfolioCounts.set(portfolio, (portfolioCounts.get(portfolio) || 0) + 1);
 
@@ -142,10 +139,6 @@ function populateQueueDimensionFilters() {
         channelCounts.set(channel, existing);
     });
 
-    const risks = reviewRiskFilterOptions.map((option) => ({
-        value: option.value,
-        label: `${option.label} (${riskCounts.get(option.value) || 0})`,
-    }));
     const portfolios = [...portfolioCounts.entries()]
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([value, count]) => ({ value, label: `${value} (${count})` }));
@@ -153,12 +146,6 @@ function populateQueueDimensionFilters() {
         .sort(([, left], [, right]) => left.label.localeCompare(right.label))
         .map(([value, item]) => ({ value, label: `${item.label} (${item.count})` }));
 
-    reviewQueueState.risk = populateQueueSelect(
-        'reviewRiskFilter',
-        `All severities (${reviewQueueState.reviews.length})`,
-        risks,
-        reviewQueueState.risk,
-    );
     reviewQueueState.portfolio = populateQueueSelect(
         'reviewPortfolioFilter',
         'All portfolios',
@@ -170,6 +157,30 @@ function populateQueueDimensionFilters() {
         'All OTA channels',
         channels,
         reviewQueueState.channel,
+    );
+    populateQueueRiskFilter();
+}
+
+function populateQueueRiskFilter() {
+    const portfolioReviews = reviewQueueState.portfolio === 'all'
+        ? reviewQueueState.reviews
+        : reviewQueueState.reviews.filter((review) => {
+            return (review.portfolio || 'Unmapped') === reviewQueueState.portfolio;
+        });
+    const riskCounts = new Map(reviewRiskFilterOptions.map((option) => [option.value, 0]));
+    portfolioReviews.forEach((review) => {
+        const risk = review.risk?.key || 'mixed';
+        if (riskCounts.has(risk)) riskCounts.set(risk, riskCounts.get(risk) + 1);
+    });
+    const risks = reviewRiskFilterOptions.map((option) => ({
+        value: option.value,
+        label: `${option.label} (${riskCounts.get(option.value) || 0})`,
+    }));
+    reviewQueueState.risk = populateQueueSelect(
+        'reviewRiskFilter',
+        `All severities (${portfolioReviews.length})`,
+        risks,
+        reviewQueueState.risk,
     );
 }
 
