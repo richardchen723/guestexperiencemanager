@@ -588,13 +588,30 @@ def _migrate_user_soft_delete_field(engine):
     database_url = os.getenv("DATABASE_URL")
     with engine.begin() as conn:
         if database_url:
-            conn.execute(text(
-                "ALTER TABLE users.users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP"
-            ))
-            conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS ix_users_deleted_at "
-                "ON users.users (deleted_at)"
-            ))
+            column_exists = conn.execute(text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns
+                    WHERE table_schema = 'users'
+                    AND table_name = 'users'
+                    AND column_name = 'deleted_at'
+                )
+            """)).scalar()
+            if not column_exists:
+                conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+                conn.execute(text(
+                    "ALTER TABLE users.users "
+                    "ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP"
+                ))
+
+            index_exists = conn.execute(text(
+                "SELECT to_regclass('users.ix_users_deleted_at') IS NOT NULL"
+            )).scalar()
+            if not index_exists:
+                conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+                conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_users_deleted_at "
+                    "ON users.users (deleted_at)"
+                ))
             return
 
         table_exists = conn.execute(text(

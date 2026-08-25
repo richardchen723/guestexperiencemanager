@@ -661,11 +661,27 @@ def _migrate_review_private_feedback_column(engine):
                     WHERE table_schema = 'public' AND table_name = 'reviews'
                 )
             """)).scalar()
-            if table_exists:
-                conn.execute(sqlalchemy.text(
-                    "ALTER TABLE public.reviews "
-                    "ADD COLUMN IF NOT EXISTS private_feedback TEXT"
-                ))
+            if not table_exists:
+                return
+
+            column_exists = conn.execute(sqlalchemy.text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                    AND table_name = 'reviews'
+                    AND column_name = 'private_feedback'
+                )
+            """)).scalar()
+            if column_exists:
+                return
+
+            # Even ADD COLUMN IF NOT EXISTS requests ACCESS EXCLUSIVE. Bound
+            # the wait so a background reader cannot wedge every app worker.
+            conn.execute(sqlalchemy.text("SET LOCAL lock_timeout = '5s'"))
+            conn.execute(sqlalchemy.text(
+                "ALTER TABLE public.reviews "
+                "ADD COLUMN IF NOT EXISTS private_feedback TEXT"
+            ))
             return
 
         table_exists = conn.execute(sqlalchemy.text(

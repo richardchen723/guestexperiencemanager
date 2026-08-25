@@ -12,4 +12,6 @@ WorkingDirectory=/opt/hostaway-messages/app
 Environment="PATH=/opt/hostaway-messages/venv/bin"
 EnvironmentFile=/opt/hostaway-messages/.env
 ExecStart=/opt/hostaway-messages/venv/bin/python3 -m sync.sync_reviews --incremental
+TimeoutStartSec=30m
+TimeoutStopSec=30s
 Nice=5

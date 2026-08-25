@@ -11,6 +11,8 @@ WorkingDirectory=/opt/hostaway-messages/app
 Environment="PATH=/opt/hostaway-messages/venv/bin"
 EnvironmentFile=/opt/hostaway-messages/.env
 ExecStart=/usr/bin/flock -n /opt/hostaway-messages/app/data/brain-aggregate.lock /opt/hostaway-messages/venv/bin/python3 -m brain.jobs aggregate --pull --deep-hostaway
+TimeoutStartSec=2h
+TimeoutStopSec=30s
 
 NoNewPrivileges=true
 PrivateTmp=true

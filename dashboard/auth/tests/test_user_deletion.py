@@ -105,6 +105,23 @@ class UserDeletionTests(unittest.TestCase):
         self.assertIn('deleted_at', column_names)
         self.assertIn('ix_users_deleted_at', index_names)
 
+    def test_postgres_soft_delete_migration_skips_existing_objects(self):
+        engine = MagicMock()
+        connection = engine.begin.return_value.__enter__.return_value
+        column_result = MagicMock()
+        column_result.scalar.return_value = True
+        index_result = MagicMock()
+        index_result.scalar.return_value = True
+        connection.execute.side_effect = [column_result, index_result]
+
+        with patch.dict(os.environ, {'DATABASE_URL': 'postgresql://example'}):
+            _migrate_user_soft_delete_field(engine)
+
+        statements = [str(call.args[0]) for call in connection.execute.call_args_list]
+        self.assertFalse(any('ALTER TABLE' in statement for statement in statements))
+        self.assertFalse(any('CREATE INDEX' in statement for statement in statements))
+        self.assertFalse(any('lock_timeout' in statement for statement in statements))
+
 
 class UserDeletionRouteTests(unittest.TestCase):
     def setUp(self):

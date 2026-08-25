@@ -107,11 +107,14 @@ def database_initialization_lock():
 
     from database.models import get_engine as get_main_engine
 
-    connection = get_main_engine(None).connect()
+    connection = get_main_engine(None).connect().execution_options(
+        isolation_level="AUTOCOMMIT"
+    )
     try:
         # Gunicorn imports the app independently in every worker. A session-level
         # advisory lock prevents concurrent DDL and ticket data migrations from
-        # deadlocking one another during startup.
+        # deadlocking one another during startup. AUTOCOMMIT keeps the lock from
+        # also leaving this dedicated connection idle in a transaction.
         connection.exec_driver_sql("SELECT pg_advisory_lock(779481504)")
         yield
     finally:

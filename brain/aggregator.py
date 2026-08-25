@@ -442,6 +442,14 @@ class BrainDataAggregator:
         if self._owns_main_session:
             self.main_session.close()
 
+    def _end_main_read_transaction(self):
+        """Release read locks before the next source or slow processing step."""
+        # SQLAlchemy opens a transaction for SELECT statements. Aggregation can
+        # spend a long time processing the returned rows, so leaving that
+        # transaction open can retain PostgreSQL relation locks for the entire
+        # job and block deploy-time DDL.
+        self.main_session.rollback()
+
     def run(
         self,
         *,
@@ -1095,7 +1103,10 @@ class BrainDataAggregator:
         self.session.add(run)
         self.session.commit()
         try:
-            result = materializer(run)
+            try:
+                result = materializer(run)
+            finally:
+                self._end_main_read_transaction()
             completed_at = self.now_fn()
             run.status = result.status
             run.records_seen = result.records_seen
@@ -1142,7 +1153,11 @@ class BrainDataAggregator:
 
     def _materialize_hostaway_listings(self, run: DataIngestionRun) -> MaterializationResult:
         batch = FactBatch(self, run, "hostaway_listings", {"property_profile"})
-        rows = self.main_session.query(Listing).order_by(Listing.listing_id).all()
+        rows = (
+            self.main_session.query(Listing)
+            .order_by(Listing.listing_id)
+            .yield_per(SOURCE_STREAM_BATCH_SIZE)
+        )
         for row in rows:
             name = row.internal_listing_name or row.name
             batch.upsert(
@@ -1176,11 +1191,15 @@ class BrainDataAggregator:
                     "custom_fields": row.get_custom_fields_dict(),
                 },
             )
-        return batch.finish(record_counts={"listings": len(rows)})
+        return batch.finish(record_counts={"listings": batch.records_seen})
 
     def _materialize_hostaway_reservations(self, run: DataIngestionRun) -> MaterializationResult:
         batch = FactBatch(self, run, "hostaway_reservations", {"reservation_stay"})
-        rows = self.main_session.query(Reservation).order_by(Reservation.reservation_id).all()
+        rows = (
+            self.main_session.query(Reservation)
+            .order_by(Reservation.reservation_id)
+            .yield_per(SOURCE_STREAM_BATCH_SIZE)
+        )
         for row in rows:
             batch.upsert(
                 fact_type="reservation_stay",
@@ -1221,7 +1240,7 @@ class BrainDataAggregator:
             )
         latest_sync = self._latest_sync_log("reservations")
         return batch.finish(
-            record_counts={"reservations": len(rows)},
+            record_counts={"reservations": batch.records_seen},
             metadata={"latest_sync": latest_sync},
         )
 
@@ -1267,7 +1286,11 @@ class BrainDataAggregator:
 
     def _materialize_hostaway_reviews(self, run: DataIngestionRun) -> MaterializationResult:
         batch = FactBatch(self, run, "hostaway_reviews", {"guest_review"})
-        rows = self.main_session.query(Review).order_by(Review.review_id).all()
+        rows = (
+            self.main_session.query(Review)
+            .order_by(Review.review_id)
+            .yield_per(SOURCE_STREAM_BATCH_SIZE)
+        )
         for row in rows:
             batch.upsert(
                 fact_type="guest_review",
@@ -1297,7 +1320,7 @@ class BrainDataAggregator:
                 },
             )
         latest_sync = self._latest_sync_log("reviews")
-        return batch.finish(record_counts={"reviews": len(rows)}, metadata={"latest_sync": latest_sync})
+        return batch.finish(record_counts={"reviews": batch.records_seen}, metadata={"latest_sync": latest_sync})
 
     def _materialize_hostaway_calendar(self, run: DataIngestionRun) -> MaterializationResult:
         batch = FactBatch(self, run, "hostaway_calendar", {"calendar_day"})
@@ -1851,7 +1874,11 @@ class BrainDataAggregator:
             )
         RevenueItem = models["BookkeepingRevenueItem"]
         batch = FactBatch(self, run, "bookkeeping_revenue", {"bookkeeping_revenue"})
-        rows = self.main_session.query(RevenueItem).order_by(RevenueItem.bookkeeping_revenue_item_id).all()
+        rows = (
+            self.main_session.query(RevenueItem)
+            .order_by(RevenueItem.bookkeeping_revenue_item_id)
+            .yield_per(SOURCE_STREAM_BATCH_SIZE)
+        )
         for row in rows:
             listing_id = getattr(getattr(row, "listing_mapping", None), "listing_id", None)
             amount = _first_number(row.paid_out_amount, row.gross_amount, row.commission_amount)
@@ -1899,7 +1926,7 @@ class BrainDataAggregator:
                 },
                 confidence=0.85 if row.needs_review else 0.95,
             )
-        return batch.finish(record_counts={"bookkeeping_revenue_items": len(rows)})
+        return batch.finish(record_counts={"bookkeeping_revenue_items": batch.records_seen})
 
     def _materialize_bookkeeping_expenses(self, run: DataIngestionRun) -> MaterializationResult:
         models = self._bookkeeping_models()
@@ -1911,7 +1938,11 @@ class BrainDataAggregator:
             )
         ExpenseItem = models["BookkeepingExpenseItem"]
         batch = FactBatch(self, run, "bookkeeping_expenses", {"bookkeeping_expense"})
-        rows = self.main_session.query(ExpenseItem).order_by(ExpenseItem.bookkeeping_expense_item_id).all()
+        rows = (
+            self.main_session.query(ExpenseItem)
+            .order_by(ExpenseItem.bookkeeping_expense_item_id)
+            .yield_per(SOURCE_STREAM_BATCH_SIZE)
+        )
         for row in rows:
             total = row.effective_total() if hasattr(row, "effective_total") else _first_number(row.total, row.amount, row.subtotal)
             batch.upsert(
@@ -1951,7 +1982,7 @@ class BrainDataAggregator:
                 },
                 confidence=0.85 if row.needs_review else 0.95,
             )
-        return batch.finish(record_counts={"bookkeeping_expense_items": len(rows)})
+        return batch.finish(record_counts={"bookkeeping_expense_items": batch.records_seen})
 
     def _upsert_fact(
         self,

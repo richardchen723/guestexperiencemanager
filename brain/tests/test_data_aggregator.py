@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 from brain.aggregator import (
     BrainDataAggregator,
     FactBatch,
+    MaterializationResult,
     build_fact_key,
     build_metric_key,
     data_source_health_status,
@@ -30,6 +31,65 @@ from brain.models import stable_hash
 
 
 class DataAggregatorTests(unittest.TestCase):
+    def test_source_materialization_releases_main_read_transaction(self):
+        source = SimpleNamespace(
+            data_source_id=3,
+            source_key="hostaway_reviews",
+            last_ingested_at=None,
+            last_success_at=None,
+            last_error_at=None,
+            last_error_message=None,
+            status="missing",
+            updated_at=None,
+        )
+        session = Mock()
+        session.query.return_value.filter.return_value.first.return_value = source
+        main_session = Mock()
+        aggregator = BrainDataAggregator.__new__(BrainDataAggregator)
+        aggregator.session = session
+        aggregator.main_session = main_session
+        aggregator.now_fn = lambda: datetime(2026, 8, 25, 12, 0)
+
+        result = aggregator._run_source(
+            "hostaway_reviews",
+            Mock(return_value=MaterializationResult()),
+            mode="manual",
+            brain_run_id=None,
+        )
+
+        self.assertEqual(result["status"], "completed")
+        main_session.rollback.assert_called_once_with()
+
+    def test_failed_source_materialization_releases_main_read_transaction(self):
+        source = SimpleNamespace(
+            data_source_id=3,
+            source_key="hostaway_reviews",
+            last_ingested_at=None,
+            last_success_at=None,
+            last_error_at=None,
+            last_error_message=None,
+            status="missing",
+            updated_at=None,
+        )
+        session = Mock()
+        session.query.return_value.filter.return_value.first.return_value = source
+        session.get.return_value = None
+        main_session = Mock()
+        aggregator = BrainDataAggregator.__new__(BrainDataAggregator)
+        aggregator.session = session
+        aggregator.main_session = main_session
+        aggregator.now_fn = lambda: datetime(2026, 8, 25, 12, 0)
+
+        result = aggregator._run_source(
+            "hostaway_reviews",
+            Mock(side_effect=RuntimeError("source failed")),
+            mode="manual",
+            brain_run_id=None,
+        )
+
+        self.assertEqual(result["status"], "error")
+        main_session.rollback.assert_called_once_with()
+
     def test_unchanged_fact_does_not_generate_database_update(self):
         original_updated_at = datetime(2026, 8, 19, 12, 0)
         payload = {"message_id": 1, "content": "Thanks"}
