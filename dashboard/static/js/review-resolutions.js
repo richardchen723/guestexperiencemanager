@@ -253,7 +253,7 @@ function renderResolutionBoard() {
         const reviews = (sourceLane?.reviews || []).filter((review) => {
             if (resolutionState.portfolio && review.portfolio !== resolutionState.portfolio) return false;
             if (!resolutionState.search) return true;
-            const haystack = `${review.guest_name || ''} ${review.listing_name || ''} ${review.portfolio || ''} ${review.title || ''}`.toLowerCase();
+            const haystack = `${review.guest_name || ''} ${review.listing_name || ''} ${review.portfolio || ''} ${review.channel_name || ''} ${review.title || ''}`.toLowerCase();
             return haystack.includes(resolutionState.search);
         });
         const emptyMessage = resolutionState.portfolio || resolutionState.search
@@ -288,6 +288,7 @@ function createResolutionCard(review) {
         ? 'Rating unavailable'
         : `Normalized from ${Number(review.rating_raw).toFixed(1)} / ${Number(review.rating_source_max || 10).toFixed(0)}`;
     const noteLabel = `${Number(review.note_count || 0)} ${Number(review.note_count || 0) === 1 ? 'note' : 'notes'}`;
+    const channelLabel = resolutionChannelLabel(review.channel_name);
     return `
         <article class="review-resolution-card" data-ticket-id="${review.ticket_id}">
             <button
@@ -307,7 +308,7 @@ function createResolutionCard(review) {
                 </span>
             </div>
             <h4>${resolutionEscape(review.guest_name || 'Guest')}</h4>
-            <p class="review-resolution-meta">${resolutionEscape(review.listing_name || 'Unknown property')} · ${resolutionEscape(review.portfolio || 'Unmapped')}</p>
+            <p class="review-resolution-meta">${resolutionEscape(review.listing_name || 'Unknown property')} · ${resolutionEscape(review.portfolio || 'Unmapped')} · ${resolutionEscape(channelLabel)}</p>
             <p class="review-resolution-standard">Below ${Number(review.bad_review_threshold || 5).toFixed(1)}-star standard${review.review_date ? ` · ${resolutionFormatDate(review.review_date)}` : ''}</p>
             <p class="review-resolution-excerpt">${resolutionEscape(review.review_text || 'No written review was supplied.')}</p>
             <select data-action="change-stage" data-ticket-id="${review.ticket_id}" aria-label="Resolution stage for ${resolutionEscape(review.guest_name || 'guest')}">
@@ -319,6 +320,26 @@ function createResolutionCard(review) {
             </div>
         </article>
     `;
+}
+
+function resolutionChannelLabel(channelName) {
+    const rawName = String(channelName || 'Direct').trim();
+    const compact = rawName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const knownLabels = {
+        airbnb: 'Airbnb',
+        airbnbofficial: 'Airbnb',
+        homeaway: 'Vrbo',
+        vrbo: 'Vrbo',
+        bookingcom: 'Booking.com',
+        bookingdotcom: 'Booking.com',
+        bookingengine: 'Direct booking',
+        direct: 'Direct booking',
+    };
+    if (knownLabels[compact]) return knownLabels[compact];
+    return rawName
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .replace(/[-_]+/g, ' ')
+        .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function handleResolutionCardClick(event) {

@@ -39,3 +39,13 @@ def test_resolution_custom_date_range_validates_applies_and_clears():
     assert "To date cannot be earlier than From date." in script
     assert "resolutionState.startDate = '';" in script
     assert "resolutionState.endDate = '';" in script
+
+
+def test_resolution_card_displays_a_readable_review_channel():
+    project_root = Path(__file__).resolve().parents[3]
+    script = (project_root / "dashboard/static/js/review-resolutions.js").read_text()
+
+    assert "const channelLabel = resolutionChannelLabel(review.channel_name);" in script
+    assert "${resolutionEscape(channelLabel)}</p>" in script
+    assert "airbnbofficial: 'Airbnb'" in script
+    assert "bookingcom: 'Booking.com'" in script
