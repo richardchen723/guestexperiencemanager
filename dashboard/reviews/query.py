@@ -245,6 +245,24 @@ def review_resolution_window_start(today: Optional[date] = None) -> date:
     return (today or date.today()) - relativedelta(months=REVIEW_RESOLUTION_LOOKBACK_MONTHS)
 
 
+def review_resolution_date_range(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    today: Optional[date] = None,
+) -> tuple[date, date, bool]:
+    """Resolve a complete custom range or the default rolling six-month range."""
+    has_custom_range = start_date is not None or end_date is not None
+    if has_custom_range and (start_date is None or end_date is None):
+        raise ValueError('Choose both a From date and a To date')
+    if has_custom_range and end_date < start_date:
+        raise ValueError('To date cannot be earlier than From date')
+
+    reference_date = today or date.today()
+    if has_custom_range:
+        return start_date, end_date, True
+    return review_resolution_window_start(reference_date), reference_date, False
+
+
 def default_bad_review_threshold(portfolio_name: str) -> float:
     """Return the initial rating threshold for a portfolio."""
     return DEFAULT_PORTFOLIO_BAD_REVIEW_THRESHOLDS.get(
@@ -694,9 +712,13 @@ def mark_host_reviewed(reservation_id: int, current_user_id: int, today: Optiona
         main_session.close()
 
 
-def _historical_guest_reviews(main_session, reference_date: date) -> List[Review]:
-    cutoff_date = review_resolution_window_start(reference_date)
-    cutoff_datetime = datetime.combine(cutoff_date, datetime.min.time())
+def _historical_guest_reviews(
+    main_session,
+    start_date: date,
+    end_date: date,
+) -> List[Review]:
+    start_datetime = datetime.combine(start_date, datetime.min.time())
+    end_datetime = datetime.combine(end_date + timedelta(days=1), datetime.min.time())
     return main_session.query(Review).join(
         Listing,
         Review.listing_id == Listing.listing_id,
@@ -706,10 +728,17 @@ def _historical_guest_reviews(main_session, reference_date: date) -> List[Review
         func.lower(func.coalesce(Listing.status, '')) != 'deleted',
         Review.overall_rating.isnot(None),
         or_(
-            Review.review_date >= cutoff_date,
-            and_(Review.review_date.is_(None), Review.inserted_on >= cutoff_datetime),
+            and_(
+                Review.review_date.isnot(None),
+                Review.review_date >= start_date,
+                Review.review_date <= end_date,
+            ),
+            and_(
+                Review.review_date.is_(None),
+                Review.inserted_on >= start_datetime,
+                Review.inserted_on < end_datetime,
+            ),
         ),
-        or_(Review.review_date.is_(None), Review.review_date <= reference_date),
     ).options(
         joinedload(Review.listing).joinedload(Listing.tags).joinedload(ListingTag.tag),
         joinedload(Review.reservation),
@@ -758,16 +787,22 @@ def _portfolio_rule_payloads(
 def get_review_resolutions(
     current_user_id: int,
     today: Optional[date] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
 ) -> Dict:
-    """Reconcile and return the portfolio-defined six-month bad-review pool."""
+    """Reconcile and return the portfolio-defined bad-review pool for one date range."""
     if not current_user_id:
         raise ValueError('A current user is required to reconcile review resolutions')
 
-    reference_date = today or date.today()
+    range_start, range_end, is_custom_range = review_resolution_date_range(
+        start_date=start_date,
+        end_date=end_date,
+        today=today,
+    )
     main_session = get_session(get_database_path())
     workflow_session = get_workflow_session()
     try:
-        historical_reviews = _historical_guest_reviews(main_session, reference_date)
+        historical_reviews = _historical_guest_reviews(main_session, range_start, range_end)
         review_contexts = []
         for review in historical_reviews:
             listing = review.listing
@@ -887,8 +922,9 @@ def get_review_resolutions(
             'rules': rules,
             'lookback': {
                 'months': REVIEW_RESOLUTION_LOOKBACK_MONTHS,
-                'start_date': review_resolution_window_start(reference_date).isoformat(),
-                'end_date': reference_date.isoformat(),
+                'start_date': range_start.isoformat(),
+                'end_date': range_end.isoformat(),
+                'is_custom': is_custom_range,
             },
         }
     except Exception:

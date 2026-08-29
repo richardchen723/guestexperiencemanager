@@ -22,3 +22,20 @@ def test_portfolio_selection_recalculates_severity_totals():
 
     assert portfolio_change < risk_refresh < queue_render
     assert "(review.portfolio || 'Unmapped') === reviewQueueState.portfolio" in script
+
+
+def test_resolution_custom_date_range_validates_applies_and_clears():
+    project_root = Path(__file__).resolve().parents[3]
+    template = (project_root / "dashboard/templates/reviews/resolutions.html").read_text()
+    script = (project_root / "dashboard/static/js/review-resolutions.js").read_text()
+
+    assert 'id="resolutionStartDate"' in template
+    assert 'id="resolutionEndDate"' in template
+    assert 'id="resolutionDateApply"' in template
+    assert 'id="resolutionDateClear"' in template
+    assert 'From and To dates are inclusive.' in template
+    assert "params.set('start_date', resolutionState.startDate);" in script
+    assert "params.set('end_date', resolutionState.endDate);" in script
+    assert "To date cannot be earlier than From date." in script
+    assert "resolutionState.startDate = '';" in script
+    assert "resolutionState.endDate = '';" in script
