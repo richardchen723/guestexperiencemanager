@@ -343,7 +343,7 @@
 
 .published-review-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: .7rem;
     padding-top: 1rem;
 }
@@ -588,6 +588,10 @@
     to { background-position: -100% 0; }
 }
 
+@media (max-width: 1320px) {
+    .published-review-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
 @media (max-width: 1080px) {
     .published-reviews-hero { align-items: flex-start; flex-direction: column; gap: 1.5rem; }
     .published-hero-snapshot { align-self: stretch; width: 100%; }
@@ -595,6 +599,10 @@
     .published-filter-row--ratings { align-items: flex-start; flex-direction: column; }
     .published-filter-actions { align-self: stretch; justify-content: flex-end; }
     .published-insights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .published-review-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 900px) {
     .published-review-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
