@@ -3,13 +3,19 @@
 const CONFIG = {
     ticketLimit: 50,
     occupancyMonths: 6,
-    refreshInterval: null // Can be set for auto-refresh
+    refreshInterval: null, // Can be set for auto-refresh
+    ticketStatuses: ['Open', 'Assigned', 'In Progress', 'Blocked', 'Resolved', 'Closed'],
+    ticketPriorities: ['Low', 'Medium', 'High', 'Critical']
 };
 
 // State
 let dashboardData = null;
 let occupancyChart = null;
 let dashboardTicketReturnFocus = null;
+let dashboardOpenTicketId = null;
+let dashboardUsers = [];
+let dashboardUsersPromise = null;
+let dashboardToastTimer = null;
 
 // Helper functions
 function formatDate(date) {
@@ -267,13 +273,13 @@ function openDashboardTicketDetail(ticket, trigger) {
 
     const propertyName = dashboardTicketProperty(ticket);
     const category = dashboardTitleCase(ticket.category || 'Other');
-    const overdue = isDashboardTicketOverdue(ticket);
     const tags = (ticket.tags || []).map((tag) => (
         `<span class="dashboard-ticket-detail__tag">${escapeHtml(tag.name)}</span>`
     )).join('');
 
     setDashboardText('dashboardTicketDetailNumber', `Ticket #${ticket.ticket_id}`);
     setDashboardText('dashboardTicketDetailTitle', ticket.title || 'Untitled ticket');
+    setDashboardText('dashboardTicketDetailStatus', '');
     fullTicketLink.href = `/tickets/${ticket.ticket_id}/page`;
     body.innerHTML = `
         <div class="dashboard-ticket-detail__badges">
@@ -285,12 +291,31 @@ function openDashboardTicketDetail(ticket, trigger) {
             <span>Details</span>
             <p>${escapeHtml(ticket.description || ticket.issue_title || 'No description was provided for this ticket.')}</p>
         </section>
+        <section class="dashboard-ticket-detail__editor" aria-labelledby="dashboardTicketQuickEditHeading">
+            <div class="dashboard-ticket-detail__editor-head">
+                <div>
+                    <span>Quick update</span>
+                    <h3 id="dashboardTicketQuickEditHeading">Keep the essentials current</h3>
+                </div>
+                <small>Status, priority, owner, and deadline</small>
+            </div>
+            <form id="dashboardTicketQuickEditForm" class="dashboard-ticket-detail__form" data-ticket-id="${escapeHtml(ticket.ticket_id)}">
+                ${dashboardTicketSelectField('Status', 'status', CONFIG.ticketStatuses, ticket.status || 'Open')}
+                ${dashboardTicketSelectField('Priority', 'priority', CONFIG.ticketPriorities, ticket.priority || 'Low')}
+                <label class="dashboard-ticket-detail__field">
+                    <span>Assignee</span>
+                    <select name="assigned_user_id" aria-label="Assignee">
+                        ${dashboardAssigneeOptions(ticket)}
+                    </select>
+                </label>
+                <label class="dashboard-ticket-detail__field">
+                    <span>Due date</span>
+                    <input type="date" name="due_date" value="${escapeHtml(dashboardDateInputValue(ticket.due_date))}">
+                </label>
+            </form>
+        </section>
         <dl class="dashboard-ticket-detail__facts">
-            ${dashboardTicketFact('Assignee', ticket.assigned_user_name || 'Unassigned')}
-            ${dashboardTicketFact(overdue ? 'Due · overdue' : 'Due date', ticket.due_date ? formatDate(ticket.due_date) : 'No due date', overdue)}
             ${dashboardTicketFact('Created', formatDate(ticket.created_at))}
-            ${dashboardTicketFact('Status', ticket.status || 'Open')}
-            ${dashboardTicketFact('Priority', ticket.priority || 'Low')}
             ${dashboardTicketFact('Property', propertyName)}
             ${dashboardTicketFact('Category', category)}
             ${dashboardTicketFact('Created by', ticket.created_by_name || 'Unknown')}
@@ -299,9 +324,67 @@ function openDashboardTicketDetail(ticket, trigger) {
     `;
 
     dashboardTicketReturnFocus = trigger || null;
+    dashboardOpenTicketId = ticket.ticket_id;
     detail.hidden = false;
     document.body.classList.add('dashboard-modal-open');
+    setDashboardTicketSaveState(false);
+    loadDashboardUsers().then(() => refreshDashboardAssigneeOptions(ticket)).catch(() => {
+        setDashboardText('dashboardTicketDetailStatus', 'Assignee choices could not be refreshed.');
+    });
     window.requestAnimationFrame(() => detail.querySelector('.dashboard-ticket-detail__close')?.focus());
+}
+
+function dashboardTicketSelectField(label, name, choices, selectedValue) {
+    const options = choices.map((choice) => (
+        `<option value="${escapeHtml(choice)}" ${choice === selectedValue ? 'selected' : ''}>${escapeHtml(choice)}</option>`
+    )).join('');
+    return `
+        <label class="dashboard-ticket-detail__field">
+            <span>${escapeHtml(label)}</span>
+            <select name="${escapeHtml(name)}" aria-label="${escapeHtml(label)}">${options}</select>
+        </label>
+    `;
+}
+
+function dashboardAssigneeOptions(ticket, selectedValue = ticket.assigned_user_id) {
+    const users = [...dashboardUsers];
+    if (ticket.assigned_user_id && !users.some((user) => Number(user.user_id) === Number(ticket.assigned_user_id))) {
+        users.unshift({
+            user_id: ticket.assigned_user_id,
+            name: ticket.assigned_user_name || ticket.assigned_user_email || 'Current assignee'
+        });
+    }
+    const options = users.map((user) => {
+        const label = user.name || user.email || `User ${user.user_id}`;
+        return `<option value="${escapeHtml(user.user_id)}" ${Number(user.user_id) === Number(selectedValue) ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+    }).join('');
+    return `<option value="" ${selectedValue ? '' : 'selected'}>Unassigned</option>${options}`;
+}
+
+function dashboardDateInputValue(value) {
+    return value ? String(value).slice(0, 10) : '';
+}
+
+async function loadDashboardUsers() {
+    if (dashboardUsers.length) return dashboardUsers;
+    if (dashboardUsersPromise) return dashboardUsersPromise;
+    dashboardUsersPromise = fetch('/tickets/api/users')
+        .then(async (response) => {
+            const result = await response.json().catch(() => []);
+            if (!response.ok) throw new Error(result.error || 'Could not load assignees');
+            dashboardUsers = Array.isArray(result) ? result : [];
+            return dashboardUsers;
+        })
+        .finally(() => { dashboardUsersPromise = null; });
+    return dashboardUsersPromise;
+}
+
+function refreshDashboardAssigneeOptions(ticket) {
+    if (String(dashboardOpenTicketId) !== String(ticket.ticket_id)) return;
+    const select = document.querySelector('#dashboardTicketQuickEditForm [name="assigned_user_id"]');
+    if (!select) return;
+    const selectedValue = select.value;
+    select.innerHTML = dashboardAssigneeOptions(ticket, selectedValue);
 }
 
 function dashboardTicketFact(label, value, isAlert = false) {
@@ -317,6 +400,81 @@ function handleDashboardTicketDetailClick(event) {
     if (event.target.closest('[data-action="close-ticket-detail"]')) closeDashboardTicketDetail();
 }
 
+function handleDashboardTicketDetailChange(event) {
+    if (!event.target.closest('#dashboardTicketQuickEditForm')) return;
+    setDashboardText('dashboardTicketDetailStatus', 'Unsaved changes');
+    setDashboardTicketSaveState(true);
+}
+
+async function handleDashboardTicketDetailSubmit(event) {
+    const form = event.target.closest('#dashboardTicketQuickEditForm');
+    if (!form) return;
+    event.preventDefault();
+
+    const ticketId = form.dataset.ticketId;
+    const ticket = (dashboardData?.tickets || []).find((item) => String(item.ticket_id) === String(ticketId));
+    if (!ticket) {
+        setDashboardText('dashboardTicketDetailStatus', 'This ticket is no longer available.');
+        return;
+    }
+
+    const values = new FormData(form);
+    const assignedUserId = values.get('assigned_user_id');
+    const changes = {
+        status: values.get('status'),
+        priority: values.get('priority'),
+        assigned_user_id: assignedUserId ? Number(assignedUserId) : null,
+        due_date: values.get('due_date') || null
+    };
+
+    setDashboardTicketSaveState(false, true);
+    setDashboardText('dashboardTicketDetailStatus', 'Saving…');
+
+    try {
+        const response = await fetch(`/tickets/api/tickets/${ticketId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(changes)
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || result.error) throw new Error(result.error || 'Could not update ticket');
+
+        const index = dashboardData.tickets.findIndex((item) => String(item.ticket_id) === String(ticketId));
+        if (index >= 0) dashboardData.tickets[index] = { ...ticket, ...result };
+        showDashboardToast(`Ticket #${ticketId} updated.`);
+        await refreshDashboardAfterTicketUpdate();
+    } catch (error) {
+        console.error('Error updating dashboard ticket:', error);
+        setDashboardText('dashboardTicketDetailStatus', error.message || 'Could not update ticket.');
+        setDashboardTicketSaveState(true);
+    }
+}
+
+function setDashboardTicketSaveState(enabled, saving = false) {
+    const button = document.getElementById('dashboardTicketDetailSave');
+    if (!button) return;
+    button.disabled = !enabled || saving;
+    button.textContent = saving ? 'Saving…' : 'Save changes';
+}
+
+async function refreshDashboardAfterTicketUpdate() {
+    const response = await fetch(`/dashboard/api/data?ticket_limit=${CONFIG.ticketLimit}&occupancy_months=${CONFIG.occupancyMonths}`);
+    if (!response.ok) throw new Error('Ticket saved, but the dashboard could not refresh.');
+    dashboardData = await response.json();
+    renderStatistics(dashboardData.statistics);
+    renderTickets(dashboardData.tickets, dashboardData.statistics);
+}
+
+function showDashboardToast(message, isError = false) {
+    const toast = document.getElementById('dashboardToast');
+    if (!toast) return;
+    window.clearTimeout(dashboardToastTimer);
+    toast.textContent = message;
+    toast.classList.toggle('is-error', isError);
+    toast.classList.add('is-visible');
+    dashboardToastTimer = window.setTimeout(() => toast.classList.remove('is-visible'), 3600);
+}
+
 function handleDashboardTicketDetailKeydown(event) {
     if (event.key !== 'Escape') return;
     const detail = document.getElementById('dashboardTicketDetail');
@@ -330,6 +488,7 @@ function closeDashboardTicketDetail(restoreFocus = true) {
     document.body.classList.remove('dashboard-modal-open');
     if (restoreFocus) dashboardTicketReturnFocus?.focus();
     dashboardTicketReturnFocus = null;
+    dashboardOpenTicketId = null;
 }
 
 function dashboardTicketProperty(ticket) {
@@ -423,9 +582,9 @@ function navigateToHighPriority() {
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('myTicketsList')?.addEventListener('click', handleDashboardTicketClick);
     document.getElementById('dashboardTicketDetail')?.addEventListener('click', handleDashboardTicketDetailClick);
+    document.getElementById('dashboardTicketDetail')?.addEventListener('change', handleDashboardTicketDetailChange);
+    document.getElementById('dashboardTicketDetail')?.addEventListener('submit', handleDashboardTicketDetailSubmit);
     document.addEventListener('keydown', handleDashboardTicketDetailKeydown);
+    loadDashboardUsers().catch((error) => console.warn('Could not preload dashboard assignees:', error));
     loadDashboard();
 });
-
-
-

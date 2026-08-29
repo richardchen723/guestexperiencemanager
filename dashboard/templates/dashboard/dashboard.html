@@ -3,7 +3,7 @@
 {% block title %}Dashboard - Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard-overview.css', v='20260829-1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard-overview.css', v='20260829-2') }}">
 {% endblock %}
 
 {% block content %}
@@ -131,11 +131,24 @@
         </header>
         <div id="dashboardTicketDetailBody" class="dashboard-ticket-detail__body"></div>
         <footer class="dashboard-ticket-detail__footer">
-            <button class="dashboard-ticket-detail__dismiss" type="button" data-action="close-ticket-detail">Close</button>
-            <a id="dashboardTicketDetailLink" class="dashboard-ticket-detail__link" href="#">Open full ticket <span aria-hidden="true">→</span></a>
+            <p id="dashboardTicketDetailStatus" class="dashboard-ticket-detail__status" role="status" aria-live="polite"></p>
+            <button class="dashboard-ticket-detail__dismiss" type="button" data-action="close-ticket-detail">Cancel</button>
+            <button
+                id="dashboardTicketDetailSave"
+                class="dashboard-ticket-detail__save"
+                type="submit"
+                form="dashboardTicketQuickEditForm"
+                disabled
+            >Save changes</button>
+            <a id="dashboardTicketDetailLink" class="dashboard-ticket-detail__link" href="#">
+                <span class="dashboard-ticket-detail__link-label">Open full ticket</span>
+                <span class="dashboard-ticket-detail__link-label-mobile">Full ticket</span>
+                <span aria-hidden="true">→</span>
+            </a>
         </footer>
     </section>
 </div>
+<div id="dashboardToast" class="dashboard-toast" role="status" aria-live="polite"></div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -144,5 +157,5 @@
     // Set current user ID for dashboard navigation
     window.CURRENT_USER_ID = {{ current_user.user_id if current_user.user_id else 'null' }};
 </script>
-<script src="{{ url_for('static', filename='js/dashboard-page.js', v='20260829-1') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard-page.js', v='20260829-2') }}"></script>
 {% endblock %}

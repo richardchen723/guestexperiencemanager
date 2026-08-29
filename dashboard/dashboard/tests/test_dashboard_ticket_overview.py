@@ -45,3 +45,26 @@ def test_dashboard_ticket_cards_are_compact_and_open_a_detail_dialog():
     assert 'data-action="open-ticket-detail"' in card_source
     assert "openDashboardTicketDetail(ticket, trigger)" in script
     assert 'data-action="close-ticket-detail"' in template
+
+
+def test_dashboard_ticket_dialog_supports_basic_updates():
+    template = (PROJECT_ROOT / "dashboard/templates/dashboard/dashboard.html").read_text()
+    script = (PROJECT_ROOT / "dashboard/static/js/dashboard-page.js").read_text()
+    styles = (PROJECT_ROOT / "dashboard/static/css/dashboard-overview.css").read_text()
+
+    for element_id in (
+        "dashboardTicketDetailSave",
+        "dashboardTicketDetailStatus",
+        "dashboardToast",
+    ):
+        assert f'id="{element_id}"' in template
+
+    assert "dashboardTicketQuickEditForm" in script
+    for field_name in ("status", "priority", "assigned_user_id", "due_date"):
+        assert field_name in script
+    assert "fetch('/tickets/api/users')" in script
+    assert "method: 'PUT'" in script
+    assert "refreshDashboardAfterTicketUpdate" in script
+    assert '#dashboardTicketQuickEditForm .dashboard-ticket-detail__field select' in styles
+    assert 'height: 40px; min-height: 40px; max-height: 40px' in styles
+    assert '-webkit-appearance: none; appearance: none' in styles
