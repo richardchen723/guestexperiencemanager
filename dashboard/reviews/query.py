@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 
 REVIEW_WINDOW_DAYS = 14
 REVIEW_RESOLUTION_LOOKBACK_MONTHS = 6
+PUBLISHED_REVIEW_DEFAULT_DAYS = 90
 HOSTAWAY_REVIEW_RATING_MAX = 10.0
 PORTFOLIO_REVIEW_RATING_MAX = 5.0
 DEFAULT_BAD_REVIEW_THRESHOLD = 5.0
@@ -255,6 +256,33 @@ def review_channel_name(
         if normalized:
             return normalized
     return 'Direct'
+
+
+def published_review_date_range(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    today: Optional[date] = None,
+) -> tuple[date, date, bool]:
+    """Resolve a custom publication range or the inclusive default 90-day range."""
+    reference_date = today or date.today()
+    default_start = reference_date - timedelta(days=PUBLISHED_REVIEW_DEFAULT_DAYS - 1)
+    has_custom_range = start_date is not None or end_date is not None
+    if has_custom_range and (start_date is None or end_date is None):
+        raise ValueError('Choose both a From date and a To date')
+    if has_custom_range and end_date < start_date:
+        raise ValueError('To date cannot be earlier than From date')
+
+    if has_custom_range:
+        is_custom_range = start_date != default_start or end_date != reference_date
+        return start_date, end_date, is_custom_range
+    return default_start, reference_date, False
+
+
+def published_review_rating_bucket(rating: Optional[float]) -> Optional[int]:
+    """Map a normalized score to its nearest whole-star filter bucket."""
+    if rating is None:
+        return None
+    return max(1, min(5, int(float(rating) + 0.5)))
 
 
 def review_resolution_window_start(today: Optional[date] = None) -> date:
@@ -1147,6 +1175,163 @@ def add_review_resolution_note(ticket_id: int, current_user_id: int, note_text: 
         workflow_session.close()
 
     return add_ticket_comment(ticket_id, current_user_id, note_text).to_dict()
+
+
+def _published_review_card(review: Review) -> Dict:
+    listing = review.listing
+    reservation = review.reservation
+    rating = _rating_on_five_point_scale(review)
+    portfolio = _portfolio_name_for_listing(listing, review.listing_id)
+    return {
+        'review_id': review.review_id,
+        'listing_id': review.listing_id,
+        'listing_name': (
+            listing.internal_listing_name or listing.name
+            if listing else 'Unknown property'
+        ),
+        'portfolio': portfolio,
+        'portfolio_display_name': 'Urban Stays (PT300)' if portfolio == 'Urban Stays' else portfolio,
+        'guest_name': (
+            review.reviewer_name
+            or (reservation.guest_name if reservation else None)
+            or 'Guest'
+        ),
+        'rating': rating,
+        'rating_raw': review.overall_rating,
+        'rating_source_max': HOSTAWAY_REVIEW_RATING_MAX,
+        'rating_bucket': published_review_rating_bucket(rating),
+        'review_text': review.review_text,
+        'publication_date': review.review_date.isoformat() if review.review_date else None,
+        'departure_date': (
+            reservation.departure_date.isoformat()
+            if reservation and reservation.departure_date else None
+        ),
+        'channel_name': review_channel_name(review, reservation),
+    }
+
+
+def get_published_reviews(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    portfolio: Optional[str] = None,
+    ratings: Optional[Sequence[int]] = None,
+    sort: str = 'newest',
+    today: Optional[date] = None,
+) -> Dict:
+    """Return published guest reviews with composable reporting filters."""
+    range_start, range_end, is_custom_range = published_review_date_range(
+        start_date=start_date,
+        end_date=end_date,
+        today=today,
+    )
+    normalized_portfolio = ' '.join(str(portfolio or '').split()) or None
+    selected_ratings = sorted({int(rating) for rating in (ratings or [])})
+    if any(rating < 1 or rating > 5 for rating in selected_ratings):
+        raise ValueError('Ratings must be whole numbers from 1 to 5')
+    if sort not in {'newest', 'oldest', 'rating_desc', 'rating_asc'}:
+        raise ValueError('Invalid published review sort order')
+
+    session = get_session(get_database_path())
+    try:
+        published_reviews = session.query(Review).join(
+            Listing,
+            Review.listing_id == Listing.listing_id,
+        ).filter(
+            func.lower(func.coalesce(Review.status, '')) == 'published',
+            func.lower(func.coalesce(Review.origin, '')) == 'guest',
+            Review.review_date >= range_start,
+            Review.review_date <= range_end,
+        ).options(
+            joinedload(Review.listing).joinedload(Listing.tags).joinedload(ListingTag.tag),
+            joinedload(Review.reservation),
+        ).order_by(Review.review_date.desc(), Review.review_id.desc()).all()
+
+        range_cards = [_published_review_card(review) for review in published_reviews]
+        portfolio_counts = {}
+        rating_counts = {rating: 0 for rating in range(1, 6)}
+        for card in range_cards:
+            portfolio_counts[card['portfolio']] = portfolio_counts.get(card['portfolio'], 0) + 1
+            if card['rating_bucket']:
+                rating_counts[card['rating_bucket']] += 1
+
+        cards = [
+            card for card in range_cards
+            if (not normalized_portfolio or card['portfolio'] == normalized_portfolio)
+            and (not selected_ratings or card['rating_bucket'] in selected_ratings)
+        ]
+        if sort == 'oldest':
+            cards.sort(key=lambda card: (card['publication_date'] or '9999-12-31', card['review_id']))
+        elif sort == 'rating_desc':
+            cards.sort(
+                key=lambda card: (
+                    card['rating'] is not None,
+                    card['rating'] or 0,
+                    card['publication_date'] or '',
+                    card['review_id'],
+                ),
+                reverse=True,
+            )
+        elif sort == 'rating_asc':
+            cards.sort(key=lambda card: (
+                card['rating'] is None,
+                card['rating'] or 0,
+                card['publication_date'] or '9999-12-31',
+                card['review_id'],
+            ))
+        else:
+            cards.sort(
+                key=lambda card: (card['publication_date'] or '', card['review_id']),
+                reverse=True,
+            )
+
+        rated_cards = [card for card in cards if card['rating'] is not None]
+        average_rating = (
+            round(sum(card['rating'] for card in rated_cards) / len(rated_cards), 2)
+            if rated_cards else None
+        )
+        portfolio_order = {name: index for index, name in enumerate(TAG_PORTFOLIO_NAMES)}
+        portfolio_options = sorted(
+            portfolio_counts,
+            key=lambda name: (portfolio_order.get(name, len(portfolio_order)), name.lower()),
+        )
+
+        return {
+            'reviews': cards,
+            'summary': {
+                'total': len(cards),
+                'average_rating': average_rating,
+                'five_star_count': sum(card['rating_bucket'] == 5 for card in cards),
+                'portfolio_count': len({card['portfolio'] for card in cards}),
+            },
+            'range': {
+                'start_date': range_start.isoformat(),
+                'end_date': range_end.isoformat(),
+                'is_custom': is_custom_range,
+                'default_days': PUBLISHED_REVIEW_DEFAULT_DAYS,
+            },
+            'filters': {
+                'portfolio': normalized_portfolio,
+                'ratings': selected_ratings,
+                'sort': sort,
+            },
+            'filter_options': {
+                'range_total': len(range_cards),
+                'portfolios': [
+                    {
+                        'portfolio': name,
+                        'display_name': 'Urban Stays (PT300)' if name == 'Urban Stays' else name,
+                        'count': portfolio_counts[name],
+                    }
+                    for name in portfolio_options
+                ],
+                'ratings': [
+                    {'rating': rating, 'count': rating_counts[rating]}
+                    for rating in range(5, 0, -1)
+                ],
+            },
+        }
+    finally:
+        session.close()
 
 
 def get_unresponded_reviews(tag_ids: Optional[List[int]] = None) -> List[Dict]:

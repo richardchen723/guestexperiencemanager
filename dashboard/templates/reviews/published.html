@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block title %}Published Reviews - Hostaway Insights{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260829-1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/published-reviews.css', v='20260829-1') }}">
+{% endblock %}
+
+{% block content %}
+<div class="review-ops-page published-reviews-page">
+    <header class="review-ops-hero published-reviews-hero">
+        <div class="published-reviews-hero__copy">
+            <a class="review-ops-back" href="{{ url_for('reviews.reviews_page') }}">← Review operations</a>
+            <span class="review-ops-eyebrow">Guest voice</span>
+            <h1>Published reviews</h1>
+            <p>Explore what guests shared publicly, with a clear view across portfolios, properties, channels, and star ratings.</p>
+        </div>
+        <div class="published-hero-snapshot" aria-label="Published review snapshot">
+            <div>
+                <span>Reviews found</span>
+                <strong id="publishedHeroTotal">—</strong>
+            </div>
+            <div>
+                <span>Average rating</span>
+                <strong><span id="publishedHeroAverage">—</span><small> / 5</small></strong>
+            </div>
+            <div class="published-hero-snapshot__range">
+                <span>Reporting period</span>
+                <strong id="publishedHeroRange">Loading…</strong>
+            </div>
+        </div>
+    </header>
+
+    <section class="published-filter-shell" aria-labelledby="publishedFiltersHeading">
+        <div class="published-section-heading">
+            <div>
+                <span class="review-ops-eyebrow">Report controls</span>
+                <h2 id="publishedFiltersHeading">Shape the review report</h2>
+                <p>Dates are inclusive. Combine any portfolio with one or more whole-star rating bands.</p>
+            </div>
+            <span id="publishedRangeBadge" class="published-range-badge">Default 90-day view</span>
+        </div>
+
+        <form id="publishedReviewFilters" class="published-filter-form" novalidate>
+            <div class="published-filter-row published-filter-row--primary">
+                <label class="published-field">
+                    <span>From</span>
+                    <input id="publishedStartDate" name="start_date" type="date" autocomplete="off">
+                </label>
+                <label class="published-field">
+                    <span>To</span>
+                    <input id="publishedEndDate" name="end_date" type="date" autocomplete="off">
+                </label>
+                <label class="published-field published-field--portfolio">
+                    <span>Portfolio</span>
+                    <select id="publishedPortfolio" name="portfolio" aria-label="Filter published reviews by portfolio">
+                        <option value="">All portfolios</option>
+                    </select>
+                </label>
+                <label class="published-field published-field--sort">
+                    <span>Sort by</span>
+                    <select id="publishedSort" name="sort">
+                        <option value="newest">Newest published</option>
+                        <option value="oldest">Oldest published</option>
+                        <option value="rating_desc">Highest rating</option>
+                        <option value="rating_asc">Lowest rating</option>
+                    </select>
+                </label>
+            </div>
+
+            <div class="published-filter-row published-filter-row--ratings">
+                <fieldset class="published-rating-filter">
+                    <legend>Star ratings</legend>
+                    <div class="published-rating-options">
+                        <button id="publishedRatingAll" class="published-rating-all is-active" type="button" aria-label="All star ratings" aria-pressed="true">
+                            <span>All</span>
+                            <small id="publishedRatingAllCount">—</small>
+                        </button>
+                        {% for rating in [5, 4, 3, 2, 1] %}
+                        <label class="published-rating-option">
+                            <input type="checkbox" name="ratings" value="{{ rating }}" aria-label="{{ rating }} star reviews">
+                            <span><strong>{{ rating }}</strong><span aria-hidden="true">★</span></span>
+                            <small id="publishedRating{{ rating }}Count">—</small>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </fieldset>
+                <div class="published-filter-actions">
+                    <button id="publishedResetFilters" class="published-button published-button--quiet" type="button">
+                        Reset filters
+                    </button>
+                    <button id="publishedApplyFilters" class="published-button published-button--primary" type="submit">
+                        <span>View results</span>
+                        <span aria-hidden="true">→</span>
+                    </button>
+                </div>
+            </div>
+            <p id="publishedFilterError" class="published-filter-error" role="alert" hidden></p>
+        </form>
+    </section>
+
+    <section class="published-insights" aria-label="Published review summary">
+        <article class="published-insight published-insight--total">
+            <span class="published-insight__icon" aria-hidden="true">✦</span>
+            <div>
+                <span>Published reviews</span>
+                <strong id="publishedMetricTotal">—</strong>
+                <small id="publishedMetricTotalCaption">Across the selected period</small>
+            </div>
+        </article>
+        <article class="published-insight published-insight--average">
+            <span class="published-insight__icon" aria-hidden="true">★</span>
+            <div>
+                <span>Average rating</span>
+                <strong><span id="publishedMetricAverage">—</span><small> / 5</small></strong>
+                <small>Normalized from Hostaway scores</small>
+            </div>
+        </article>
+        <article class="published-insight published-insight--five-star">
+            <span class="published-insight__icon" aria-hidden="true">↑</span>
+            <div>
+                <span>Five-star band</span>
+                <strong id="publishedMetricFiveStar">—</strong>
+                <small id="publishedMetricFiveStarCaption">Top-rating reviews</small>
+            </div>
+        </article>
+        <article class="published-insight published-insight--portfolio">
+            <span class="published-insight__icon" aria-hidden="true">⌂</span>
+            <div>
+                <span>Portfolios represented</span>
+                <strong id="publishedMetricPortfolios">—</strong>
+                <small>In the filtered results</small>
+            </div>
+        </article>
+    </section>
+
+    <section class="published-results-shell" aria-labelledby="publishedResultsHeading">
+        <div class="published-results-head">
+            <div>
+                <span class="review-ops-eyebrow">Guest feedback</span>
+                <h2 id="publishedResultsHeading">Review library</h2>
+                <p id="publishedResultsCaption">Loading published guest reviews…</p>
+            </div>
+            <div id="publishedActiveFilters" class="published-active-filters" aria-label="Active filters"></div>
+        </div>
+        <div id="publishedReviews" class="published-review-grid" aria-live="polite" aria-busy="true">
+            {% for _ in range(6) %}
+            <div class="published-review-skeleton" aria-hidden="true">
+                <span></span><span></span><span></span><span></span>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+
+<div id="publishedReviewToast" class="review-ops-toast" role="status" aria-live="polite"></div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/published-reviews.js', v='20260829-1') }}"></script>
+{% endblock %}

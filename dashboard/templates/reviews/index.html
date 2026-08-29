@@ -14,10 +14,16 @@
             <h1>Review operations</h1>
             <p>Prioritize every checkout inside the 14-day review window, from highest concern to strongest positive signal.</p>
         </div>
-        <a class="review-ops-primary-link" href="{{ url_for('reviews.review_resolutions_page') }}">
-            Review resolutions
-            <span aria-hidden="true">→</span>
-        </a>
+        <div class="review-ops-hero-links">
+            <a class="review-ops-primary-link" href="{{ url_for('reviews.published_reviews_page') }}">
+                Published reviews
+                <span aria-hidden="true">→</span>
+            </a>
+            <a class="review-ops-primary-link review-ops-primary-link--secondary" href="{{ url_for('reviews.review_resolutions_page') }}">
+                Review resolutions
+                <span aria-hidden="true">→</span>
+            </a>
+        </div>
     </header>
 
     <section class="review-ops-summary" aria-label="Review queue summary">

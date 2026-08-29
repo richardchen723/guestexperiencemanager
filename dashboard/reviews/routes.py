@@ -18,6 +18,7 @@ from dashboard.reviews.query import (
     get_review_resolution_detail,
     get_review_queue,
     get_review_resolutions,
+    get_published_reviews,
     get_reviews_by_filter,
     mark_host_reviewed,
     update_review_resolution_rule,
@@ -61,6 +62,13 @@ def reviews_page():
 def review_resolutions_page():
     """Review resolution swim-lane page."""
     return render_template('reviews/resolutions.html', current_user=get_current_user())
+
+
+@reviews_bp.route('/published')
+@approved_required
+def published_reviews_page():
+    """Published guest review reporting page."""
+    return render_template('reviews/published.html', current_user=get_current_user())
 
 
 def _tag_ids_from_request():
@@ -218,6 +226,34 @@ def api_review_resolutions():
         return jsonify({'error': str(e)}), 400
     except Exception as e:
         logger.error(f"Error fetching review resolutions: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@reviews_bp.route('/api/published')
+@approved_required
+def api_published_reviews():
+    """Return published guest reviews for the selected reporting filters."""
+    ratings_value = (request.args.get('ratings') or '').strip()
+    try:
+        try:
+            ratings = (
+                [int(value.strip()) for value in ratings_value.split(',') if value.strip()]
+                if ratings_value else None
+            )
+        except ValueError:
+            raise ValueError('Ratings must be comma-separated whole numbers from 1 to 5')
+        payload = get_published_reviews(
+            start_date=_resolution_date_arg('start_date', 'From'),
+            end_date=_resolution_date_arg('end_date', 'To'),
+            portfolio=request.args.get('portfolio'),
+            ratings=ratings,
+            sort=(request.args.get('sort') or 'newest').strip(),
+        )
+        return jsonify(payload), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        logger.error('Error fetching published reviews: %s', e, exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 

@@ -49,3 +49,28 @@ def test_resolution_card_displays_a_readable_review_channel():
     assert "${resolutionEscape(channelLabel)}</p>" in script
     assert "airbnbofficial: 'Airbnb'" in script
     assert "bookingcom: 'Booking.com'" in script
+
+
+def test_published_review_report_exposes_all_required_filters_and_details():
+    project_root = Path(__file__).resolve().parents[3]
+    template = (project_root / "dashboard/templates/reviews/published.html").read_text()
+    script = (project_root / "dashboard/static/js/published-reviews.js").read_text()
+
+    for element_id in (
+        'publishedStartDate',
+        'publishedEndDate',
+        'publishedPortfolio',
+        'publishedSort',
+        'publishedRatingAll',
+        'publishedResetFilters',
+        'publishedReviews',
+    ):
+        assert f'id="{element_id}"' in template
+    assert '{% for rating in [5, 4, 3, 2, 1] %}' in template
+    assert 'value="{{ rating }}"' in template
+    assert '/reviews/api/published' in script
+    assert 'review.publication_date' in script
+    assert 'review.listing_name' in script
+    assert 'review.guest_name' in script
+    assert 'review.review_text' in script
+    assert 'review.rating_bucket' in script
