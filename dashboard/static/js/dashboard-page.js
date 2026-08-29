@@ -1,7 +1,7 @@
 // Dashboard Page JavaScript
 // Configuration
 const CONFIG = {
-    ticketLimit: 10,
+    ticketLimit: 50,
     occupancyMonths: 6,
     refreshInterval: null // Can be set for auto-refresh
 };
@@ -9,14 +9,17 @@ const CONFIG = {
 // State
 let dashboardData = null;
 let occupancyChart = null;
+let dashboardTicketReturnFocus = null;
 
 // Helper functions
 function formatDate(date) {
-    if (!date) return '';
-    if (typeof date === 'string') {
-        date = new Date(date);
-    }
-    return date.toLocaleDateString('en-US', { 
+    if (!date) return 'Not set';
+    const rawValue = String(date);
+    const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(rawValue)
+        ? new Date(`${rawValue}T12:00:00`)
+        : new Date(date);
+    if (Number.isNaN(parsedDate.getTime())) return 'Not set';
+    return parsedDate.toLocaleDateString('en-US', {
         year: 'numeric', 
         month: 'short', 
         day: 'numeric' 
@@ -74,7 +77,7 @@ async function loadDashboard() {
         dashboardData = await response.json();
         
         renderStatistics(dashboardData.statistics);
-        renderTickets(dashboardData.tickets);
+        renderTickets(dashboardData.tickets, dashboardData.statistics);
         renderOccupancyChart(dashboardData.occupancy);
         
         hideLoading();
@@ -98,18 +101,25 @@ function renderStatistics(stats) {
     document.getElementById('statHighPriority').textContent = stats.high_priority_count || 0;
 }
 
-function renderTickets(tickets) {
+function renderTickets(tickets, statistics = {}) {
     const container = document.getElementById('myTicketsList');
     const noTickets = document.getElementById('noTickets');
+    closeDashboardTicketDetail(false);
     
     if (!tickets || tickets.length === 0) {
         container.innerHTML = '';
         noTickets.style.display = 'block';
+        setDashboardText('dashboardTicketsCaption', 'No active tickets are currently assigned to you.');
         return;
     }
     
     noTickets.style.display = 'none';
     container.innerHTML = '';
+    const totalAssigned = Number(statistics.total_assigned || tickets.length);
+    const countLabel = tickets.length === totalAssigned
+        ? `${tickets.length} active ${tickets.length === 1 ? 'ticket' : 'tickets'}`
+        : `Showing ${tickets.length} of ${totalAssigned} active tickets`;
+    setDashboardText('dashboardTicketsCaption', `${countLabel} · sorted by priority and due date`);
     
     // Reuse ticket card creation
     tickets.forEach(ticket => {
@@ -193,73 +203,162 @@ function renderOccupancyChart(occupancyData) {
 
 // Reuse ticket card creation (adapted from tickets/list.html)
 function createTicketCard(ticket) {
-    const card = document.createElement('div');
-    card.className = 'ticket-card';
-    
-    // Try to get listing name from ticket.listing (from API)
-    let listingName = 'General';
-    if (ticket.listing_id) {
-        if (ticket.listing) {
-            // Use listing info from API response (includes internal_listing_name)
-            listingName = ticket.listing.internal_listing_name || ticket.listing.name || `Listing ${ticket.listing_id}`;
-        } else {
-            listingName = `Listing ${ticket.listing_id}`;
-        }
-    }
-    
-    const statusClass = ticket.status.toLowerCase().replace(' ', '-');
-    const priorityClass = ticket.priority.toLowerCase();
-    const categoryClass = ticket.category ? ticket.category.toLowerCase() : 'other';
-    
-    const dueDate = ticket.due_date ? new Date(ticket.due_date) : null;
-    const isOverdue = dueDate && dueDate < new Date() && ticket.status !== 'Resolved' && ticket.status !== 'Closed';
-    
-    const categoryDisplay = ticket.category ? ticket.category.charAt(0).toUpperCase() + ticket.category.slice(1) : 'Other';
-    
-    // Render tags
-    let tagsHtml = '';
-    if (ticket.tags && ticket.tags.length > 0) {
-        tagsHtml = '<div class="ticket-card-tags tags-display" style="margin-top: 0.5rem;">';
-        ticket.tags.forEach(tag => {
-            const tagStyle = tag.color ? `style="background-color: ${tag.color}; border-color: ${tag.color};" class="tag-chip has-color"` : 'class="tag-chip"';
-            const inheritedClass = tag.is_inherited ? ' tag-chip-inherited' : '';
-            const title = tag.is_inherited ? ' title="Inherited from property"' : '';
-            tagsHtml += `<span ${tagStyle}${inheritedClass}${title}>${escapeHtml(tag.name)}</span>`;
-        });
-        tagsHtml += '</div>';
-    }
-    
-    // Check if recurring
-    const recurringBadge = ticket.is_recurring ? 
-        `<span class="status-badge recurring-badge" title="Recurring task"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-5V2M4 17h5v5M6.1 8A7 7 0 0 1 18 6l2 1M4 17l2 1a7 7 0 0 0 11.9-2"/></svg>Recurring</span>` : '';
-    
+    const card = document.createElement('article');
+    card.className = 'dashboard-ticket-card';
+    card.dataset.priority = dashboardClassToken(ticket.priority || 'Low');
+
+    const statusClass = dashboardClassToken(ticket.status || 'Open');
+    const priorityClass = dashboardClassToken(ticket.priority || 'Low');
+    const overdue = isDashboardTicketOverdue(ticket);
+    const assigneeName = ticket.assigned_user_name || 'Unassigned';
+
     card.innerHTML = `
-        <div class="ticket-card-header">
-            <h3><a href="/tickets/${ticket.ticket_id}/page">${escapeHtml(ticket.title)}</a></h3>
-            <div class="ticket-badges">
-                <span class="status-badge status-${statusClass}">${escapeHtml(ticket.status)}</span>
-                <span class="priority-badge priority-${priorityClass}">${escapeHtml(ticket.priority)}</span>
-                <span class="category-badge category-${categoryClass}">${escapeHtml(categoryDisplay)}</span>
-                ${recurringBadge}
+        <div class="dashboard-ticket-card__top">
+            <span class="dashboard-ticket-card__number">#${escapeHtml(ticket.ticket_id)}</span>
+            <div class="dashboard-ticket-card__badges">
+                <span class="dashboard-ticket-pill dashboard-ticket-pill--status status-${statusClass}">${escapeHtml(ticket.status || 'Open')}</span>
+                <span class="dashboard-ticket-pill dashboard-ticket-pill--priority priority-${priorityClass}">${escapeHtml(ticket.priority || 'Low')}</span>
             </div>
         </div>
-        <div class="ticket-card-body">
-            ${ticket.issue_title ? `<p class="ticket-issue">Issue: ${escapeHtml(ticket.issue_title)}</p>` : ''}
-            <p class="ticket-listing">Property: ${escapeHtml(listingName)}</p>
-            ${ticket.description ? `<p class="ticket-description">${escapeHtml(ticket.description.substring(0, 150))}${ticket.description.length > 150 ? '...' : ''}</p>` : ''}
-            ${tagsHtml}
-            <div class="ticket-meta">
-                ${ticket.assigned_user_name ? `<span class="ticket-assigned">Assigned to: ${escapeHtml(ticket.assigned_user_name)}</span>` : '<span class="ticket-assigned">Unassigned</span>'}
-                ${dueDate ? `<span class="ticket-due ${isOverdue ? 'overdue' : ''}">Due: ${formatDate(dueDate)}</span>` : ''}
-            </div>
+        <h3 class="dashboard-ticket-card__title">${escapeHtml(ticket.title || 'Untitled ticket')}</h3>
+        <div class="dashboard-ticket-card__assignee">
+            <span class="dashboard-ticket-avatar" aria-hidden="true">${escapeHtml(dashboardInitials(assigneeName))}</span>
+            <span>
+                <small>Assignee</small>
+                <strong>${escapeHtml(assigneeName)}</strong>
+            </span>
         </div>
-        <div class="ticket-card-footer">
-            <span class="ticket-created">Created ${formatDate(new Date(ticket.created_at))}</span>
-            <a href="/tickets/${ticket.ticket_id}/page" class="btn-secondary">View Details</a>
+        <div class="dashboard-ticket-card__dates">
+            <span>
+                <small>Created</small>
+                <strong>${formatDate(ticket.created_at)}</strong>
+            </span>
+            <span class="${overdue ? 'is-overdue' : ''}">
+                <small>${overdue ? 'Overdue' : 'Due'}</small>
+                <strong>${ticket.due_date ? formatDate(ticket.due_date) : 'No due date'}</strong>
+            </span>
+        </div>
+        <button
+            class="dashboard-ticket-card__open"
+            type="button"
+            data-action="open-ticket-detail"
+            data-ticket-id="${escapeHtml(ticket.ticket_id)}"
+            aria-label="Open details for ticket ${escapeHtml(ticket.ticket_id)}: ${escapeHtml(ticket.title || 'Untitled ticket')}"
+        ></button>
+    `;
+
+    return card;
+}
+
+function handleDashboardTicketClick(event) {
+    const trigger = event.target.closest('[data-action="open-ticket-detail"]');
+    if (!trigger) return;
+    const ticket = (dashboardData?.tickets || []).find(
+        (item) => String(item.ticket_id) === String(trigger.dataset.ticketId),
+    );
+    if (ticket) openDashboardTicketDetail(ticket, trigger);
+}
+
+function openDashboardTicketDetail(ticket, trigger) {
+    const detail = document.getElementById('dashboardTicketDetail');
+    const body = document.getElementById('dashboardTicketDetailBody');
+    const fullTicketLink = document.getElementById('dashboardTicketDetailLink');
+    if (!detail || !body || !fullTicketLink) return;
+
+    const propertyName = dashboardTicketProperty(ticket);
+    const category = dashboardTitleCase(ticket.category || 'Other');
+    const overdue = isDashboardTicketOverdue(ticket);
+    const tags = (ticket.tags || []).map((tag) => (
+        `<span class="dashboard-ticket-detail__tag">${escapeHtml(tag.name)}</span>`
+    )).join('');
+
+    setDashboardText('dashboardTicketDetailNumber', `Ticket #${ticket.ticket_id}`);
+    setDashboardText('dashboardTicketDetailTitle', ticket.title || 'Untitled ticket');
+    fullTicketLink.href = `/tickets/${ticket.ticket_id}/page`;
+    body.innerHTML = `
+        <div class="dashboard-ticket-detail__badges">
+            <span class="dashboard-ticket-pill dashboard-ticket-pill--status status-${dashboardClassToken(ticket.status || 'Open')}">${escapeHtml(ticket.status || 'Open')}</span>
+            <span class="dashboard-ticket-pill dashboard-ticket-pill--priority priority-${dashboardClassToken(ticket.priority || 'Low')}">${escapeHtml(ticket.priority || 'Low')} priority</span>
+            ${ticket.is_recurring ? '<span class="dashboard-ticket-pill dashboard-ticket-pill--neutral">Recurring</span>' : ''}
+        </div>
+        <section class="dashboard-ticket-detail__description">
+            <span>Details</span>
+            <p>${escapeHtml(ticket.description || ticket.issue_title || 'No description was provided for this ticket.')}</p>
+        </section>
+        <dl class="dashboard-ticket-detail__facts">
+            ${dashboardTicketFact('Assignee', ticket.assigned_user_name || 'Unassigned')}
+            ${dashboardTicketFact(overdue ? 'Due · overdue' : 'Due date', ticket.due_date ? formatDate(ticket.due_date) : 'No due date', overdue)}
+            ${dashboardTicketFact('Created', formatDate(ticket.created_at))}
+            ${dashboardTicketFact('Status', ticket.status || 'Open')}
+            ${dashboardTicketFact('Priority', ticket.priority || 'Low')}
+            ${dashboardTicketFact('Property', propertyName)}
+            ${dashboardTicketFact('Category', category)}
+            ${dashboardTicketFact('Created by', ticket.created_by_name || 'Unknown')}
+        </dl>
+        ${tags ? `<section class="dashboard-ticket-detail__tags"><span>Tags</span><div>${tags}</div></section>` : ''}
+    `;
+
+    dashboardTicketReturnFocus = trigger || null;
+    detail.hidden = false;
+    document.body.classList.add('dashboard-modal-open');
+    window.requestAnimationFrame(() => detail.querySelector('.dashboard-ticket-detail__close')?.focus());
+}
+
+function dashboardTicketFact(label, value, isAlert = false) {
+    return `
+        <div class="${isAlert ? 'is-alert' : ''}">
+            <dt>${escapeHtml(label)}</dt>
+            <dd>${escapeHtml(value)}</dd>
         </div>
     `;
-    
-    return card;
+}
+
+function handleDashboardTicketDetailClick(event) {
+    if (event.target.closest('[data-action="close-ticket-detail"]')) closeDashboardTicketDetail();
+}
+
+function handleDashboardTicketDetailKeydown(event) {
+    if (event.key !== 'Escape') return;
+    const detail = document.getElementById('dashboardTicketDetail');
+    if (detail && !detail.hidden) closeDashboardTicketDetail();
+}
+
+function closeDashboardTicketDetail(restoreFocus = true) {
+    const detail = document.getElementById('dashboardTicketDetail');
+    if (!detail || detail.hidden) return;
+    detail.hidden = true;
+    document.body.classList.remove('dashboard-modal-open');
+    if (restoreFocus) dashboardTicketReturnFocus?.focus();
+    dashboardTicketReturnFocus = null;
+}
+
+function dashboardTicketProperty(ticket) {
+    if (!ticket.listing_id) return 'General';
+    if (!ticket.listing) return `Listing ${ticket.listing_id}`;
+    return ticket.listing.internal_listing_name || ticket.listing.name || `Listing ${ticket.listing_id}`;
+}
+
+function isDashboardTicketOverdue(ticket) {
+    if (!ticket.due_date || ['Resolved', 'Closed'].includes(ticket.status)) return false;
+    const dueDate = new Date(`${String(ticket.due_date).slice(0, 10)}T23:59:59`);
+    return !Number.isNaN(dueDate.getTime()) && dueDate < new Date();
+}
+
+function dashboardClassToken(value) {
+    return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+}
+
+function dashboardTitleCase(value) {
+    return String(value || '').replace(/[-_]+/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function dashboardInitials(name) {
+    return String(name || 'Unassigned').trim().split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '—';
+}
+
+function setDashboardText(id, value) {
+    const element = document.getElementById(id);
+    if (element) element.textContent = value;
 }
 
 // Store current user ID (set in template)
@@ -321,8 +420,12 @@ function navigateToHighPriority() {
 }
 
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', loadDashboard);
-
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('myTicketsList')?.addEventListener('click', handleDashboardTicketClick);
+    document.getElementById('dashboardTicketDetail')?.addEventListener('click', handleDashboardTicketDetailClick);
+    document.addEventListener('keydown', handleDashboardTicketDetailKeydown);
+    loadDashboard();
+});
 
 
 

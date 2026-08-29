@@ -44,9 +44,9 @@ def api_dashboard_data():
     
     # Validate and parse query parameters
     try:
-        ticket_limit = min(max(1, int(request.args.get('ticket_limit', 10))), 50)
+        ticket_limit = min(max(1, int(request.args.get('ticket_limit', 50))), 50)
     except (ValueError, TypeError):
-        ticket_limit = 10
+        ticket_limit = 50
     
     try:
         occupancy_months = min(max(1, int(request.args.get('occupancy_months', 6))), 12)
@@ -63,7 +63,6 @@ def api_dashboard_data():
     except Exception as e:
         logger.error(f"Error fetching dashboard data for user {current_user.user_id}: {e}", exc_info=True)
         return jsonify({'error': 'Failed to load dashboard data'}), 500
-
 
 
 

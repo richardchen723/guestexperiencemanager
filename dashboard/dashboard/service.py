@@ -38,13 +38,13 @@ class DashboardService:
         self.main_session = get_main_session(config.MAIN_DATABASE_PATH)
     
     def get_dashboard_data(self, 
-                          ticket_limit: int = 10,
+                          ticket_limit: int = 50,
                           occupancy_months: int = 6) -> Dict:
         """
         Get all dashboard data in a single call.
         
         Args:
-            ticket_limit: Maximum number of tickets to return (default: 10, max: 50)
+            ticket_limit: Maximum number of tickets to return (default: 50, max: 50)
             occupancy_months: Number of months for occupancy calculation (default: 6, max: 12)
         
         Returns:
@@ -74,7 +74,7 @@ class DashboardService:
         finally:
             self._close_sessions()
     
-    def _get_my_tickets(self, limit: int = 10) -> List[Dict]:
+    def _get_my_tickets(self, limit: int = 50) -> List[Dict]:
         """Get top priority tickets assigned to the user."""
         try:
             # Get tickets assigned to user, excluding resolved/closed

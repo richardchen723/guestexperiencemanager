@@ -2,6 +2,10 @@
 
 {% block title %}Dashboard - Hostaway Insights{% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard-overview.css', v='20260829-1') }}">
+{% endblock %}
+
 {% block content %}
 <div class="dashboard-page">
     <!-- Header -->
@@ -56,12 +60,16 @@
         </div>
         
         <!-- My Tickets Section -->
-        <div class="dashboard-section">
-            <div class="section-header">
-                <h2>Top Priority Tickets Assigned to Me</h2>
+        <div class="dashboard-section dashboard-ticket-section">
+            <div class="section-header dashboard-ticket-section__head">
+                <div>
+                    <span class="dashboard-section-eyebrow">My work queue</span>
+                    <h2>Tickets assigned to me</h2>
+                    <p id="dashboardTicketsCaption">Loading active tickets…</p>
+                </div>
                 <a href="/tickets?assigned_user_id={{ current_user.user_id }}" class="btn-link">View All</a>
             </div>
-            <div id="myTicketsList" class="tickets-list dashboard-tickets-list">
+            <div id="myTicketsList" class="dashboard-tickets-list" aria-live="polite">
                 <!-- Tickets loaded via JavaScript -->
             </div>
             <div id="noTickets" class="empty-state" style="display: none;">
@@ -94,6 +102,40 @@
         <a href="/tickets/create" class="btn btn-primary btn-full">Create New Ticket</a>
     </div>
 </div>
+
+<div id="dashboardTicketDetail" class="dashboard-ticket-detail" hidden>
+    <button
+        class="dashboard-ticket-detail__backdrop"
+        type="button"
+        data-action="close-ticket-detail"
+        aria-label="Close ticket details"
+    ></button>
+    <section
+        class="dashboard-ticket-detail__dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dashboardTicketDetailTitle"
+        aria-describedby="dashboardTicketDetailNumber"
+    >
+        <header class="dashboard-ticket-detail__header">
+            <div>
+                <span id="dashboardTicketDetailNumber" class="dashboard-ticket-detail__number">Ticket</span>
+                <h2 id="dashboardTicketDetailTitle">Ticket details</h2>
+            </div>
+            <button
+                class="dashboard-ticket-detail__close"
+                type="button"
+                data-action="close-ticket-detail"
+                aria-label="Close ticket details"
+            >×</button>
+        </header>
+        <div id="dashboardTicketDetailBody" class="dashboard-ticket-detail__body"></div>
+        <footer class="dashboard-ticket-detail__footer">
+            <button class="dashboard-ticket-detail__dismiss" type="button" data-action="close-ticket-detail">Close</button>
+            <a id="dashboardTicketDetailLink" class="dashboard-ticket-detail__link" href="#">Open full ticket <span aria-hidden="true">→</span></a>
+        </footer>
+    </section>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -102,6 +144,5 @@
     // Set current user ID for dashboard navigation
     window.CURRENT_USER_ID = {{ current_user.user_id if current_user.user_id else 'null' }};
 </script>
-<script src="{{ url_for('static', filename='js/dashboard-page.js', v='20260808-3') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard-page.js', v='20260829-1') }}"></script>
 {% endblock %}
-
