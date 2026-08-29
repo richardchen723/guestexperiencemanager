@@ -116,6 +116,27 @@
     transition: transform 160ms ease, box-shadow 160ms ease;
 }
 
+.review-ops-hero-links {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: .65rem;
+}
+
+.review-ops-primary-link--secondary {
+    color: #fff;
+    background: rgba(255, 255, 255, .1);
+    border-color: rgba(255, 255, 255, .28);
+    box-shadow: none;
+    backdrop-filter: blur(10px);
+}
+
+.review-ops-primary-link--secondary:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, .16);
+}
+
 .review-ops-primary-link:hover {
     color: #17386f;
     transform: translateY(-2px);
@@ -1951,6 +1972,7 @@ body.review-modal-open { overflow: hidden; }
     }
     .review-ops-hero h1 { font-size: 2rem; }
     .review-ops-primary-link { width: 100%; justify-content: space-between; }
+    .review-ops-hero-links { width: 100%; }
     .review-ops-summary { gap: .6rem; }
     .review-ops-metric { min-height: 112px; padding: .9rem; }
     .review-ops-metric > strong { font-size: 1.65rem; }
