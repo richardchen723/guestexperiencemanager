@@ -65,6 +65,7 @@ from database.models import init_models
 from dashboard.auth.oauth import create_google_blueprint
 from dashboard.auth.init import database_initialization_lock, ensure_owner_exists
 from dashboard.auth.features import accessible_feature_keys, effective_feature_access
+from dashboard.auth.decorators import user_is_api_key_owner
 from dashboard.auth.session import get_current_user
 
 
@@ -163,6 +164,7 @@ def create_app():
             'current_user': user,
             'feature_access': effective_feature_access(user),
             'accessible_feature_keys': accessible_feature_keys(user),
+            'can_manage_api_keys': user_is_api_key_owner(user),
         }
     
     # Add cache-busting headers for templates (prevent browser caching old templates)

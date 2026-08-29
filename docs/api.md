@@ -32,15 +32,14 @@ Errors are returned as JSON:
   - Response includes the raw key once.
 - `POST /admin/api/api-keys/{api_key_id}/revoke`
   - Revoke an API key.
+- `DELETE /admin/api/api-keys/{api_key_id}`
+  - Permanently delete an API key.
 
-Example:
-```bash
-curl -X POST \\
-  -H "X-API-Key: <admin_api_key>" \\
-  -H "Content-Type: application/json" \\
-  -d '{"name":"Third Party Partner"}' \\
-  https://your-host.example.com/admin/api/api-keys
-```
+API key management endpoints require an approved browser session for the
+configured owner email. API-key authentication cannot be used to manage API
+keys. Use the owner-only `/admin/api-keys` page to manage credentials. A new
+raw key is displayed once when it is created; existing keys expose only their
+prefix and metadata.
 
 ## Health
 - `GET /health`

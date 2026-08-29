@@ -12,7 +12,7 @@ from flask import Blueprint, render_template, jsonify, request
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
-from dashboard.auth.decorators import admin_required, feature_required
+from dashboard.auth.decorators import admin_required, feature_required, owner_email_required
 from dashboard.auth.models import (
     get_all_users, get_user_by_id, approve_user, revoke_user,
     update_user_role, delete_user, ApiKey, get_session,
@@ -37,6 +37,13 @@ admin_bp = Blueprint('admin', __name__, url_prefix='/admin', template_folder='..
 def users_page():
     """User management page."""
     return render_template('admin/users.html')
+
+
+@admin_bp.route('/api-keys')
+@owner_email_required
+def api_keys_page():
+    """Owner-only API key management page."""
+    return render_template('admin/api_keys.html')
 
 
 @admin_bp.route('/activities')
@@ -238,9 +245,9 @@ def api_delete_user(user_id):
 
 
 @admin_bp.route('/api/api-keys', methods=['GET'])
-@admin_required
+@owner_email_required
 def api_list_api_keys():
-    """List API keys (admin only)."""
+    """List API-key metadata for the configured owner."""
     session = get_session()
     try:
         keys = session.query(ApiKey).order_by(ApiKey.created_at.desc()).all()
@@ -257,19 +264,24 @@ def api_list_api_keys():
                 'is_active': key.is_active
             })
         return jsonify(result)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logger.exception('Failed to list API keys')
+        return jsonify({'error': 'Unable to load API keys'}), 500
     finally:
         session.close()
 
 
 @admin_bp.route('/api/api-keys', methods=['POST'])
-@admin_required
+@owner_email_required
 def api_create_api_key():
-    """Create a new API key (admin only)."""
+    """Create a new API key for the configured owner."""
     current_user = get_current_user()
-    data = request.get_json() or {}
-    name = data.get('name')
+    data = request.get_json(silent=True) or {}
+    name = str(data.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Key name is required'}), 400
+    if len(name) > 100:
+        return jsonify({'error': 'Key name must be 100 characters or fewer'}), 400
     
     try:
         raw_key = create_api_key(name=name, created_by=current_user.user_id if current_user else None)
@@ -278,14 +290,15 @@ def api_create_api_key():
             'name': name,
             'created_at': datetime.utcnow().isoformat()
         }), 201
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logger.exception('Failed to create API key')
+        return jsonify({'error': 'Unable to create API key'}), 500
 
 
 @admin_bp.route('/api/api-keys/<int:api_key_id>/revoke', methods=['POST'])
-@admin_required
+@owner_email_required
 def api_revoke_api_key(api_key_id):
-    """Revoke an API key (admin only)."""
+    """Revoke an API key for the configured owner."""
     session = get_session()
     try:
         key = session.query(ApiKey).filter(ApiKey.api_key_id == api_key_id).first()
@@ -296,9 +309,31 @@ def api_revoke_api_key(api_key_id):
         key.revoked_at = datetime.utcnow()
         session.commit()
         return jsonify({'success': True})
-    except Exception as e:
+    except Exception:
         session.rollback()
-        return jsonify({'error': str(e)}), 500
+        logger.exception('Failed to revoke API key %s', api_key_id)
+        return jsonify({'error': 'Unable to revoke API key'}), 500
+    finally:
+        session.close()
+
+
+@admin_bp.route('/api/api-keys/<int:api_key_id>', methods=['DELETE'])
+@owner_email_required
+def api_delete_api_key(api_key_id):
+    """Permanently delete an API key record for the configured owner."""
+    session = get_session()
+    try:
+        key = session.query(ApiKey).filter(ApiKey.api_key_id == api_key_id).first()
+        if not key:
+            return jsonify({'error': 'API key not found'}), 404
+
+        session.delete(key)
+        session.commit()
+        return jsonify({'success': True, 'message': 'API key deleted'})
+    except Exception:
+        session.rollback()
+        logger.exception('Failed to delete API key %s', api_key_id)
+        return jsonify({'error': 'Unable to delete API key'}), 500
     finally:
         session.close()
 

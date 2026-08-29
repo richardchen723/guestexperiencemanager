@@ -22,6 +22,7 @@
 </head>
 <body
     data-is-admin="{% if current_user and current_user.is_admin() %}true{% else %}false{% endif %}"
+    data-can-manage-api-keys="{% if can_manage_api_keys %}true{% else %}false{% endif %}"
     data-features="{{ accessible_feature_keys | join(',') }}"
 >
     {% set endpoint = request.endpoint or '' %}
@@ -33,6 +34,7 @@
     {% elif 'knowledge' in endpoint %}{% set workspace_name = 'Knowledge base' %}
     {% elif 'bookkeeping' in endpoint %}{% set workspace_name = 'Bookkeeping' %}
     {% elif 'boost' in endpoint %}{% set workspace_name = 'Boost' %}
+    {% elif endpoint == 'admin.api_keys_page' %}{% set workspace_name = 'API keys' %}
     {% elif 'activities' in endpoint %}{% set workspace_name = 'Activity center' %}
     {% elif 'sync' in endpoint %}{% set workspace_name = 'Data sync' %}
     {% elif 'admin' in endpoint %}{% set workspace_name = 'Team access' %}
@@ -138,13 +140,21 @@
                 </div>
                 {% endif %}
 
-                {% if current_user and current_user.is_admin() %}
+                {% if current_user and (current_user.is_admin() or can_manage_api_keys) %}
                 <div class="nav-section nav-section-system">
                     <div class="nav-section-label">System</div>
-                    <a href="{{ url_for('admin.users_page') }}" class="app-nav-link {% if 'admin' in endpoint and 'activities' not in endpoint %}active{% endif %}" title="Team access">
+                    {% if current_user.is_admin() %}
+                    <a href="{{ url_for('admin.users_page') }}" class="app-nav-link {% if endpoint == 'admin.users_page' %}active{% endif %}" title="Team access">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
                         <span>Team access</span>
                     </a>
+                    {% endif %}
+                    {% if can_manage_api_keys %}
+                    <a href="{{ url_for('admin.api_keys_page') }}" class="app-nav-link {% if endpoint == 'admin.api_keys_page' %}active{% endif %}" title="API key management">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l3 3M14 9l3 3"/></svg>
+                        <span>API key management</span>
+                    </a>
+                    {% endif %}
                 </div>
                 {% endif %}
             </nav>
