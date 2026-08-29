@@ -6,7 +6,7 @@ Reviews API routes.
 import sys
 import os
 import json
-from datetime import datetime
+from datetime import date, datetime
 from flask import Blueprint, render_template, jsonify, request
 
 # Add parent directories to path
@@ -72,6 +72,16 @@ def _tag_ids_from_request():
         return tag_ids if isinstance(tag_ids, list) else ([tag_ids] if tag_ids else None)
     except (json.JSONDecodeError, ValueError, TypeError):
         return [int(tag_id.strip()) for tag_id in tag_ids_param.split(',') if tag_id.strip().isdigit()]
+
+
+def _resolution_date_arg(name: str, label: str):
+    value = (request.args.get(name) or '').strip()
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        raise ValueError(f'{label} date must use YYYY-MM-DD format')
 
 
 @reviews_bp.route('/api/queue')
@@ -189,7 +199,11 @@ def api_perform_review_automation(reservation_id):
 def api_review_resolutions():
     """Get special review-resolution tickets arranged into swim lanes."""
     try:
-        payload = get_review_resolutions(get_current_user().user_id)
+        payload = get_review_resolutions(
+            get_current_user().user_id,
+            start_date=_resolution_date_arg('start_date', 'From'),
+            end_date=_resolution_date_arg('end_date', 'To'),
+        )
         payload['operators'] = [
             {
                 'user_id': user.user_id,
@@ -200,6 +214,8 @@ def api_review_resolutions():
             if user.is_approved
         ]
         return jsonify(payload), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         logger.error(f"Error fetching review resolutions: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500

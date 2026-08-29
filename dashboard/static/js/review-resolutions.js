@@ -7,6 +7,8 @@ const resolutionState = {
     lookback: {},
     search: '',
     portfolio: '',
+    startDate: '',
+    endDate: '',
     draggedTicketId: null,
     activeTicketId: null,
     activeCard: null,
@@ -18,6 +20,10 @@ const resolutionState = {
 let resolutionToastTimer = null;
 
 document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('resolutionDateRangeForm')?.addEventListener('submit', handleResolutionDateSubmit);
+    document.getElementById('resolutionDateClear')?.addEventListener('click', clearResolutionDateRange);
+    document.getElementById('resolutionStartDate')?.addEventListener('input', clearResolutionDateError);
+    document.getElementById('resolutionEndDate')?.addEventListener('input', clearResolutionDateError);
     document.getElementById('resolutionSearch')?.addEventListener('input', (event) => {
         resolutionState.search = event.target.value.trim().toLowerCase();
         renderResolutionBoard();
@@ -55,8 +61,15 @@ async function loadResolutions() {
     const board = document.getElementById('resolutionBoard');
     if (!board) return;
     board.innerHTML = '<div class="review-ops-loading"><span class="review-ops-spinner" aria-hidden="true"></span><span>Loading resolution tickets…</span></div>';
+    setResolutionDateLoading(true);
     try {
-        const data = await resolutionFetch('/reviews/api/resolutions');
+        const params = new URLSearchParams();
+        if (resolutionState.startDate && resolutionState.endDate) {
+            params.set('start_date', resolutionState.startDate);
+            params.set('end_date', resolutionState.endDate);
+        }
+        const query = params.toString();
+        const data = await resolutionFetch(`/reviews/api/resolutions${query ? `?${query}` : ''}`);
         resolutionState.stages = data.stages || [];
         resolutionState.stageDefinitions = data.stage_definitions || [];
         resolutionState.operators = data.operators || [];
@@ -72,7 +85,67 @@ async function loadResolutions() {
         renderResolutionBoard();
     } catch (error) {
         board.innerHTML = `<div class="review-ops-error">${resolutionEscape(error.message)}</div>`;
+        setResolutionDateError(error.message);
+    } finally {
+        setResolutionDateLoading(false);
     }
+}
+
+function resolutionDateRangeError(startDate, endDate) {
+    if (!startDate && !endDate) return '';
+    if (!startDate || !endDate) return 'Choose both a From date and a To date.';
+    if (endDate < startDate) return 'To date cannot be earlier than From date.';
+    return '';
+}
+
+function handleResolutionDateSubmit(event) {
+    event.preventDefault();
+    const startDate = document.getElementById('resolutionStartDate')?.value || '';
+    const endDate = document.getElementById('resolutionEndDate')?.value || '';
+    const error = resolutionDateRangeError(startDate, endDate);
+    if (error) {
+        setResolutionDateError(error);
+        return;
+    }
+    clearResolutionDateError();
+    resolutionState.startDate = startDate;
+    resolutionState.endDate = endDate;
+    loadResolutions();
+}
+
+function clearResolutionDateRange() {
+    const startInput = document.getElementById('resolutionStartDate');
+    const endInput = document.getElementById('resolutionEndDate');
+    if (startInput) startInput.value = '';
+    if (endInput) endInput.value = '';
+    resolutionState.startDate = '';
+    resolutionState.endDate = '';
+    clearResolutionDateError();
+    loadResolutions();
+}
+
+function setResolutionDateError(message) {
+    const element = document.getElementById('resolutionDateError');
+    if (!element) return;
+    element.textContent = message;
+    element.hidden = false;
+}
+
+function clearResolutionDateError() {
+    const element = document.getElementById('resolutionDateError');
+    if (!element) return;
+    element.textContent = '';
+    element.hidden = true;
+}
+
+function setResolutionDateLoading(isLoading) {
+    const applyButton = document.getElementById('resolutionDateApply');
+    const clearButton = document.getElementById('resolutionDateClear');
+    if (applyButton) {
+        applyButton.disabled = isLoading;
+        applyButton.textContent = isLoading ? 'Applying…' : 'Apply';
+    }
+    if (clearButton) clearButton.disabled = isLoading;
 }
 
 function renderResolutionRules() {
@@ -82,7 +155,7 @@ function renderResolutionRules() {
         <label class="review-resolution-rule">
             <span class="review-resolution-rule-copy">
                 <strong>${resolutionEscape(rule.display_name || rule.portfolio)}</strong>
-                <small>${rule.qualifying_count || 0} of ${rule.review_count || 0} six-month reviews qualify</small>
+                <small>${rule.qualifying_count || 0} of ${rule.review_count || 0} reviews in this period qualify</small>
             </span>
             <span class="review-resolution-rule-control">
                 <span>Below</span>
@@ -138,7 +211,8 @@ function renderResolutionPortfolioFilter() {
 function renderResolutionLookback() {
     const element = document.getElementById('resolutionLookback');
     if (!element || !resolutionState.lookback.start_date || !resolutionState.lookback.end_date) return;
-    element.textContent = `${resolutionFormatDate(resolutionState.lookback.start_date)}–${resolutionFormatDate(resolutionState.lookback.end_date)}`;
+    const rangeType = resolutionState.lookback.is_custom ? 'Custom' : 'Default';
+    element.textContent = `${rangeType}: ${resolutionFormatDate(resolutionState.lookback.start_date)}–${resolutionFormatDate(resolutionState.lookback.end_date)}`;
 }
 
 async function handleRuleChange(event) {

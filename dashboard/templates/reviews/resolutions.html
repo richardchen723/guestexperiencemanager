@@ -3,7 +3,7 @@
 {% block title %}Review Resolutions - Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260814-2') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260829-1') }}">
 {% endblock %}
 
 {% block content %}
@@ -13,7 +13,7 @@
             <a class="review-ops-back" href="{{ url_for('reviews.reviews_page') }}">← Review operations</a>
             <span class="review-ops-eyebrow">Service recovery</span>
             <h1>Review resolutions</h1>
-            <p>Resolve every portfolio-defined bad review received during the past six months, independent of the host review window.</p>
+            <p>Resolve every portfolio-defined bad review in the reporting period, independent of the host review window.</p>
         </div>
         <div class="review-resolution-summary" aria-label="Resolution summary">
             <span><strong id="resolutionTotalCount">—</strong> total</span>
@@ -24,8 +24,29 @@
 
     <div class="review-resolution-notice">
         <span aria-hidden="true">◇</span>
-        <p><strong>Six-month review pool.</strong> A qualifying guest review appears here even when the host never reviewed and the 14-day window has expired.</p>
+        <p><strong>Six-month review pool by default.</strong> A qualifying guest review appears here even when the host never reviewed and the 14-day window has expired.</p>
     </div>
+
+    <form id="resolutionDateRangeForm" class="review-resolution-date-range" novalidate>
+        <div class="review-resolution-date-range__copy">
+            <span class="review-ops-eyebrow">Reporting period</span>
+            <strong>Custom resolution dates</strong>
+            <small>From and To dates are inclusive. Clear the range to return to the default six-month view.</small>
+        </div>
+        <div class="review-resolution-date-range__controls">
+            <label>
+                <span>From</span>
+                <input id="resolutionStartDate" name="start_date" type="date" autocomplete="off">
+            </label>
+            <label>
+                <span>To</span>
+                <input id="resolutionEndDate" name="end_date" type="date" autocomplete="off">
+            </label>
+            <button id="resolutionDateApply" class="review-action-primary" type="submit">Apply</button>
+            <button id="resolutionDateClear" class="review-action-secondary" type="button">Clear</button>
+        </div>
+        <p id="resolutionDateError" class="review-resolution-date-range__error" role="alert" hidden></p>
+    </form>
 
     <section class="review-resolution-policy" aria-labelledby="resolutionPolicyHeading">
         <div class="review-resolution-policy-head">
@@ -106,5 +127,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/review-resolutions.js', v='20260814-2') }}"></script>
+<script src="{{ url_for('static', filename='js/review-resolutions.js', v='20260829-1') }}"></script>
 {% endblock %}
