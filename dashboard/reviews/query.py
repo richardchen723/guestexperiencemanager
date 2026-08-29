@@ -240,6 +240,23 @@ def _rating_on_five_point_scale(review: Optional[Review]) -> Optional[float]:
     return normalize_review_rating(review.overall_rating)
 
 
+def review_channel_name(
+    review: Optional[Review],
+    reservation: Optional[Reservation],
+) -> str:
+    """Return the most specific channel recorded for a guest review."""
+    candidates = (
+        review.channel_name if review else None,
+        reservation.channel_name if reservation else None,
+        reservation.source if reservation else None,
+    )
+    for candidate in candidates:
+        normalized = ' '.join(str(candidate or '').split())
+        if normalized:
+            return normalized
+    return 'Direct'
+
+
 def review_resolution_window_start(today: Optional[date] = None) -> date:
     """Return the first review date in the rolling six-month resolution pool."""
     return (today or date.today()) - relativedelta(months=REVIEW_RESOLUTION_LOOKBACK_MONTHS)
@@ -898,6 +915,7 @@ def get_review_resolutions(
                     listing.internal_listing_name or listing.name if listing else 'Unknown property'
                 ),
                 'portfolio': portfolio,
+                'channel_name': review_channel_name(review, reservation),
                 'assigned_user_name': ticket.assigned_user.name if ticket.assigned_user else None,
                 'note_count': note_counts.get(ticket.ticket_id, 0),
                 'created_at': ticket.created_at.isoformat() if ticket.created_at else None,

@@ -15,6 +15,7 @@ from dashboard.reviews.query import (
     hostaway_url_for_reservation,
     normalize_review_rating,
     rate_guest_review_risk,
+    review_channel_name,
     should_offer_review_chase,
     update_review_resolution,
     review_resolution_window_start,
@@ -151,6 +152,19 @@ class ReviewResolutionPolicyTests(unittest.TestCase):
 
     def test_native_five_star_rating_can_use_its_own_source_scale(self):
         self.assertEqual(normalize_review_rating(4, source_max=5), 4.0)
+
+    def test_resolution_channel_prefers_the_review_source(self):
+        review = Review(channel_name='airbnbOfficial')
+        reservation = Reservation(channel_name='Homeaway', source='direct')
+
+        self.assertEqual(review_channel_name(review, reservation), 'airbnbOfficial')
+
+    def test_resolution_channel_falls_back_to_reservation_then_direct(self):
+        self.assertEqual(
+            review_channel_name(Review(), Reservation(channel_name='bookingcom')),
+            'bookingcom',
+        )
+        self.assertEqual(review_channel_name(Review(), Reservation()), 'Direct')
 
     def test_new_hostaway_portfolio_tags_map_without_brain_runtime(self):
         self.assertEqual(portfolio_name_for_tags(['San Gabriel Units']), 'LA St Gabe')
