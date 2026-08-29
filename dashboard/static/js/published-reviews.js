@@ -2,6 +2,7 @@ const publishedReviewState = {
     loading: false,
     data: null,
     pendingPortfolio: '',
+    detailReturnFocus: null,
 };
 
 let publishedToastTimer = null;
@@ -25,6 +26,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('publishedStartDate')?.addEventListener('input', clearPublishedFilterError);
     document.getElementById('publishedEndDate')?.addEventListener('input', clearPublishedFilterError);
     document.getElementById('publishedReviews')?.addEventListener('click', handlePublishedReviewClick);
+    document.getElementById('publishedReviewDetail')?.addEventListener('click', handlePublishedReviewDetailClick);
+    document.addEventListener('keydown', handlePublishedReviewDetailKeydown);
     updatePublishedRatingAllState();
     loadPublishedReviews();
 });
@@ -182,6 +185,7 @@ function renderPublishedActiveFilters(data) {
 function renderPublishedReviews(reviews) {
     const container = document.getElementById('publishedReviews');
     if (!container) return;
+    closePublishedReviewDetail(false);
     const count = reviews.length;
     const sortLabel = {
         newest: 'newest published first',
@@ -208,13 +212,6 @@ function renderPublishedReviews(reviews) {
     }
 
     container.innerHTML = reviews.map(createPublishedReportingCard).join('');
-    window.requestAnimationFrame(() => {
-        container.querySelectorAll('.published-review-card').forEach((card) => {
-            const text = card.querySelector('.published-review-text');
-            const button = card.querySelector('.published-review-expand');
-            if (text && button && text.scrollHeight <= text.clientHeight + 1) button.hidden = true;
-        });
-    });
 }
 
 function createPublishedReportingCard(review) {
@@ -236,10 +233,9 @@ function createPublishedReportingCard(review) {
                 <time class="published-review-date" datetime="${publishedEscape(review.publication_date || '')}">Published ${publishedFormatDate(review.publication_date)}</time>
             </div>
             <h3 class="published-review-property">${publishedEscape(review.listing_name || 'Unknown property')}</h3>
-            <p class="published-review-context">${publishedEscape(portfolio)}${review.listing_id ? ` · Listing ${Number(review.listing_id)}` : ''}</p>
+            <p class="published-review-context">${publishedEscape(portfolio)}</p>
             <div class="published-review-quote">
                 <p class="published-review-text">${publishedEscape(reviewText)}</p>
-                <button class="published-review-expand" type="button" data-action="toggle-review" aria-expanded="false">Read full review</button>
             </div>
             <footer class="published-review-card__footer">
                 <div class="published-review-guest">
@@ -248,18 +244,96 @@ function createPublishedReportingCard(review) {
                 </div>
                 <span class="published-channel-badge">${publishedEscape(publishedChannelLabel(review.channel_name))}</span>
             </footer>
+            <button
+                class="published-review-card__open"
+                type="button"
+                data-action="open-review"
+                data-review-id="${Number(review.review_id)}"
+                aria-label="Open full review for ${publishedEscape(review.listing_name || 'unknown property')}"
+            ></button>
         </article>
     `;
 }
 
 function handlePublishedReviewClick(event) {
-    const button = event.target.closest('[data-action="toggle-review"]');
+    const button = event.target.closest('[data-action="open-review"]');
     if (!button) return;
-    const card = button.closest('.published-review-card');
-    if (!card) return;
-    const expanded = card.classList.toggle('is-expanded');
-    button.setAttribute('aria-expanded', String(expanded));
-    button.textContent = expanded ? 'Show less' : 'Read full review';
+    const review = (publishedReviewState.data?.reviews || []).find(
+        (item) => String(item.review_id) === String(button.dataset.reviewId),
+    );
+    if (review) openPublishedReviewDetail(review, button);
+}
+
+function openPublishedReviewDetail(review, trigger) {
+    const detail = document.getElementById('publishedReviewDetail');
+    const body = document.getElementById('publishedReviewDetailBody');
+    if (!detail || !body) return;
+
+    const rating = review.rating == null ? null : Number(review.rating);
+    const ratingBucket = Number(review.rating_bucket || 0);
+    const ratingLabel = rating == null ? 'N/A' : rating.toFixed(1);
+    const stars = ratingBucket
+        ? `${'★'.repeat(ratingBucket)}${'☆'.repeat(5 - ratingBucket)}`
+        : '☆☆☆☆☆';
+    const property = review.listing_name || 'Unknown property';
+    const portfolio = review.portfolio_display_name || review.portfolio || 'Unmapped';
+    const reviewText = review.review_text || 'No written feedback was included with this review.';
+    const stayDate = review.departure_date ? publishedFormatDate(review.departure_date) : 'Not available';
+
+    publishedSetText('publishedReviewDetailTitle', property);
+    publishedSetText('publishedReviewDetailSubtitle', `${portfolio} · Published ${publishedFormatDate(review.publication_date)}`);
+    body.innerHTML = `
+        <div class="published-review-detail__score-row">
+            <div class="published-review-detail__score">
+                <strong>${publishedEscape(ratingLabel)}</strong>
+                <span aria-hidden="true">${stars}</span>
+                <small>${rating == null ? 'Rating unavailable' : 'out of 5 stars'}</small>
+            </div>
+            <span class="published-channel-badge published-channel-badge--detail">${publishedEscape(publishedChannelLabel(review.channel_name))}</span>
+        </div>
+        <blockquote class="published-review-detail__quote">${publishedEscape(reviewText)}</blockquote>
+        <dl class="published-review-detail__facts">
+            ${publishedDetailFact('Guest', review.guest_name || 'Guest')}
+            ${publishedDetailFact('Portfolio', portfolio)}
+            ${publishedDetailFact('Property', property)}
+            ${publishedDetailFact('Published', publishedFormatDate(review.publication_date))}
+            ${publishedDetailFact('Stay departure', stayDate)}
+            ${publishedDetailFact('Listing ID', review.listing_id || 'Not available')}
+        </dl>
+    `;
+
+    publishedReviewState.detailReturnFocus = trigger || null;
+    detail.hidden = false;
+    document.body.classList.add('review-modal-open');
+    window.requestAnimationFrame(() => detail.querySelector('.published-review-detail__close')?.focus());
+}
+
+function publishedDetailFact(label, value) {
+    return `
+        <div>
+            <dt>${publishedEscape(label)}</dt>
+            <dd>${publishedEscape(value)}</dd>
+        </div>
+    `;
+}
+
+function handlePublishedReviewDetailClick(event) {
+    if (event.target.closest('[data-action="close-review-detail"]')) closePublishedReviewDetail();
+}
+
+function handlePublishedReviewDetailKeydown(event) {
+    if (event.key !== 'Escape') return;
+    const detail = document.getElementById('publishedReviewDetail');
+    if (detail && !detail.hidden) closePublishedReviewDetail();
+}
+
+function closePublishedReviewDetail(restoreFocus = true) {
+    const detail = document.getElementById('publishedReviewDetail');
+    if (!detail || detail.hidden) return;
+    detail.hidden = true;
+    document.body.classList.remove('review-modal-open');
+    if (restoreFocus) publishedReviewState.detailReturnFocus?.focus();
+    publishedReviewState.detailReturnFocus = null;
 }
 
 function updatePublishedRatingAllState() {

@@ -4,7 +4,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260829-1') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/published-reviews.css', v='20260829-1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/published-reviews.css', v='20260829-2') }}">
 {% endblock %}
 
 {% block content %}
@@ -154,9 +154,40 @@
     </section>
 </div>
 
+<div id="publishedReviewDetail" class="published-review-detail" hidden>
+    <button
+        class="published-review-detail__backdrop"
+        type="button"
+        data-action="close-review-detail"
+        aria-label="Close review details"
+    ></button>
+    <section
+        class="published-review-detail__dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="publishedReviewDetailTitle"
+        aria-describedby="publishedReviewDetailSubtitle"
+    >
+        <header class="published-review-detail__header">
+            <div>
+                <span class="review-ops-eyebrow">Published review</span>
+                <h2 id="publishedReviewDetailTitle">Review details</h2>
+                <p id="publishedReviewDetailSubtitle"></p>
+            </div>
+            <button
+                class="published-review-detail__close"
+                type="button"
+                data-action="close-review-detail"
+                aria-label="Close review details"
+            >×</button>
+        </header>
+        <div id="publishedReviewDetailBody" class="published-review-detail__body"></div>
+    </section>
+</div>
+
 <div id="publishedReviewToast" class="review-ops-toast" role="status" aria-live="polite"></div>
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/published-reviews.js', v='20260829-1') }}"></script>
+<script src="{{ url_for('static', filename='js/published-reviews.js', v='20260829-2') }}"></script>
 {% endblock %}

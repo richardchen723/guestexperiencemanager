@@ -64,6 +64,8 @@ def test_published_review_report_exposes_all_required_filters_and_details():
         'publishedRatingAll',
         'publishedResetFilters',
         'publishedReviews',
+        'publishedReviewDetail',
+        'publishedReviewDetailBody',
     ):
         assert f'id="{element_id}"' in template
     assert '{% for rating in [5, 4, 3, 2, 1] %}' in template
@@ -74,3 +76,6 @@ def test_published_review_report_exposes_all_required_filters_and_details():
     assert 'review.guest_name' in script
     assert 'review.review_text' in script
     assert 'review.rating_bucket' in script
+    assert 'data-action="open-review"' in script
+    assert 'openPublishedReviewDetail(review, button)' in script
+    assert 'data-action="close-review-detail"' in template
