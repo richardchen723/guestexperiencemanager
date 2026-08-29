@@ -28,6 +28,7 @@ from dashboard.stay_issues.workflow import (
     ISSUE_STATUS_LABELS,
     issue_operational_status,
     issue_priority,
+    issue_reported_at,
 )
 from database.models import (
     Listing,
@@ -388,6 +389,7 @@ class GuestIssueDashboardService:
         workflow_status = issue.workflow_status or "open"
         operational_status = issue_operational_status(issue)
         priority = issue_priority(issue)
+        reported_at = issue_reported_at(issue)
         operator_names = operator_names or {}
         is_archived = bool(
             workflow_status == "resolved"
@@ -399,6 +401,9 @@ class GuestIssueDashboardService:
             "source_kind": issue.source_kind,
             "source_label": "Guest review" if issue.source_kind == "review" else "Stay messages",
             "source_date": issue.source_date,
+            "reported_at": reported_at,
+            "reported_at_iso": f"{reported_at.isoformat()}Z",
+            "reported_label": reported_at.strftime("%b %-d, %Y · %-I:%M %p UTC"),
             "category": issue.issue_category,
             "category_label": str(issue.issue_category or "Other").replace("_", " ").title(),
             "summary": issue.summary,
@@ -453,14 +458,32 @@ class GuestIssueDashboardService:
 
 
 def _sort_issues_by_priority(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Put urgent work first while keeping newest issues first within a priority."""
+    """Put urgent work first while keeping newest reported issues first within a priority."""
     return sorted(
         issues,
         key=lambda issue: (
             ISSUE_PRIORITY_ORDER.get(issue.get("priority"), len(ISSUE_PRIORITIES)),
-            -(issue.get("source_date") or date.min).toordinal(),
+            -_reported_sort_rank(_reported_sort_value(issue)),
             -int(issue.get("issue_id") or 0),
         ),
+    )
+
+
+def _reported_sort_value(issue: dict[str, Any]) -> datetime:
+    reported_at = issue.get("reported_at")
+    if isinstance(reported_at, datetime):
+        return reported_at
+    source_date = issue.get("source_date") or date.min
+    return datetime.combine(source_date, time.min)
+
+
+def _reported_sort_rank(value: datetime) -> int:
+    return (
+        value.toordinal() * 86_400_000_000
+        + value.hour * 3_600_000_000
+        + value.minute * 60_000_000
+        + value.second * 1_000_000
+        + value.microsecond
     )
 
 

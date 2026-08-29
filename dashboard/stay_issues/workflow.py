@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, time
 from typing import Any
 
 from brain.models import (
@@ -61,6 +61,7 @@ def get_issue_context(issue_id: int, *, session=None) -> dict[str, Any] | None:
             "reservation_id": issue.reservation_id,
             "source_kind": issue.source_kind,
             "source_date": issue.source_date,
+            "reported_at": issue_reported_at(issue),
             "category": issue.issue_category,
             "summary": issue.summary,
             "details": issue.details,
@@ -152,6 +153,17 @@ def issue_priority(issue: PropertyGuestIssue) -> str:
     """Return a valid operator priority for display and queue ordering."""
     normalized = _normalize_issue_priority(getattr(issue, "priority", None))
     return normalized or DEFAULT_ISSUE_PRIORITY
+
+
+def issue_reported_at(issue: PropertyGuestIssue) -> datetime:
+    """Return the immutable timestamp when an issue was first detected."""
+    reported_at = getattr(issue, "created_at", None)
+    if reported_at:
+        return reported_at
+    source_date = getattr(issue, "source_date", None)
+    if source_date:
+        return datetime.combine(source_date, time.min)
+    return datetime.min
 
 
 def change_issue_priority(

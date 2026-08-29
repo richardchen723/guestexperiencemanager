@@ -19,6 +19,7 @@ from dashboard.stay_issues.workflow import (
     change_issue_priority,
     change_issue_status,
     issue_priority,
+    issue_reported_at,
     link_issue_to_ticket,
     resolve_issue,
     sync_issue_from_ticket_status,
@@ -178,12 +179,39 @@ def test_issue_priority_validation_and_urgent_first_sorting():
         raise AssertionError("Invalid issue priority should be rejected")
 
     sorted_issues = _sort_issues_by_priority([
-        {"issue_id": 1, "priority": "Low", "source_date": date(2026, 8, 22)},
-        {"issue_id": 2, "priority": "Critical", "source_date": date(2026, 8, 20)},
-        {"issue_id": 3, "priority": "High", "source_date": date(2026, 8, 21)},
-        {"issue_id": 4, "priority": "Critical", "source_date": date(2026, 8, 22)},
+        {"issue_id": 1, "priority": "Low", "reported_at": datetime(2026, 8, 22, 8)},
+        {"issue_id": 2, "priority": "Critical", "reported_at": datetime(2026, 8, 20, 9)},
+        {"issue_id": 3, "priority": "High", "reported_at": datetime(2026, 8, 21, 10)},
+        {"issue_id": 4, "priority": "Critical", "reported_at": datetime(2026, 8, 22, 11)},
     ])
     assert [row["issue_id"] for row in sorted_issues] == [4, 2, 3, 1]
+
+
+def test_reported_timestamp_is_stable_when_operator_edits_issue():
+    session = _session()
+    issue = _issue(session)
+    reported_at = datetime(2026, 8, 20, 14, 15)
+    issue.created_at = reported_at
+    session.commit()
+
+    change_issue_priority(
+        issue.issue_id,
+        priority="High",
+        user_id=7,
+        now=datetime(2026, 8, 22, 10),
+        session=session,
+    )
+    changed, _activity = change_issue_status(
+        issue.issue_id,
+        status="in_progress",
+        user_id=7,
+        now=datetime(2026, 8, 22, 11),
+        session=session,
+    )
+
+    assert issue_reported_at(changed) == reported_at
+    assert changed.created_at == reported_at
+    assert changed.updated_at == datetime(2026, 8, 22, 11)
 
 
 def test_issue_status_and_notes_validate_operator_input():
@@ -404,3 +432,35 @@ def test_issue_priority_controls_filter_sort_and_audit_are_wired():
     assert '"/api/issues/<int:issue_id>/priority"' in routes
     assert "change_issue_priority" in routes
     assert "issue.get('priority')" in ticket_routes
+
+
+def test_reported_timestamp_recency_presets_custom_range_and_sort_are_wired():
+    project_root = Path(__file__).resolve().parents[2]
+    script = (project_root / "dashboard/static/js/guest-issues.js").read_text()
+    template = (project_root / "dashboard/templates/stay_issues/index.html").read_text()
+
+    for element_id in (
+        "guestIssueReportedFrom",
+        "guestIssueReportedTo",
+        "guestIssueReportedError",
+    ):
+        assert f'id="{element_id}"' in template
+    for marker in (
+        'data-reported-preset="today"',
+        'data-reported-preset="24h"',
+        'data-reported-preset="7d"',
+        'data-reported-preset="30d"',
+        "data-reported-custom-toggle",
+        "data-clear-reported",
+        "data-reset-issue-filters",
+        "data-reported-at=",
+        "data-reported-time",
+    ):
+        assert marker in template
+    assert 'value="reported_desc"' in template
+    assert 'value="reported_asc"' in template
+    assert "reportedRange" in script
+    assert "matchesReported" in script
+    assert "localDateBoundary" in script
+    assert "To date must be on or after From date." in script
+    assert "localizeReportedTimes" in script

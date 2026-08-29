@@ -4,12 +4,19 @@
     const status = document.getElementById('guestIssueStatus');
     const priority = document.getElementById('guestIssuePriority');
     const sort = document.getElementById('guestIssueSort');
+    const reportedFrom = document.getElementById('guestIssueReportedFrom');
+    const reportedTo = document.getElementById('guestIssueReportedTo');
+    const reportedError = document.getElementById('guestIssueReportedError');
+    const reportedCustom = document.querySelector('[data-reported-custom]');
+    const reportedCustomToggle = document.querySelector('[data-reported-custom-toggle]');
+    const resetFilters = document.querySelector('[data-reset-issue-filters]');
     const empty = document.getElementById('guestIssueEmpty');
     const expandGroups = document.querySelector('[data-expand-groups]');
     const collapseGroups = document.querySelector('[data-collapse-groups]');
     const customWindowToggle = document.querySelector('[data-custom-window-toggle]');
     const customWindowForm = document.querySelector('[data-custom-window-form]');
     const priorityRank = { critical: 0, high: 1, medium: 2, low: 3 };
+    let reportedPreset = '';
 
     customWindowToggle?.addEventListener('click', () => {
         if (!customWindowForm) return;
@@ -44,6 +51,79 @@
         });
     };
 
+    const parseReportedAt = (value) => {
+        const reportedAt = value ? new Date(value) : null;
+        return reportedAt && !Number.isNaN(reportedAt.getTime()) ? reportedAt : null;
+    };
+
+    const localDateBoundary = (value, endOfDay = false) => {
+        const parts = String(value || '').split('-').map(Number);
+        if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return null;
+        return new Date(
+            parts[0], parts[1] - 1, parts[2],
+            endOfDay ? 23 : 0,
+            endOfDay ? 59 : 0,
+            endOfDay ? 59 : 0,
+            endOfDay ? 999 : 0
+        );
+    };
+
+    const reportedRange = () => {
+        const now = new Date();
+        let start = null;
+        let end = null;
+        let invalid = false;
+
+        if (reportedPreset === 'today') {
+            start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            end = now;
+        } else if (reportedPreset === '24h') {
+            start = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+            end = now;
+        } else if (reportedPreset === '7d' || reportedPreset === '30d') {
+            const days = reportedPreset === '7d' ? 7 : 30;
+            start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            start.setDate(start.getDate() - (days - 1));
+            end = now;
+        } else if (reportedPreset === 'custom') {
+            start = localDateBoundary(reportedFrom?.value);
+            end = localDateBoundary(reportedTo?.value, true);
+            invalid = Boolean(start && end && end < start);
+        }
+
+        if (reportedError) {
+            reportedError.textContent = invalid
+                ? 'To date must be on or after From date.'
+                : '';
+            reportedError.hidden = !invalid;
+        }
+        return { start, end, invalid };
+    };
+
+    const setReportedPreset = (preset) => {
+        reportedPreset = preset;
+        document.querySelectorAll('[data-reported-preset]').forEach((button) => {
+            button.classList.toggle('is-active', button.dataset.reportedPreset === preset);
+        });
+        if (reportedCustomToggle) {
+            const customActive = preset === 'custom';
+            reportedCustomToggle.classList.toggle('is-active', customActive);
+            reportedCustomToggle.setAttribute('aria-expanded', String(customActive));
+            if (reportedCustom) reportedCustom.hidden = !customActive;
+        }
+    };
+
+    const localizeReportedTimes = () => {
+        document.querySelectorAll('[data-reported-time]').forEach((timeElement) => {
+            const reportedAt = parseReportedAt(timeElement.getAttribute('datetime'));
+            if (!reportedAt) return;
+            timeElement.textContent = reportedAt.toLocaleString('en-US', {
+                month: 'short', day: 'numeric', year: 'numeric',
+                hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
+            });
+        });
+    };
+
     const sortIssueCards = () => {
         if (!sort) return;
         document.querySelectorAll('.issue-card-list').forEach((list) => {
@@ -51,17 +131,20 @@
             cards.sort((left, right) => {
                 const leftPriority = priorityRank[left.dataset.priority] ?? 99;
                 const rightPriority = priorityRank[right.dataset.priority] ?? 99;
-                const leftDate = Date.parse(left.dataset.sourceDate || '') || 0;
-                const rightDate = Date.parse(right.dataset.sourceDate || '') || 0;
+                const leftReported = parseReportedAt(left.dataset.reportedAt)?.getTime() || 0;
+                const rightReported = parseReportedAt(right.dataset.reportedAt)?.getTime() || 0;
                 const originalOrder = Number(left.dataset.originalOrder || 0)
                     - Number(right.dataset.originalOrder || 0);
                 if (sort.value === 'priority_asc') {
-                    return rightPriority - leftPriority || rightDate - leftDate || originalOrder;
+                    return rightPriority - leftPriority || rightReported - leftReported || originalOrder;
                 }
-                if (sort.value === 'newest') {
-                    return rightDate - leftDate || originalOrder;
+                if (sort.value === 'reported_desc') {
+                    return rightReported - leftReported || originalOrder;
                 }
-                return leftPriority - rightPriority || rightDate - leftDate || originalOrder;
+                if (sort.value === 'reported_asc') {
+                    return leftReported - rightReported || originalOrder;
+                }
+                return leftPriority - rightPriority || rightReported - leftReported || originalOrder;
             });
             cards.forEach((card) => list.append(card));
         });
@@ -73,7 +156,15 @@
         const query = search.value.trim().toLowerCase();
         const statusCounts = { all: 0 };
         const priorityCounts = { all: 0 };
-        const filtersActive = Boolean(query || source.value || status.value || priority.value);
+        const range = reportedRange();
+        const hasReportedFilter = Boolean(
+            reportedPreset && (
+                reportedPreset !== 'custom' || reportedFrom?.value || reportedTo?.value
+            )
+        );
+        const filtersActive = Boolean(
+            query || source.value || status.value || priority.value || hasReportedFilter
+        );
         let visibleUnits = 0;
 
         document.querySelectorAll('[data-portfolio-section]').forEach((portfolio) => {
@@ -84,7 +175,13 @@
                 let visibleIssues = 0;
                 unit.querySelectorAll('[data-issue]').forEach((issue) => {
                     const matchesSource = !source.value || issue.dataset.source === source.value;
-                    const matchesScope = matchesSearch && matchesSource;
+                    const reportedAt = parseReportedAt(issue.dataset.reportedAt);
+                    const matchesReported = range.invalid || !hasReportedFilter || Boolean(
+                        reportedAt
+                        && (!range.start || reportedAt >= range.start)
+                        && (!range.end || reportedAt <= range.end)
+                    );
+                    const matchesScope = matchesSearch && matchesSource && matchesReported;
                     const matchesStatus = !status.value || issue.dataset.status === status.value;
                     const matchesPriority = !priority.value || issue.dataset.priority === priority.value;
                     const visible = matchesScope && matchesStatus && matchesPriority;
@@ -117,6 +214,11 @@
 
         renderStatusCounts(statusCounts);
         renderPriorityCounts(priorityCounts);
+        if (resetFilters) {
+            resetFilters.disabled = !Boolean(
+                filtersActive || sort.value !== 'priority_desc'
+            );
+        }
         if (empty) empty.hidden = visibleUnits > 0;
     };
 
@@ -125,6 +227,40 @@
     status?.addEventListener('change', applyFilters);
     priority?.addEventListener('change', applyFilters);
     sort?.addEventListener('change', applyFilters);
+    document.querySelectorAll('[data-reported-preset]').forEach((button) => {
+        button.addEventListener('click', () => {
+            setReportedPreset(button.dataset.reportedPreset || '');
+            applyFilters();
+        });
+    });
+    reportedCustomToggle?.addEventListener('click', () => {
+        setReportedPreset(reportedPreset === 'custom' ? '' : 'custom');
+        applyFilters();
+        if (reportedPreset === 'custom') reportedFrom?.focus();
+    });
+    [reportedFrom, reportedTo].forEach((input) => {
+        input?.addEventListener('change', () => {
+            setReportedPreset('custom');
+            applyFilters();
+        });
+    });
+    document.querySelector('[data-clear-reported]')?.addEventListener('click', () => {
+        if (reportedFrom) reportedFrom.value = '';
+        if (reportedTo) reportedTo.value = '';
+        setReportedPreset('');
+        applyFilters();
+    });
+    resetFilters?.addEventListener('click', () => {
+        search.value = '';
+        source.value = '';
+        status.value = '';
+        priority.value = '';
+        sort.value = 'priority_desc';
+        if (reportedFrom) reportedFrom.value = '';
+        if (reportedTo) reportedTo.value = '';
+        setReportedPreset('');
+        applyFilters();
+    });
     expandGroups?.addEventListener('click', () => {
         document.querySelectorAll('[data-portfolio-section], [data-unit]').forEach((group) => {
             if (!group.hidden) group.open = true;
@@ -135,6 +271,9 @@
             group.open = false;
         });
     });
+
+    localizeReportedTimes();
+    applyFilters();
 
     const dialog = document.getElementById('resolveIssueDialog');
     const form = document.getElementById('resolveIssueForm');

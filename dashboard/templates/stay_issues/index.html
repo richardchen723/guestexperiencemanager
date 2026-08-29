@@ -3,7 +3,7 @@
 {% block title %}Guest Issues · Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/guest-issues.css', v='20260829-4') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/guest-issues.css', v='20260829-5') }}">
 {% endblock %}
 
 {% block content %}
@@ -107,8 +107,27 @@
                 <label class="sort-filter"><span>Sort</span><select id="guestIssueSort">
                     <option value="priority_desc">Priority · urgent first</option>
                     <option value="priority_asc">Priority · low first</option>
-                    <option value="newest">Newest first</option>
+                    <option value="reported_desc">Reported · newest first</option>
+                    <option value="reported_asc">Reported · oldest first</option>
                 </select></label>
+                <div class="reported-filter" data-reported-filter>
+                    <span class="reported-filter-label">Reported</span>
+                    <div class="reported-presets" role="group" aria-label="Filter issues by reported date">
+                        <button type="button" class="is-active" data-reported-preset="">Any time</button>
+                        <button type="button" data-reported-preset="today">Today</button>
+                        <button type="button" data-reported-preset="24h">Last 24 hours</button>
+                        <button type="button" data-reported-preset="7d">Last 7 days</button>
+                        <button type="button" data-reported-preset="30d">Last 30 days</button>
+                        <button type="button" data-reported-custom-toggle aria-expanded="false">Custom range</button>
+                    </div>
+                    <div class="reported-custom-range" data-reported-custom hidden>
+                        <label><span>From</span><input type="date" id="guestIssueReportedFrom"></label>
+                        <label><span>To</span><input type="date" id="guestIssueReportedTo"></label>
+                        <button type="button" data-clear-reported>Clear range</button>
+                        <p id="guestIssueReportedError" role="alert" hidden></p>
+                    </div>
+                </div>
+                <button type="button" class="issue-filter-reset" data-reset-issue-filters disabled>Reset all</button>
             </div>
         </div>
 
@@ -135,11 +154,11 @@
 
                         <div class="issue-card-list">
                             {% for issue in unit.issues %}
-                            <details class="guest-issue-card severity-{{ issue.severity }}" id="issue-{{ issue.issue_id }}" data-issue data-source="{{ issue.source_kind }}" data-status="{{ issue.operational_status }}" data-priority="{{ issue.priority_key }}" data-source-date="{{ issue.source_date.isoformat() }}" data-original-order="{{ loop.index0 }}">
+                            <details class="guest-issue-card severity-{{ issue.severity }}" id="issue-{{ issue.issue_id }}" data-issue data-source="{{ issue.source_kind }}" data-status="{{ issue.operational_status }}" data-priority="{{ issue.priority_key }}" data-source-date="{{ issue.source_date.isoformat() }}" data-reported-at="{{ issue.reported_at_iso }}" data-original-order="{{ loop.index0 }}">
                                 <summary class="issue-card-summary">
                                     <div class="issue-card-content">
                                     <div class="issue-card-header">
-                                        <div class="issue-meta"><span>{{ issue.category_label }}</span><span>{{ issue.source_label }}</span><span>{{ issue.source_date.strftime('%b %-d, %Y') }}</span></div>
+                                        <div class="issue-meta"><span>{{ issue.category_label }}</span><span>{{ issue.source_label }}</span><span class="issue-reported-summary">Reported <time datetime="{{ issue.reported_at_iso }}" data-reported-time>{{ issue.reported_label }}</time></span></div>
                                         <div class="issue-card-badges">
                                             <span class="issue-priority-pill priority-{{ issue.priority_key }}" data-priority-pill><i aria-hidden="true"></i>{{ issue.priority }}</span>
                                             <span class="workflow-pill workflow-{{ issue.operational_status }}" data-status-pill>{{ issue.workflow_label }}</span>
@@ -151,6 +170,11 @@
                                     </div>
                                 </summary>
                                 <div class="issue-card-expanded">
+                                    <div class="issue-reported-record">
+                                        <span aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v5l3 2"/></svg></span>
+                                        <div><small>Reported</small><strong><time datetime="{{ issue.reported_at_iso }}" data-reported-time>{{ issue.reported_label }}</time></strong></div>
+                                        <p>First detected · unchanged by updates</p>
+                                    </div>
                                     <div class="issue-evidence-row">
                                         <span>Raw evidence</span>
                                         <div>{% for reference in issue.references %}<a href="{{ reference.url }}">{{ reference.label }} <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>{% else %}<small>Source record unavailable</small>{% endfor %}</div>
@@ -242,5 +266,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/guest-issues.js', v='20260829-2') }}"></script>
+<script src="{{ url_for('static', filename='js/guest-issues.js', v='20260829-3') }}"></script>
 {% endblock %}
