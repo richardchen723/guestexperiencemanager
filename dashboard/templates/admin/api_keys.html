@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}API Key Management{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/api-keys.css', v='20260829-1') }}">
+{% endblock %}
+
+{% block content %}
+<div class="api-key-page">
+    <section class="api-key-hero">
+        <div>
+            <p class="api-key-eyebrow">Owner controls</p>
+            <h1>API key management</h1>
+            <p>Create and remove credentials that provide full API access to Cotton Candy. This workspace is available only to <strong>{{ current_user.email }}</strong>.</p>
+        </div>
+        <div class="api-key-hero-lock" aria-label="Owner-only access">
+            <span aria-hidden="true">
+                <svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2"/></svg>
+            </span>
+            <div>
+                <strong>Owner only</strong>
+                <small>API keys cannot open this management area.</small>
+            </div>
+        </div>
+    </section>
+
+    <section class="api-key-create-card" aria-labelledby="create-key-title">
+        <div class="api-key-section-copy">
+            <span class="api-key-section-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l3 3M14 9l3 3"/></svg>
+            </span>
+            <div>
+                <h2 id="create-key-title">Create an API key</h2>
+                <p>Name the integration or person that will use this credential.</p>
+            </div>
+        </div>
+        <form id="createApiKeyForm" class="api-key-create-form">
+            <label for="apiKeyName">Key name</label>
+            <div class="api-key-create-controls">
+                <input id="apiKeyName" name="name" type="text" maxlength="100" required autocomplete="off" placeholder="e.g. Codex integration">
+                <button id="createApiKeyButton" class="api-key-primary-button" type="submit">Create key</button>
+            </div>
+            <p id="createApiKeyError" class="api-key-form-error" role="alert" hidden></p>
+        </form>
+    </section>
+
+    <section id="newApiKeyPanel" class="new-api-key-panel" aria-labelledby="new-key-title" hidden>
+        <div class="new-api-key-heading">
+            <span aria-hidden="true">&#10003;</span>
+            <div>
+                <h2 id="new-key-title">Your new API key is ready</h2>
+                <p>Copy it now. For security, the full value will not be shown again.</p>
+            </div>
+        </div>
+        <div class="new-api-key-value">
+            <input id="newApiKeyValue" type="text" readonly aria-label="New API key">
+            <button id="copyApiKeyButton" type="button">Copy key</button>
+        </div>
+        <p class="new-api-key-warning"><strong>Keep this credential private.</strong> Anyone with it has full read and write API access.</p>
+    </section>
+
+    <section class="api-key-list-section" aria-labelledby="current-keys-title">
+        <div class="api-key-list-heading">
+            <div>
+                <h2 id="current-keys-title">Current API keys</h2>
+                <p>Existing keys are stored as secure hashes. Only their identifying prefix can be displayed.</p>
+            </div>
+            <div class="api-key-counts" aria-live="polite">
+                <span><strong id="activeKeyCount">0</strong> active</span>
+                <span><strong id="totalKeyCount">0</strong> total</span>
+            </div>
+        </div>
+
+        <div id="apiKeysLoading" class="api-key-state" role="status">Loading API keys&hellip;</div>
+        <div id="apiKeysError" class="api-key-state api-key-state-error" role="alert" hidden></div>
+        <div id="apiKeysEmpty" class="api-key-state" hidden>No API keys have been created yet.</div>
+        <div id="apiKeysList" class="api-key-list" aria-live="polite"></div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/api-keys.js', v='20260829-1') }}"></script>
+{% endblock %}

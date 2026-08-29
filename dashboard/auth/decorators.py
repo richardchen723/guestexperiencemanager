@@ -5,6 +5,7 @@ Authentication decorators for route protection.
 
 from functools import wraps
 from flask import current_app, redirect, render_template, url_for, request, jsonify
+import dashboard.config as config
 from dashboard.auth.api_keys import authenticate_request_api_key
 from dashboard.auth.features import feature_label, first_accessible_endpoint, user_can_access_feature
 from dashboard.auth.session import get_current_user, is_logged_in, is_approved, is_admin
@@ -76,6 +77,45 @@ def admin_required(f):
             )
             return redirect(url_for(landing_endpoint))
         
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def user_is_api_key_owner(user) -> bool:
+    """Return whether a user matches the configured API-key owner email."""
+    owner_email = (config.OWNER_EMAIL or '').strip().lower()
+    user_email = (getattr(user, 'email', '') or '').strip().lower()
+    return bool(owner_email and user_email == owner_email)
+
+
+def owner_email_required(f):
+    """Require the configured owner to be signed in with their user session.
+
+    API-key authentication is deliberately not accepted here. Otherwise an
+    existing API key could be used to create or delete other credentials.
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not is_logged_in():
+            if request.is_json or _is_api_request():
+                return jsonify({'error': 'Authentication required'}), 401
+            return redirect(url_for('auth.login'))
+
+        if not is_approved():
+            if request.is_json or _is_api_request():
+                return jsonify({'error': 'Account approval required'}), 403
+            return redirect(url_for('auth.pending_approval'))
+
+        user = get_current_user()
+        if not user_is_api_key_owner(user):
+            if request.is_json or _is_api_request():
+                return jsonify({'error': 'Owner access required'}), 403
+            return render_template(
+                'auth/feature_denied.html',
+                feature_name='API key management',
+                landing_endpoint=first_accessible_endpoint(user),
+            ), 403
+
         return f(*args, **kwargs)
     return decorated_function
 

@@ -31,6 +31,7 @@ class MobileNavigation {
     getNavItems() {
         const isAdmin = document.body.dataset.isAdmin === 'true' || 
                        document.querySelector('[data-is-admin="true"]') !== null;
+        const canManageApiKeys = document.body.dataset.canManageApiKeys === 'true';
         const enabledFeatures = new Set(
             (document.body.dataset.features || '').split(',').filter(Boolean)
         );
@@ -53,6 +54,9 @@ class MobileNavigation {
 
         if (isAdmin) {
             moreItems.push({ id: 'admin', label: 'Admin', icon: 'admin', url: '/admin/users' });
+        }
+        if (canManageApiKeys) {
+            moreItems.push({ id: 'api-keys', label: 'API keys', icon: 'key', url: '/admin/api-keys' });
         }
 
         if (moreItems.length > 0) {
@@ -265,6 +269,10 @@ class MobileNavigation {
             admin: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/>
                 <path d="M6 21C6 17.6863 8.68629 15 12 15C15.3137 15 18 17.6863 18 21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>`,
+            key: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <circle cx="8" cy="15" r="4" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M11 12L19 4M16 7L19 10M14 9L17 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>`
         };
         
