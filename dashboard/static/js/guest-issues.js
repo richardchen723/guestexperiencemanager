@@ -2,11 +2,14 @@
     const search = document.getElementById('guestIssueSearch');
     const source = document.getElementById('guestIssueSource');
     const status = document.getElementById('guestIssueStatus');
+    const priority = document.getElementById('guestIssuePriority');
+    const sort = document.getElementById('guestIssueSort');
     const empty = document.getElementById('guestIssueEmpty');
     const expandGroups = document.querySelector('[data-expand-groups]');
     const collapseGroups = document.querySelector('[data-collapse-groups]');
     const customWindowToggle = document.querySelector('[data-custom-window-toggle]');
     const customWindowForm = document.querySelector('[data-custom-window-form]');
+    const priorityRank = { critical: 0, high: 1, medium: 2, low: 3 };
 
     customWindowToggle?.addEventListener('click', () => {
         if (!customWindowForm) return;
@@ -30,10 +33,47 @@
         });
     };
 
+    const renderPriorityCounts = (counts) => {
+        if (!priority) return;
+        Array.from(priority.options).forEach((option) => {
+            const label = option.dataset.priorityLabel;
+            if (!label) return;
+            const count = option.value ? (counts[option.value] || 0) : (counts.all || 0);
+            option.dataset.priorityCount = count;
+            option.textContent = `${label} (${count})`;
+        });
+    };
+
+    const sortIssueCards = () => {
+        if (!sort) return;
+        document.querySelectorAll('.issue-card-list').forEach((list) => {
+            const cards = Array.from(list.querySelectorAll(':scope > [data-issue]'));
+            cards.sort((left, right) => {
+                const leftPriority = priorityRank[left.dataset.priority] ?? 99;
+                const rightPriority = priorityRank[right.dataset.priority] ?? 99;
+                const leftDate = Date.parse(left.dataset.sourceDate || '') || 0;
+                const rightDate = Date.parse(right.dataset.sourceDate || '') || 0;
+                const originalOrder = Number(left.dataset.originalOrder || 0)
+                    - Number(right.dataset.originalOrder || 0);
+                if (sort.value === 'priority_asc') {
+                    return rightPriority - leftPriority || rightDate - leftDate || originalOrder;
+                }
+                if (sort.value === 'newest') {
+                    return rightDate - leftDate || originalOrder;
+                }
+                return leftPriority - rightPriority || rightDate - leftDate || originalOrder;
+            });
+            cards.forEach((card) => list.append(card));
+        });
+    };
+
     const applyFilters = () => {
-        if (!search || !source || !status) return;
+        if (!search || !source || !status || !priority || !sort) return;
+        sortIssueCards();
         const query = search.value.trim().toLowerCase();
         const statusCounts = { all: 0 };
+        const priorityCounts = { all: 0 };
+        const filtersActive = Boolean(query || source.value || status.value || priority.value);
         let visibleUnits = 0;
 
         document.querySelectorAll('[data-portfolio-section]').forEach((portfolio) => {
@@ -46,17 +86,22 @@
                     const matchesSource = !source.value || issue.dataset.source === source.value;
                     const matchesScope = matchesSearch && matchesSource;
                     const matchesStatus = !status.value || issue.dataset.status === status.value;
-                    const visible = matchesScope && matchesStatus;
-                    if (matchesScope) {
+                    const matchesPriority = !priority.value || issue.dataset.priority === priority.value;
+                    const visible = matchesScope && matchesStatus && matchesPriority;
+                    if (matchesScope && matchesPriority) {
                         statusCounts.all += 1;
                         statusCounts[issue.dataset.status] = (statusCounts[issue.dataset.status] || 0) + 1;
+                    }
+                    if (matchesScope && matchesStatus) {
+                        priorityCounts.all += 1;
+                        priorityCounts[issue.dataset.priority] = (priorityCounts[issue.dataset.priority] || 0) + 1;
                     }
                     issue.hidden = !visible;
                     if (visible) visibleIssues += 1;
                 });
                 unit.hidden = visibleIssues === 0;
                 if (visibleIssues > 0) {
-                    if (query || source.value || status.value) unit.open = true;
+                    if (filtersActive) unit.open = true;
                     portfolioUnits += 1;
                     portfolioIssues += visibleIssues;
                     visibleUnits += 1;
@@ -65,18 +110,21 @@
                 if (count) count.textContent = visibleIssues;
             });
             portfolio.hidden = portfolioUnits === 0;
-            if (portfolioUnits > 0 && (query || source.value || status.value)) portfolio.open = true;
+            if (portfolioUnits > 0 && filtersActive) portfolio.open = true;
             const count = portfolio.querySelector('[data-portfolio-issue-count]');
             if (count) count.textContent = portfolioIssues;
         });
 
         renderStatusCounts(statusCounts);
+        renderPriorityCounts(priorityCounts);
         if (empty) empty.hidden = visibleUnits > 0;
     };
 
     search?.addEventListener('input', applyFilters);
     source?.addEventListener('change', applyFilters);
     status?.addEventListener('change', applyFilters);
+    priority?.addEventListener('change', applyFilters);
+    sort?.addEventListener('change', applyFilters);
     expandGroups?.addEventListener('click', () => {
         document.querySelectorAll('[data-portfolio-section], [data-unit]').forEach((group) => {
             if (!group.hidden) group.open = true;
@@ -174,6 +222,59 @@
     document.querySelectorAll('[data-resolve-issue]').forEach((button) => {
         button.addEventListener('click', () => {
             openResolveDialog(button.dataset.resolveIssue, button.dataset.issueTitle);
+        });
+    });
+
+    document.querySelectorAll('[data-issue-priority]').forEach((select) => {
+        select.addEventListener('change', async () => {
+            const previous = select.dataset.currentPriority || 'Medium';
+            const next = select.value;
+            const issue = select.closest('[data-issue]');
+            const priorityError = issue?.querySelector('[data-priority-error]');
+
+            if (priorityError) priorityError.hidden = true;
+            select.disabled = true;
+            try {
+                const result = await requestJson(
+                    `/workspace/guest-issues/api/issues/${select.dataset.issuePriority}/priority`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ priority: next })
+                    }
+                );
+                select.dataset.currentPriority = result.priority;
+                select.value = result.priority;
+                if (issue) issue.dataset.priority = result.priority_key;
+                const pill = issue?.querySelector('[data-priority-pill]');
+                if (pill) {
+                    pill.className = `issue-priority-pill priority-${result.priority_key}`;
+                    pill.innerHTML = '<i aria-hidden="true"></i>';
+                    pill.append(document.createTextNode(result.priority));
+                }
+                const audit = issue?.querySelector('[data-priority-audit]');
+                if (audit) {
+                    const timestamp = result.priority_updated_at
+                        ? new Date(result.priority_updated_at)
+                        : null;
+                    const formattedTime = timestamp && !Number.isNaN(timestamp.getTime())
+                        ? timestamp.toLocaleString('en-US', {
+                            month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+                        })
+                        : 'Just now';
+                    audit.textContent = `Priority set by ${result.priority_updated_by_name || 'Team member'} · ${formattedTime}`;
+                }
+                appendIssueNote(issue, result.note);
+                applyFilters();
+            } catch (requestError) {
+                select.value = previous;
+                if (priorityError) {
+                    priorityError.textContent = requestError.message;
+                    priorityError.hidden = false;
+                }
+            } finally {
+                select.disabled = false;
+            }
         });
     });
 

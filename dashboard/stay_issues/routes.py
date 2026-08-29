@@ -16,10 +16,13 @@ from dashboard.stay_issues.service import (
     get_review_source,
 )
 from dashboard.stay_issues.workflow import (
+    ISSUE_PRIORITIES,
     ISSUE_STATUS_LABELS,
     GuestIssueWorkflowError,
     add_issue_note,
+    change_issue_priority,
     change_issue_status,
+    issue_priority,
     issue_operational_status,
     resolve_issue,
 )
@@ -114,6 +117,41 @@ def update_guest_issue_status(issue_id: int):
         return jsonify({"error": "The issue status could not be updated. Please try again."}), 500
 
 
+@guest_issues_bp.route("/api/issues/<int:issue_id>/priority", methods=["POST"])
+@approved_required
+def update_guest_issue_priority(issue_id: int):
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Authentication required"}), 401
+    payload = request.get_json(silent=True) or {}
+    try:
+        issue, activity = change_issue_priority(
+            issue_id,
+            priority=payload.get("priority", ""),
+            user_id=current_user.user_id,
+        )
+        priority = issue_priority(issue)
+        return jsonify({
+            "issue_id": issue.issue_id,
+            "priority": priority,
+            "priority_key": priority.lower(),
+            "priority_options": ISSUE_PRIORITIES,
+            "priority_updated_at": (
+                issue.priority_updated_at.isoformat() if issue.priority_updated_at else None
+            ),
+            "priority_updated_by_user_id": issue.priority_updated_by_user_id,
+            "priority_updated_by_name": (
+                current_user.name or current_user.email or f"Team member {current_user.user_id}"
+            ) if issue.priority_updated_by_user_id else None,
+            "note": _note_payload(activity, current_user) if activity else None,
+        })
+    except GuestIssueWorkflowError as exc:
+        return jsonify({"error": str(exc)}), exc.status_code
+    except Exception:
+        logger.exception("Could not update guest issue %s priority", issue_id)
+        return jsonify({"error": "The issue priority could not be updated. Please try again."}), 500
+
+
 @guest_issues_bp.route("/api/issues/<int:issue_id>/notes", methods=["POST"])
 @approved_required
 def add_guest_issue_note(issue_id: int):
@@ -144,6 +182,7 @@ def _note_payload(note, user) -> dict | None:
         "note_type": note.note_type,
         "note_type_label": {
             "status_change": "Status update",
+            "priority_change": "Priority update",
             "resolution": "Resolution",
         }.get(note.note_type, "Note"),
         "created_at": note.created_at.isoformat() if note.created_at else None,

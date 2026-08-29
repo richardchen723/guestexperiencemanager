@@ -8,11 +8,17 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from brain.models import PropertyGuestIssue, PropertyGuestIssueNote
-from dashboard.stay_issues.service import _issue_matches_view, resolve_dashboard_window
+from dashboard.stay_issues.service import (
+    _issue_matches_view,
+    _sort_issues_by_priority,
+    resolve_dashboard_window,
+)
 from dashboard.stay_issues.workflow import (
     GuestIssueWorkflowError,
     add_issue_note,
+    change_issue_priority,
     change_issue_status,
+    issue_priority,
     link_issue_to_ticket,
     resolve_issue,
     sync_issue_from_ticket_status,
@@ -122,6 +128,62 @@ def test_operator_can_move_issue_through_statuses_and_append_notes():
         "Vendor arrived and started the repair.",
         "Replacement part is expected tomorrow.",
     ]
+
+
+def test_operator_can_set_priority_with_actor_and_timestamp_audit():
+    session = _session()
+    issue = _issue(session)
+    changed_at = datetime(2026, 8, 22, 10, 30)
+
+    updated, activity = change_issue_priority(
+        issue.issue_id,
+        priority="critical",
+        user_id=7,
+        now=changed_at,
+        session=session,
+    )
+
+    assert issue_priority(updated) == "Critical"
+    assert updated.priority_updated_by_user_id == 7
+    assert updated.priority_updated_at == changed_at
+    assert activity.note_type == "priority_change"
+    assert activity.author_user_id == 7
+    assert activity.created_at == changed_at
+    assert activity.body == "Priority changed from Medium to Critical."
+
+    unchanged, duplicate_activity = change_issue_priority(
+        issue.issue_id,
+        priority="Critical",
+        user_id=8,
+        session=session,
+    )
+    assert issue_priority(unchanged) == "Critical"
+    assert unchanged.priority_updated_by_user_id == 7
+    assert duplicate_activity is None
+
+
+def test_issue_priority_validation_and_urgent_first_sorting():
+    session = _session()
+    issue = _issue(session)
+    try:
+        change_issue_priority(
+            issue.issue_id,
+            priority="emergency",
+            user_id=7,
+            session=session,
+        )
+    except GuestIssueWorkflowError as exc:
+        assert str(exc) == "Choose a valid issue priority."
+    else:
+        raise AssertionError("Invalid issue priority should be rejected")
+
+    sorted_issues = _sort_issues_by_priority([
+        {"issue_id": 1, "priority": "Low", "source_date": date(2026, 8, 22)},
+        {"issue_id": 2, "priority": "Critical", "source_date": date(2026, 8, 20)},
+        {"issue_id": 3, "priority": "High", "source_date": date(2026, 8, 21)},
+        {"issue_id": 4, "priority": "Critical", "source_date": date(2026, 8, 22)},
+    ])
+    assert [row["issue_id"] for row in sorted_issues] == [4, 2, 3, 1]
 
 
 def test_issue_status_and_notes_validate_operator_input():
@@ -316,3 +378,29 @@ def test_issue_status_filter_and_note_thread_are_wired_without_page_navigation()
     assert "data-note-list" in template
     assert "data-note-preview" in template
     assert '<details class="issue-note-thread">' in template
+
+
+def test_issue_priority_controls_filter_sort_and_audit_are_wired():
+    project_root = Path(__file__).resolve().parents[2]
+    script = (project_root / "dashboard/static/js/guest-issues.js").read_text()
+    template = (project_root / "dashboard/templates/stay_issues/index.html").read_text()
+    routes = (project_root / "dashboard/stay_issues/routes.py").read_text()
+    ticket_routes = (project_root / "dashboard/tickets/routes.py").read_text()
+
+    for element_id in ("guestIssuePriority", "guestIssueSort"):
+        assert f'id="{element_id}"' in template
+    for marker in (
+        "data-priority=",
+        "data-priority-pill",
+        "data-issue-priority",
+        "data-priority-audit",
+        "data-priority-error",
+    ):
+        assert marker in template
+    assert "priorityRank" in script
+    assert "sortIssueCards" in script
+    assert "matchesPriority" in script
+    assert "/priority`" in script
+    assert '"/api/issues/<int:issue_id>/priority"' in routes
+    assert "change_issue_priority" in routes
+    assert "issue.get('priority')" in ticket_routes

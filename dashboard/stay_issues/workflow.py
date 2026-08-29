@@ -24,6 +24,9 @@ ISSUE_STATUS_LABELS = {
     "resolved": "Resolved",
 }
 ACTIVE_ISSUE_STATUSES = set(ISSUE_STATUS_LABELS) - {"resolved"}
+ISSUE_PRIORITIES = ("Critical", "High", "Medium", "Low")
+ISSUE_PRIORITY_ORDER = {priority: index for index, priority in enumerate(ISSUE_PRIORITIES)}
+DEFAULT_ISSUE_PRIORITY = "Medium"
 TICKET_ISSUE_STATUS = {
     "Open": "need_attention",
     "Assigned": "scheduled",
@@ -64,6 +67,7 @@ def get_issue_context(issue_id: int, *, session=None) -> dict[str, Any] | None:
             "severity": issue.severity,
             "workflow_status": issue.workflow_status or "open",
             "operational_status": issue_operational_status(issue),
+            "priority": issue_priority(issue),
             "linked_ticket_id": issue.linked_ticket_id,
             "resolved_at": issue.resolved_at,
             "references": list(issue.source_references or []),
@@ -142,6 +146,58 @@ def issue_operational_status(issue: PropertyGuestIssue) -> str:
         return "resolved"
     status = str(issue.operational_status or "need_attention").strip().lower()
     return status if status in ACTIVE_ISSUE_STATUSES else "need_attention"
+
+
+def issue_priority(issue: PropertyGuestIssue) -> str:
+    """Return a valid operator priority for display and queue ordering."""
+    normalized = _normalize_issue_priority(getattr(issue, "priority", None))
+    return normalized or DEFAULT_ISSUE_PRIORITY
+
+
+def change_issue_priority(
+    issue_id: int,
+    *,
+    priority: str,
+    user_id: int,
+    now: datetime | None = None,
+    session=None,
+) -> tuple[PropertyGuestIssue, PropertyGuestIssueNote | None]:
+    """Set one issue's operator priority and append an auditable activity entry."""
+    normalized = _normalize_issue_priority(priority)
+    if not normalized:
+        raise GuestIssueWorkflowError("Choose a valid issue priority.")
+
+    owns_session = session is None
+    session = session or get_brain_session()
+    try:
+        issue = _get_issue_for_update(session, issue_id)
+        previous = issue_priority(issue)
+        if previous == normalized:
+            return issue, None
+
+        changed_at = now or datetime.utcnow()
+        issue.priority = normalized
+        issue.priority_updated_at = changed_at
+        issue.priority_updated_by_user_id = user_id
+        issue.updated_at = changed_at
+        activity = _append_issue_note(
+            session,
+            issue_id=issue.issue_id,
+            user_id=user_id,
+            body=f"Priority changed from {previous} to {normalized}.",
+            note_type="priority_change",
+            created_at=changed_at,
+        )
+        session.commit()
+        session.refresh(issue)
+        session.refresh(activity)
+        return issue, activity
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        if owns_session:
+            session.close()
 
 
 def change_issue_status(
@@ -381,6 +437,14 @@ def _get_issue_for_update(session, issue_id: int) -> PropertyGuestIssue:
     if not issue:
         raise GuestIssueWorkflowError("Guest issue not found.", status_code=404)
     return issue
+
+
+def _normalize_issue_priority(value: str | None) -> str | None:
+    normalized = str(value or "").strip().lower()
+    return next(
+        (priority for priority in ISSUE_PRIORITIES if priority.lower() == normalized),
+        None,
+    )
 
 
 def _validate_resolution_comment(comment: str) -> str:

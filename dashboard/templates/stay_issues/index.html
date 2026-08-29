@@ -3,7 +3,7 @@
 {% block title %}Guest Issues · Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/guest-issues.css', v='20260825-2') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/guest-issues.css', v='20260829-4') }}">
 {% endblock %}
 
 {% block content %}
@@ -97,6 +97,18 @@
                     <option value="stuck" data-status-label="Stuck" data-status-count="{{ dashboard.summary.status_counts.stuck }}">Stuck ({{ dashboard.summary.status_counts.stuck }})</option>
                     <option value="resolved" data-status-label="Resolved" data-status-count="{{ dashboard.summary.status_counts.resolved }}">Resolved ({{ dashboard.summary.status_counts.resolved }})</option>
                 </select></label>
+                <label class="priority-filter"><span>Priority</span><select id="guestIssuePriority">
+                    <option value="" data-priority-label="All priorities" data-priority-count="{{ dashboard.summary.issue_count }}">All priorities ({{ dashboard.summary.issue_count }})</option>
+                    <option value="critical" data-priority-label="Critical" data-priority-count="{{ dashboard.summary.priority_counts.critical }}">Critical ({{ dashboard.summary.priority_counts.critical }})</option>
+                    <option value="high" data-priority-label="High" data-priority-count="{{ dashboard.summary.priority_counts.high }}">High ({{ dashboard.summary.priority_counts.high }})</option>
+                    <option value="medium" data-priority-label="Medium" data-priority-count="{{ dashboard.summary.priority_counts.medium }}">Medium ({{ dashboard.summary.priority_counts.medium }})</option>
+                    <option value="low" data-priority-label="Low" data-priority-count="{{ dashboard.summary.priority_counts.low }}">Low ({{ dashboard.summary.priority_counts.low }})</option>
+                </select></label>
+                <label class="sort-filter"><span>Sort</span><select id="guestIssueSort">
+                    <option value="priority_desc">Priority · urgent first</option>
+                    <option value="priority_asc">Priority · low first</option>
+                    <option value="newest">Newest first</option>
+                </select></label>
             </div>
         </div>
 
@@ -123,12 +135,15 @@
 
                         <div class="issue-card-list">
                             {% for issue in unit.issues %}
-                            <details class="guest-issue-card severity-{{ issue.severity }}" id="issue-{{ issue.issue_id }}" data-issue data-source="{{ issue.source_kind }}" data-status="{{ issue.operational_status }}">
+                            <details class="guest-issue-card severity-{{ issue.severity }}" id="issue-{{ issue.issue_id }}" data-issue data-source="{{ issue.source_kind }}" data-status="{{ issue.operational_status }}" data-priority="{{ issue.priority_key }}" data-source-date="{{ issue.source_date.isoformat() }}" data-original-order="{{ loop.index0 }}">
                                 <summary class="issue-card-summary">
                                     <div class="issue-card-content">
                                     <div class="issue-card-header">
                                         <div class="issue-meta"><span>{{ issue.category_label }}</span><span>{{ issue.source_label }}</span><span>{{ issue.source_date.strftime('%b %-d, %Y') }}</span></div>
-                                        <span class="workflow-pill workflow-{{ issue.operational_status }}" data-status-pill>{{ issue.workflow_label }}</span>
+                                        <div class="issue-card-badges">
+                                            <span class="issue-priority-pill priority-{{ issue.priority_key }}" data-priority-pill><i aria-hidden="true"></i>{{ issue.priority }}</span>
+                                            <span class="workflow-pill workflow-{{ issue.operational_status }}" data-status-pill>{{ issue.workflow_label }}</span>
+                                        </div>
                                     </div>
                                     <h5>{{ issue.summary }}</h5>
                                     <p class="issue-details">{{ issue.details }}</p>
@@ -142,7 +157,9 @@
                                     </div>
 
                                     <div class="issue-workflow-toolbar">
+                                        <label class="issue-priority-control"><span>Priority</span><select data-issue-priority="{{ issue.issue_id }}" data-current-priority="{{ issue.priority }}" aria-label="Priority for {{ issue.summary|e }}"><option value="Critical" {{ 'selected' if issue.priority == 'Critical' else '' }}>Critical</option><option value="High" {{ 'selected' if issue.priority == 'High' else '' }}>High</option><option value="Medium" {{ 'selected' if issue.priority == 'Medium' else '' }}>Medium</option><option value="Low" {{ 'selected' if issue.priority == 'Low' else '' }}>Low</option></select></label>
                                         <label class="issue-status-control"><span>Status</span><select data-issue-status="{{ issue.issue_id }}" data-current-status="{{ issue.operational_status }}" data-issue-title="{{ issue.summary|e }}" {% if issue.workflow_status == 'resolved' or issue.linked_ticket_id %}disabled{% endif %}><option value="need_attention" {{ 'selected' if issue.operational_status == 'need_attention' else '' }}>Need attention</option><option value="scheduled" {{ 'selected' if issue.operational_status == 'scheduled' else '' }}>Scheduled</option><option value="in_progress" {{ 'selected' if issue.operational_status == 'in_progress' else '' }}>In progress</option><option value="stuck" {{ 'selected' if issue.operational_status == 'stuck' else '' }}>Stuck</option><option value="resolved" {{ 'selected' if issue.operational_status == 'resolved' else '' }}>Resolved</option></select></label>
+                                        <small class="issue-priority-audit" data-priority-audit>{{ issue.priority_audit_label }}</small>
                                         {% if issue.workflow_status == 'open' %}
                                         <div class="issue-actions">
                                             <button type="button" class="resolve-issue-button" data-resolve-issue="{{ issue.issue_id }}" data-issue-title="{{ issue.summary|e }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>Resolve</button>
@@ -156,6 +173,7 @@
                                         {% else %}
                                         <small class="issue-status-context">Resolved</small>
                                         {% endif %}
+                                        <p data-priority-error role="alert" hidden></p>
                                         <p data-status-error role="alert" hidden></p>
                                     </div>
 
@@ -224,5 +242,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/guest-issues.js', v='20260825-3') }}"></script>
+<script src="{{ url_for('static', filename='js/guest-issues.js', v='20260829-2') }}"></script>
 {% endblock %}

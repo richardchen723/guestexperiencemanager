@@ -953,6 +953,9 @@ class PropertyGuestIssue(Base):
     source_references = Column(_json_type(), nullable=False)
     workflow_status = Column(String, nullable=False, default="open", index=True)
     operational_status = Column(String, nullable=False, default="need_attention", index=True)
+    priority = Column(String, nullable=False, default="Medium", index=True)
+    priority_updated_at = Column(DateTime, nullable=True, index=True)
+    priority_updated_by_user_id = Column(Integer, nullable=True, index=True)
     resolution_comment = Column(Text)
     resolution_method = Column(String, nullable=True, index=True)
     resolved_at = Column(DateTime, nullable=True, index=True)
@@ -1258,6 +1261,9 @@ def _migrate_guest_issue_lifecycle(conn):
     additions = (
         ("workflow_status", "VARCHAR NOT NULL DEFAULT 'open'"),
         ("operational_status", "VARCHAR NOT NULL DEFAULT 'need_attention'"),
+        ("priority", "VARCHAR NOT NULL DEFAULT 'Medium'"),
+        ("priority_updated_at", "TIMESTAMP WITHOUT TIME ZONE"),
+        ("priority_updated_by_user_id", "INTEGER"),
         ("resolution_comment", "TEXT"),
         ("resolution_method", "VARCHAR"),
         ("resolved_at", "TIMESTAMP WITHOUT TIME ZONE"),
@@ -1288,6 +1294,9 @@ def _migrate_guest_issue_lifecycle(conn):
     for index_name, column_name in (
         ("idx_brain_property_issue_workflow", "workflow_status"),
         ("idx_brain_property_issue_operational_status", "operational_status"),
+        ("idx_brain_property_issue_priority", "priority"),
+        ("idx_brain_property_issue_priority_updated_at", "priority_updated_at"),
+        ("idx_brain_property_issue_priority_updated_by", "priority_updated_by_user_id"),
         ("idx_brain_property_issue_resolved_at", "resolved_at"),
         ("idx_brain_property_issue_resolved_by", "resolved_by_user_id"),
         ("idx_brain_property_issue_ticket", "linked_ticket_id"),

@@ -1419,7 +1419,10 @@ def _guest_issue_ticket_prefill(issue):
         ticket_category = 'online'
     else:
         ticket_category = 'other'
-    priority = {
+    operator_priority = str(issue.get('priority') or '').title()
+    priority = operator_priority if operator_priority in {
+        'Critical', 'High', 'Medium', 'Low'
+    } else {
         'critical': 'Critical',
         'material': 'Medium',
         'minor': 'Low',

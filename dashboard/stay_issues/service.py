@@ -22,7 +22,13 @@ from brain.models import (
 )
 from dashboard.portfolio_mapping import TAG_PORTFOLIO_NAMES, portfolio_name_for_listing
 from dashboard.auth.models import User, get_session as get_user_session
-from dashboard.stay_issues.workflow import ISSUE_STATUS_LABELS, issue_operational_status
+from dashboard.stay_issues.workflow import (
+    ISSUE_PRIORITIES,
+    ISSUE_PRIORITY_ORDER,
+    ISSUE_STATUS_LABELS,
+    issue_operational_status,
+    issue_priority,
+)
 from database.models import (
     Listing,
     ListingPhoto,
@@ -203,6 +209,11 @@ class GuestIssueDashboardService:
             .first()
         )
         operator_ids = {issue.resolved_by_user_id for issue in issues if issue.resolved_by_user_id}
+        operator_ids.update(
+            issue.priority_updated_by_user_id
+            for issue in issues
+            if issue.priority_updated_by_user_id
+        )
         operator_ids.update(note.author_user_id for note in notes if note.author_user_id)
         operator_names: dict[int, str] = {}
         if operator_ids:
@@ -231,6 +242,7 @@ class GuestIssueDashboardService:
         portfolios: dict[str, list[dict[str, Any]]] = defaultdict(list)
         all_quality_counts = {quality: 0 for quality in QUALITY_ORDER}
         selected_status_counts = {status: 0 for status in ISSUE_STATUS_LABELS}
+        selected_priority_counts = {priority.lower(): 0 for priority in ISSUE_PRIORITIES}
         selected_issue_count = review_issue_count = 0
         properties_with_selected_issues = 0
         active_issue_count = ticketed_issue_count = recently_resolved_count = archived_issue_count = 0
@@ -264,12 +276,15 @@ class GuestIssueDashboardService:
                     issue,
                     archive_cutoff=archive_cutoff,
                     resolver_name=operator_names.get(issue.resolved_by_user_id),
+                    priority_updater_name=operator_names.get(issue.priority_updated_by_user_id),
                     notes=notes_by_issue.get(int(issue.issue_id), []),
                     operator_names=operator_names,
                 )
                 if _issue_matches_view(formatted, view):
                     formatted_issues.append(formatted)
                     selected_status_counts[formatted["operational_status"]] += 1
+                    selected_priority_counts[formatted["priority_key"]] += 1
+            formatted_issues = _sort_issues_by_priority(formatted_issues)
             if formatted_issues:
                 properties_with_selected_issues += 1
             selected_issue_count += len(formatted_issues)
@@ -288,12 +303,16 @@ class GuestIssueDashboardService:
                 "portfolio_name": portfolio_name,
                 "issues": formatted_issues,
                 "issue_count": len(formatted_issues),
+                "top_priority_rank": min(issue["priority_rank"] for issue in formatted_issues),
                 "stay_analysis_count": len(stay_by_listing.get(listing_id, [])),
                 "review_analysis_count": len(review_by_listing.get(listing_id, [])),
                 "quality_counts": quality_counts,
                 "search_text": " ".join(
                     [listing.internal_listing_name or listing.name or "", portfolio_name]
-                    + [issue["summary"] + " " + issue["category_label"] for issue in formatted_issues]
+                    + [
+                        issue["summary"] + " " + issue["category_label"] + " " + issue["priority"]
+                        for issue in formatted_issues
+                    ]
                 ).lower(),
             })
 
@@ -303,7 +322,11 @@ class GuestIssueDashboardService:
             portfolios.items(),
             key=lambda item: (portfolio_order.get(item[0], 999), item[0].lower()),
         ):
-            units.sort(key=lambda unit: (-unit["issue_count"], unit["listing_name"].lower()))
+            units.sort(key=lambda unit: (
+                unit["top_priority_rank"],
+                -unit["issue_count"],
+                unit["listing_name"].lower(),
+            ))
             formatted_portfolios.append({
                 "name": portfolio_name,
                 "units": units,
@@ -329,6 +352,7 @@ class GuestIssueDashboardService:
                 "review_analysis_count": len(review_analyses),
                 "quality_counts": all_quality_counts,
                 "status_counts": selected_status_counts,
+                "priority_counts": selected_priority_counts,
             },
             "portfolios": formatted_portfolios,
             "latest_run": _format_run(latest_run),
@@ -340,6 +364,7 @@ class GuestIssueDashboardService:
         *,
         archive_cutoff: datetime,
         resolver_name: str | None = None,
+        priority_updater_name: str | None = None,
         notes: list[Any] | None = None,
         operator_names: dict[int, str] | None = None,
     ) -> dict[str, Any]:
@@ -362,6 +387,7 @@ class GuestIssueDashboardService:
                 })
         workflow_status = issue.workflow_status or "open"
         operational_status = issue_operational_status(issue)
+        priority = issue_priority(issue)
         operator_names = operator_names or {}
         is_archived = bool(
             workflow_status == "resolved"
@@ -382,6 +408,17 @@ class GuestIssueDashboardService:
             "workflow_status": workflow_status,
             "operational_status": operational_status,
             "workflow_label": ISSUE_STATUS_LABELS[operational_status],
+            "priority": priority,
+            "priority_key": priority.lower(),
+            "priority_rank": ISSUE_PRIORITY_ORDER[priority],
+            "priority_updated_at": issue.priority_updated_at,
+            "priority_updated_by_user_id": issue.priority_updated_by_user_id,
+            "priority_updated_by_name": priority_updater_name,
+            "priority_audit_label": (
+                f"Priority set by {priority_updater_name or 'Team member'} · "
+                f"{issue.priority_updated_at.strftime('%b %-d at %-I:%M %p')}"
+                if issue.priority_updated_at else "Using default priority · Medium"
+            ),
             "is_archived": is_archived,
             "resolution_comment": issue.resolution_comment,
             "resolution_method": issue.resolution_method,
@@ -403,6 +440,7 @@ class GuestIssueDashboardService:
                     "note_type": note.note_type,
                     "note_type_label": {
                         "status_change": "Status update",
+                        "priority_change": "Priority update",
                         "resolution": "Resolution",
                     }.get(note.note_type, "Note"),
                     "created_at": note.created_at,
@@ -412,6 +450,18 @@ class GuestIssueDashboardService:
                 for note in (notes or [])
             ],
         }
+
+
+def _sort_issues_by_priority(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Put urgent work first while keeping newest issues first within a priority."""
+    return sorted(
+        issues,
+        key=lambda issue: (
+            ISSUE_PRIORITY_ORDER.get(issue.get("priority"), len(ISSUE_PRIORITIES)),
+            -(issue.get("source_date") or date.min).toordinal(),
+            -int(issue.get("issue_id") or 0),
+        ),
+    )
 
 
 def _issue_matches_view(issue: dict[str, Any], view: str) -> bool:
