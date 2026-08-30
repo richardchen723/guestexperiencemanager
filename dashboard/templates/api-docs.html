@@ -1,287 +1,330 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Hostaway Messages API</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Cotton Candy API reference for authenticated AI agents and integrations.">
+    <meta name="robots" content="index,follow">
+    <link rel="alternate" type="text/markdown" href="/api-docs.md" title="Cotton Candy API Markdown">
+    <title>Cotton Candy API Reference</title>
     <style>
       :root {
         color-scheme: light;
-        --bg: #f5f7fb;
+        --canvas: #f4f7fb;
+        --paper: #ffffff;
         --ink: #172033;
-        --muted: #667085;
-        --accent: #3158d8;
-        --panel: #ffffff;
-        --border: #e4e8f0;
-        --code: #f0f3f9;
+        --muted: #69768a;
+        --line: #dce4ef;
+        --brand: #3158d8;
+        --brand-soft: #edf2ff;
+        --green: #11745a;
+        --green-soft: #e9f8f2;
+        --code: #f3f6fa;
+        --nav: #10192c;
       }
+
       * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
       body {
         margin: 0;
-        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: var(--bg);
         color: var(--ink);
-        line-height: 1.6;
+        background: var(--canvas);
+        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.65;
       }
-      header {
-        padding: 52px 24px 42px;
+
+      .topbar {
+        position: sticky;
+        z-index: 20;
+        top: 0;
+        display: flex;
+        min-height: 66px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 12px 28px;
         color: #fff;
-        background: radial-gradient(circle at 10% 0%, rgba(91,124,244,.32), transparent 30%), linear-gradient(135deg, #111a2c, #1b2a4a);
-        border-bottom: 0;
+        background: rgba(16, 25, 44, 0.97);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(14px);
       }
-      header h1 {
-        margin: 0 0 8px;
-        font-size: 36px;
-        letter-spacing: -1.2px;
+
+      .brand,
+      .top-actions { display: flex; align-items: center; gap: 10px; }
+      .brand { color: #fff; font-size: 14px; font-weight: 760; text-decoration: none; }
+      .brand-mark {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 10px;
+        background: linear-gradient(145deg, #5275ec, #3158d8);
+        box-shadow: 0 8px 18px rgba(49, 88, 216, 0.32);
       }
-      header p {
-        margin: 0;
-        color: #aeb9ce;
-        font-size: 14px;
+      .brand small { display: block; color: #9eabc1; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+
+      .button {
+        display: inline-flex;
+        min-height: 38px;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 8px 12px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 9px;
+        color: #e8edfa;
+        background: rgba(255, 255, 255, 0.07);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        text-decoration: none;
+        cursor: pointer;
       }
-      .docs-header-inner {
-        max-width: 1080px;
+      .button:hover { background: rgba(255, 255, 255, 0.13); }
+      .button.primary { color: #fff; border-color: #5275ec; background: #3158d8; }
+      .button.primary:hover { background: #274bc3; }
+
+      .page-shell {
+        display: grid;
+        max-width: 1500px;
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 30px;
+        padding: 30px 28px 70px;
         margin: 0 auto;
       }
-      .docs-brand {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 24px;
-        color: #dfe6f5;
+
+      .sidebar {
+        position: sticky;
+        top: 92px;
+        align-self: start;
+        max-height: calc(100vh - 116px);
+        overflow: auto;
+        padding: 17px;
+        border: 1px solid var(--line);
+        border-radius: 15px;
+        background: rgba(255, 255, 255, 0.86);
+      }
+      .sidebar-label {
+        margin: 0 0 10px;
+        color: #8995a8;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }
+      .sidebar a {
+        display: block;
+        padding: 6px 8px;
+        border-radius: 7px;
+        color: #4d5c73;
         font-size: 12px;
         font-weight: 650;
+        line-height: 1.35;
         text-decoration: none;
       }
-      .docs-brand span {
+      .sidebar a:hover { color: var(--brand); background: var(--brand-soft); }
+      .sidebar a.is-child { padding-left: 20px; color: #7a8799; font-size: 11px; }
+
+      .content { min-width: 0; }
+      .agent-banner {
         display: grid;
-        width: 28px;
-        height: 28px;
-        place-items: center;
-        color: #fff;
-        background: #4668df;
-        border-radius: 8px;
-      }
-      main {
-        max-width: 1080px;
-        margin: 0 auto;
-        padding: 28px 24px 64px;
-      }
-      section {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 14px;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 20px;
         padding: 22px 24px;
-        margin-bottom: 16px;
-        box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+        margin-bottom: 18px;
+        border: 1px solid #a8dacb;
+        border-radius: 16px;
+        background: linear-gradient(135deg, #f2fbf7, #f8fffc);
+        box-shadow: 0 7px 22px rgba(17, 116, 90, 0.06);
       }
-      h2 {
-        margin: 0 0 10px;
-        font-size: 17px;
-        color: var(--ink);
-        letter-spacing: -.3px;
+      .agent-banner p { margin: 4px 0 0; color: #587267; font-size: 13px; }
+      .agent-banner strong { color: #155f4d; font-size: 15px; }
+      .agent-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--green);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: .06em;
+        text-transform: uppercase;
       }
-      h3 {
-        margin: 16px 0 8px;
-        font-size: 14px;
-      }
-      code, pre {
-        font-family: "IBM Plex Mono", "SFMono-Regular", ui-monospace, monospace;
-        background: var(--code);
-        border-radius: 6px;
-      }
-      code { padding: 2px 6px; }
-      pre { padding: 12px 14px; overflow-x: auto; }
-      .muted { color: var(--muted); }
-      .endpoint {
-        display: inline-block;
-        padding: 4px 8px;
-        border-radius: 999px;
-        background: #edf2ff;
-        color: #294ebf;
-        font-weight: 600;
+      .agent-badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #18a17b; box-shadow: 0 0 0 5px rgba(24, 161, 123, .1); }
+      .agent-actions { display: flex; gap: 8px; }
+      .agent-actions .button { color: #155f4d; border-color: #b9ddd2; background: #fff; }
+      .agent-actions .button.primary { color: #fff; border-color: var(--green); background: var(--green); }
+
+      .base-url {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 15px;
+        margin-bottom: 18px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        color: #647187;
+        background: #fff;
         font-size: 12px;
-        margin-right: 8px;
       }
-      .mono { font-family: "IBM Plex Mono", "SFMono-Regular", ui-monospace, monospace; }
-      ul { margin: 8px 0 0 18px; padding: 0; }
-      li { margin: 4px 0; }
-      @media (max-width: 640px) {
-        header { padding: 36px 18px 30px; }
-        header h1 { font-size: 30px; }
-        main { padding: 18px 14px 44px; }
-        section { padding: 18px 16px; }
-        li code {
-          overflow-wrap: anywhere;
-          word-break: break-word;
-        }
+      .base-url strong { color: #344159; }
+      .base-url code { overflow: hidden; color: var(--brand); text-overflow: ellipsis; white-space: nowrap; }
+
+      .document {
+        padding: clamp(28px, 5vw, 58px);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--paper);
+        box-shadow: 0 12px 38px rgba(31, 49, 82, 0.06);
+      }
+      .document h1,
+      .document h2,
+      .document h3 { position: relative; color: var(--ink); line-height: 1.25; scroll-margin-top: 92px; }
+      .document h1 { margin: 0 0 18px; font-size: clamp(30px, 5vw, 48px); letter-spacing: -.045em; }
+      .document h2 { padding-top: 12px; margin: 48px 0 16px; border-top: 1px solid #edf1f6; font-size: 25px; letter-spacing: -.025em; }
+      .document h3 { margin: 30px 0 12px; font-size: 18px; letter-spacing: -.015em; }
+      .heading-anchor { margin-left: 8px; color: transparent; font-size: .7em; text-decoration: none; }
+      .document h1:hover .heading-anchor,
+      .document h2:hover .heading-anchor,
+      .document h3:hover .heading-anchor { color: #a5b1c2; }
+      .document p { margin: 11px 0; color: #526077; font-size: 14px; overflow-wrap: anywhere; }
+      .document strong { color: #263249; }
+      .document ul { padding-left: 22px; margin: 10px 0 18px; color: #526077; }
+      .document li { padding-left: 3px; margin: 7px 0; font-size: 14px; }
+      .document li code { overflow-wrap: anywhere; white-space: normal; word-break: break-all; }
+      .document code {
+        padding: 2px 6px;
+        border: 1px solid #e3e8f0;
+        border-radius: 6px;
+        color: #314e8d;
+        background: var(--code);
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-size: .88em;
+      }
+      .document pre {
+        max-width: 100%;
+        overflow: auto;
+        padding: 18px;
+        margin: 16px 0 22px;
+        border: 1px solid #26344e;
+        border-radius: 12px;
+        color: #dbe5f7;
+        background: #121c30;
+        box-shadow: inset 0 1px rgba(255, 255, 255, .04);
+      }
+      .document pre code { padding: 0; border: 0; color: inherit; background: transparent; font-size: 12px; line-height: 1.65; }
+
+      .page-footer { padding: 20px 0 0; color: #8793a6; font-size: 11px; text-align: center; }
+      .toast {
+        position: fixed;
+        z-index: 30;
+        right: 24px;
+        bottom: 24px;
+        padding: 11px 15px;
+        border-radius: 10px;
+        color: #fff;
+        background: #13233d;
+        box-shadow: 0 12px 28px rgba(15, 26, 46, .25);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      @media (max-width: 980px) {
+        .page-shell { grid-template-columns: 1fr; }
+        .sidebar { display: none; }
+      }
+      @media (max-width: 700px) {
+        .topbar { align-items: flex-start; flex-direction: column; padding: 12px 16px; }
+        .top-actions { width: 100%; }
+        .top-actions .button { flex: 1; }
+        .page-shell { padding: 18px 12px 48px; }
+        .agent-banner { grid-template-columns: 1fr; padding: 18px; }
+        .agent-actions { flex-wrap: wrap; }
+        .agent-actions .button { flex: 1; }
+        .document { padding: 25px 20px; border-radius: 14px; }
+        .document h2 { font-size: 22px; }
+        .document :not(pre) > code { white-space: normal; word-break: break-all; }
       }
     </style>
   </head>
   <body>
-    <header>
-      <div class="docs-header-inner">
-        <a class="docs-brand" href="/"><span>H</span> Hostaway Insights</a>
-        <h1>Developer API</h1>
-        <p>Integration reference for the Hostaway Insights operations platform.</p>
+    <header class="topbar">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">C</span>
+        <span>Cotton Candy<small>Developer platform</small></span>
+      </a>
+      <div class="top-actions">
+        <a class="button" href="/api-docs.md">Raw Markdown</a>
+        <button id="copyDocsTop" class="button primary" type="button">Copy for AI agent</button>
       </div>
     </header>
-    <main>
-      <section>
-        <h2>Basics</h2>
-        <p><strong>Base URL:</strong> use the same host and port as this app.</p>
-        <p><strong>Authentication:</strong> send an API key with each request.</p>
-        <pre><code>X-API-Key: &lt;your_api_key&gt;
-Authorization: Bearer &lt;your_api_key&gt;</code></pre>
-        <p class="muted">Errors return JSON: <code>{"error":"message"}</code></p>
-        <h3>Example</h3>
-        <pre><code>curl -H "X-API-Key: &lt;your_api_key&gt;" \
-  http://127.0.0.1:5001/api/listings</code></pre>
-      </section>
 
-      <section>
-        <h2>API Key Management (Admin)</h2>
-        <p>Create and revoke API keys used by third parties.</p>
-        <ul>
-          <li><span class="endpoint">GET</span><code>/admin/api/api-keys</code> — list keys (metadata only).</li>
-          <li><span class="endpoint">POST</span><code>/admin/api/api-keys</code> — create key. Body: <code>{"name":"Partner"}</code>.</li>
-          <li><span class="endpoint">POST</span><code>/admin/api/api-keys/{api_key_id}/revoke</code> — revoke key.</li>
-        </ul>
-      </section>
+    <div class="page-shell">
+      <aside class="sidebar" aria-label="API documentation sections">
+        <p class="sidebar-label">On this page</p>
+        {% for item in table_of_contents %}
+          <a href="#{{ item.anchor }}" class="{% if item.level == 3 %}is-child{% endif %}">{{ item.title }}</a>
+        {% endfor %}
+      </aside>
 
-      <section>
-        <h2>Health</h2>
-        <p>Use this to verify the service is alive and can reach the database.</p>
-        <ul>
-          <li><span class="endpoint">GET</span><code>/health</code> — returns status and timestamp.</li>
-        </ul>
-      </section>
+      <main class="content">
+        <section class="agent-banner" aria-labelledby="agent-ready-title">
+          <div>
+            <span class="agent-badge">Agent-ready contract</span>
+            <div><strong id="agent-ready-title">Give your AI agent the Markdown link and a separate scoped API key.</strong></div>
+            <p>The documentation is public; credentials are not included. For Guest Issues, create a <code>guest_issues:read</code> key.</p>
+          </div>
+          <div class="agent-actions">
+            <a class="button" href="/api-docs.md">Open Markdown</a>
+            <button id="copyDocsBanner" class="button primary" type="button">Copy document</button>
+          </div>
+        </section>
 
-      <section>
-        <h2>Listings, Insights, Tags</h2>
-        <p>Listings and AI insights are read‑only. Tags are editable and can be attached to listings.</p>
-        <ul>
-          <li><span class="endpoint">GET</span><code>/api/listings</code> — list all listings. Query: <code>tags</code>, <code>tag_logic</code>.</li>
-          <li><span class="endpoint">GET</span><code>/api/insights/{listing_id}</code> — insights for a listing. Query: <code>refresh=true</code> to re‑run analysis.</li>
-          <li><span class="endpoint">GET</span><code>/api/tags</code> — list tags and usage counts.</li>
-          <li><span class="endpoint">POST</span><code>/api/tags</code> — create tag. Body: <code>{"name":"pool","color":"#00AAFF"}</code>.</li>
-          <li><span class="endpoint">DELETE</span><code>/api/tags/{tag_id}</code> — delete tag.</li>
-          <li><span class="endpoint">GET</span><code>/api/tags/autocomplete</code> — suggestions. Query: <code>q</code>.</li>
-          <li><span class="endpoint">GET</span><code>/api/listings/{listing_id}/tags</code> — list tags on listing.</li>
-          <li><span class="endpoint">POST</span><code>/api/listings/{listing_id}/tags</code> — add tags. Body: <code>{"tags":["dock","pet-friendly"]}</code>.</li>
-          <li><span class="endpoint">DELETE</span><code>/api/listings/{listing_id}/tags/{tag_id}</code> — remove tag from listing.</li>
-        </ul>
-      </section>
+        <div class="base-url">
+          <strong>Current API base URL</strong>
+          <code>{{ api_base_url }}</code>
+        </div>
 
-      <section>
-        <h2>Dashboard</h2>
-        <p>Single endpoint used by the UI to hydrate the dashboard.</p>
-        <ul>
-          <li><span class="endpoint">GET</span><code>/dashboard/api/data</code> — dashboard cards and summaries. Query: <code>ticket_limit</code>, <code>occupancy_months</code>.</li>
-        </ul>
-      </section>
+        <article class="document">
+          {{ document_html|safe }}
+        </article>
+        <footer class="page-footer">Rendered from the canonical <code>docs/api.md</code> contract.</footer>
+      </main>
+    </div>
 
-      <section>
-        <h2>Tickets</h2>
-        <p>Full read/write ticketing API. Supports filters, tags, comments, images, and recurring tasks.</p>
-        <ul>
-          <li><span class="endpoint">GET</span><code>/tickets/api/tickets</code> — list tickets. Query: <code>listing_id</code>, <code>listing_ids</code>, <code>assigned_user_id</code>, <code>status</code>, <code>priority</code>, <code>category</code>, <code>issue_title</code>, <code>tags</code>, <code>tag_logic</code>, <code>search</code>, <code>past_due</code>, <code>recurring</code>, <code>due_days</code>.</li>
-          <li><span class="endpoint">GET</span><code>/tickets/api/tickets/{ticket_id}</code> — ticket with comments.</li>
-          <li><span class="endpoint">POST</span><code>/tickets/api/tickets</code> — create ticket. Body includes <code>title</code>, <code>issue_title</code>, optional <code>listing_id</code> or <code>listing_ids</code>.</li>
-          <li><span class="endpoint">PUT</span><code>/tickets/api/tickets/{ticket_id}</code> — update ticket fields.</li>
-          <li><span class="endpoint">DELETE</span><code>/tickets/api/tickets/{ticket_id}</code> — delete ticket (admin only).</li>
-          <li><span class="endpoint">GET</span><code>/tickets/api/tickets/{ticket_id}/comments</code> — list comments.</li>
-          <li><span class="endpoint">POST</span><code>/tickets/api/tickets/{ticket_id}/comments</code> — add comment. Body: <code>{"comment_text":"..."}</code>.</li>
-          <li><span class="endpoint">DELETE</span><code>/tickets/api/tickets/{ticket_id}/comments/{comment_id}</code> — delete comment.</li>
-          <li><span class="endpoint">POST</span><code>/tickets/api/tickets/suggest</code> — AI suggestion. Body: <code>{"listing_id":123,"issue_title":"...","issue_details":"..."}</code>.</li>
-          <li><span class="endpoint">GET</span><code>/tickets/api/listings/{listing_id}/issues</code> — list issues from insights.</li>
-          <li><span class="endpoint">GET</span><code>/tickets/api/users</code> — list approved users for assignment.</li>
-          <li><span class="endpoint">GET</span><code>/tickets/api/tickets/{ticket_id}/tags</code> — list tags on ticket.</li>
-          <li><span class="endpoint">POST</span><code>/tickets/api/tickets/{ticket_id}/tags</code> — add tags. Body: <code>{"tags":["hvac","vendor"]}</code>.</li>
-          <li><span class="endpoint">DELETE</span><code>/tickets/api/tickets/{ticket_id}/tags/{tag_id}</code> — remove tag from ticket.</li>
-        </ul>
-        <h3>Images</h3>
-        <p>Upload with <code>multipart/form-data</code> field name <code>image</code>.</p>
-        <ul>
-          <li><span class="endpoint">POST</span><code>/tickets/api/tickets/{ticket_id}/images</code> — upload ticket image.</li>
-          <li><span class="endpoint">GET</span><code>/tickets/api/tickets/{ticket_id}/images</code> — list ticket images.</li>
-          <li><span class="endpoint">GET</span><code>/tickets/api/tickets/{ticket_id}/images/{image_id}</code> — fetch ticket image file (scoped).</li>
-          <li><span class="endpoint">GET</span><code>/tickets/api/tickets/{ticket_id}/images/{image_id}/thumbnail</code> — fetch ticket thumbnail (scoped).</li>
-          <li><span class="endpoint">DELETE</span><code>/tickets/api/tickets/{ticket_id}/images/{image_id}</code> — delete ticket image.</li>
-          <li><span class="endpoint">POST</span><code>/tickets/api/comments/{comment_id}/images</code> — upload comment image.</li>
-          <li><span class="endpoint">GET</span><code>/tickets/api/comments/{comment_id}/images</code> — list comment images.</li>
-          <li><span class="endpoint">GET</span><code>/tickets/api/comments/{comment_id}/images/{image_id}</code> — fetch comment image file (scoped).</li>
-          <li><span class="endpoint">GET</span><code>/tickets/api/comments/{comment_id}/images/{image_id}/thumbnail</code> — fetch comment thumbnail (scoped).</li>
-          <li><span class="endpoint">DELETE</span><code>/tickets/api/comments/{comment_id}/images/{image_id}</code> — delete comment image.</li>
-          <li><span class="endpoint">GET</span><code>/tickets/api/images/{image_id}</code> — fetch image file.</li>
-          <li><span class="endpoint">GET</span><code>/tickets/api/images/{image_id}/thumbnail</code> — fetch thumbnail.</li>
-          <li><span class="endpoint">POST</span><code>/tickets/api/recurring/process</code> — process recurring tasks (admin only).</li>
-        </ul>
-      </section>
+    <div id="copyToast" class="toast" role="status" hidden>API documentation copied.</div>
+    <script>
+      (() => {
+        const buttons = [document.getElementById('copyDocsTop'), document.getElementById('copyDocsBanner')];
+        const toast = document.getElementById('copyToast');
+        let toastTimer;
 
-      <section>
-        <h2>Reviews</h2>
-        <p>Review filters are scoped to the current user. You can list unresponded reviews and saved filters.</p>
-        <ul>
-          <li><span class="endpoint">GET</span><code>/reviews/api/unresponded</code> — unresponded reviews. Query: <code>tag_ids</code>.</li>
-          <li><span class="endpoint">GET</span><code>/reviews/api/filters</code> — list saved filters.</li>
-          <li><span class="endpoint">POST</span><code>/reviews/api/filters</code> — create filter. Body: <code>{"name":"Low ratings","tag_ids":[1,2],"max_rating":4,"months_back":3}</code>.</li>
-          <li><span class="endpoint">PUT</span><code>/reviews/api/filters/{filter_id}</code> — update filter.</li>
-          <li><span class="endpoint">DELETE</span><code>/reviews/api/filters/{filter_id}</code> — delete filter.</li>
-          <li><span class="endpoint">GET</span><code>/reviews/api/filters/{filter_id}/reviews</code> — get reviews. Query: <code>sort_by</code>, <code>sort_order</code>.</li>
-        </ul>
-      </section>
+        async function copyDocumentation() {
+          const response = await fetch('/api-docs.md', { headers: { Accept: 'text/markdown' } });
+          if (!response.ok) throw new Error('Could not load API documentation');
+          const markdown = await response.text();
+          await navigator.clipboard.writeText(markdown);
+          toast.hidden = false;
+          window.clearTimeout(toastTimer);
+          toastTimer = window.setTimeout(() => { toast.hidden = true; }, 2200);
+        }
 
-      <section>
-        <h2>Knowledge Base</h2>
-        <p>Upload and manage documents, attach listings and tags, and perform search.</p>
-        <ul>
-          <li><span class="endpoint">POST</span><code>/knowledge/api/documents</code> — upload document. Multipart fields: <code>document</code>, <code>title</code>, <code>listing_ids</code>, <code>tag_names</code>, <code>is_admin_only</code>.</li>
-          <li><span class="endpoint">GET</span><code>/knowledge/api/documents</code> — list documents. Query: <code>listing_id</code>, <code>listing_ids</code>, <code>tag_ids</code>, <code>search</code>, <code>page</code>, <code>per_page</code>.</li>
-          <li><span class="endpoint">GET</span><code>/knowledge/api/documents/{document_id}</code> — document metadata.</li>
-          <li><span class="endpoint">GET</span><code>/knowledge/api/documents/{document_id}/file</code> — download or view. Query: <code>download=true</code>.</li>
-          <li><span class="endpoint">POST</span><code>/knowledge/api/documents/search</code> — search. Body: <code>{"query":"heater reset","listing_ids":[1],"tag_ids":[3],"limit":50}</code>.</li>
-          <li><span class="endpoint">PUT</span><code>/knowledge/api/documents/{document_id}</code> — update metadata.</li>
-          <li><span class="endpoint">DELETE</span><code>/knowledge/api/documents/{document_id}</code> — delete document.</li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>Sync</h2>
-        <p>Trigger and monitor sync runs.</p>
-        <ul>
-          <li><span class="endpoint">GET</span><code>/sync/api/history</code> — list recent sync runs.</li>
-          <li><span class="endpoint">GET</span><code>/sync/api/running-status</code> — running syncs.</li>
-          <li><span class="endpoint">GET</span><code>/sync/api/job/{job_id}/detail</code> — job detail.</li>
-          <li><span class="endpoint">GET</span><code>/sync/api/{sync_run_id}/detail</code> — run detail.</li>
-          <li><span class="endpoint">POST</span><code>/sync/api/full</code> — trigger full sync.</li>
-          <li><span class="endpoint">POST</span><code>/sync/api/incremental</code> — trigger incremental sync.</li>
-          <li><span class="endpoint">GET</span><code>/sync/api/status/{job_id}</code> — status by job id.</li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>Users and Auth</h2>
-        <p>User profile and admin user management APIs.</p>
-        <ul>
-          <li><span class="endpoint">GET</span><code>/auth/api/profile</code> — current user profile.</li>
-          <li><span class="endpoint">PUT</span><code>/auth/api/profile</code> — update profile fields.</li>
-          <li><span class="endpoint">GET</span><code>/admin/api/users</code> — list users (admin only).</li>
-          <li><span class="endpoint">POST</span><code>/admin/api/users/{user_id}/approve</code> — approve user.</li>
-          <li><span class="endpoint">POST</span><code>/admin/api/users/{user_id}/revoke</code> — revoke user.</li>
-          <li><span class="endpoint">POST</span><code>/admin/api/users/{user_id}/role</code> — update role.</li>
-          <li><span class="endpoint">DELETE</span><code>/admin/api/users/{user_id}</code> — delete user.</li>
-        </ul>
-      </section>
-
-      <section>
-        <h2>Activities</h2>
-        <p>Admin reporting and audit trails.</p>
-        <ul>
-          <li><span class="endpoint">GET</span><code>/admin/api/activities</code> — query activity logs.</li>
-          <li><span class="endpoint">GET</span><code>/admin/api/activities/reports/ticket-metrics</code> — ticket metrics report.</li>
-        </ul>
-      </section>
-    </main>
+        buttons.forEach(button => button.addEventListener('click', async () => {
+          const original = button.textContent;
+          button.disabled = true;
+          try {
+            await copyDocumentation();
+            button.textContent = 'Copied';
+          } catch (_error) {
+            button.textContent = 'Copy failed';
+          } finally {
+            window.setTimeout(() => {
+              button.textContent = original;
+              button.disabled = false;
+            }, 1700);
+          }
+        }));
+      })();
+    </script>
   </body>
 </html>

@@ -41,12 +41,13 @@ os.chdir(project_root)
 # Now we can safely import other modules
 import logging
 from datetime import datetime
-from flask import Flask, url_for, render_template
+from flask import Flask, Response, request, url_for, render_template
 import sqlalchemy
 
 import dashboard.config as config
 from utils.logging_config import setup_logging
 from dashboard.api.routes import register_routes
+from dashboard.api.documentation import read_api_markdown, render_api_markdown
 from dashboard.auth.routes import register_auth_routes
 from dashboard.auth.admin_routes import register_admin_routes
 from dashboard.tickets.routes import register_ticket_routes
@@ -229,7 +230,23 @@ def create_app():
     # API documentation (public)
     @app.route('/api-docs')
     def api_docs():
-        return render_template('api-docs.html')
+        markdown_text = read_api_markdown()
+        document_html, table_of_contents = render_api_markdown(markdown_text)
+        return render_template(
+            'api-docs.html',
+            document_html=document_html,
+            table_of_contents=table_of_contents,
+            api_base_url=request.url_root.rstrip('/'),
+        )
+
+    @app.route('/api-docs.md')
+    def api_docs_markdown():
+        """Canonical plain-text contract for AI agents and other tooling."""
+        response = Response(read_api_markdown(), content_type='text/markdown; charset=utf-8')
+        response.headers['Cache-Control'] = 'public, max-age=300'
+        response.headers['Content-Disposition'] = 'inline; filename="cotton-candy-api.md"'
+        response.headers['Link'] = '</api-docs>; rel="alternate"; type="text/html"'
+        return response
     
     return app
 

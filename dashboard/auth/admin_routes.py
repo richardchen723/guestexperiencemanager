@@ -24,9 +24,18 @@ from dashboard.auth.features import (
     normalize_feature_access,
 )
 from dashboard.auth.session import get_current_user
-from dashboard.auth.api_keys import create_api_key
+from dashboard.auth.api_keys import (
+    FULL_ACCESS_SCOPE,
+    GUEST_ISSUES_READ_SCOPE,
+    create_api_key,
+)
 
 logger = logging.getLogger(__name__)
+
+API_KEY_ACCESS_PROFILES = {
+    'full': [FULL_ACCESS_SCOPE],
+    'guest_issues_read': [GUEST_ISSUES_READ_SCOPE],
+}
 
 # Create blueprint
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin', template_folder='../templates')
@@ -261,7 +270,8 @@ def api_list_api_keys():
                 'created_at': key.created_at.isoformat() if key.created_at else None,
                 'last_used_at': key.last_used_at.isoformat() if key.last_used_at else None,
                 'revoked_at': key.revoked_at.isoformat() if key.revoked_at else None,
-                'is_active': key.is_active
+                'is_active': key.is_active,
+                'scopes': key.scopes() if hasattr(key, 'scopes') else [FULL_ACCESS_SCOPE],
             })
         return jsonify(result)
     except Exception:
@@ -282,12 +292,21 @@ def api_create_api_key():
         return jsonify({'error': 'Key name is required'}), 400
     if len(name) > 100:
         return jsonify({'error': 'Key name must be 100 characters or fewer'}), 400
+    access_profile = str(data.get('access') or 'full').strip()
+    scopes = API_KEY_ACCESS_PROFILES.get(access_profile)
+    if scopes is None:
+        return jsonify({'error': 'Choose a supported API key access level'}), 400
     
     try:
-        raw_key = create_api_key(name=name, created_by=current_user.user_id if current_user else None)
+        raw_key = create_api_key(
+            name=name,
+            created_by=current_user.user_id if current_user else None,
+            scopes=scopes,
+        )
         return jsonify({
             'api_key': raw_key,
             'name': name,
+            'scopes': scopes,
             'created_at': datetime.utcnow().isoformat()
         }), 201
     except Exception:

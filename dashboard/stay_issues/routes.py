@@ -8,8 +8,12 @@ import logging
 from flask import Blueprint, abort, jsonify, render_template, request
 
 import dashboard.config as config
+from dashboard.api.conventions import ApiParameterError, api_error
+from dashboard.api.security import scoped_api_key_required
+from dashboard.auth.api_keys import GUEST_ISSUES_READ_SCOPE
 from dashboard.auth.decorators import approved_required, check_feature_access
 from dashboard.auth.session import get_current_user
+from dashboard.stay_issues.api_service import GuestIssueApiService
 from dashboard.stay_issues.service import (
     GuestIssueDashboardService,
     get_message_source,
@@ -36,11 +40,63 @@ guest_issues_bp = Blueprint(
     url_prefix="/workspace/guest-issues",
 )
 
+guest_issues_api_bp = Blueprint(
+    "guest_issues_api_v1",
+    __name__,
+    url_prefix="/api/v1/guest-issues",
+)
+
 
 @guest_issues_bp.before_request
 def require_guest_issue_access():
     # Guest issues are part of the existing Properties workspace permission.
     return check_feature_access("properties")
+
+
+@guest_issues_api_bp.route("", methods=["GET"])
+@scoped_api_key_required(GUEST_ISSUES_READ_SCOPE)
+def list_guest_issues_api():
+    """List safe Guest Issue records for authorized external agents."""
+    service = GuestIssueApiService()
+    try:
+        return jsonify(service.list_issues(request.args))
+    except ApiParameterError as exc:
+        return api_error(
+            "invalid_parameter",
+            str(exc),
+            400,
+            details={"parameter": exc.parameter} if exc.parameter else None,
+        )
+    except Exception:
+        logger.exception("Could not list Guest Issues through API v1")
+        return api_error(
+            "internal_error",
+            "Guest Issues could not be loaded.",
+            500,
+        )
+    finally:
+        service.close()
+
+
+@guest_issues_api_bp.route("/<int:issue_id>", methods=["GET"])
+@scoped_api_key_required(GUEST_ISSUES_READ_SCOPE)
+def get_guest_issue_api(issue_id: int):
+    """Return one safe Guest Issue record by its immutable ID."""
+    service = GuestIssueApiService()
+    try:
+        payload = service.get_issue(issue_id)
+        if payload is None:
+            return api_error("not_found", "Guest Issue not found.", 404)
+        return jsonify(payload)
+    except Exception:
+        logger.exception("Could not load Guest Issue %s through API v1", issue_id)
+        return api_error(
+            "internal_error",
+            "The Guest Issue could not be loaded.",
+            500,
+        )
+    finally:
+        service.close()
 
 
 @guest_issues_bp.route("/")
@@ -223,3 +279,4 @@ def review_source(review_id: int):
 
 def register_guest_issue_routes(app):
     app.register_blueprint(guest_issues_bp)
+    app.register_blueprint(guest_issues_api_bp)

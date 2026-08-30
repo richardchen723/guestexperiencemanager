@@ -63,6 +63,11 @@
         prefix.textContent = `${key.key_prefix || 'hk_'}${'•'.repeat(14)}`;
         prefix.setAttribute('aria-label', `Key prefix ${key.key_prefix || 'unknown'}`);
 
+        const scopes = Array.isArray(key.scopes) ? key.scopes : ['*'];
+        const access = document.createElement('span');
+        access.className = `api-key-access${scopes.includes('*') ? ' is-full' : ''}`;
+        access.textContent = scopes.includes('*') ? 'Full API' : 'Guest Issues · read only';
+
         const created = createMeta('Created', formatDateTime(key.created_at));
         const lastUsed = createMeta('Last used', formatDateTime(key.last_used_at));
         lastUsed.classList.add('api-key-last-used');
@@ -77,7 +82,7 @@
         remove.textContent = 'Delete';
         remove.addEventListener('click', () => deleteApiKey(key, remove));
 
-        row.append(identity, prefix, created, lastUsed, status, remove);
+        row.append(identity, prefix, access, created, lastUsed, status, remove);
         return row;
     }
 
@@ -95,6 +100,7 @@
     async function createApiKey(event) {
         event.preventDefault();
         const nameInput = document.getElementById('apiKeyName');
+        const accessInput = document.getElementById('apiKeyAccess');
         const button = document.getElementById('createApiKeyButton');
         const error = document.getElementById('createApiKeyError');
         const name = nameInput.value.trim();
@@ -108,7 +114,7 @@
             const response = await fetch(endpoints.create, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-                body: JSON.stringify({ name })
+                body: JSON.stringify({ name, access: accessInput.value })
             });
             const payload = await response.json();
             if (!response.ok) throw new Error(payload.error || 'Unable to create API key');
@@ -116,6 +122,10 @@
             const panel = document.getElementById('newApiKeyPanel');
             const value = document.getElementById('newApiKeyValue');
             value.value = payload.api_key;
+            const scopes = Array.isArray(payload.scopes) ? payload.scopes : ['*'];
+            document.getElementById('newApiKeyWarning').innerHTML = scopes.includes('*')
+                ? '<strong>Keep this credential private.</strong> It has full read and write API access.'
+                : '<strong>Keep this credential private.</strong> It can read the PII-minimized Guest Issues API only.';
             panel.hidden = false;
             nameInput.value = '';
             panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });

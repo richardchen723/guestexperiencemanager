@@ -1,6 +1,6 @@
-# Hostaway Messages API
+# Cotton Candy API
 
-This document describes the HTTP API surface for third-party integrations. All endpoints are available for read and write access when authenticated with an API key.
+This document describes the HTTP API surface for third-party integrations. Access is controlled by the scopes attached to each API key.
 
 **Base URL**
 Use the same host and port as the dashboard application (for example `https://your-host.example.com`).
@@ -12,11 +12,68 @@ Headers:
 - `X-API-Key: <your_api_key>`
 - `Authorization: Bearer <your_api_key>`
 
-**Error Format**
-Errors are returned as JSON:
+Do not put API keys in query parameters or logs. API keys are displayed only
+once when created and are stored as keyed hashes.
+
+**Access profiles**
+
+- `Full API` (`*`) preserves access to the existing dashboard and Brain APIs,
+  including write operations. Existing keys are migrated to this profile.
+- `Guest Issues · read only` (`guest_issues:read`) can call only the versioned
+  Guest Issues endpoints. It is rejected from legacy read and write APIs.
+
+Create a separate least-privilege key for AI-agent access instead of sharing a
+full-access operator credential.
+
+## API conventions
+
+The `/api/v1/...` surface is the stable external contract. Older dashboard APIs
+predate these conventions and retain their existing response shapes for
+backward compatibility.
+
+**Success envelopes**
+
+- Collection: `{"data": [...], "pagination": {...}, "meta": {...}}`
+- Resource: `{"data": {...}}`
+
+**Versioned error format**
+
+Errors from `/api/v1/...` are machine-readable:
+
 ```json
-{"error": "Human-readable message"}
+{
+  "error": {
+    "code": "invalid_parameter",
+    "message": "per_page must be 100 or fewer",
+    "details": {"parameter": "per_page"}
+  }
+}
 ```
+
+Common status codes are `400` for invalid input, `401` for missing or invalid
+credentials, `403` for insufficient scope, `404` for an unknown resource,
+`429` for rate limiting, and `500`/`503` for server-side failures.
+
+**Pagination and sorting**
+
+- Versioned collections accept one-based `page` and `per_page` values.
+- `per_page` defaults to 50 and cannot exceed 100.
+- Collection responses include `total`, `pages`, `has_previous`, `has_next`,
+  `previous_page`, and `next_page`.
+- Sorts include an immutable ID tiebreaker, so repeated requests over unchanged
+  data have deterministic ordering.
+
+**Rate limiting and audit**
+
+The Guest Issues API defaults to 60 requests per credential per rolling minute.
+Set `GUEST_ISSUES_API_RATE_LIMIT_PER_MINUTE` to change the deployment limit.
+Responses include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and
+`X-RateLimit-Reset`; `429` responses also include `Retry-After`.
+
+Each authorized attempt records the API-key ID, required scope, method, path,
+query-parameter names (not values), status, result count, rate-limit outcome,
+time, and a one-way client fingerprint. Guest text and query values are not
+copied into the audit ledger.
 
 **Notes**
 - File upload endpoints require `multipart/form-data`.
@@ -28,7 +85,8 @@ Errors are returned as JSON:
   - List API keys (metadata only).
 - `POST /admin/api/api-keys`
   - Create a new API key.
-  - Body: `{"name": "Third Party Partner"}`
+  - Full access body: `{"name": "Third Party Partner", "access": "full"}`
+  - Guest Issues read-only body: `{"name": "AI issue reader", "access": "guest_issues_read"}`
   - Response includes the raw key once.
 - `POST /admin/api/api-keys/{api_key_id}/revoke`
   - Revoke an API key.
@@ -40,6 +98,130 @@ configured owner email. API-key authentication cannot be used to manage API
 keys. Use the owner-only `/admin/api-keys` page to manage credentials. A new
 raw key is displayed once when it is created; existing keys expose only their
 prefix and metadata.
+
+## Guest Issues API v1
+
+Guest Issues provides a read-only, PII-minimized contract for authorized AI
+agents. It never returns guest names, email addresses, phone numbers, postal
+addresses, raw message content, sender information, API credentials, or source
+URLs. Reservation, conversation, review, listing, ticket, and user IDs are
+internal references only.
+
+### List Guest Issues
+
+`GET /api/v1/guest-issues`
+
+Requires `guest_issues:read` or `*`.
+
+Query parameters:
+
+- `listing_id`: exact listing/property ID.
+- `portfolio`: exact canonical portfolio name, case-insensitive.
+- `status`: one or more comma-separated operational states:
+  `need_attention`, `scheduled`, `in_progress`, `stuck`, `resolved`.
+- `priority`: one or more comma-separated values: `Critical`, `High`, `Medium`,
+  `Low` (case-insensitive).
+- `reported_from`, `reported_to`: ISO 8601 date or datetime, inclusive. A
+  date-only `reported_to` includes the whole UTC day.
+- `recency`: `today`, `24h`, `7d`, or `30d`. It cannot be combined with an
+  explicit reported range.
+- `reservation_id`: exact internal reservation ID.
+- `updated_since`: inclusive ISO 8601 watermark for incremental synchronization.
+- `page`, `per_page`: pagination controls.
+- `sort`: `reported_at` (default), `updated_at`, `priority`, `status`, or
+  `issue_id`.
+- `order`: `desc` (default) or `asc`.
+
+For incremental synchronization, use
+`updated_since=<watermark>&sort=updated_at&order=asc`. Because the watermark is
+inclusive, consumers should de-duplicate by `issue_id` and advance the
+watermark only after processing all pages.
+
+Example:
+
+```bash
+curl --get 'https://your-host.example.com/api/v1/guest-issues' \
+  --header 'X-API-Key: <guest_issues_read_key>' \
+  --data-urlencode 'status=need_attention,in_progress,stuck' \
+  --data-urlencode 'priority=Critical,High' \
+  --data-urlencode 'updated_since=2026-08-29T12:30:00Z' \
+  --data-urlencode 'sort=updated_at' \
+  --data-urlencode 'order=asc' \
+  --data-urlencode 'per_page=50'
+```
+
+Example response (abridged):
+
+```json
+{
+  "data": [
+    {
+      "issue_id": 184,
+      "listing": {"listing_id": 558675, "name": "Aurora Haven"},
+      "portfolio": "Enchanted Havens",
+      "category": "maintenance",
+      "summary": "The hot tub did not reach the requested temperature.",
+      "details": "The guest reported the issue after check-in.",
+      "suggested_improvement": "Inspect the heater and document the result.",
+      "reported_at": "2026-08-29T12:20:00Z",
+      "source_date": "2026-08-29",
+      "status": {
+        "workflow": "open",
+        "operational": "need_attention",
+        "label": "Need attention"
+      },
+      "priority": "High",
+      "severity": "material",
+      "references": {
+        "reservation_id": 123456,
+        "conversation_ids": [78901],
+        "review_id": null,
+        "source_references": [
+          {"source_type": "message", "source_id": 234567}
+        ]
+      },
+      "linked_ticket_id": null,
+      "assignee": null,
+      "resolution": {
+        "state": "feedback",
+        "method": null,
+        "details": null,
+        "resolved_at": null,
+        "resolved_by": null
+      },
+      "source": {"kind": "stay", "reference_count": 1},
+      "created_at": "2026-08-29T12:20:00Z",
+      "updated_at": "2026-08-29T12:25:00Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 50,
+    "total": 1,
+    "pages": 1,
+    "has_previous": false,
+    "has_next": false,
+    "previous_page": null,
+    "next_page": null
+  },
+  "meta": {
+    "sort": "updated_at",
+    "order": "asc",
+    "filters": {}
+  }
+}
+```
+
+### Get one Guest Issue
+
+`GET /api/v1/guest-issues/{issue_id}`
+
+Requires `guest_issues:read` or `*`. The resource uses the same data object as
+the collection. An unknown ID returns:
+
+```json
+{"error": {"code": "not_found", "message": "Guest Issue not found."}}
+```
 
 ## Health
 - `GET /health`

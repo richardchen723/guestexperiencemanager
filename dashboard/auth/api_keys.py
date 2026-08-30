@@ -5,6 +5,7 @@ API key utilities for third-party access.
 
 import hashlib
 import hmac
+import json
 import secrets
 from datetime import datetime
 from typing import Optional
@@ -13,6 +14,12 @@ from flask import g, request
 
 from dashboard.auth.models import ApiKey, get_session, get_or_create_service_user
 from dashboard.config import API_KEY_SECRET
+
+
+FULL_ACCESS_SCOPE = "*"
+LEGACY_API_SCOPE = "legacy:full"
+GUEST_ISSUES_READ_SCOPE = "guest_issues:read"
+SUPPORTED_API_KEY_SCOPES = frozenset({FULL_ACCESS_SCOPE, GUEST_ISSUES_READ_SCOPE})
 
 
 def _hash_api_key(raw_key: str) -> str:
@@ -38,7 +45,19 @@ def _get_api_key_from_request(req) -> Optional[str]:
     return None
 
 
-def create_api_key(name: Optional[str], created_by: Optional[int]) -> str:
+def normalize_api_key_scopes(scopes=None) -> list[str]:
+    """Validate and normalize the supported public API-key scopes."""
+    if isinstance(scopes, str):
+        scopes = [scopes]
+    normalized = sorted({str(scope).strip() for scope in (scopes or [FULL_ACCESS_SCOPE])})
+    if not normalized or any(scope not in SUPPORTED_API_KEY_SCOPES for scope in normalized):
+        raise ValueError("Choose a supported API key access level")
+    if FULL_ACCESS_SCOPE in normalized:
+        return [FULL_ACCESS_SCOPE]
+    return normalized
+
+
+def create_api_key(name: Optional[str], created_by: Optional[int], scopes=None) -> str:
     """
     Create an API key and persist its hash.
     Returns the raw key (only shown once).
@@ -46,6 +65,7 @@ def create_api_key(name: Optional[str], created_by: Optional[int]) -> str:
     raw_key = f"hk_{secrets.token_urlsafe(32)}"
     key_hash = _hash_api_key(raw_key)
     key_prefix = raw_key[:12]
+    normalized_scopes = normalize_api_key_scopes(scopes)
     
     session = get_session()
     try:
@@ -55,7 +75,8 @@ def create_api_key(name: Optional[str], created_by: Optional[int]) -> str:
             key_hash=key_hash,
             created_by=created_by,
             created_at=datetime.utcnow(),
-            is_active=True
+            is_active=True,
+            scopes_json=json.dumps(normalized_scopes),
         )
         session.add(api_key)
         session.commit()
@@ -86,6 +107,9 @@ def verify_api_key(raw_key: str) -> Optional[ApiKey]:
         
         api_key.last_used_at = datetime.utcnow()
         session.commit()
+        # commit expires ORM attributes by default. Reload before detaching so
+        # request authentication can safely inspect the key ID and scopes.
+        session.refresh(api_key)
         session.expunge(api_key)
         return api_key
     except Exception:
@@ -95,7 +119,7 @@ def verify_api_key(raw_key: str) -> Optional[ApiKey]:
         session.close()
 
 
-def authenticate_request_api_key() -> Optional[ApiKey]:
+def authenticate_request_api_key(required_scope: str = LEGACY_API_SCOPE) -> Optional[ApiKey]:
     """
     Authenticate API key in the current request.
     Sets g.api_key and g.api_user if valid.
@@ -107,7 +131,11 @@ def authenticate_request_api_key() -> Optional[ApiKey]:
     api_key = verify_api_key(raw_key)
     if not api_key:
         return None
-    
+
     g.api_key = api_key
+    if required_scope and not api_key.allows_scope(required_scope):
+        g.api_key_scope_denied = required_scope
+        return None
+
     g.api_user = get_or_create_service_user()
     return api_key

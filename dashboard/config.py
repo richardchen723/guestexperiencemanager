@@ -103,6 +103,10 @@ API_KEY_SECRET = os.getenv("API_KEY_SECRET") or SECRET_KEY
 # Service user identity for API key access
 API_SERVICE_EMAIL = os.getenv("API_SERVICE_EMAIL", "api-service@hostaway.local")
 API_SERVICE_NAME = os.getenv("API_SERVICE_NAME", "API Service")
+GUEST_ISSUES_API_RATE_LIMIT_PER_MINUTE = max(
+    1,
+    int(os.getenv("GUEST_ISSUES_API_RATE_LIMIT_PER_MINUTE", "60")),
+)
 
 # API Key Configuration
 # Used to hash and verify API keys (defaults to SECRET_KEY if not set)

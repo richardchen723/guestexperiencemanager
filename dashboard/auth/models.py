@@ -98,6 +98,47 @@ class ApiKey(Base):
     last_used_at = Column(DateTime, nullable=True)
     revoked_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
+    # JSON keeps the schema additive and makes it possible to introduce new
+    # least-privilege capabilities without another join table. Existing keys
+    # are migrated to ["*"] so their behavior does not change.
+    scopes_json = Column(Text, nullable=False, default='["*"]')
+
+    def scopes(self):
+        try:
+            value = json.loads(self.scopes_json or '[]')
+        except (TypeError, ValueError):
+            return []
+        if not isinstance(value, list):
+            return []
+        return sorted({str(scope).strip() for scope in value if str(scope).strip()})
+
+    def allows_scope(self, required_scope: str) -> bool:
+        scopes = set(self.scopes())
+        return '*' in scopes or required_scope in scopes
+
+
+class ApiAccessLog(Base):
+    """Minimal audit and rate-limit ledger for externally consumed APIs."""
+
+    __tablename__ = 'api_access_logs'
+    __table_args__ = (
+        {'schema': 'users'} if os.getenv("DATABASE_URL") else {},
+    )
+
+    api_access_log_id = Column(Integer, primary_key=True, autoincrement=True)
+    # Deliberately not a foreign key: deleting a credential must not erase or
+    # block retention of its historical access records.
+    api_key_id = Column(Integer, nullable=False, index=True)
+    scope = Column(String(64), nullable=False, index=True)
+    method = Column(String(12), nullable=False)
+    path = Column(String(500), nullable=False)
+    query_keys_json = Column(Text, nullable=True)
+    client_fingerprint = Column(String(64), nullable=True)
+    status_code = Column(Integer, nullable=True, index=True)
+    response_count = Column(Integer, nullable=True)
+    rate_limited = Column(Boolean, nullable=False, default=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    completed_at = Column(DateTime, nullable=True)
 
 
 class UserGoogleDriveCredential(Base):
@@ -230,6 +271,7 @@ def init_user_database():
         else:
             raise e
     _migrate_user_soft_delete_field(engine)
+    _migrate_api_key_scopes(engine)
     return engine
 
 
@@ -626,6 +668,56 @@ def _migrate_user_soft_delete_field(engine):
             conn.execute(text("ALTER TABLE users ADD COLUMN deleted_at DATETIME"))
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_users_deleted_at ON users (deleted_at)"
+        ))
+
+
+def _migrate_api_key_scopes(engine):
+    """Add API-key scopes while preserving the access of existing keys."""
+    database_url = os.getenv("DATABASE_URL")
+    with engine.begin() as conn:
+        if database_url:
+            table_exists = conn.execute(text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_schema = 'users' AND table_name = 'api_keys'
+                )
+            """)).scalar()
+            if not table_exists:
+                return
+            conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+            conn.execute(text(
+                "ALTER TABLE users.api_keys "
+                "ADD COLUMN IF NOT EXISTS scopes_json TEXT"
+            ))
+            conn.execute(text(
+                "UPDATE users.api_keys SET scopes_json = '[\"*\"]' "
+                "WHERE scopes_json IS NULL OR btrim(scopes_json) = ''"
+            ))
+            conn.execute(text(
+                "ALTER TABLE users.api_keys "
+                "ALTER COLUMN scopes_json SET DEFAULT '[\"*\"]'"
+            ))
+            conn.execute(text(
+                "ALTER TABLE users.api_keys ALTER COLUMN scopes_json SET NOT NULL"
+            ))
+            return
+
+        table_exists = conn.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='api_keys'"
+        )).fetchone()
+        if not table_exists:
+            return
+        columns = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(api_keys)")).fetchall()
+        }
+        if 'scopes_json' not in columns:
+            conn.execute(text(
+                "ALTER TABLE api_keys ADD COLUMN scopes_json TEXT "
+                "NOT NULL DEFAULT '[\"*\"]'"
+            ))
+        conn.execute(text(
+            "UPDATE api_keys SET scopes_json = '[\"*\"]' "
+            "WHERE scopes_json IS NULL OR trim(scopes_json) = ''"
         ))
 
 

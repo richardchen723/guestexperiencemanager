@@ -222,7 +222,7 @@ setup_logging(log_file="logs/sync.log")
 
 ## Third-Party API
 
-API documentation is available in `docs/api.md`. API key authentication is supported for all API endpoints.
+API documentation is available in `docs/api.md`. API keys can use full legacy access or least-privilege scopes; the versioned Guest Issues API supports the dedicated `guest_issues:read` scope.
 - **Current State**: Only current state is stored, not historical changes
 - **Idempotent**: Safe to run multiple times
 - **Database**: Uses SQLite with WAL mode for better concurrency
