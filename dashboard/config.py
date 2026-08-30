@@ -58,6 +58,7 @@ ALLOWED_DOCUMENT_EXTENSIONS = {'.pdf', '.doc', '.docx'}
 # Analysis time windows
 REVIEW_MONTHS = 3  # Analyze reviews from last 3 months
 MESSAGE_MONTHS = 2  # Analyze messages from last 2 months
+APPLICATION_TIMEZONE = os.getenv("APPLICATION_TIMEZONE", "America/New_York")
 
 # OpenAI Model
 OPENAI_MODEL = "gpt-5.4"  # Flagship model for complex reasoning and coding

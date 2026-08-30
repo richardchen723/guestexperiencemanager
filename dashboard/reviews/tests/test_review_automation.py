@@ -1,10 +1,13 @@
 import unittest
+from datetime import date, datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from dashboard.reviews.automation import (
     DEFAULT_CHASE_MESSAGE_TEMPLATE,
     DEFAULT_HOST_REVIEW_TEMPLATE,
     DryRunReviewAutomationGateway,
+    get_review_automation_preview,
     HostReviewPublishingUnavailable,
     host_review_destination,
     perform_review_automation_action,
@@ -103,7 +106,6 @@ class DryRunAutomationTests(unittest.TestCase):
             'review_destination': None,
             'capability_note': 'Nothing will be sent.',
         }
-
     @patch('dashboard.reviews.automation.get_review_automation_preview')
     def test_chase_simulation_never_instantiates_hostaway_client(self, preview_mock):
         preview_mock.return_value = self.preview(REVIEW_ACTION_CHASE)
@@ -156,6 +158,38 @@ class DryRunAutomationTests(unittest.TestCase):
                 REVIEW_ACTION_HOST,
                 'Test Guest was respectful and welcome back any time.',
                 7,
+            )
+
+
+class ReviewAutomationCheckoutGuardTests(unittest.TestCase):
+    @patch('dashboard.reviews.automation.get_workflow_session')
+    @patch('dashboard.reviews.automation.get_session')
+    def test_preview_cannot_bypass_precheckout_guard(
+        self,
+        main_session_factory,
+        workflow_session_factory,
+    ):
+        listing = SimpleNamespace(
+            check_out_time=11,
+            timezone_name='America/New_York',
+            city='Atlanta',
+            state='GA',
+        )
+        reservation = SimpleNamespace(
+            departure_date=date(2026, 8, 28),
+            listing=listing,
+        )
+        main_session = Mock()
+        main_session.query.return_value.filter.return_value.options.return_value.first.return_value = reservation
+        main_session_factory.return_value = main_session
+        workflow_session_factory.return_value = Mock()
+
+        with self.assertRaisesRegex(ValueError, 'has not checked out yet'):
+            get_review_automation_preview(
+                44,
+                REVIEW_ACTION_CHASE,
+                7,
+                reference_time=datetime(2026, 8, 28, 14, 59, tzinfo=timezone.utc),
             )
 
 

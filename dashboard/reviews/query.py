@@ -15,6 +15,13 @@ from dashboard.portfolio_mapping import (
     portfolio_name_for_listing,
     portfolio_name_for_tags,
 )
+from dashboard.reviews.timezone import (
+    application_local_date,
+    listing_timezone,
+    reference_time_utc,
+    review_window_bounds,
+    scheduled_checkout_at_local,
+)
 from database.models import (
     Conversation,
     Review,
@@ -112,6 +119,48 @@ def is_in_review_window(departure_date: Optional[date], today: Optional[date] = 
     reference_date = today or date.today()
     age = (reference_date - departure_date).days
     return 0 <= age < REVIEW_WINDOW_DAYS
+
+
+def reservation_review_window_status(
+    reservation: Reservation,
+    reference_time: Optional[datetime] = None,
+) -> str:
+    """Return pre-checkout, open, expired, or missing for one exact instant."""
+    reference_at = reference_time_utc(reference_time)
+    checkout_at, expires_at = review_window_bounds(
+        reservation,
+        getattr(reservation, 'listing', None),
+        window_days=REVIEW_WINDOW_DAYS,
+    )
+    if not checkout_at or not expires_at:
+        return 'missing'
+    if reference_at < checkout_at:
+        return 'pre_checkout'
+    if reference_at >= expires_at:
+        return 'expired'
+    return 'open'
+
+
+def is_reservation_in_review_window(
+    reservation: Reservation,
+    reference_time: Optional[datetime] = None,
+) -> bool:
+    return reservation_review_window_status(reservation, reference_time) == 'open'
+
+
+def require_reservation_in_review_window(
+    reservation: Reservation,
+    reference_time: Optional[datetime] = None,
+) -> None:
+    """Reject guarded review actions before checkout or after expiration."""
+    status = reservation_review_window_status(reservation, reference_time)
+    if status == 'open':
+        return
+    if status == 'pre_checkout':
+        raise ValueError('This reservation has not checked out yet')
+    if status == 'missing':
+        raise ValueError('This reservation does not have a scheduled checkout')
+    raise ValueError('This reservation is outside the 14-day review window')
 
 
 def rate_guest_review_risk(message_previews: Sequence[str]) -> Dict:
@@ -536,7 +585,7 @@ def _serialize_queue_card(
     guest_review: Optional[Review],
     host_review: Optional[Review],
     state: Optional[ReviewQueueState],
-    reference_date: date,
+    reference_time: datetime,
     sent_action_types: Optional[set[str]] = None,
 ) -> Dict:
     tags = [
@@ -550,7 +599,13 @@ def _serialize_queue_card(
     ]
     tag_names = [tag['name'] for tag in tags]
     portfolio = portfolio_name_for_listing(reservation.listing_id, tag_names) or 'Unmapped'
-    age_days = (reference_date - reservation.departure_date).days
+    reference_at = reference_time_utc(reference_time)
+    checkout_local = scheduled_checkout_at_local(reservation, reservation.listing)
+    now_local = reference_at.astimezone(checkout_local.tzinfo)
+    expires_local = checkout_local + timedelta(days=REVIEW_WINDOW_DAYS)
+    age_days = max(0, (now_local.date() - checkout_local.date()).days)
+    days_remaining = max(1, (expires_local.date() - now_local.date()).days)
+    checkout_timezone, checkout_timezone_source = listing_timezone(reservation.listing)
     risk = rate_guest_review_risk(_guest_message_previews(reservation))
     host_reviewed = bool(host_review or _has_manual_host_review_confirmation(state))
     rating = _rating_on_five_point_scale(guest_review)
@@ -574,8 +629,12 @@ def _serialize_queue_card(
         'channel_name': reservation.channel_name or reservation.source or 'Direct',
         'arrival_date': reservation.arrival_date.isoformat() if reservation.arrival_date else None,
         'departure_date': reservation.departure_date.isoformat(),
+        'scheduled_checkout_at': checkout_local.isoformat(),
+        'review_window_ends_at': expires_local.isoformat(),
+        'checkout_timezone': checkout_timezone,
+        'checkout_timezone_source': checkout_timezone_source,
         'days_since_checkout': age_days,
-        'days_remaining': REVIEW_WINDOW_DAYS - age_days,
+        'days_remaining': days_remaining,
         'guest_reviewed': bool(guest_review),
         'guest_review_status': guest_review.status if guest_review else None,
         'guest_review_id': guest_review.review_id if guest_review else None,
@@ -611,18 +670,22 @@ def get_review_queue(
     tag_ids: Optional[List[int]] = None,
     current_user_id: Optional[int] = None,
     today: Optional[date] = None,
+    reference_time: Optional[datetime] = None,
 ) -> Dict:
     """Return every eligible checkout in the open review window, grouped by portfolio."""
     if not current_user_id:
         raise ValueError('A current user is required to reconcile review workflows')
 
-    reference_date = today or date.today()
+    reference_at = reference_time_utc(reference_time, legacy_today=today)
+    reference_date = application_local_date(reference_at)
     main_session = get_session(get_database_path())
     workflow_session = get_workflow_session()
     try:
         query = main_session.query(Reservation).join(Listing).filter(
-            Reservation.departure_date >= review_window_start(reference_date),
-            Reservation.departure_date <= reference_date,
+            # Keep the SQL range deliberately broad by one date on each edge;
+            # exact property-local checkout instants are applied after loading.
+            Reservation.departure_date >= reference_date - timedelta(days=REVIEW_WINDOW_DAYS),
+            Reservation.departure_date <= reference_date + timedelta(days=1),
             ~func.lower(func.coalesce(Reservation.status, '')).like('%cancel%'),
             ~func.lower(func.coalesce(Reservation.status, '')).in_(['declined', 'inquiry', 'expired']),
             func.lower(func.coalesce(Reservation.channel_name, Reservation.source, '')) != 'customical',
@@ -631,7 +694,11 @@ def get_review_queue(
         if tag_ids:
             query = query.join(ListingTag).filter(ListingTag.tag_id.in_(tag_ids))
 
-        reservations = query.options(*_reservation_options()).distinct().all()
+        reservations = [
+            reservation
+            for reservation in query.options(*_reservation_options()).distinct().all()
+            if is_reservation_in_review_window(reservation, reference_at)
+        ]
         reservation_ids = [reservation.reservation_id for reservation in reservations]
         states = {
             state.reservation_id: state
@@ -667,7 +734,7 @@ def get_review_queue(
                 guest_review,
                 host_review,
                 state,
-                reference_date,
+                reference_at,
                 sent_actions_by_reservation.get(reservation.reservation_id),
             ))
 
@@ -694,7 +761,10 @@ def get_review_queue(
             'portfolios': grouped,
             'window': {
                 'days': REVIEW_WINDOW_DAYS,
-                'start_date': review_window_start(reference_date).isoformat(),
+                'start_date': min(
+                    (card['departure_date'] for card in cards),
+                    default=review_window_start(reference_date).isoformat(),
+                ),
                 'end_date': reference_date.isoformat(),
             },
             'summary': {
@@ -712,9 +782,14 @@ def get_review_queue(
         main_session.close()
 
 
-def mark_host_reviewed(reservation_id: int, current_user_id: int, today: Optional[date] = None) -> Dict:
+def mark_host_reviewed(
+    reservation_id: int,
+    current_user_id: int,
+    today: Optional[date] = None,
+    reference_time: Optional[datetime] = None,
+) -> Dict:
     """Persist the host-reviewed marker and immediately apply the review lifecycle."""
-    reference_date = today or date.today()
+    reference_at = reference_time_utc(reference_time, legacy_today=today)
     main_session = get_session(get_database_path())
     workflow_session = get_workflow_session()
     try:
@@ -723,8 +798,7 @@ def mark_host_reviewed(reservation_id: int, current_user_id: int, today: Optiona
         ).options(*_reservation_options()).first()
         if not reservation:
             raise LookupError('Reservation not found')
-        if not is_in_review_window(reservation.departure_date, reference_date):
-            raise ValueError('This reservation is outside the 14-day review window')
+        require_reservation_in_review_window(reservation, reference_at)
 
         state = workflow_session.query(ReviewQueueState).filter(
             ReviewQueueState.reservation_id == reservation_id
