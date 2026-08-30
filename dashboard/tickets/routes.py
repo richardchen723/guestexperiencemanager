@@ -68,6 +68,126 @@ def _parse_ticket_statuses(status_param):
     return [status for status in requested_statuses if status in TICKET_STATUSES]
 
 
+def _parse_ticket_listing_selection(listing_ids_param, listing_id=None):
+    """Normalize the legacy and multi-property filters for query/count reuse."""
+    raw_values = []
+    if listing_ids_param:
+        raw_values = [value.strip() for value in listing_ids_param.split(',') if value.strip()]
+    elif listing_id is not None:
+        raw_values = [str(listing_id)]
+
+    selected = set()
+    for raw_value in raw_values:
+        if raw_value == '0' or raw_value.lower() == 'general':
+            selected.add(0)
+            continue
+        try:
+            selected.add(int(raw_value))
+        except (TypeError, ValueError):
+            continue
+    return selected
+
+
+def _ticket_matches_issue_title(ticket, issue_title):
+    if not issue_title or not ticket.issue_title:
+        return not issue_title
+
+    requested = issue_title.strip().lower()
+    actual = ticket.issue_title.strip().lower()
+    if actual == requested:
+        return True
+    if not actual or not requested:
+        return False
+    shorter = min(actual, requested, key=len)
+    longer = max(actual, requested, key=len)
+    return len(shorter) >= len(longer) * 0.8 and shorter in longer
+
+
+def _build_ticket_filter_counts(
+    tickets,
+    ticket_listings_map,
+    *,
+    selected_listing_ids=None,
+    selected_statuses=None,
+    selected_assignee_id=None,
+    selected_priorities=None,
+    selected_category=None,
+):
+    """Build disjunctive facet counts from common-filtered ticket candidates."""
+    selected_listing_ids = set(selected_listing_ids or [])
+    selected_statuses = None if selected_statuses is None else set(selected_statuses)
+    selected_priorities = None if selected_priorities is None else set(selected_priorities)
+
+    def matches_listing(ticket):
+        if not selected_listing_ids:
+            return True
+        if 0 in selected_listing_ids and ticket.listing_id is None:
+            return True
+        linked_ids = set(ticket_listings_map.get(ticket.ticket_id, []))
+        if ticket.listing_id is not None:
+            linked_ids.add(ticket.listing_id)
+        return bool(linked_ids.intersection(selected_listing_ids - {0}))
+
+    def matches(ticket, excluded_facet=None):
+        if excluded_facet != 'property' and not matches_listing(ticket):
+            return False
+        if excluded_facet != 'status' and selected_statuses is not None:
+            if not selected_statuses or ticket.status not in selected_statuses:
+                return False
+        if excluded_facet != 'assignee' and selected_assignee_id is not None:
+            if ticket.assigned_user_id != selected_assignee_id:
+                return False
+        if excluded_facet != 'priority' and selected_priorities is not None:
+            if ticket.priority not in selected_priorities:
+                return False
+        if excluded_facet != 'category' and selected_category:
+            if ticket.category != selected_category:
+                return False
+        return True
+
+    counts = {
+        'properties': {'all': 0, 'options': {'0': 0}},
+        'statuses': {status: 0 for status in TICKET_STATUSES},
+        'assignees': {'all': 0, 'unassigned': 0},
+        'priorities': {priority: 0 for priority in TICKET_PRIORITIES},
+        'categories': {'all': 0, **{category: 0 for category in TICKET_CATEGORIES}},
+        'result_total': 0,
+    }
+
+    for ticket in tickets:
+        if matches(ticket):
+            counts['result_total'] += 1
+
+        if matches(ticket, 'property'):
+            counts['properties']['all'] += 1
+            if ticket.listing_id is None:
+                counts['properties']['options']['0'] += 1
+            property_ids = set(ticket_listings_map.get(ticket.ticket_id, []))
+            if ticket.listing_id is not None:
+                property_ids.add(ticket.listing_id)
+            for property_id in property_ids:
+                key = str(property_id)
+                counts['properties']['options'][key] = counts['properties']['options'].get(key, 0) + 1
+
+        if matches(ticket, 'status') and ticket.status in counts['statuses']:
+            counts['statuses'][ticket.status] += 1
+
+        if matches(ticket, 'assignee'):
+            counts['assignees']['all'] += 1
+            assignee_key = str(ticket.assigned_user_id) if ticket.assigned_user_id is not None else 'unassigned'
+            counts['assignees'][assignee_key] = counts['assignees'].get(assignee_key, 0) + 1
+
+        if matches(ticket, 'priority') and ticket.priority in counts['priorities']:
+            counts['priorities'][ticket.priority] += 1
+
+        if matches(ticket, 'category'):
+            counts['categories']['all'] += 1
+            if ticket.category in TICKET_CATEGORIES:
+                counts['categories'][ticket.category] += 1
+
+    return counts
+
+
 def _ticket_list_return_url(raw_return_url):
     """Allow a detail-page return target only when it is the local ticket list."""
     fallback = url_for('tickets.tickets_list')
@@ -425,19 +545,7 @@ def api_list_tickets():
         
         # Filter by issue_title in Python if provided
         if issue_title:
-            issue_title_normalized = issue_title.strip().lower()
-            filtered_tickets = []
-            for t in tickets:
-                if t.issue_title:
-                    ticket_issue_normalized = t.issue_title.strip().lower()
-                    if ticket_issue_normalized == issue_title_normalized:
-                        filtered_tickets.append(t)
-                    elif (len(ticket_issue_normalized) > 0 and len(issue_title_normalized) > 0):
-                        shorter = min(ticket_issue_normalized, issue_title_normalized, key=len)
-                        longer = max(ticket_issue_normalized, issue_title_normalized, key=len)
-                        if len(shorter) >= len(longer) * 0.8 and shorter in longer:
-                            filtered_tickets.append(t)
-            tickets = filtered_tickets
+            tickets = [ticket for ticket in tickets if _ticket_matches_issue_title(ticket, issue_title)]
         
         ticket_ids = [t.ticket_id for t in tickets]
 
@@ -530,6 +638,112 @@ def api_list_tickets():
             result.append(ticket_dict)
         
         return jsonify(result)
+    finally:
+        session.close()
+        main_session.close()
+
+
+@tickets_bp.route('/api/tickets/filter-counts', methods=['GET'])
+@approved_required
+def api_ticket_filter_counts():
+    """Return filter-aware option counts for the ticket-list facets."""
+    listing_id = request.args.get('listing_id', type=int)
+    listing_ids_param = request.args.get('listing_ids', type=str)
+    assigned_user_id = request.args.get('assigned_user_id', type=int)
+    status_param = request.args.get('status', type=str)
+    priority_param = request.args.get('priority', type=str)
+    category = request.args.get('category', type=str)
+    issue_title = (request.args.get('issue_title', type=str) or '').strip()
+    tags_param = request.args.get('tags', '')
+    tag_logic = request.args.get('tag_logic', 'AND').upper()
+    search_query = (request.args.get('search', type=str) or '').strip()
+    past_due = request.args.get('past_due', type=str)
+    recurring = request.args.get('recurring', type=str)
+    due_days = request.args.get('due_days', type=int)
+
+    selected_listing_ids = _parse_ticket_listing_selection(listing_ids_param, listing_id)
+    selected_statuses = None if status_param is None else _parse_ticket_statuses(status_param)
+    selected_priorities = None
+    if priority_param and priority_param != '__none__':
+        selected_priorities = [value.strip() for value in priority_param.split(',') if value.strip()]
+
+    session = get_session()
+    main_session = get_main_session(config.MAIN_DATABASE_PATH)
+    try:
+        query = session.query(Ticket).filter(Ticket.ticket_type == STANDARD_TICKET_TYPE)
+        tag_filter_matches_nothing = False
+
+        if tags_param:
+            tag_names = [value.strip().lower() for value in tags_param.split(',') if value.strip()]
+            if tag_names:
+                tags = main_session.query(Tag).filter(Tag.name.in_(tag_names)).all()
+                tag_ids = [tag.tag_id for tag in tags]
+                if not tag_ids:
+                    tag_filter_matches_nothing = True
+                elif tag_logic == 'OR':
+                    matching_rows = session.query(TicketTag.ticket_id).filter(
+                        TicketTag.tag_id.in_(tag_ids)
+                    ).distinct().all()
+                    query = query.filter(Ticket.ticket_id.in_([row[0] for row in matching_rows]))
+                else:
+                    matching_rows = session.query(TicketTag.ticket_id).filter(
+                        TicketTag.tag_id.in_(tag_ids)
+                    ).group_by(TicketTag.ticket_id).having(
+                        func.count(TicketTag.tag_id.distinct()) == len(tag_ids)
+                    ).all()
+                    query = query.filter(Ticket.ticket_id.in_([row[0] for row in matching_rows]))
+
+        if past_due and past_due.lower() == 'true':
+            today = date.today()
+            query = query.filter(
+                Ticket.due_date.isnot(None),
+                Ticket.due_date < today,
+                ~Ticket.status.in_(['Resolved', 'Closed']),
+            )
+        if due_days and due_days > 0:
+            today = date.today()
+            due_end = today + timedelta(days=due_days)
+            query = query.filter(
+                Ticket.due_date.isnot(None),
+                Ticket.due_date >= today,
+                Ticket.due_date <= due_end,
+                ~Ticket.status.in_(['Resolved', 'Closed']),
+            )
+        if recurring and recurring.lower() == 'true':
+            query = query.filter(Ticket.is_recurring == True)
+        if search_query:
+            search_pattern_lower = f"%{search_query.lower()}%"
+            search_pattern = f"%{search_query}%"
+            query = query.filter(or_(
+                cast(Ticket.ticket_id, String).like(search_pattern),
+                func.lower(Ticket.title).like(search_pattern_lower),
+                and_(Ticket.description.isnot(None), func.lower(Ticket.description).like(search_pattern_lower)),
+                and_(Ticket.issue_title.isnot(None), func.lower(Ticket.issue_title).like(search_pattern_lower)),
+            ))
+
+        tickets = [] if tag_filter_matches_nothing else query.all()
+        if issue_title:
+            tickets = [ticket for ticket in tickets if _ticket_matches_issue_title(ticket, issue_title)]
+
+        from dashboard.tickets.models import TicketListing
+        ticket_listings_map = {}
+        ticket_ids = [ticket.ticket_id for ticket in tickets]
+        if ticket_ids:
+            associations = session.query(TicketListing).filter(
+                TicketListing.ticket_id.in_(ticket_ids)
+            ).all()
+            for association in associations:
+                ticket_listings_map.setdefault(association.ticket_id, []).append(association.listing_id)
+
+        return jsonify(_build_ticket_filter_counts(
+            tickets,
+            ticket_listings_map,
+            selected_listing_ids=selected_listing_ids,
+            selected_statuses=selected_statuses,
+            selected_assignee_id=assigned_user_id,
+            selected_priorities=selected_priorities,
+            selected_category=category,
+        ))
     finally:
         session.close()
         main_session.close()
