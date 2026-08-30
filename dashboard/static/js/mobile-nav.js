@@ -52,6 +52,8 @@ class MobileNavigation {
             { id: 'sync', label: 'Sync', icon: 'sync', url: '/sync/history' }
         ].filter(item => canAccess(item.id));
 
+        moreItems.push({ id: 'api-docs', label: 'API documentation', icon: 'knowledge', url: '/api-docs' });
+
         if (isAdmin) {
             moreItems.push({ id: 'admin', label: 'Admin', icon: 'admin', url: '/admin/users' });
         }

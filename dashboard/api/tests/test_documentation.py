@@ -1,6 +1,10 @@
 import unittest
+from pathlib import Path
 
 from dashboard.api.documentation import read_api_markdown, render_api_markdown
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 class ApiDocumentationTests(unittest.TestCase):
@@ -26,6 +30,24 @@ class ApiDocumentationTests(unittest.TestCase):
         self.assertIn('id="api"', rendered)
         self.assertIn('id="api-2"', rendered)
         self.assertEqual([item["anchor"] for item in toc], ["api", "api-2"])
+
+    def test_navigation_links_to_documentation_on_desktop_and_mobile(self):
+        base_template = (PROJECT_ROOT / "dashboard/templates/base.html").read_text()
+        mobile_navigation = (PROJECT_ROOT / "dashboard/static/js/mobile-nav.js").read_text()
+
+        self.assertIn("url_for('api_docs')", base_template)
+        self.assertIn("<span>API documentation</span>", base_template)
+        self.assertIn("label: 'API documentation'", mobile_navigation)
+        self.assertIn("url: '/api-docs'", mobile_navigation)
+
+    def test_documentation_page_uses_markdown_links_without_clipboard_logic(self):
+        template = (PROJECT_ROOT / "dashboard/templates/api-docs.html").read_text()
+
+        self.assertIn('href="/api-docs.md"', template)
+        self.assertNotIn("navigator.clipboard", template)
+        self.assertNotIn("copyDocs", template)
+        self.assertNotIn("Copy for AI agent", template)
+        self.assertNotIn("Copy document", template)
 
 
 if __name__ == "__main__":

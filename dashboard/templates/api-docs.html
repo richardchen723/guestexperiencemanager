@@ -81,8 +81,6 @@
         cursor: pointer;
       }
       .button:hover { background: rgba(255, 255, 255, 0.13); }
-      .button.primary { color: #fff; border-color: #5275ec; background: #3158d8; }
-      .button.primary:hover { background: #274bc3; }
 
       .page-shell {
         display: grid;
@@ -153,7 +151,6 @@
       .agent-badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #18a17b; box-shadow: 0 0 0 5px rgba(24, 161, 123, .1); }
       .agent-actions { display: flex; gap: 8px; }
       .agent-actions .button { color: #155f4d; border-color: #b9ddd2; background: #fff; }
-      .agent-actions .button.primary { color: #fff; border-color: var(--green); background: var(--green); }
 
       .base-url {
         display: flex;
@@ -215,20 +212,6 @@
       .document pre code { padding: 0; border: 0; color: inherit; background: transparent; font-size: 12px; line-height: 1.65; }
 
       .page-footer { padding: 20px 0 0; color: #8793a6; font-size: 11px; text-align: center; }
-      .toast {
-        position: fixed;
-        z-index: 30;
-        right: 24px;
-        bottom: 24px;
-        padding: 11px 15px;
-        border-radius: 10px;
-        color: #fff;
-        background: #13233d;
-        box-shadow: 0 12px 28px rgba(15, 26, 46, .25);
-        font-size: 12px;
-        font-weight: 700;
-      }
-
       @media (max-width: 980px) {
         .page-shell { grid-template-columns: 1fr; }
         .sidebar { display: none; }
@@ -255,7 +238,6 @@
       </a>
       <div class="top-actions">
         <a class="button" href="/api-docs.md">Raw Markdown</a>
-        <button id="copyDocsTop" class="button primary" type="button">Copy for AI agent</button>
       </div>
     </header>
 
@@ -276,7 +258,6 @@
           </div>
           <div class="agent-actions">
             <a class="button" href="/api-docs.md">Open Markdown</a>
-            <button id="copyDocsBanner" class="button primary" type="button">Copy document</button>
           </div>
         </section>
 
@@ -292,39 +273,5 @@
       </main>
     </div>
 
-    <div id="copyToast" class="toast" role="status" hidden>API documentation copied.</div>
-    <script>
-      (() => {
-        const buttons = [document.getElementById('copyDocsTop'), document.getElementById('copyDocsBanner')];
-        const toast = document.getElementById('copyToast');
-        let toastTimer;
-
-        async function copyDocumentation() {
-          const response = await fetch('/api-docs.md', { headers: { Accept: 'text/markdown' } });
-          if (!response.ok) throw new Error('Could not load API documentation');
-          const markdown = await response.text();
-          await navigator.clipboard.writeText(markdown);
-          toast.hidden = false;
-          window.clearTimeout(toastTimer);
-          toastTimer = window.setTimeout(() => { toast.hidden = true; }, 2200);
-        }
-
-        buttons.forEach(button => button.addEventListener('click', async () => {
-          const original = button.textContent;
-          button.disabled = true;
-          try {
-            await copyDocumentation();
-            button.textContent = 'Copied';
-          } catch (_error) {
-            button.textContent = 'Copy failed';
-          } finally {
-            window.setTimeout(() => {
-              button.textContent = original;
-              button.disabled = false;
-            }, 1700);
-          }
-        }));
-      })();
-    </script>
   </body>
 </html>

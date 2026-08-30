@@ -36,6 +36,7 @@
     {% elif 'bookkeeping' in endpoint %}{% set workspace_name = 'Bookkeeping' %}
     {% elif 'boost' in endpoint %}{% set workspace_name = 'Boost' %}
     {% elif endpoint == 'admin.api_keys_page' %}{% set workspace_name = 'API keys' %}
+    {% elif endpoint == 'api_docs' %}{% set workspace_name = 'API documentation' %}
     {% elif 'activities' in endpoint %}{% set workspace_name = 'Activity center' %}
     {% elif 'sync' in endpoint %}{% set workspace_name = 'Data sync' %}
     {% elif 'admin' in endpoint %}{% set workspace_name = 'Team access' %}
@@ -141,10 +142,9 @@
                 </div>
                 {% endif %}
 
-                {% if current_user and (current_user.is_admin() or can_manage_api_keys) %}
                 <div class="nav-section nav-section-system">
                     <div class="nav-section-label">System</div>
-                    {% if current_user.is_admin() %}
+                    {% if current_user and current_user.is_admin() %}
                     <a href="{{ url_for('admin.users_page') }}" class="app-nav-link {% if endpoint == 'admin.users_page' %}active{% endif %}" title="Team access">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
                         <span>Team access</span>
@@ -156,8 +156,11 @@
                         <span>API key management</span>
                     </a>
                     {% endif %}
+                    <a href="{{ url_for('api_docs') }}" class="app-nav-link {% if endpoint == 'api_docs' %}active{% endif %}" title="API documentation">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5V3Z"/><path d="M15 3v5h4M8 12h8M8 16h8"/></svg>
+                        <span>API documentation</span>
+                    </a>
                 </div>
-                {% endif %}
             </nav>
 
             <div class="sidebar-footer">
