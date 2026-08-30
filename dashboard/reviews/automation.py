@@ -13,6 +13,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
 
 from dashboard.portfolio_mapping import portfolio_name_for_listing
+from dashboard.reviews.timezone import reference_time_utc
 from dashboard.tickets.models import (
     REVIEW_ACTION_CHASE,
     REVIEW_ACTION_HOST,
@@ -303,6 +304,7 @@ def get_review_automation_preview(
     action_type: str,
     current_user_id: int,
     today: Optional[date] = None,
+    reference_time: Optional[datetime] = None,
 ) -> Dict:
     """Build and validate a final human-editable action preview."""
     if action_type not in REVIEW_AUTOMATION_ACTIONS:
@@ -314,12 +316,12 @@ def get_review_automation_preview(
     from dashboard.reviews.query import (
         _guest_message_previews,
         _review_for_origin,
-        is_in_review_window,
         rate_guest_review_risk,
+        require_reservation_in_review_window,
         should_offer_review_chase,
     )
 
-    reference_date = today or date.today()
+    reference_at = reference_time_utc(reference_time, legacy_today=today)
     main_session = get_session(get_database_path())
     workflow_session = get_workflow_session()
     try:
@@ -328,8 +330,7 @@ def get_review_automation_preview(
         ).options(*_reservation_options()).first()
         if not reservation:
             raise LookupError('Reservation not found')
-        if not is_in_review_window(reservation.departure_date, reference_date):
-            raise ValueError('This reservation is outside the 14-day review window')
+        require_reservation_in_review_window(reservation, reference_at)
 
         guest_review = _review_for_origin(reservation, 'Guest')
         host_review = _review_for_origin(reservation, 'Host')

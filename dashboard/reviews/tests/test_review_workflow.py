@@ -1,5 +1,6 @@
 import unittest
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from dashboard.reviews.query import (
@@ -9,17 +10,26 @@ from dashboard.reviews.query import (
     _review_for_origin,
     add_review_resolution_note,
     default_bad_review_threshold,
+    get_review_queue,
     is_in_review_window,
+    is_reservation_in_review_window,
     is_bad_review_rating,
     is_review_chase_risk_eligible,
     hostaway_url_for_reservation,
     normalize_review_rating,
     rate_guest_review_risk,
+    require_reservation_in_review_window,
+    reservation_review_window_status,
     review_channel_name,
     should_offer_review_chase,
     update_review_resolution,
     review_resolution_window_start,
     review_window_start,
+)
+from dashboard.reviews.timezone import (
+    listing_timezone,
+    review_window_bounds,
+    scheduled_checkout_at_utc,
 )
 from dashboard.portfolio_mapping import portfolio_name_for_listing, portfolio_name_for_tags
 from dashboard.tickets.models import (
@@ -45,6 +55,145 @@ class ReviewWindowTests(unittest.TestCase):
     def test_window_excludes_fourteen_days_ago_and_future_departures(self):
         self.assertFalse(is_in_review_window(self.today - timedelta(days=REVIEW_WINDOW_DAYS), self.today))
         self.assertFalse(is_in_review_window(self.today + timedelta(days=1), self.today))
+
+
+class ExactReviewCheckoutTests(unittest.TestCase):
+    @staticmethod
+    def reservation(
+        departure_date=date(2026, 8, 28),
+        *,
+        checkout_time=11,
+        timezone_name=None,
+        city='Atlanta',
+        state='GA',
+    ):
+        listing = SimpleNamespace(
+            check_out_time=checkout_time,
+            timezone_name=timezone_name,
+            city=city,
+            state=state,
+        )
+        return SimpleNamespace(departure_date=departure_date, listing=listing)
+
+    def test_review_window_stays_closed_until_exact_eastern_checkout(self):
+        reservation = self.reservation()
+        before_checkout = datetime(2026, 8, 28, 14, 59, 59, tzinfo=timezone.utc)
+        at_checkout = datetime(2026, 8, 28, 15, 0, tzinfo=timezone.utc)
+
+        self.assertEqual(
+            reservation_review_window_status(reservation, before_checkout),
+            'pre_checkout',
+        )
+        self.assertFalse(is_reservation_in_review_window(reservation, before_checkout))
+        with self.assertRaisesRegex(ValueError, 'has not checked out yet'):
+            require_reservation_in_review_window(reservation, before_checkout)
+        self.assertTrue(is_reservation_in_review_window(reservation, at_checkout))
+
+    def test_property_location_controls_checkout_when_hostaway_timezone_is_missing(self):
+        reservation = self.reservation(
+            checkout_time=10,
+            timezone_name=None,
+            city='San Gabriel',
+            state='CA',
+        )
+
+        self.assertEqual(
+            listing_timezone(reservation.listing),
+            ('America/Los_Angeles', 'state_fallback'),
+        )
+        self.assertEqual(
+            scheduled_checkout_at_utc(reservation, reservation.listing),
+            datetime(2026, 8, 28, 17, 0, tzinfo=timezone.utc),
+        )
+
+    def test_unknown_property_location_uses_eastern_application_fallback(self):
+        reservation = self.reservation(
+            checkout_time=10,
+            timezone_name=None,
+            city=None,
+            state=None,
+        )
+
+        self.assertEqual(
+            listing_timezone(reservation.listing),
+            ('America/New_York', 'application_fallback'),
+        )
+        self.assertEqual(
+            scheduled_checkout_at_utc(reservation, reservation.listing),
+            datetime(2026, 8, 28, 14, 0, tzinfo=timezone.utc),
+        )
+
+    def test_expiration_keeps_the_same_local_clock_across_daylight_saving(self):
+        reservation = self.reservation(
+            departure_date=date(2026, 10, 25),
+            checkout_time=11,
+            timezone_name='America/New_York',
+        )
+        checkout_at, expires_at = review_window_bounds(
+            reservation,
+            reservation.listing,
+            window_days=REVIEW_WINDOW_DAYS,
+        )
+
+        self.assertEqual(checkout_at, datetime(2026, 10, 25, 15, 0, tzinfo=timezone.utc))
+        self.assertEqual(expires_at, datetime(2026, 11, 8, 16, 0, tzinfo=timezone.utc))
+        self.assertTrue(is_reservation_in_review_window(
+            reservation,
+            expires_at - timedelta(seconds=1),
+        ))
+        self.assertFalse(is_reservation_in_review_window(reservation, expires_at))
+
+    @patch('dashboard.reviews.query._serialize_queue_card')
+    @patch('dashboard.reviews.query._apply_review_lifecycle')
+    @patch('dashboard.reviews.query.get_workflow_session')
+    @patch('dashboard.reviews.query.get_session')
+    def test_queue_does_not_reconcile_or_render_precheckout_reservations(
+        self,
+        main_session_factory,
+        workflow_session_factory,
+        lifecycle_mock,
+        serialize_mock,
+    ):
+        before_checkout = self.reservation()
+        before_checkout.reservation_id = 1
+        before_checkout.reviews = []
+        checked_out = self.reservation(departure_date=date(2026, 8, 27))
+        checked_out.reservation_id = 2
+        checked_out.reviews = []
+
+        main_session = Mock()
+        query = Mock()
+        main_session.query.return_value.join.return_value.filter.return_value = query
+        query.options.return_value.distinct.return_value.all.return_value = [
+            before_checkout,
+            checked_out,
+        ]
+        main_session_factory.return_value = main_session
+
+        workflow_session = Mock()
+        workflow_query = Mock()
+        workflow_session.query.return_value = workflow_query
+        workflow_query.filter.return_value.all.side_effect = [[], []]
+        workflow_session_factory.return_value = workflow_session
+        lifecycle_mock.return_value = (None, None)
+        serialize_mock.return_value = {
+            'portfolio': 'Test',
+            'risk': {'order': 2},
+            'days_remaining': 13,
+            'guest_name': 'Checked Out Guest',
+            'departure_date': '2026-08-27',
+            'host_reviewed': False,
+            'guest_reviewed': False,
+        }
+
+        result = get_review_queue(
+            current_user_id=7,
+            reference_time=datetime(2026, 8, 28, 14, 30, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(result['summary']['total'], 1)
+        self.assertIs(lifecycle_mock.call_args.args[1], checked_out)
+        self.assertIs(serialize_mock.call_args.args[0], checked_out)
 
 
 class ReviewRiskTests(unittest.TestCase):
