@@ -385,10 +385,22 @@ let selectedTagIds = [];
 let tagLogic = 'AND';
 let searchTimeout = null;
 let currentView = localStorage.getItem('ticketView') || 'list'; // 'list' or 'swimlane'
-let isInitialLoad = true; // Track if we're on initial page load
 let ticketRequestSequence = 0;
 let ticketRequestController = null;
 const defaultActiveStatuses = ['Open', 'Assigned', 'In Progress', 'Blocked'];
+const ticketFilterQueryKeys = [
+    'listing_ids',
+    'assigned_user_id',
+    'status',
+    'priority',
+    'category',
+    'past_due',
+    'recurring',
+    'due_days',
+    'search',
+    'tags',
+    'tag_logic'
+];
 
 // Function to apply filters from URL parameters
 function applyFiltersFromUrl() {
@@ -397,8 +409,8 @@ function applyFiltersFromUrl() {
     
     // Apply status filter (comma-separated)
     const statusParam = urlParams.get('status');
-    if (statusParam) {
-        const statuses = statusParam.split(',').map(s => s.trim());
+    if (statusParam !== null) {
+        const statuses = statusParam === '__none__' ? [] : statusParam.split(',').map(s => s.trim());
         // First uncheck all status checkboxes
         document.querySelectorAll('.status-checkbox').forEach(cb => {
             cb.checked = false;
@@ -415,8 +427,8 @@ function applyFiltersFromUrl() {
     
     // Apply priority filter (comma-separated)
     const priorityParam = urlParams.get('priority');
-    if (priorityParam) {
-        const priorities = priorityParam.split(',').map(p => p.trim());
+    if (priorityParam !== null) {
+        const priorities = priorityParam === '__none__' ? [] : priorityParam.split(',').map(p => p.trim());
         // First uncheck all priority checkboxes
         document.querySelectorAll('.priority-checkbox').forEach(cb => {
             cb.checked = false;
@@ -432,14 +444,21 @@ function applyFiltersFromUrl() {
         });
         updatePriorityFilterText();
     }
+
+    // Apply property filter after the property options have loaded.
+    const listingIdsParam = urlParams.get('listing_ids');
+    if (listingIdsParam) {
+        const listingIds = new Set(listingIdsParam.split(',').map(value => value.trim()));
+        document.querySelectorAll('.listing-checkbox').forEach(checkbox => {
+            checkbox.checked = listingIds.has(checkbox.value);
+        });
+    }
     
     // Apply past_due filter
     const pastDueParam = urlParams.get('past_due');
-    if (pastDueParam === 'true') {
-        const pastDueCheckbox = document.getElementById('filterPastDue');
-        if (pastDueCheckbox) {
-            pastDueCheckbox.checked = true;
-        }
+    const pastDueCheckbox = document.getElementById('filterPastDue');
+    if (pastDueCheckbox) {
+        pastDueCheckbox.checked = pastDueParam === 'true';
     }
     
     // Apply due_days filter
@@ -453,11 +472,9 @@ function applyFiltersFromUrl() {
     
     // Apply recurring filter
     const recurringParam = urlParams.get('recurring');
-    if (recurringParam === 'true') {
-        const recurringCheckbox = document.getElementById('filterRecurring');
-        if (recurringCheckbox) {
-            recurringCheckbox.checked = true;
-        }
+    const recurringCheckbox = document.getElementById('filterRecurring');
+    if (recurringCheckbox) {
+        recurringCheckbox.checked = recurringParam === 'true';
     }
     
     // Apply assigned_user_id filter
@@ -474,6 +491,33 @@ function applyFiltersFromUrl() {
             }
         }
     }
+
+    const categoryParam = urlParams.get('category');
+    const categorySelect = document.getElementById('filterCategory');
+    if (categorySelect && categoryParam && Array.from(categorySelect.options).some(option => option.value === categoryParam)) {
+        categorySelect.value = categoryParam;
+    }
+
+    const searchParam = urlParams.get('search');
+    const searchInput = document.getElementById('searchInput');
+    const clearSearchBtn = document.getElementById('clearSearchBtn');
+    if (searchInput && searchParam) {
+        searchInput.value = searchParam;
+        if (clearSearchBtn) clearSearchBtn.style.display = 'flex';
+    }
+
+    const tagNames = (urlParams.get('tags') || '')
+        .split(',')
+        .map(name => name.trim().toLowerCase())
+        .filter(Boolean);
+    if (tagFilter && tagNames.length > 0) {
+        const tagIds = tagFilter.allTags
+            .filter(tag => tagNames.includes(String(tag.name || '').toLowerCase()))
+            .map(tag => tag.tag_id);
+        tagLogic = urlParams.get('tag_logic') === 'OR' ? 'OR' : 'AND';
+        tagFilter.setSelectedTags(tagIds, tagLogic, false);
+        selectedTagIds = tagFilter.getSelectedTags();
+    }
 }
 
 // Load data on page load
@@ -488,66 +532,23 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    loadListings();
-    
-    // Load users first, then apply filters from URL, then load tickets
-    loadUsers().then(() => {
-        // Ensure assigned_user_id is set from URL (loadUsers() should have set it, but double-check)
-        const urlParams = new URLSearchParams(window.location.search);
-        const assignedUserId = urlParams.get('assigned_user_id');
-        const selectAfterLoad = document.getElementById('filterAssigned');
-        if (assignedUserId && selectAfterLoad) {
-            // Verify the value is set correctly
-            if (selectAfterLoad.value !== assignedUserId) {
-                // Try to set it again
-                const option = selectAfterLoad.querySelector(`option[value="${assignedUserId}"]`) || 
-                              Array.from(selectAfterLoad.options).find(opt => opt.value == assignedUserId);
-                if (option) {
-                    selectAfterLoad.value = assignedUserId;
-                }
-            }
-        }
-        
-        // Apply filters from URL parameters after users are loaded
+    // Wait for controls with async options before restoring the URL state.
+    Promise.allSettled([
+        loadListings(),
+        loadUsers(),
+        tagFilter.ready || Promise.resolve()
+    ]).then(() => {
         applyFiltersFromUrl();
-        
-        // Update filter text displays after applying filters
         updateStatusFilterText();
         updateListingFilterText();
         updatePriorityFilterText();
-        
-        // Use requestAnimationFrame to ensure DOM is updated before loading tickets
-        requestAnimationFrame(() => {
-            // Small delay to ensure checkboxes are fully updated
-            setTimeout(() => {
-                loadTickets();
-                isInitialLoad = false;
-            }, 50);
-        });
-    }).catch(() => {
-        // Even if users fail to load, still apply other filters and load tickets
-        applyFiltersFromUrl();
-        
-        // Update filter text displays after applying filters
-        updateStatusFilterText();
-        updateListingFilterText();
-        updatePriorityFilterText();
-        
-        // Use requestAnimationFrame to ensure DOM is updated before loading tickets
-        requestAnimationFrame(() => {
-            // Small delay to ensure checkboxes are fully updated
-            setTimeout(() => {
-                loadTickets();
-                // Mark initial load as complete after first load
-                isInitialLoad = false;
-            }, 50);
-        });
+        updateActiveFilters();
+        loadTickets();
     });
     
     // Add change listeners to status checkboxes
     document.querySelectorAll('.status-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', function() {
-            isInitialLoad = false; // Mark that user has manually changed filters
             updateStatusFilterText();
             updateActiveFilters();
             syncStatusFilterToUrl();
@@ -572,6 +573,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Update active filters immediately (no debounce for UI feedback)
             updateActiveFilters();
+            syncTicketFiltersToUrl(buildTicketFilterParams());
             
             // Set new timeout for debounced search
             searchTimeout = setTimeout(function() {
@@ -595,7 +597,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     if (filterAssigned) {
         filterAssigned.addEventListener('change', function() {
-            isInitialLoad = false; // Mark that user has manually changed filters
             updateActiveFilters();
             loadTickets();
         });
@@ -630,6 +631,14 @@ document.addEventListener('DOMContentLoaded', function() {
     const filterRecurring = document.getElementById('filterRecurring');
     if (filterRecurring) {
         filterRecurring.addEventListener('change', function() {
+            updateActiveFilters();
+            loadTickets();
+        });
+    }
+
+    const filterDueDays = document.getElementById('filterDueDays');
+    if (filterDueDays) {
+        filterDueDays.addEventListener('input', function() {
             updateActiveFilters();
             loadTickets();
         });
@@ -737,15 +746,7 @@ function updateStatusFilterText() {
 }
 
 function syncStatusFilterToUrl() {
-    const selectedStatuses = Array.from(
-        document.querySelectorAll('.status-checkbox:checked')
-    ).map(cb => cb.value);
-    const url = new URL(window.location.href);
-    url.searchParams.set(
-        'status',
-        selectedStatuses.length > 0 ? selectedStatuses.join(',') : '__none__'
-    );
-    window.history.replaceState({}, '', url);
+    syncTicketFiltersToUrl(buildTicketFilterParams());
 }
 
 function togglePriorityFilter(event) {
@@ -849,7 +850,7 @@ function deselectAllListings() {
 }
 
 function loadListings() {
-    fetch('/api/listings')
+    return fetch('/api/listings')
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -991,6 +992,67 @@ function loadUsers() {
         });
 }
 
+function buildTicketFilterParams() {
+    const params = new URLSearchParams();
+    const selectedListingIds = Array.from(
+        document.querySelectorAll('.listing-checkbox:checked')
+    ).map(checkbox => checkbox.value);
+    const assignedId = document.getElementById('filterAssigned')?.value || '';
+    const selectedStatuses = Array.from(
+        document.querySelectorAll('.status-checkbox:checked')
+    ).map(checkbox => checkbox.value);
+    const selectedPriorities = Array.from(
+        document.querySelectorAll('.priority-checkbox:checked')
+    ).map(checkbox => checkbox.value);
+    const category = document.getElementById('filterCategory')?.value || '';
+    const pastDue = document.getElementById('filterPastDue')?.checked || false;
+    const recurring = document.getElementById('filterRecurring')?.checked || false;
+    const dueDays = document.getElementById('filterDueDays')?.value || '';
+    const searchQuery = document.getElementById('searchInput')?.value.trim() || '';
+
+    if (selectedListingIds.length > 0) params.set('listing_ids', selectedListingIds.join(','));
+    if (assignedId) params.set('assigned_user_id', assignedId);
+    params.set('status', selectedStatuses.length > 0 ? selectedStatuses.join(',') : '__none__');
+    if (selectedPriorities.length > 0 && selectedPriorities.length < 4) {
+        params.set('priority', selectedPriorities.join(','));
+    } else if (selectedPriorities.length === 0) {
+        // Preserve the visible empty selection while retaining its existing
+        // request behavior (no priority restriction).
+        params.set('priority', '__none__');
+    }
+    if (category) params.set('category', category);
+    if (pastDue) params.set('past_due', 'true');
+    if (recurring) params.set('recurring', 'true');
+    if (dueDays && parseInt(dueDays, 10) > 0) params.set('due_days', dueDays);
+    if (searchQuery) params.set('search', searchQuery);
+
+    if (selectedTagIds.length > 0 && tagFilter) {
+        const selectedTags = tagFilter.allTags.filter(tag => selectedTagIds.includes(tag.tag_id));
+        if (selectedTags.length > 0) {
+            params.set('tags', selectedTags.map(tag => tag.name).join(','));
+            params.set('tag_logic', tagLogic);
+        }
+    }
+    return params;
+}
+
+function syncTicketFiltersToUrl(params) {
+    const url = new URL(window.location.href);
+    ticketFilterQueryKeys.forEach(key => url.searchParams.delete(key));
+    params.forEach((value, key) => url.searchParams.set(key, value));
+    window.history.replaceState(
+        { ...(window.history.state || {}), ticketFilters: params.toString() },
+        '',
+        url
+    );
+}
+
+function buildTicketDetailUrl(ticketId) {
+    const returnTo = `${window.location.pathname}${window.location.search}`;
+    const params = new URLSearchParams({ return_to: returnTo });
+    return `/tickets/${ticketId}/page?${params.toString()}`;
+}
+
 function loadTickets() {
     const loading = document.getElementById('loading');
     const container = document.getElementById('ticketsContainer');
@@ -1006,85 +1068,12 @@ function loadTickets() {
     ticketRequestController = new AbortController();
     const requestController = ticketRequestController;
 
-    const params = new URLSearchParams();
-    // Get selected listing IDs from checkboxes
-    const listingCheckboxes = document.querySelectorAll('.listing-checkbox:checked');
-    const selectedListingIds = Array.from(listingCheckboxes).map(cb => cb.value);
-    const assignedSelect = document.getElementById('filterAssigned');
-    let assignedId = assignedSelect ? assignedSelect.value : '';
-    
-    // Fallback: Only use URL parameter during initial page load
-    // This handles the case where loadTickets() is called before the dropdown value is set on initial load
-    // But prevents applying URL filters when user manually changes filters
-    if (!assignedId && isInitialLoad) {
-        const urlParams = new URLSearchParams(window.location.search);
-        const urlAssignedId = urlParams.get('assigned_user_id');
-        if (urlAssignedId) {
-            assignedId = urlAssignedId;
-            // Try to set the dropdown value if the option exists
-            if (assignedSelect) {
-                const option = assignedSelect.querySelector(`option[value="${urlAssignedId}"]`) || 
-                              Array.from(assignedSelect.options).find(opt => opt.value == urlAssignedId);
-                if (option) {
-                    assignedSelect.value = urlAssignedId;
-                }
-            }
-        }
-    }
-    // URL filters seed the checkboxes once during page setup. After that, the
-    // visible controls are the source of truth for every request.
-    const statusCheckboxes = document.querySelectorAll('.status-checkbox:checked');
-    const selectedStatuses = Array.from(statusCheckboxes).map(cb => cb.value);
-    
-    const priorityCheckboxes = document.querySelectorAll('.priority-checkbox:checked');
-    const selectedPriorities = Array.from(priorityCheckboxes).map(cb => cb.value);
-    
-    // Debug: Log selected priorities and assigned user
-    console.log('Selected priorities from checkboxes:', selectedPriorities);
-    console.log('Assigned user ID from dropdown:', assignedId);
-    
-    const category = document.getElementById('filterCategory').value;
-    const pastDue = document.getElementById('filterPastDue').checked;
-    const recurring = document.getElementById('filterRecurring').checked;
-    const searchQuery = document.getElementById('searchInput').value.trim();
-    const dueDaysEl = document.getElementById('filterDueDays');
-    const dueDays = dueDaysEl ? dueDaysEl.value : '';
-    
-    // Add listing filter - send as comma-separated listing_ids
-    if (selectedListingIds.length > 0) {
-        params.append('listing_ids', selectedListingIds.join(','));
-    }
-    if (assignedId) {
-        params.append('assigned_user_id', assignedId);
-    }
-    // An explicit empty selection must return no tickets, not silently become
-    // an unfiltered request.
-    params.append('status', selectedStatuses.length > 0 ? selectedStatuses.join(',') : '__none__');
-    if (selectedPriorities.length > 0) {
-        // Send multiple priority values as comma-separated string
-        params.append('priority', selectedPriorities.join(','));
-        console.log('Adding priority filter to API request:', selectedPriorities.join(','));
-    } else {
-        console.log('No priorities selected - will show all tickets');
-    }
-    if (category) params.append('category', category);
-    if (pastDue) params.append('past_due', 'true');
-    if (recurring) params.append('recurring', 'true');
-    if (dueDays && parseInt(dueDays) > 0) {
-        params.append('due_days', dueDays);
-    }
-    if (searchQuery) params.append('search', searchQuery);
-    
-    // Add tag filters
-    if (selectedTagIds.length > 0 && tagFilter) {
-        const selectedTags = tagFilter.allTags.filter(t => selectedTagIds.includes(t.tag_id));
-        if (selectedTags.length > 0) {
-            params.append('tags', selectedTags.map(t => t.name).join(','));
-            params.append('tag_logic', tagLogic);
-        }
-    }
-    
-    fetch(`/tickets/api/tickets?${params.toString()}`, { signal: requestController.signal })
+    const filterParams = buildTicketFilterParams();
+    syncTicketFiltersToUrl(filterParams);
+    const requestParams = new URLSearchParams(filterParams);
+    if (requestParams.get('priority') === '__none__') requestParams.delete('priority');
+
+    fetch(`/tickets/api/tickets?${requestParams.toString()}`, { signal: requestController.signal })
         .then(response => response.json())
         .then(tickets => {
             if (requestSequence !== ticketRequestSequence) {
@@ -1134,7 +1123,7 @@ function loadTickets() {
 function createTicketCard(ticket) {
     return window.TicketCards.create(ticket, {
         listingCatalog: allListings,
-        action: { href: `/tickets/${ticket.ticket_id}/page` }
+        action: { href: buildTicketDetailUrl(ticket.ticket_id) }
     });
 }
 
@@ -1622,7 +1611,7 @@ function createSwimLaneCard(ticket) {
     
     card.innerHTML = `
         <div class="swimlane-card-header">
-            <a href="/tickets/${ticket.ticket_id}/page" class="swimlane-card-title">${escapeHtml(ticket.title)}</a>
+            <a href="${buildTicketDetailUrl(ticket.ticket_id)}" class="swimlane-card-title">${escapeHtml(ticket.title)}</a>
             ${recurringBadge}
         </div>
         <div class="swimlane-card-body">
