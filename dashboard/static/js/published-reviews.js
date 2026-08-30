@@ -157,7 +157,8 @@ function renderPublishedSummary(data) {
 }
 
 function renderPublishedRatingCounts(filterOptions) {
-    publishedSetText('publishedRatingAllCount', Number(filterOptions.range_total || 0).toLocaleString());
+    const ratingTotal = filterOptions.rating_total ?? filterOptions.range_total ?? 0;
+    publishedSetText('publishedRatingAllCount', Number(ratingTotal).toLocaleString());
     (filterOptions.ratings || []).forEach((option) => {
         publishedSetText(`publishedRating${option.rating}Count`, Number(option.count || 0).toLocaleString());
     });
