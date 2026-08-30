@@ -7,6 +7,7 @@ import sys
 import os
 import logging
 from datetime import datetime, date, timedelta
+from urllib.parse import urlsplit
 from flask import Blueprint, render_template, jsonify, request, redirect, url_for
 
 # Add parent directories to path
@@ -64,6 +65,18 @@ def _parse_ticket_statuses(status_param):
         if status.strip()
     ]
     return [status for status in requested_statuses if status in TICKET_STATUSES]
+
+
+def _ticket_list_return_url(raw_return_url):
+    """Allow a detail-page return target only when it is the local ticket list."""
+    fallback = url_for('tickets.tickets_list')
+    if not raw_return_url:
+        return fallback
+
+    parsed = urlsplit(raw_return_url)
+    if parsed.scheme or parsed.netloc or parsed.path.rstrip('/') != '/tickets':
+        return fallback
+    return raw_return_url
 
 
 @tickets_bp.route('/')
@@ -141,6 +154,8 @@ def ticket_detail_page(ticket_id):
             else "resolved"
         )
 
+    tickets_return_url = _ticket_list_return_url(request.args.get('return_to'))
+
     return render_template('tickets/detail.html', 
                          ticket=ticket, 
                          listing=listing,
@@ -149,7 +164,8 @@ def ticket_detail_page(ticket_id):
                          linked_guest_issue=linked_guest_issue,
                          linked_guest_issue_view=linked_guest_issue_view,
                          recurrence_description=recurrence_description,
-                         next_occurrence_date=next_occurrence_date)
+                         next_occurrence_date=next_occurrence_date,
+                         tickets_return_url=tickets_return_url)
 
 
 @tickets_bp.route('/create')

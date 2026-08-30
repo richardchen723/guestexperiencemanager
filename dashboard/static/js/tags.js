@@ -312,7 +312,7 @@ class TagFilter {
         this.logic = this.options.logic;
         this.filteredTags = [];
         this.render();
-        this.loadTags();
+        this.ready = this.loadTags();
     }
 
     render() {
@@ -673,20 +673,38 @@ class TagFilter {
         });
     }
 
-    setLogic(logic) {
-        this.logic = logic;
+    updateLogicButtons() {
         // Update button states
         const logicToggle = this.container.querySelector('.tag-filter-logic-toggle');
         if (logicToggle) {
             const buttons = logicToggle.querySelectorAll('button');
             buttons.forEach(btn => {
-                if (btn.textContent === logic) {
+                if (btn.textContent === this.logic) {
                     btn.classList.add('active');
                 } else {
                     btn.classList.remove('active');
                 }
             });
         }
+    }
+
+    setSelectedTags(tagIds, logic = this.logic, notify = false) {
+        const availableIds = new Set(this.allTags.map(tag => Number(tag.tag_id)));
+        this.selectedTags = [...new Set((tagIds || [])
+            .map(tagId => Number(tagId))
+            .filter(tagId => Number.isInteger(tagId) && availableIds.has(tagId)))];
+        this.logic = logic === 'OR' ? 'OR' : 'AND';
+        this.updateLogicButtons();
+        this.updateFilteredTags();
+        this.updateSelectedDisplay();
+        if (notify) {
+            this.options.onFilterChange(this.selectedTags, this.logic);
+        }
+    }
+
+    setLogic(logic) {
+        this.logic = logic === 'OR' ? 'OR' : 'AND';
+        this.updateLogicButtons();
         this.options.onFilterChange(this.selectedTags, this.logic);
     }
 
