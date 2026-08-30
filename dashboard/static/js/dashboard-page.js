@@ -209,51 +209,9 @@ function renderOccupancyChart(occupancyData) {
 
 // Reuse ticket card creation (adapted from tickets/list.html)
 function createTicketCard(ticket) {
-    const card = document.createElement('article');
-    card.className = 'dashboard-ticket-card';
-    card.dataset.priority = dashboardClassToken(ticket.priority || 'Low');
-
-    const statusClass = dashboardClassToken(ticket.status || 'Open');
-    const priorityClass = dashboardClassToken(ticket.priority || 'Low');
-    const overdue = isDashboardTicketOverdue(ticket);
-    const assigneeName = ticket.assigned_user_name || 'Unassigned';
-
-    card.innerHTML = `
-        <div class="dashboard-ticket-card__top">
-            <span class="dashboard-ticket-card__number">#${escapeHtml(ticket.ticket_id)}</span>
-            <div class="dashboard-ticket-card__badges">
-                <span class="dashboard-ticket-pill dashboard-ticket-pill--status status-${statusClass}">${escapeHtml(ticket.status || 'Open')}</span>
-                <span class="dashboard-ticket-pill dashboard-ticket-pill--priority priority-${priorityClass}">${escapeHtml(ticket.priority || 'Low')}</span>
-            </div>
-        </div>
-        <h3 class="dashboard-ticket-card__title">${escapeHtml(ticket.title || 'Untitled ticket')}</h3>
-        <div class="dashboard-ticket-card__assignee">
-            <span class="dashboard-ticket-avatar" aria-hidden="true">${escapeHtml(dashboardInitials(assigneeName))}</span>
-            <span>
-                <small>Assignee</small>
-                <strong>${escapeHtml(assigneeName)}</strong>
-            </span>
-        </div>
-        <div class="dashboard-ticket-card__dates">
-            <span>
-                <small>Created</small>
-                <strong>${formatDate(ticket.created_at)}</strong>
-            </span>
-            <span class="${overdue ? 'is-overdue' : ''}">
-                <small>${overdue ? 'Overdue' : 'Due'}</small>
-                <strong>${ticket.due_date ? formatDate(ticket.due_date) : 'No due date'}</strong>
-            </span>
-        </div>
-        <button
-            class="dashboard-ticket-card__open"
-            type="button"
-            data-action="open-ticket-detail"
-            data-ticket-id="${escapeHtml(ticket.ticket_id)}"
-            aria-label="Open details for ticket ${escapeHtml(ticket.ticket_id)}: ${escapeHtml(ticket.title || 'Untitled ticket')}"
-        ></button>
-    `;
-
-    return card;
+    return window.TicketCards.create(ticket, {
+        action: { dataAction: 'open-ticket-detail' }
+    });
 }
 
 function handleDashboardTicketClick(event) {
@@ -492,9 +450,7 @@ function closeDashboardTicketDetail(restoreFocus = true) {
 }
 
 function dashboardTicketProperty(ticket) {
-    if (!ticket.listing_id) return 'General';
-    if (!ticket.listing) return `Listing ${ticket.listing_id}`;
-    return ticket.listing.internal_listing_name || ticket.listing.name || `Listing ${ticket.listing_id}`;
+    return window.TicketCards.propertyName(ticket);
 }
 
 function isDashboardTicketOverdue(ticket) {

@@ -363,7 +363,7 @@
         Loading tickets...
     </div>
     
-    <div id="ticketsContainer" class="tickets-container">
+    <div id="ticketsContainer" class="tickets-container ticket-summary-grid">
         <!-- Tickets will be loaded here -->
     </div>
     
@@ -1132,111 +1132,10 @@ function loadTickets() {
 }
 
 function createTicketCard(ticket) {
-    const card = document.createElement('div');
-    card.className = 'ticket-card';
-    
-    // Get listing names - support multiple listings
-    let listingName = 'General';
-    if (ticket.listings && ticket.listings.length > 0) {
-        // Multiple listings - show all
-        const listingNames = ticket.listings.map(l => 
-            l.internal_listing_name || l.name || `Listing ${l.listing_id}`
-        );
-        listingName = listingNames.join(', ');
-    } else if (ticket.listing_id) {
-        // Fallback to single listing (backward compatibility)
-        if (ticket.listing) {
-            // Use listing info from API response (includes internal_listing_name)
-            listingName = ticket.listing.internal_listing_name || ticket.listing.name || `Listing ${ticket.listing_id}`;
-        } else {
-            // Fallback to allListings lookup
-    const listing = allListings.find(l => l.listing_id === ticket.listing_id);
-            if (listing) {
-                listingName = listing.internal_listing_name || listing.name || `Listing ${ticket.listing_id}`;
-            } else {
-                listingName = `Listing ${ticket.listing_id}`;
-            }
-        }
-    }
-    
-    const statusClass = ticket.status.toLowerCase().replace(' ', '-');
-    const priorityClass = ticket.priority.toLowerCase();
-    const categoryClass = ticket.category ? ticket.category.toLowerCase() : 'other';
-    
-    const dueDate = ticket.due_date ? new Date(ticket.due_date) : null;
-    const isOverdue = dueDate && dueDate < new Date() && ticket.status !== 'Resolved' && ticket.status !== 'Closed';
-    
-    const categoryDisplay = ticket.category ? ticket.category.charAt(0).toUpperCase() + ticket.category.slice(1) : 'Other';
-    
-    // Render tags
-    let tagsHtml = '';
-    if (ticket.tags && ticket.tags.length > 0) {
-        tagsHtml = '<div class="ticket-card-tags tags-display" style="margin-top: 0.5rem;">';
-        ticket.tags.forEach(tag => {
-            const tagStyle = tag.color ? `style="background-color: ${tag.color}; border-color: ${tag.color};" class="tag-chip has-color"` : 'class="tag-chip"';
-            const inheritedClass = tag.is_inherited ? ' tag-chip-inherited' : '';
-            const title = tag.is_inherited ? ' title="Inherited from property"' : '';
-            tagsHtml += `<span ${tagStyle}${inheritedClass}${title}>${escapeHtml(tag.name)}</span>`;
-        });
-        tagsHtml += '</div>';
-    }
-    
-    // Check if recurring
-    let recurringBadge = '';
-    let nextOccurrenceHtml = '';
-    if (ticket.is_recurring) {
-        const recurrenceType = ticket.recurrence_type || 'frequency';
-        const typeNames = {
-            'frequency': 'Frequency',
-            'weekly': 'Weekly',
-            'monthly': 'Monthly',
-            'quarterly': 'Quarterly',
-            'annual': 'Annual'
-        };
-        const typeName = typeNames[recurrenceType] || 'Recurring';
-        recurringBadge = `<span class="status-badge recurring-badge" title="${typeName} recurring task"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-5V2M4 17h5v5M6.1 8A7 7 0 0 1 18 6l2 1M4 17l2 1a7 7 0 0 0 11.9-2"/></svg>${typeName}</span>`;
-        
-        // Display next occurrence date if available
-        if (ticket.next_occurrence_date) {
-            try {
-                const nextOccurrenceDate = new Date(ticket.next_occurrence_date);
-                if (!isNaN(nextOccurrenceDate.getTime())) {
-                    nextOccurrenceHtml = `<span class="ticket-next-occurrence" style="font-size: 0.875rem; color: #6366f1; font-weight: 500;">Next: ${formatDate(nextOccurrenceDate)}</span>`;
-                }
-            } catch (e) {
-                console.error('Error parsing next_occurrence_date:', e, ticket.next_occurrence_date);
-            }
-        }
-    }
-    
-    card.innerHTML = `
-        <div class="ticket-card-header">
-                    <h3><a href="/tickets/${ticket.ticket_id}/page">${escapeHtml(ticket.title)}</a></h3>
-            <div class="ticket-badges">
-                <span class="status-badge status-${statusClass}">${escapeHtml(ticket.status)}</span>
-                <span class="priority-badge priority-${priorityClass}">${escapeHtml(ticket.priority)}</span>
-                <span class="category-badge category-${categoryClass}">${escapeHtml(categoryDisplay)}</span>
-                ${recurringBadge}
-            </div>
-        </div>
-        <div class="ticket-card-body">
-            ${ticket.issue_title ? `<p class="ticket-issue">Issue: ${escapeHtml(ticket.issue_title)}</p>` : ''}
-            <p class="ticket-listing">Property: ${escapeHtml(listingName)}</p>
-            ${ticket.description ? `<p class="ticket-description">${escapeHtml(ticket.description.substring(0, 150))}${ticket.description.length > 150 ? '...' : ''}</p>` : ''}
-            ${tagsHtml}
-            <div class="ticket-meta">
-                ${ticket.assigned_user_name ? `<span class="ticket-assigned">Assigned to: ${escapeHtml(ticket.assigned_user_name)}</span>` : '<span class="ticket-assigned">Unassigned</span>'}
-                ${dueDate ? `<span class="ticket-due ${isOverdue ? 'overdue' : ''}">Due: ${formatDate(dueDate)}</span>` : ''}
-                ${nextOccurrenceHtml}
-            </div>
-        </div>
-        <div class="ticket-card-footer">
-            <span class="ticket-created">Created ${formatDate(new Date(ticket.created_at))}</span>
-            <a href="/tickets/${ticket.ticket_id}/page" class="btn-secondary">View Details</a>
-        </div>
-    `;
-    
-    return card;
+    return window.TicketCards.create(ticket, {
+        listingCatalog: allListings,
+        action: { href: `/tickets/${ticket.ticket_id}/page` }
+    });
 }
 
 function applyFilters() {

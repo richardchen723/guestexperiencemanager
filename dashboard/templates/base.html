@@ -19,6 +19,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tickets.css') }}">
     {% block extra_head %}{% endblock %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/product-shell.css', v='20260809-1') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/ticket-cards.css', v='20260830-1') }}">
 </head>
 <body
     data-is-admin="{% if current_user and current_user.is_admin() %}true{% else %}false{% endif %}"
@@ -218,6 +219,7 @@
     <script src="{{ url_for('static', filename='js/components/LoadingSkeleton.js') }}"></script>
     <script src="{{ url_for('static', filename='js/mobile-forms.js') }}"></script>
     <script src="{{ url_for('static', filename='js/product-shell.js', v='20260808-4') }}"></script>
+    <script src="{{ url_for('static', filename='js/ticket-cards.js', v='20260830-1') }}"></script>
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>

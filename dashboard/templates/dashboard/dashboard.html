@@ -69,7 +69,7 @@
                 </div>
                 <a href="/tickets?assigned_user_id={{ current_user.user_id }}" class="btn-link">View All</a>
             </div>
-            <div id="myTicketsList" class="dashboard-tickets-list" aria-live="polite">
+            <div id="myTicketsList" class="dashboard-tickets-list ticket-summary-grid" aria-live="polite">
                 <!-- Tickets loaded via JavaScript -->
             </div>
             <div id="noTickets" class="empty-state" style="display: none;">
@@ -157,5 +157,5 @@
     // Set current user ID for dashboard navigation
     window.CURRENT_USER_ID = {{ current_user.user_id if current_user.user_id else 'null' }};
 </script>
-<script src="{{ url_for('static', filename='js/dashboard-page.js', v='20260829-2') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard-page.js', v='20260830-1') }}"></script>
 {% endblock %}

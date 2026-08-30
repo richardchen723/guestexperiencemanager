@@ -422,12 +422,33 @@ def api_list_tickets():
                             filtered_tickets.append(t)
             tickets = filtered_tickets
         
-        # Get listing names for display (only for tickets with listing_id)
+        ticket_ids = [t.ticket_id for t in tickets]
+
+        # Get every property association before loading names. Some newer tickets
+        # use only the many-to-many junction and have no legacy listing_id value.
+        from dashboard.tickets.models import TicketListing
+        ticket_listings_map = {}
+        if ticket_ids:
+            ticket_listings = session.query(TicketListing).filter(
+                TicketListing.ticket_id.in_(ticket_ids)
+            ).all()
+            for association in ticket_listings:
+                ticket_listings_map.setdefault(association.ticket_id, []).append(association.listing_id)
+
+        listing_ids = {
+            listing_id
+            for linked_ids in ticket_listings_map.values()
+            for listing_id in linked_ids
+        }
+        listing_ids.update(t.listing_id for t in tickets if t.listing_id)
+
+        # Get listing names for display.
         listing_map = {}
-        if tickets and any(t.listing_id for t in tickets):
-            listings = main_session.query(Listing).all()
+        if listing_ids:
+            listings = main_session.query(Listing).filter(Listing.listing_id.in_(listing_ids)).all()
             listing_map = {
                 l.listing_id: {
+                    'listing_id': l.listing_id,
                     'name': l.name,
                     'internal_listing_name': l.internal_listing_name,
                     'address': l.address
@@ -435,7 +456,6 @@ def api_list_tickets():
             }
         
         # Get tags for all tickets
-        ticket_ids = [t.ticket_id for t in tickets]
         ticket_tags_map = {}
         if ticket_ids:
             ticket_tags = session.query(TicketTag).filter(
@@ -455,18 +475,6 @@ def api_list_tickets():
                             **tag_map[tt.tag_id],
                             'is_inherited': tt.is_inherited
                         })
-        
-        # Get all listings for tickets (from TicketListing junction table)
-        from dashboard.tickets.models import TicketListing
-        ticket_listings_map = {}
-        if ticket_ids:
-            ticket_listings = session.query(TicketListing).filter(
-                TicketListing.ticket_id.in_(ticket_ids)
-            ).all()
-            for tl in ticket_listings:
-                if tl.ticket_id not in ticket_listings_map:
-                    ticket_listings_map[tl.ticket_id] = []
-                ticket_listings_map[tl.ticket_id].append(tl.listing_id)
         
         result = []
         for ticket in tickets:

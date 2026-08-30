@@ -17,7 +17,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, project_root)
 
 from dashboard.tickets.models import (
-    Ticket, TicketTag, get_session, TICKET_STATUSES, TICKET_PRIORITIES, STANDARD_TICKET_TYPE
+    Ticket, TicketListing, TicketTag, get_session, TICKET_STATUSES, TICKET_PRIORITIES, STANDARD_TICKET_TYPE
 )
 from database.models import Reservation, Listing, get_session as get_main_session
 import dashboard.config as config
@@ -99,8 +99,22 @@ class DashboardService:
             
             tickets = sorted(tickets, key=sort_key)[:limit]
             
-            # Get listing info for tickets with listing_id
-            listing_ids = [t.listing_id for t in tickets if t.listing_id]
+            ticket_ids = [t.ticket_id for t in tickets]
+            ticket_listing_ids = {}
+            if ticket_ids:
+                ticket_listings = self.ticket_session.query(TicketListing).filter(
+                    TicketListing.ticket_id.in_(ticket_ids)
+                ).all()
+                for association in ticket_listings:
+                    ticket_listing_ids.setdefault(association.ticket_id, []).append(association.listing_id)
+
+            # Load every linked property, including legacy tickets that only use listing_id.
+            listing_ids = {
+                listing_id
+                for linked_ids in ticket_listing_ids.values()
+                for listing_id in linked_ids
+            }
+            listing_ids.update(t.listing_id for t in tickets if t.listing_id)
             listing_map = {}
             if listing_ids:
                 listings = self.main_session.query(Listing).filter(
@@ -109,7 +123,6 @@ class DashboardService:
                 listing_map = {l.listing_id: l for l in listings}
             
             # Get tags for tickets
-            ticket_ids = [t.ticket_id for t in tickets]
             ticket_tags_map = {}
             if ticket_ids:
                 from database.models import Tag
@@ -134,15 +147,22 @@ class DashboardService:
             result = []
             for ticket in tickets:
                 ticket_dict = ticket.to_dict(include_comments=False)
-                if ticket.listing_id and ticket.listing_id in listing_map:
-                    listing = listing_map[ticket.listing_id]
-                    ticket_dict['listing'] = {
+                linked_listing_ids = ticket_listing_ids.get(ticket.ticket_id, [])
+                if not linked_listing_ids and ticket.listing_id:
+                    linked_listing_ids = [ticket.listing_id]
+                ticket_dict['listings'] = [
+                    {
                         'listing_id': listing.listing_id,
                         'name': listing.name,
                         'internal_listing_name': listing.internal_listing_name,
                         'address': listing.address,
                         'city': listing.city
                     }
+                    for listing_id in linked_listing_ids
+                    if (listing := listing_map.get(listing_id)) is not None
+                ]
+                if ticket_dict['listings']:
+                    ticket_dict['listing'] = ticket_dict['listings'][0]
                 ticket_dict['tags'] = ticket_tags_map.get(ticket.ticket_id, [])
                 result.append(ticket_dict)
             
