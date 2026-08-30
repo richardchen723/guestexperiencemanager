@@ -9,6 +9,7 @@ class MentionHandler {
         this.options = {
             usersEndpoint: options.usersEndpoint || '/tickets/api/users',
             maxResults: options.maxResults || 10,
+            dropdownClassName: options.dropdownClassName || '',
             ...options
         };
         
@@ -49,9 +50,17 @@ class MentionHandler {
     
     createDropdown() {
         this.dropdown = document.createElement('div');
-        this.dropdown.className = 'mention-dropdown';
+        this.dropdown.className = ['mention-dropdown', this.options.dropdownClassName].filter(Boolean).join(' ');
+        this.dropdown.id = `mentionDropdown-${MentionHandler.nextId++}`;
+        this.dropdown.setAttribute('role', 'listbox');
+        this.dropdown.setAttribute('aria-label', 'Team members');
         this.dropdown.style.display = 'none';
         document.body.appendChild(this.dropdown);
+
+        this.textarea.setAttribute('aria-autocomplete', 'list');
+        this.textarea.setAttribute('aria-haspopup', 'listbox');
+        this.textarea.setAttribute('aria-controls', this.dropdown.id);
+        this.textarea.setAttribute('aria-expanded', 'false');
     }
     
     attachListeners() {
@@ -73,11 +82,14 @@ class MentionHandler {
         
         // Find @ mention at cursor position
         const textBeforeCursor = value.substring(0, cursorPos);
-        const match = textBeforeCursor.match(/@(\w*)$/);
+        // Match a mention only at the start of a line or after whitespace. The
+        // query may contain spaces so full names (and "@ ") keep the picker open.
+        const match = textBeforeCursor.match(/(^|[\s(])@([^\n@]*)$/);
         
         if (match) {
-            const query = match[1].toLowerCase();
-            const mentionStart = cursorPos - match[0].length;
+            const rawQuery = match[2];
+            const query = rawQuery.trimStart().toLowerCase();
+            const mentionStart = cursorPos - rawQuery.length - 1;
             
             this.currentMention = {
                 start: mentionStart,
@@ -102,12 +114,14 @@ class MentionHandler {
         switch (e.key) {
             case 'ArrowDown':
                 e.preventDefault();
+                e.stopPropagation();
                 this.selectedIndex = Math.min(this.selectedIndex + 1, items.length - 1);
                 this.updateSelection(items);
                 break;
                 
             case 'ArrowUp':
                 e.preventDefault();
+                e.stopPropagation();
                 this.selectedIndex = Math.max(this.selectedIndex - 1, -1);
                 this.updateSelection(items);
                 break;
@@ -115,6 +129,7 @@ class MentionHandler {
             case 'Enter':
             case 'Tab':
                 e.preventDefault();
+                e.stopPropagation();
                 if (this.selectedIndex >= 0 && items[this.selectedIndex]) {
                     this.selectUser(items[this.selectedIndex].dataset.userId);
                 }
@@ -122,6 +137,7 @@ class MentionHandler {
                 
             case 'Escape':
                 e.preventDefault();
+                e.stopPropagation();
                 this.hideDropdown();
                 break;
         }
@@ -145,6 +161,9 @@ class MentionHandler {
         filtered.forEach((user, index) => {
             const item = document.createElement('div');
             item.className = 'mention-item';
+            item.id = `${this.dropdown.id}-option-${index}`;
+            item.setAttribute('role', 'option');
+            item.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
             item.dataset.userId = user.id;
             item.dataset.userName = user.name;
             item.dataset.userEmail = user.email;
@@ -160,6 +179,7 @@ class MentionHandler {
             `;
             
             item.addEventListener('click', () => this.selectUser(user.id));
+            item.addEventListener('mousedown', event => event.preventDefault());
             item.addEventListener('mouseenter', () => {
                 this.selectedIndex = index;
                 this.updateSelection(this.dropdown.querySelectorAll('.mention-item'));
@@ -168,9 +188,11 @@ class MentionHandler {
             this.dropdown.appendChild(item);
         });
         
-        // Position dropdown
-        this.positionDropdown(position);
         this.dropdown.style.display = 'block';
+        // Position after display so the measured height reflects the results.
+        this.positionDropdown(position);
+        this.textarea.setAttribute('aria-expanded', 'true');
+        this.updateSelection(this.dropdown.querySelectorAll('.mention-item'));
     }
     
     positionDropdown(mentionStart) {
@@ -182,8 +204,14 @@ class MentionHandler {
         // Calculate position based on cursor
         // For simplicity, position below textarea
         this.dropdown.style.position = 'absolute';
-        this.dropdown.style.top = `${rect.bottom + scrollTop + 5}px`;
-        this.dropdown.style.left = `${rect.left + scrollLeft}px`;
+        const dropdownHeight = Math.min(260, Math.max(92, this.dropdown.scrollHeight));
+        const roomBelow = window.innerHeight - rect.bottom;
+        const top = roomBelow >= dropdownHeight + 16
+            ? rect.bottom + scrollTop + 6
+            : Math.max(scrollTop + 8, rect.top + scrollTop - dropdownHeight - 6);
+        this.dropdown.style.top = `${top}px`;
+        this.dropdown.style.left = `${Math.max(scrollLeft + 8, rect.left + scrollLeft)}px`;
+        this.dropdown.style.width = `${Math.min(Math.max(rect.width, 280), window.innerWidth - 32)}px`;
         this.dropdown.style.zIndex = '10000';
     }
     
@@ -191,10 +219,13 @@ class MentionHandler {
         items.forEach((item, index) => {
             if (index === this.selectedIndex) {
                 item.classList.add('selected');
+                item.setAttribute('aria-selected', 'true');
+                this.textarea.setAttribute('aria-activedescendant', item.id);
                 // Scroll into view
                 item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
             } else {
                 item.classList.remove('selected');
+                item.setAttribute('aria-selected', 'false');
             }
         });
     }
@@ -228,6 +259,8 @@ class MentionHandler {
         if (this.dropdown) {
             this.dropdown.style.display = 'none';
         }
+        this.textarea.setAttribute('aria-expanded', 'false');
+        this.textarea.removeAttribute('aria-activedescendant');
         this.currentMention = null;
         this.selectedIndex = -1;
     }
@@ -246,6 +279,8 @@ class MentionHandler {
     }
 }
 
+MentionHandler.nextId = 1;
+
 // Initialize mention handlers for all textareas with data-mention attribute
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize on comment textarea
@@ -260,7 +295,5 @@ document.addEventListener('DOMContentLoaded', function() {
         window.descriptionMentionHandler = new MentionHandler(descriptionTextarea);
     }
 });
-
-
 
 

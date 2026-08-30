@@ -2,6 +2,10 @@
 
 {% block title %}Tickets - Hostaway Insights Dashboard{% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ticket-swimlane.css', v='20260830-1') }}">
+{% endblock %}
+
 {% block content %}
 <div class="tickets-page">
     <div class="tickets-header">
@@ -376,7 +380,98 @@
     </div>
 </div>
 
+<div id="swimLaneTransitionModal" class="swimlane-transition-modal" hidden>
+    <button
+        type="button"
+        class="swimlane-transition-backdrop"
+        data-transition-action="cancel"
+        aria-label="Cancel ticket movement"
+    ></button>
+    <section
+        class="swimlane-transition-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="swimLaneTransitionTitle"
+        aria-describedby="swimLaneTransitionIntro"
+    >
+        <header class="swimlane-transition-header">
+            <div>
+                <span class="swimlane-transition-eyebrow">Workflow handoff</span>
+                <h2 id="swimLaneTransitionTitle">Move ticket</h2>
+                <p id="swimLaneTransitionIntro">Confirm the next status and leave a useful note for the team.</p>
+            </div>
+            <button
+                type="button"
+                class="swimlane-transition-close"
+                data-transition-action="cancel"
+                aria-label="Close movement dialog"
+            >×</button>
+        </header>
+
+        <div class="swimlane-transition-body">
+            <div class="swimlane-transition-ticket">
+                <span id="swimLaneTransitionNumber">Ticket</span>
+                <strong id="swimLaneTransitionTicketTitle"></strong>
+                <small id="swimLaneTransitionTicketMeta"></small>
+            </div>
+
+            <div class="swimlane-transition-workflow" aria-labelledby="swimLaneTransitionWorkflowTitle">
+                <div class="swimlane-transition-workflow-heading">
+                    <div>
+                        <span id="swimLaneTransitionWorkflowTitle">Update workflow</span>
+                        <small>Set the next status and who owns it.</small>
+                    </div>
+                    <span class="swimlane-transition-current">Current <strong id="swimLaneTransitionFrom"></strong></span>
+                </div>
+                <div class="swimlane-transition-fields">
+                    <label for="swimLaneTransitionStatus">
+                        <span>Status</span>
+                        <select id="swimLaneTransitionStatus"></select>
+                    </label>
+                    <label for="swimLaneTransitionAssignee">
+                        <span>Assignee</span>
+                        <select id="swimLaneTransitionAssignee"></select>
+                    </label>
+                </div>
+            </div>
+
+            <label class="swimlane-transition-comment" for="swimLaneTransitionComment">
+                <span>Handoff comment <strong>Required</strong></span>
+                <textarea
+                    id="swimLaneTransitionComment"
+                    rows="5"
+                    maxlength="4000"
+                    required
+                    aria-required="true"
+                    aria-describedby="swimLaneTransitionMentionHint swimLaneTransitionCharacterHint swimLaneTransitionError"
+                    placeholder="What changed, and what should the next person know?"
+                ></textarea>
+                <div class="swimlane-transition-comment-meta">
+                    <small id="swimLaneTransitionMentionHint">Type <kbd>@</kbd> to tag a team member</small>
+                    <small id="swimLaneTransitionCharacterHint"><span id="swimLaneTransitionCharacterCount">0</span> / 4,000 characters</small>
+                </div>
+            </label>
+
+            <p id="swimLaneTransitionError" class="swimlane-transition-error" role="alert" hidden></p>
+        </div>
+
+        <footer class="swimlane-transition-footer">
+            <a id="swimLaneTransitionDetails" href="#" class="swimlane-transition-details">Open full ticket</a>
+            <div>
+                <button type="button" class="swimlane-transition-button swimlane-transition-button--quiet" data-transition-action="cancel">Cancel</button>
+                <button type="button" id="swimLaneTransitionSave" class="swimlane-transition-button swimlane-transition-button--primary">
+                    <span>Post comment &amp; move</span>
+                    <span aria-hidden="true">→</span>
+                </button>
+            </div>
+        </footer>
+    </section>
+</div>
+
+<div id="swimLaneToast" class="swimlane-toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
 <script src="{{ url_for('static', filename='js/tags.js', v='20260808-4') }}"></script>
+<script src="{{ url_for('static', filename='js/mention-handler.js', v='20260830-2') }}"></script>
 <script>
 let allListings = [];
 let allUsers = [];
@@ -387,7 +482,14 @@ let searchTimeout = null;
 let currentView = localStorage.getItem('ticketView') || 'list'; // 'list' or 'swimlane'
 let ticketRequestSequence = 0;
 let ticketRequestController = null;
+let currentTickets = [];
+let swimLaneDraggedTicketId = null;
+let swimLaneTransitionState = null;
+let pendingSwimLaneContext = null;
+let swimLaneToastTimer = null;
+let swimLaneMentionHandler = null;
 const defaultActiveStatuses = ['Open', 'Assigned', 'In Progress', 'Blocked'];
+const swimLaneStatuses = ['Open', 'Assigned', 'In Progress', 'Blocked', 'Resolved', 'Closed'];
 const ticketFilterQueryKeys = [
     'listing_ids',
     'assigned_user_id',
@@ -689,6 +791,13 @@ document.addEventListener('DOMContentLoaded', function() {
     updatePriorityFilterText();
     
     // Initialize view based on saved preference
+    initializeSwimLaneInteractions();
+    const handoffComment = document.getElementById('swimLaneTransitionComment');
+    if (handoffComment && typeof MentionHandler !== 'undefined') {
+        swimLaneMentionHandler = new MentionHandler(handoffComment, {
+            dropdownClassName: 'mention-dropdown--handoff',
+        });
+    }
     toggleView(currentView, false, false); // Initialize the view without starting a pre-filter request
 });
 
@@ -1082,9 +1191,12 @@ function loadTickets() {
             loading.style.display = 'none';
             
             if (tickets.length === 0) {
-                noTickets.style.display = 'block';
+                currentTickets = [];
                 if (currentView === 'swimlane') {
-                    document.getElementById('swimLaneContainer').innerHTML = '<div class="no-results">No tickets found.</div>';
+                    noTickets.style.display = 'none';
+                    renderSwimLaneView([]);
+                } else {
+                    noTickets.style.display = 'block';
                 }
                 return;
             }
@@ -1100,6 +1212,7 @@ function loadTickets() {
                 seenIds.add(ticket.ticket_id);
                 return true;
             });
+            currentTickets = uniqueTickets;
             
             // Render based on current view
             if (currentView === 'swimlane') {
@@ -1116,7 +1229,16 @@ function loadTickets() {
                 return;
             }
             loading.style.display = 'none';
-            container.innerHTML = `<div class="error">Error loading tickets: ${error.message}</div>`;
+            const errorTarget = currentView === 'swimlane'
+                ? document.getElementById('swimLaneContainer')
+                : container;
+            errorTarget.innerHTML = `
+                <div class="swimlane-board-error" role="alert">
+                    <strong>Tickets could not be loaded</strong>
+                    <span>${escapeHtml(error.message || 'Try refreshing the page.')}</span>
+                    <button type="button" onclick="loadTickets()">Try again</button>
+                </div>
+            `;
         });
 }
 
@@ -1407,135 +1529,78 @@ function toggleView(view, savePreference = true, reloadTickets = true) {
 function renderSwimLaneView(tickets) {
     const container = document.getElementById('swimLaneContainer');
     container.innerHTML = '';
-    
-    // Define status order
-    const statusOrder = ['Open', 'Assigned', 'In Progress', 'Blocked', 'Resolved', 'Closed'];
-    
-    // Group tickets by assigned user and status
-    const userTickets = {};
-    const unassignedTickets = {};
-    
-    tickets.forEach(ticket => {
-        const userId = ticket.assigned_user_id || 'unassigned';
-        const userName = ticket.assigned_user_name || 'Unassigned';
-        const status = ticket.status || 'Open';
-        
-        if (userId === 'unassigned') {
-            if (!unassignedTickets[status]) {
-                unassignedTickets[status] = [];
-            }
-            unassignedTickets[status].push(ticket);
-        } else {
-            if (!userTickets[userId]) {
-                userTickets[userId] = {
-                    name: userName,
-                    tickets: {}
-                };
-            }
-            if (!userTickets[userId].tickets[status]) {
-                userTickets[userId].tickets[status] = [];
-            }
-            userTickets[userId].tickets[status].push(ticket);
-        }
-    });
-    
-    // Create table structure
-    const table = document.createElement('table');
-    table.className = 'swimlane-table';
-    
-    // Create header row with status columns
-    const headerRow = document.createElement('thead');
-    const headerTr = document.createElement('tr');
-    const userHeader = document.createElement('th');
-    userHeader.className = 'swimlane-user-header';
-    userHeader.textContent = 'User';
-    headerTr.appendChild(userHeader);
-    
-    statusOrder.forEach(status => {
-        const th = document.createElement('th');
-        th.className = `swimlane-status-header status-${status.toLowerCase().replace(' ', '-')}`;
-        th.innerHTML = `
-            <div class="status-header-content">
-                <span class="status-name">${escapeHtml(status)}</span>
-                <span class="status-count" id="count-${status}">0</span>
-            </div>
-        `;
-        headerTr.appendChild(th);
-    });
-    
-    headerRow.appendChild(headerTr);
-    table.appendChild(headerRow);
-    
-    // Create body
-    const tbody = document.createElement('tbody');
-    
-    // Add unassigned row first
-    if (Object.keys(unassignedTickets).length > 0 || Object.keys(userTickets).length === 0) {
-        const unassignedRow = createSwimLaneRow('unassigned', 'Unassigned', unassignedTickets, statusOrder);
-        tbody.appendChild(unassignedRow);
-    }
-    
-    // Add user rows
-    Object.keys(userTickets).sort().forEach(userId => {
-        const userData = userTickets[userId];
-        const row = createSwimLaneRow(userId, userData.name, userData.tickets, statusOrder);
-        tbody.appendChild(row);
-    });
-    
-    table.appendChild(tbody);
-    container.appendChild(table);
-    
-    // Update status counts
-    statusOrder.forEach(status => {
-        const count = tickets.filter(t => t.status === status).length;
-        const countEl = document.getElementById(`count-${status}`);
-        if (countEl) {
-            countEl.textContent = count;
-        }
-    });
-}
+    container.tabIndex = -1;
 
-function createSwimLaneRow(userId, userName, ticketsByStatus, statusOrder) {
-    const row = document.createElement('tr');
-    row.className = 'swimlane-row';
-    row.dataset.userId = userId;
-    
-    // User name cell
-    const userCell = document.createElement('td');
-    userCell.className = 'swimlane-user-cell';
-    userCell.innerHTML = `
-        <div class="swimlane-user-info">
-            <div class="swimlane-user-name">${escapeHtml(userName)}</div>
-            <div class="swimlane-user-count">${Object.values(ticketsByStatus).reduce((sum, arr) => sum + arr.length, 0)} tickets</div>
-        </div>
+    const shell = document.createElement('section');
+    shell.className = 'swimlane-board-shell';
+    shell.setAttribute('aria-label', 'Ticket workflow board');
+    shell.innerHTML = `
+        <header class="swimlane-board-intro">
+            <div class="swimlane-board-intro__copy">
+                <span class="swimlane-board-kicker">Workflow board</span>
+                <h3>Move work forward</h3>
+                <p>${tickets.length.toLocaleString()} ${tickets.length === 1 ? 'ticket' : 'tickets'} in the current filters. Drop a card into a lane, then add a handoff comment.</p>
+            </div>
+            <div class="swimlane-board-guidance">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h11M8 12h11M8 17h11M4 7h.01M4 12h.01M4 17h.01"/></svg>
+                <span>Drag a card or use its Move button</span>
+            </div>
+        </header>
     `;
-    row.appendChild(userCell);
-    
-    // Status cells
-    statusOrder.forEach(status => {
-        const cell = document.createElement('td');
-        cell.className = `swimlane-cell status-${status.toLowerCase().replace(' ', '-')}`;
-        
-        const tickets = ticketsByStatus[status] || [];
-        const cellContent = document.createElement('div');
-        cellContent.className = 'swimlane-cell-content';
-        
-        tickets.forEach(ticket => {
-            const card = createSwimLaneCard(ticket);
-            cellContent.appendChild(card);
-        });
-        
-        cell.appendChild(cellContent);
-        row.appendChild(cell);
+
+    const board = document.createElement('div');
+    board.className = 'swimlane-board';
+    board.setAttribute('role', 'list');
+    board.setAttribute('aria-label', 'Tickets organized by status');
+
+    swimLaneStatuses.forEach(status => {
+        const statusTickets = tickets.filter(ticket => (ticket.status || 'Open') === status);
+        const column = document.createElement('section');
+        column.className = 'swimlane-column';
+        column.dataset.status = status;
+        column.dataset.statusSlug = swimLaneStatusSlug(status);
+        column.setAttribute('aria-labelledby', `swimlane-heading-${swimLaneStatusSlug(status)}`);
+        column.innerHTML = `
+            <header class="swimlane-column-header">
+                <div class="swimlane-column-title">
+                    <span class="swimlane-column-dot" aria-hidden="true"></span>
+                    <strong id="swimlane-heading-${swimLaneStatusSlug(status)}">${escapeHtml(status)}</strong>
+                </div>
+                <span class="swimlane-column-count" aria-label="${statusTickets.length} tickets">${statusTickets.length}</span>
+            </header>
+        `;
+
+        const dropZone = document.createElement('div');
+        dropZone.className = 'swimlane-dropzone';
+        dropZone.dataset.dropStatus = status;
+        dropZone.setAttribute('role', 'list');
+        dropZone.setAttribute('aria-label', `${status} tickets`);
+        statusTickets.forEach(ticket => dropZone.appendChild(createSwimLaneCard(ticket)));
+        if (!statusTickets.length) {
+            const empty = document.createElement('div');
+            empty.className = 'swimlane-empty-state';
+            empty.textContent = `No ${status.toLowerCase()} tickets in this view`;
+            dropZone.appendChild(empty);
+        }
+        attachSwimLaneDropZone(dropZone, status);
+        column.appendChild(dropZone);
+        board.appendChild(column);
     });
-    
-    return row;
+
+    shell.appendChild(board);
+    container.appendChild(shell);
+    restoreSwimLaneContext();
 }
 
 function createSwimLaneCard(ticket) {
-    const card = document.createElement('div');
+    const card = document.createElement('article');
     card.className = 'swimlane-ticket-card';
     card.dataset.ticketId = ticket.ticket_id;
+    card.dataset.status = ticket.status || 'Open';
+    card.draggable = true;
+    card.tabIndex = 0;
+    card.setAttribute('role', 'listitem');
+    card.setAttribute('aria-label', `Ticket ${ticket.ticket_id}: ${ticket.title}. Status ${ticket.status || 'Open'}.`);
     
     // Get listing names - limit to first listing for swim lane to keep cards compact
     let listingName = 'General';
@@ -1560,12 +1625,11 @@ function createSwimLaneCard(ticket) {
         }
     }
     
-    const priorityClass = ticket.priority.toLowerCase();
-    const categoryClass = ticket.category ? ticket.category.toLowerCase() : 'other';
+    const priority = ticket.priority || 'Low';
+    const priorityClass = priority.toLowerCase();
     const dueDate = ticket.due_date ? new Date(ticket.due_date) : null;
     const isOverdue = dueDate && dueDate < new Date() && ticket.status !== 'Resolved' && ticket.status !== 'Closed';
-    
-    const categoryDisplay = ticket.category ? ticket.category.charAt(0).toUpperCase() + ticket.category.slice(1) : 'Other';
+    const assigneeName = ticket.assigned_user_name || 'Unassigned';
     
     // Render tags (limited for swim lane)
     let tagsHtml = '';
@@ -1573,7 +1637,8 @@ function createSwimLaneCard(ticket) {
         const displayTags = ticket.tags.slice(0, 2); // Show max 2 tags in swim lane
         tagsHtml = '<div class="swimlane-tags">';
         displayTags.forEach(tag => {
-            const tagStyle = tag.color ? `style="background-color: ${tag.color}; border-color: ${tag.color};" class="swimlane-tag has-color"` : 'class="swimlane-tag"';
+            const tagColor = swimLaneSafeTagColor(tag.color);
+            const tagStyle = tagColor ? `style="background-color: ${tagColor}; border-color: ${tagColor};" class="swimlane-tag has-color"` : 'class="swimlane-tag"';
             tagsHtml += `<span ${tagStyle}>${escapeHtml(tag.name)}</span>`;
         });
         if (ticket.tags.length > 2) {
@@ -1583,7 +1648,6 @@ function createSwimLaneCard(ticket) {
     }
     
     let recurringBadge = '';
-    let nextOccurrenceHtml = '';
     if (ticket.is_recurring) {
         const recurrenceType = ticket.recurrence_type || 'frequency';
         const typeNames = {
@@ -1595,38 +1659,310 @@ function createSwimLaneCard(ticket) {
         };
         const typeName = typeNames[recurrenceType] || 'Recurring';
         recurringBadge = `<span class="swimlane-recurring" title="${typeName} recurring task"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-5V2M4 17h5v5M6.1 8A7 7 0 0 1 18 6l2 1M4 17l2 1a7 7 0 0 0 11.9-2"/></svg></span>`;
-        
-        // Display next occurrence date if available
-        if (ticket.next_occurrence_date) {
-            try {
-                const nextOccurrenceDate = new Date(ticket.next_occurrence_date);
-                if (!isNaN(nextOccurrenceDate.getTime())) {
-                    nextOccurrenceHtml = `<span class="swimlane-next-occurrence" style="font-size: 0.75rem; color: #6366f1; font-weight: 500;">Next: ${formatDate(nextOccurrenceDate)}</span>`;
-                }
-            } catch (e) {
-                console.error('Error parsing next_occurrence_date:', e, ticket.next_occurrence_date);
-            }
-        }
     }
     
     card.innerHTML = `
-        <div class="swimlane-card-header">
-            <a href="${buildTicketDetailUrl(ticket.ticket_id)}" class="swimlane-card-title">${escapeHtml(ticket.title)}</a>
-            ${recurringBadge}
+        <div class="swimlane-card-topline">
+            <span class="swimlane-ticket-number">Ticket #${Number(ticket.ticket_id)}</span>
+            <div class="swimlane-card-actions">
+                ${recurringBadge}
+                <button type="button" class="swimlane-card-move" aria-label="Move ticket ${Number(ticket.ticket_id)} to another status" title="Move ticket">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h11M8 12h11M8 17h11M4 7h.01M4 12h.01M4 17h.01"/></svg>
+                </button>
+                <a href="${buildTicketDetailUrl(ticket.ticket_id)}" class="swimlane-card-open" aria-label="Open ticket ${Number(ticket.ticket_id)} details" title="Open full ticket">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h10v10M19 5 8 16"/><path d="M15 19H5V9"/></svg>
+                </a>
+            </div>
         </div>
-        <div class="swimlane-card-body">
-            ${ticket.issue_title ? `<div class="swimlane-card-issue">${escapeHtml(ticket.issue_title)}</div>` : ''}
-            <div class="swimlane-card-listing">${escapeHtml(listingName)}</div>
-            ${tagsHtml}
+        <a href="${buildTicketDetailUrl(ticket.ticket_id)}" class="swimlane-card-title">${escapeHtml(ticket.title)}</a>
+        <div class="swimlane-card-context" title="${escapeHtml(listingName)}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 10 8-6 8 6v9H4v-9Z"/><path d="M9 19v-6h6v6"/></svg>
+            <span>${escapeHtml(listingName)}</span>
         </div>
+        ${tagsHtml}
         <div class="swimlane-card-footer">
-            <span class="swimlane-priority priority-${priorityClass}">${escapeHtml(ticket.priority)}</span>
-            ${dueDate ? `<span class="swimlane-due ${isOverdue ? 'overdue' : ''}">${formatDate(dueDate)}</span>` : ''}
-            ${nextOccurrenceHtml}
+            <div class="swimlane-card-owner" title="Assigned to ${escapeHtml(assigneeName)}">
+                <span class="swimlane-card-avatar" aria-hidden="true">${escapeHtml(swimLaneInitials(assigneeName))}</span>
+                <span>${escapeHtml(assigneeName)}</span>
+            </div>
+            <div class="swimlane-card-footer-meta">
+                <span class="swimlane-priority priority-${priorityClass}">${escapeHtml(priority)}</span>
+                ${dueDate ? `<span class="swimlane-due ${isOverdue ? 'overdue' : ''}">${isOverdue ? 'Overdue · ' : ''}${formatDate(dueDate)}</span>` : ''}
+            </div>
         </div>
     `;
+
+    card.querySelector('.swimlane-card-move')?.addEventListener('click', event => {
+        event.stopPropagation();
+        openSwimLaneTransition(ticket, swimLaneDefaultTarget(ticket.status || 'Open'), event.currentTarget);
+    });
+    card.addEventListener('dragstart', event => {
+        if (event.target.closest('a, button')) {
+            event.preventDefault();
+            return;
+        }
+        swimLaneDraggedTicketId = Number(ticket.ticket_id);
+        card.classList.add('is-dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', String(ticket.ticket_id));
+    });
+    card.addEventListener('dragend', () => {
+        swimLaneDraggedTicketId = null;
+        card.classList.remove('is-dragging');
+        document.querySelectorAll('.swimlane-dropzone.is-drag-over').forEach(zone => zone.classList.remove('is-drag-over'));
+    });
     
     return card;
+}
+
+function swimLaneStatusSlug(status) {
+    return String(status || 'open').toLowerCase().replace(/\s+/g, '-');
+}
+
+function swimLaneSafeTagColor(value) {
+    const color = String(value || '').trim();
+    return /^#[0-9a-f]{3,8}$/i.test(color) ? color : '';
+}
+
+function swimLaneInitials(name) {
+    return String(name || 'Unassigned').trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase() || '—';
+}
+
+function swimLaneDefaultTarget(currentStatus) {
+    const index = swimLaneStatuses.indexOf(currentStatus);
+    if (index >= 0 && index < swimLaneStatuses.length - 1) return swimLaneStatuses[index + 1];
+    return swimLaneStatuses.find(status => status !== currentStatus) || 'Open';
+}
+
+function attachSwimLaneDropZone(dropZone, targetStatus) {
+    dropZone.addEventListener('dragover', event => {
+        const ticket = currentTickets.find(item => Number(item.ticket_id) === Number(swimLaneDraggedTicketId));
+        if (!ticket || (ticket.status || 'Open') === targetStatus) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        dropZone.classList.add('is-drag-over');
+    });
+    dropZone.addEventListener('dragleave', event => {
+        if (!dropZone.contains(event.relatedTarget)) dropZone.classList.remove('is-drag-over');
+    });
+    dropZone.addEventListener('drop', event => {
+        event.preventDefault();
+        dropZone.classList.remove('is-drag-over');
+        const ticketId = Number(event.dataTransfer.getData('text/plain') || swimLaneDraggedTicketId);
+        const ticket = currentTickets.find(item => Number(item.ticket_id) === ticketId);
+        if (!ticket || (ticket.status || 'Open') === targetStatus) return;
+        const card = document.querySelector(`.swimlane-ticket-card[data-ticket-id="${ticketId}"]`);
+        openSwimLaneTransition(ticket, targetStatus, card);
+    });
+}
+
+function initializeSwimLaneInteractions() {
+    const modal = document.getElementById('swimLaneTransitionModal');
+    const comment = document.getElementById('swimLaneTransitionComment');
+    const status = document.getElementById('swimLaneTransitionStatus');
+    const assignee = document.getElementById('swimLaneTransitionAssignee');
+    modal?.querySelectorAll('[data-transition-action="cancel"]').forEach(button => {
+        button.addEventListener('click', () => closeSwimLaneTransition());
+    });
+    document.getElementById('swimLaneTransitionSave')?.addEventListener('click', saveSwimLaneTransition);
+    comment?.addEventListener('input', () => {
+        document.getElementById('swimLaneTransitionCharacterCount').textContent = comment.value.length.toLocaleString();
+        clearSwimLaneTransitionError();
+    });
+    status?.addEventListener('change', clearSwimLaneTransitionError);
+    assignee?.addEventListener('change', clearSwimLaneTransitionError);
+    document.addEventListener('keydown', event => {
+        if (!modal || modal.hidden) return;
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            closeSwimLaneTransition();
+            return;
+        }
+        if (event.key !== 'Tab') return;
+        const focusable = [...modal.querySelectorAll('button:not([disabled]), a[href], select:not([disabled]), textarea:not([disabled])')];
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    });
+}
+
+function openSwimLaneTransition(ticket, targetStatus, returnFocus) {
+    const modal = document.getElementById('swimLaneTransitionModal');
+    const fromStatus = ticket.status || 'Open';
+    const destination = targetStatus && targetStatus !== fromStatus ? targetStatus : swimLaneDefaultTarget(fromStatus);
+    swimLaneTransitionState = {
+        ticket,
+        fromStatus,
+        returnFocus: returnFocus || document.activeElement,
+        boardContext: captureSwimLaneContext(),
+    };
+
+    document.getElementById('swimLaneTransitionNumber').textContent = `Ticket #${ticket.ticket_id}`;
+    document.getElementById('swimLaneTransitionTicketTitle').textContent = ticket.title || 'Untitled ticket';
+    document.getElementById('swimLaneTransitionTicketMeta').textContent = `${swimLaneListingName(ticket)} · ${ticket.assigned_user_name || 'Unassigned'}`;
+    document.getElementById('swimLaneTransitionFrom').textContent = fromStatus;
+    const statusSelect = document.getElementById('swimLaneTransitionStatus');
+    statusSelect.innerHTML = swimLaneStatuses.map(status => (
+        `<option value="${escapeHtml(status)}" ${status === fromStatus ? 'disabled' : ''}>${escapeHtml(status)}</option>`
+    )).join('');
+    statusSelect.value = destination;
+    const assigneeSelect = document.getElementById('swimLaneTransitionAssignee');
+    assigneeSelect.innerHTML = [
+        '<option value="">Unassigned</option>',
+        ...allUsers.map(user => (
+            `<option value="${Number(user.user_id)}">${escapeHtml(user.name || user.email || `User ${user.user_id}`)}</option>`
+        )),
+    ].join('');
+    assigneeSelect.value = ticket.assigned_user_id == null ? '' : String(ticket.assigned_user_id);
+    const comment = document.getElementById('swimLaneTransitionComment');
+    comment.value = '';
+    document.getElementById('swimLaneTransitionCharacterCount').textContent = '0';
+    document.getElementById('swimLaneTransitionDetails').href = buildTicketDetailUrl(ticket.ticket_id);
+    clearSwimLaneTransitionError();
+    setSwimLaneTransitionSaving(false);
+    modal.hidden = false;
+    document.body.classList.add('swimlane-modal-open');
+    window.requestAnimationFrame(() => comment.focus());
+}
+
+function closeSwimLaneTransition(restoreFocus = true) {
+    const modal = document.getElementById('swimLaneTransitionModal');
+    if (!modal || modal.hidden) return;
+    const returnFocus = swimLaneTransitionState?.returnFocus;
+    swimLaneMentionHandler?.hideDropdown();
+    modal.hidden = true;
+    document.body.classList.remove('swimlane-modal-open');
+    swimLaneTransitionState = null;
+    if (restoreFocus && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+}
+
+async function saveSwimLaneTransition() {
+    if (!swimLaneTransitionState) return;
+    const { ticket, fromStatus, boardContext } = swimLaneTransitionState;
+    const status = document.getElementById('swimLaneTransitionStatus').value;
+    const assigneeValue = document.getElementById('swimLaneTransitionAssignee').value;
+    const assignedUserId = assigneeValue ? Number(assigneeValue) : null;
+    const commentText = document.getElementById('swimLaneTransitionComment').value.trim();
+    if (!commentText) {
+        setSwimLaneTransitionError('Add a short handoff comment so the team understands this move.');
+        document.getElementById('swimLaneTransitionComment').focus();
+        return;
+    }
+    if (!status || status === fromStatus) {
+        setSwimLaneTransitionError('Choose a different destination status.');
+        document.getElementById('swimLaneTransitionStatus').focus();
+        return;
+    }
+
+    setSwimLaneTransitionSaving(true);
+    clearSwimLaneTransitionError();
+    try {
+        const response = await fetch(`/tickets/api/tickets/${ticket.ticket_id}/transition`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                status,
+                from_status: fromStatus,
+                assigned_user_id: assignedUserId,
+                from_assigned_user_id: ticket.assigned_user_id ?? null,
+                comment_text: commentText,
+            }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Could not move this ticket.');
+
+        const visibleStatuses = new Set([...document.querySelectorAll('.status-checkbox:checked')].map(input => input.value));
+        const assigneeFilter = document.getElementById('filterAssigned')?.value || '';
+        const remainsVisible = visibleStatuses.has(status)
+            && (!assigneeFilter || String(assignedUserId ?? '') === assigneeFilter);
+        pendingSwimLaneContext = { ...boardContext, focusTicketId: remainsVisible ? ticket.ticket_id : null };
+        closeSwimLaneTransition(false);
+        showSwimLaneToast(`${result.message || `Ticket moved to ${status}`}${remainsVisible ? '' : ' · Hidden by the current status filters'}`);
+        loadTickets();
+    } catch (error) {
+        setSwimLaneTransitionError(error.message || 'Could not move the ticket. Nothing was changed.');
+        setSwimLaneTransitionSaving(false);
+    }
+}
+
+function setSwimLaneTransitionSaving(isSaving) {
+    const modal = document.getElementById('swimLaneTransitionModal');
+    const saveButton = document.getElementById('swimLaneTransitionSave');
+    modal?.querySelectorAll('button, select, textarea').forEach(control => {
+        control.disabled = isSaving;
+    });
+    if (saveButton) saveButton.querySelector('span:first-child').textContent = isSaving ? 'Saving move…' : 'Post comment & move';
+}
+
+function setSwimLaneTransitionError(message) {
+    const error = document.getElementById('swimLaneTransitionError');
+    error.textContent = message;
+    error.hidden = false;
+}
+
+function clearSwimLaneTransitionError() {
+    const error = document.getElementById('swimLaneTransitionError');
+    if (!error) return;
+    error.textContent = '';
+    error.hidden = true;
+}
+
+function captureSwimLaneContext() {
+    const container = document.getElementById('swimLaneContainer');
+    return {
+        pageY: window.scrollY,
+        scrollLeft: container?.scrollLeft || 0,
+        scrollTop: container?.scrollTop || 0,
+    };
+}
+
+function restoreSwimLaneContext() {
+    if (!pendingSwimLaneContext) return;
+    const context = pendingSwimLaneContext;
+    pendingSwimLaneContext = null;
+    window.requestAnimationFrame(() => {
+        const container = document.getElementById('swimLaneContainer');
+        if (container) {
+            container.scrollLeft = context.scrollLeft || 0;
+            container.scrollTop = context.scrollTop || 0;
+        }
+        window.scrollTo({ top: context.pageY || 0, behavior: 'auto' });
+        const movedCard = context.focusTicketId
+            ? document.querySelector(`.swimlane-ticket-card[data-ticket-id="${context.focusTicketId}"]`)
+            : null;
+        (movedCard || container)?.focus({ preventScroll: true });
+    });
+}
+
+function swimLaneListingName(ticket) {
+    if (ticket.listings?.length) {
+        const first = ticket.listings[0];
+        const name = first.internal_listing_name || first.name || `Listing ${first.listing_id}`;
+        return ticket.listings.length > 1 ? `${name} (+${ticket.listings.length - 1})` : name;
+    }
+    if (ticket.listing) return ticket.listing.internal_listing_name || ticket.listing.name || `Listing ${ticket.listing_id}`;
+    if (ticket.listing_id) {
+        const listing = allListings.find(item => Number(item.listing_id) === Number(ticket.listing_id));
+        return listing?.internal_listing_name || listing?.name || `Listing ${ticket.listing_id}`;
+    }
+    return 'General';
+}
+
+function showSwimLaneToast(message, isError = false) {
+    const toast = document.getElementById('swimLaneToast');
+    if (!toast) return;
+    window.clearTimeout(swimLaneToastTimer);
+    toast.textContent = message;
+    toast.classList.toggle('is-error', isError);
+    toast.classList.add('is-visible');
+    swimLaneToastTimer = window.setTimeout(() => toast.classList.remove('is-visible'), 4500);
 }
 </script>
 {% endblock %}
