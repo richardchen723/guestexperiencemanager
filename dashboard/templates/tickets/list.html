@@ -170,32 +170,38 @@
                                     <label class="modern-filter-option">
                                         <input type="checkbox" class="status-checkbox" value="Open" checked>
                                         <span class="modern-checkbox-custom"></span>
-                                        <span>Open</span>
+                                        <span class="filter-option-label">Open</span>
+                                        <span class="filter-option-count" data-status-count="Open" aria-label="0 matching tickets">0</span>
                                     </label>
                                     <label class="modern-filter-option">
                                         <input type="checkbox" class="status-checkbox" value="Assigned" checked>
                                         <span class="modern-checkbox-custom"></span>
-                                        <span>Assigned</span>
+                                        <span class="filter-option-label">Assigned</span>
+                                        <span class="filter-option-count" data-status-count="Assigned" aria-label="0 matching tickets">0</span>
                                     </label>
                                     <label class="modern-filter-option">
                                         <input type="checkbox" class="status-checkbox" value="In Progress" checked>
                                         <span class="modern-checkbox-custom"></span>
-                                        <span>In Progress</span>
+                                        <span class="filter-option-label">In Progress</span>
+                                        <span class="filter-option-count" data-status-count="In Progress" aria-label="0 matching tickets">0</span>
                                     </label>
                                     <label class="modern-filter-option">
                                         <input type="checkbox" class="status-checkbox" value="Blocked" checked>
                                         <span class="modern-checkbox-custom"></span>
-                                        <span>Blocked</span>
+                                        <span class="filter-option-label">Blocked</span>
+                                        <span class="filter-option-count" data-status-count="Blocked" aria-label="0 matching tickets">0</span>
                                     </label>
                                     <label class="modern-filter-option">
                                         <input type="checkbox" class="status-checkbox" value="Resolved">
                                         <span class="modern-checkbox-custom"></span>
-                                        <span>Resolved</span>
+                                        <span class="filter-option-label">Resolved</span>
+                                        <span class="filter-option-count" data-status-count="Resolved" aria-label="0 matching tickets">0</span>
                                     </label>
                                     <label class="modern-filter-option">
                                         <input type="checkbox" class="status-checkbox" value="Closed">
                                         <span class="modern-checkbox-custom"></span>
-                                        <span>Closed</span>
+                                        <span class="filter-option-label">Closed</span>
+                                        <span class="filter-option-count" data-status-count="Closed" aria-label="0 matching tickets">0</span>
                                     </label>
                                 </div>
                             </div>
@@ -216,7 +222,7 @@
                     </div>
                     <div class="filter-card-body">
                         <select id="filterAssigned" class="modern-select">
-                            <option value="">All Users</option>
+                            <option value="" data-base-label="All Users">All Users (0)</option>
                         </select>
                     </div>
                 </div>
@@ -251,22 +257,26 @@
                                     <label class="modern-filter-option">
                                         <input type="checkbox" class="priority-checkbox" value="Low" checked>
                                         <span class="modern-checkbox-custom"></span>
-                                        <span>Low</span>
+                                        <span class="filter-option-label">Low</span>
+                                        <span class="filter-option-count" data-priority-count="Low" aria-label="0 matching tickets">0</span>
                                     </label>
                                     <label class="modern-filter-option">
                                         <input type="checkbox" class="priority-checkbox" value="Medium" checked>
                                         <span class="modern-checkbox-custom"></span>
-                                        <span>Medium</span>
+                                        <span class="filter-option-label">Medium</span>
+                                        <span class="filter-option-count" data-priority-count="Medium" aria-label="0 matching tickets">0</span>
                                     </label>
                                     <label class="modern-filter-option">
                                         <input type="checkbox" class="priority-checkbox" value="High" checked>
                                         <span class="modern-checkbox-custom"></span>
-                                        <span>High</span>
+                                        <span class="filter-option-label">High</span>
+                                        <span class="filter-option-count" data-priority-count="High" aria-label="0 matching tickets">0</span>
                                     </label>
                                     <label class="modern-filter-option">
                                         <input type="checkbox" class="priority-checkbox" value="Critical" checked>
                                         <span class="modern-checkbox-custom"></span>
-                                        <span>Critical</span>
+                                        <span class="filter-option-label">Critical</span>
+                                        <span class="filter-option-count" data-priority-count="Critical" aria-label="0 matching tickets">0</span>
                                     </label>
                                 </div>
                             </div>
@@ -289,13 +299,13 @@
                     </div>
                     <div class="filter-card-body">
                         <select id="filterCategory" class="modern-select">
-                <option value="">All Categories</option>
-                <option value="cleaning">Cleaning</option>
-                <option value="maintenance">Maintenance</option>
-                <option value="online">Online</option>
-                            <option value="technology">Technology</option>
-                            <option value="review management">Review Management</option>
-                <option value="other">Other</option>
+                <option value="" data-base-label="All Categories">All Categories (0)</option>
+                <option value="cleaning" data-base-label="Cleaning">Cleaning (0)</option>
+                <option value="maintenance" data-base-label="Maintenance">Maintenance (0)</option>
+                <option value="online" data-base-label="Online">Online (0)</option>
+                            <option value="technology" data-base-label="Technology">Technology (0)</option>
+                            <option value="review management" data-base-label="Review Management">Review Management (0)</option>
+                <option value="other" data-base-label="Other">Other (0)</option>
             </select>
                     </div>
         </div>
@@ -997,11 +1007,19 @@ function loadListings() {
             generalCustomCheckbox.className = 'modern-checkbox-custom';
             
             const generalLabelText = document.createElement('span');
+            generalLabelText.className = 'filter-option-label';
             generalLabelText.textContent = 'General (No Property)';
+
+            const generalCount = document.createElement('span');
+            generalCount.className = 'filter-option-count';
+            generalCount.dataset.propertyCount = '0';
+            generalCount.textContent = '0';
+            generalCount.setAttribute('aria-label', '0 matching tickets');
             
             generalLabel.appendChild(generalCheckbox);
             generalLabel.appendChild(generalCustomCheckbox);
             generalLabel.appendChild(generalLabelText);
+            generalLabel.appendChild(generalCount);
             optionsContainer.appendChild(generalLabel);
             
             // Add listings as checkboxes
@@ -1023,11 +1041,19 @@ function loadListings() {
                 customCheckbox.className = 'modern-checkbox-custom';
                 
                 const labelText = document.createElement('span');
+                labelText.className = 'filter-option-label';
                 labelText.textContent = listing.internal_listing_name || listing.name || `Listing ${listing.listing_id}`;
+
+                const count = document.createElement('span');
+                count.className = 'filter-option-count';
+                count.dataset.propertyCount = String(listing.listing_id);
+                count.textContent = '0';
+                count.setAttribute('aria-label', '0 matching tickets');
                 
                 label.appendChild(checkbox);
                 label.appendChild(customCheckbox);
                 label.appendChild(labelText);
+                label.appendChild(count);
                 optionsContainer.appendChild(label);
             });
             
@@ -1072,7 +1098,8 @@ function loadUsers() {
             allUsers.forEach(user => {
                 const option = document.createElement('option');
                 option.value = user.user_id;
-                option.textContent = user.name || user.email || `User ${user.user_id}`;
+                option.dataset.baseLabel = user.name || user.email || `User ${user.user_id}`;
+                option.textContent = `${option.dataset.baseLabel} (0)`;
                 select.appendChild(option);
             });
             
@@ -1099,6 +1126,58 @@ function loadUsers() {
             errorMsg.style.margin = '0.5rem 0';
             select.parentElement.appendChild(errorMsg);
         });
+}
+
+function updateTicketFilterCountElement(element, count) {
+    if (!element) return;
+    const normalizedCount = Math.max(0, Number(count) || 0);
+    element.textContent = normalizedCount.toLocaleString();
+    element.setAttribute(
+        'aria-label',
+        `${normalizedCount.toLocaleString()} matching ${normalizedCount === 1 ? 'ticket' : 'tickets'}`,
+    );
+    element.classList.toggle('is-zero', normalizedCount === 0);
+}
+
+function renderTicketFilterCounts(counts) {
+    if (!counts) return;
+
+    document.querySelectorAll('[data-property-count]').forEach(element => {
+        updateTicketFilterCountElement(
+            element,
+            counts.properties?.options?.[element.dataset.propertyCount] || 0,
+        );
+    });
+    document.querySelectorAll('[data-status-count]').forEach(element => {
+        updateTicketFilterCountElement(element, counts.statuses?.[element.dataset.statusCount] || 0);
+    });
+    document.querySelectorAll('[data-priority-count]').forEach(element => {
+        updateTicketFilterCountElement(element, counts.priorities?.[element.dataset.priorityCount] || 0);
+    });
+
+    const assigneeSelect = document.getElementById('filterAssigned');
+    if (assigneeSelect) {
+        [...assigneeSelect.options].forEach(option => {
+            const baseLabel = option.dataset.baseLabel || option.textContent.replace(/\s+\([\d,]+\)$/, '');
+            option.dataset.baseLabel = baseLabel;
+            const count = option.value
+                ? counts.assignees?.[option.value] || 0
+                : counts.assignees?.all || 0;
+            option.textContent = `${baseLabel} (${Math.max(0, Number(count) || 0).toLocaleString()})`;
+        });
+    }
+
+    const categorySelect = document.getElementById('filterCategory');
+    if (categorySelect) {
+        [...categorySelect.options].forEach(option => {
+            const baseLabel = option.dataset.baseLabel || option.textContent.replace(/\s+\([\d,]+\)$/, '');
+            option.dataset.baseLabel = baseLabel;
+            const count = option.value
+                ? counts.categories?.[option.value] || 0
+                : counts.categories?.all || 0;
+            option.textContent = `${baseLabel} (${Math.max(0, Number(count) || 0).toLocaleString()})`;
+        });
+    }
 }
 
 function buildTicketFilterParams() {
@@ -1182,13 +1261,30 @@ function loadTickets() {
     const requestParams = new URLSearchParams(filterParams);
     if (requestParams.get('priority') === '__none__') requestParams.delete('priority');
 
-    fetch(`/tickets/api/tickets?${requestParams.toString()}`, { signal: requestController.signal })
-        .then(response => response.json())
-        .then(tickets => {
+    const countRequestParams = new URLSearchParams(filterParams);
+    const ticketsRequest = fetch(`/tickets/api/tickets?${requestParams.toString()}`, { signal: requestController.signal })
+        .then(response => {
+            if (!response.ok) throw new Error(`Tickets request failed (${response.status})`);
+            return response.json();
+        });
+    const countsRequest = fetch(`/tickets/api/tickets/filter-counts?${countRequestParams.toString()}`, { signal: requestController.signal })
+        .then(response => {
+            if (!response.ok) throw new Error(`Filter counts request failed (${response.status})`);
+            return response.json();
+        })
+        .catch(error => {
+            if (error.name === 'AbortError') throw error;
+            console.warn('Could not refresh ticket filter counts:', error);
+            return null;
+        });
+
+    Promise.all([ticketsRequest, countsRequest])
+        .then(([tickets, filterCounts]) => {
             if (requestSequence !== ticketRequestSequence) {
                 return;
             }
             loading.style.display = 'none';
+            renderTicketFilterCounts(filterCounts);
             
             if (tickets.length === 0) {
                 currentTickets = [];
