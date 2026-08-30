@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 import sys
@@ -14,18 +15,216 @@ import dashboard.bookkeeping.service as bookkeeping_service
 import dashboard.bookkeeping.routes as bookkeeping_routes
 from dashboard.bookkeeping.service import (
     build_bookkeeping_workbook,
+    build_receipt_organization,
     build_sheet_views,
     build_workspace_revision_snapshot,
     build_revenue_item_payloads,
     build_workspace_summary,
     detect_source_from_headers,
     summarize_revenue_rows,
+    update_receipt_organization,
 )
 
 
 class DummyExpenseItem(SimpleNamespace):
     def effective_total(self):
         return float(self.total or self.amount or 0)
+
+
+def test_receipt_organization_uses_service_date_for_operations():
+    period = SimpleNamespace(period_start=date(2026, 8, 1))
+    structured = {
+        "document_type": "payment_app_screenshot",
+        "overall_confidence": 0.96,
+        "shared_fields": {"payment_date": "2026-07-23"},
+        "entries": [
+            {
+                "category": "cleaning",
+                "item_name": "Cleaning",
+                "service_date": "2026-07-21",
+                "payment_date": "2026-07-23",
+            }
+        ],
+    }
+
+    organization = build_receipt_organization(structured, "IMG_4421.jpeg", period)
+
+    assert organization["status"] == "suggested"
+    assert organization["date_source"] == "service_date"
+    assert organization["suggested_filename"] == "July 21, 2026 - Cleaning.jpeg"
+    assert organization["relative_path"] == (
+        "2026/7. July 2026/Cleanings, Maintenance & Misc. Receipts/"
+        "July 21, 2026 - Cleaning.jpeg"
+    )
+
+
+def test_receipt_organization_follows_ticket_purchase_naming_order():
+    period = SimpleNamespace(period_start=date(2026, 8, 1))
+    structured = {
+        "document_type": "retail_receipt",
+        "overall_confidence": 0.93,
+        "shared_fields": {"store_name": "Amazon", "service_date": "2026-08-09"},
+        "entries": [
+            {
+                "category": "supplies",
+                "item_name": "Replacement linens",
+                "service_date": "2026-08-09",
+                "store_name": "Amazon",
+            }
+        ],
+    }
+
+    organization = build_receipt_organization(structured, "Screenshot.png", period)
+
+    assert organization["document_group"] == "purchase"
+    assert organization["suggested_filename"] == "August 9, 2026 - Purchase Receipt - Amazon.png"
+    assert organization["folder_name"] == "Purchase & Reimbursement Receipts"
+
+
+def test_receipt_organization_requires_service_date_confirmation_for_operations():
+    period = SimpleNamespace(period_start=date(2026, 7, 1))
+    structured = {
+        "document_type": "payment_app_screenshot",
+        "shared_fields": {"payment_date": "2026-07-23"},
+        "entries": [{"category": "maintenance", "item_name": "Maintenance"}],
+    }
+
+    organization = build_receipt_organization(structured, "payment.jpg", period)
+
+    assert organization["status"] == "needs_review"
+    assert organization["date_source"] == "payment_date"
+    assert organization["missing_fields"] == ["service date"]
+
+
+def test_human_receipt_review_builds_an_approved_filename():
+    period = SimpleNamespace(period_start=date(2026, 8, 1))
+
+    organization = update_receipt_organization(
+        {},
+        {
+            "receipt_date": "2026-09-21",
+            "document_group": "reimbursement",
+            "store_name": "Walmart",
+            "status": "approved",
+        },
+        "IMG_0991.JPG",
+        period,
+        approved_by=2,
+    )
+
+    assert organization["status"] == "approved"
+    assert organization["approved_filename"] == "September 21, 2026 - Reimbursement Receipt - Walmart.jpg"
+    assert organization["approved_by"] == 2
+    assert organization["relative_path"].startswith("2026/9. September 2026/")
+
+
+def test_receipt_reprocessing_preserves_human_reviewed_name_and_context():
+    period = SimpleNamespace(period_start=date(2026, 8, 1))
+    reviewed = update_receipt_organization(
+        {},
+        {
+            "receipt_date": "2026-07-21",
+            "document_group": "operations",
+            "expense_type": "Deep Cleaning",
+            "filename": "July 21, 2026 - Deep Cleaning - PT300.jpg",
+            "status": "suggested",
+        },
+        "payment.jpg",
+        period,
+    )
+    changed_extraction = {
+        "document_type": "payment_app_screenshot",
+        "shared_fields": {"payment_date": "2026-07-23"},
+        "entries": [{"category": "maintenance", "service_date": "2026-07-23"}],
+    }
+
+    organization = build_receipt_organization(
+        changed_extraction,
+        "payment.jpg",
+        period,
+        existing=reviewed,
+    )
+
+    assert organization["status"] == "suggested"
+    assert organization["receipt_date"] == "2026-07-21"
+    assert organization["expense_type"] == "Deep Cleaning"
+    assert organization["effective_filename"] == "July 21, 2026 - Deep Cleaning - PT300.jpg"
+
+
+def test_drive_sync_uses_reviewed_receipt_name_and_folder_hierarchy(monkeypatch, tmp_path):
+    source_file = tmp_path / "receipt.jpg"
+    source_file.write_bytes(b"receipt-bytes")
+    folder_calls = []
+    created_files = []
+
+    class FakeRequest:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def execute(self):
+            return self.payload
+
+    class FakeFiles:
+        def create(self, **kwargs):
+            created_files.append(kwargs)
+            return FakeRequest(
+                {
+                    "id": "receipt-file-id",
+                    "name": kwargs["body"]["name"],
+                    "webViewLink": "https://drive.google.com/file/d/receipt-file-id/view",
+                }
+            )
+
+        def update(self, **kwargs):
+            raise AssertionError(f"Unexpected update: {kwargs}")
+
+    class FakeDriveService:
+        def files(self):
+            return FakeFiles()
+
+    def fake_ensure_folder(_service, parent_id, folder_name):
+        folder_calls.append((parent_id, folder_name))
+        return {"id": f"folder-{len(folder_calls)}", "name": folder_name}
+
+    monkeypatch.setattr(bookkeeping_service.config, "GOOGLE_DRIVE_BOOKKEEPING_ROOT_FOLDER_ID", "readonly-test-root")
+    monkeypatch.setattr(bookkeeping_service, "get_bookkeeping_google_drive_service", lambda **_: (FakeDriveService(), {"mode": "test", "google_email": None}))
+    monkeypatch.setattr(bookkeeping_service, "get_upload_absolute_path", lambda _: source_file)
+    monkeypatch.setattr(bookkeeping_service, "_ensure_google_drive_folder", fake_ensure_folder)
+    monkeypatch.setattr(bookkeeping_service, "_list_google_drive_children", lambda *_: {})
+    monkeypatch.setattr(bookkeeping_service, "MediaFileUpload", lambda *_, **__: object())
+
+    upload = SimpleNamespace(
+        stage="expense",
+        stored_path="unused",
+        original_filename="IMG_4421.jpg",
+        content_type="image/jpeg",
+        summary={
+            "receipt_organization": {
+                "status": "approved",
+                "effective_filename": "July 21, 2026 - Cleaning.jpg",
+                "folder_name": "Cleanings, Maintenance & Misc. Receipts",
+                "year_folder": "2026",
+                "month_folder": "7. July 2026",
+            }
+        },
+    )
+    portfolio = SimpleNamespace(name="PT300", code="PT300")
+    period = SimpleNamespace(period_start=date(2026, 8, 1), name="August 2026")
+
+    result = bookkeeping_service.sync_bookkeeping_uploads_to_google_drive(portfolio, period, [upload])
+
+    assert folder_calls == [
+        ("readonly-test-root", "PT300"),
+        ("folder-1", "2026"),
+        ("folder-2", "7. July 2026"),
+        ("folder-3", "Cleanings, Maintenance & Misc. Receipts"),
+    ]
+    assert created_files[0]["body"] == {
+        "name": "July 21, 2026 - Cleaning.jpg",
+        "parents": ["folder-4"],
+    }
+    assert upload.summary["drive_sync"]["drive_filename"] == "July 21, 2026 - Cleaning.jpg"
+    assert result["folder_path"] == "PT300/2026/7. July 2026"
 
 
 def test_expense_item_from_payload_preserves_upload_id_when_edit_payload_omits_it():

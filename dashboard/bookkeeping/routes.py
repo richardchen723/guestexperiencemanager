@@ -54,6 +54,7 @@ from dashboard.bookkeeping.service import (
     _revenue_field_header,
     AUTO_CATEGORIZE_CONFIDENCE_THRESHOLD,
     auto_extract_expense_evidence_from_structured,
+    build_receipt_organization,
     build_expense_item_payloads_from_extraction,
     build_revenue_item_payloads,
     build_property_alias_map,
@@ -74,6 +75,7 @@ from dashboard.bookkeeping.service import (
     save_upload_bytes,
     source_label,
     sync_bookkeeping_uploads_to_google_drive,
+    update_receipt_organization,
 )
 import dashboard.config as config
 
@@ -1304,6 +1306,12 @@ def _reprocess_expense_uploads(session, period, current_user, upload_ids=None):
             **parsed_summary,
             "auto_extraction": auto_extraction,
             "structured_extraction": structured_extraction,
+            "receipt_organization": build_receipt_organization(
+                structured_extraction,
+                upload.original_filename,
+                period,
+                existing=(upload.summary or {}).get("receipt_organization"),
+            ),
         }
 
         payloads = []
@@ -1457,6 +1465,12 @@ def _process_supporting_upload_batch(batch_id: int) -> None:
                         **parsed_summary,
                         "auto_extraction": auto_extraction,
                         "structured_extraction": structured_extraction,
+                        "receipt_organization": build_receipt_organization(
+                            structured_extraction,
+                            upload.original_filename,
+                            period,
+                            existing=(upload.summary or {}).get("receipt_organization"),
+                        ),
                     }
                     upload.upload_status = "processed"
                     upload.processing_error = None
@@ -2235,6 +2249,49 @@ def api_download_upload(upload_id):
             download_name=upload.original_filename,
             mimetype=_normalized_upload_content_type(upload.original_filename, upload.content_type) or "application/octet-stream",
         )
+    finally:
+        session.close()
+
+
+@bookkeeping_bp.route("/api/uploads/<int:upload_id>/receipt-organization", methods=["PUT"])
+@feature_required('bookkeeping')
+def api_update_receipt_organization(upload_id):
+    session = get_session()
+    current_user = get_current_user()
+    try:
+        upload = (
+            session.query(BookkeepingUpload)
+            .options(selectinload(BookkeepingUpload.period))
+            .filter(BookkeepingUpload.bookkeeping_upload_id == upload_id)
+            .first()
+        )
+        if not upload:
+            return jsonify({"error": "Upload not found"}), 404
+        if upload.stage != UPLOAD_STAGE_EXPENSE:
+            return jsonify({"error": "Only expense evidence can be organized as a receipt"}), 400
+
+        payload = request.get_json(silent=True) or {}
+        summary = dict(upload.summary or {})
+        organization = update_receipt_organization(
+            summary.get("receipt_organization") or {},
+            payload,
+            upload.original_filename,
+            upload.period,
+            approved_by=current_user.user_id,
+        )
+        organization["drive_sync_pending"] = bool(summary.get("drive_sync"))
+        summary["receipt_organization"] = organization
+        upload.summary = summary
+        _mark_period_dirty(upload.period)
+        session.commit()
+        return jsonify({"receipt_organization": organization})
+    except ValueError as exc:
+        session.rollback()
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        session.rollback()
+        logger.error("Error updating receipt organization for upload %s: %s", upload_id, exc, exc_info=True)
+        return jsonify({"error": "Failed to update receipt organization"}), 500
     finally:
         session.close()
 
