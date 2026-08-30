@@ -118,6 +118,7 @@ def test_published_review_filters_compose_and_summary_matches_results(get_sessio
         make_published_review(1, 1001, 'Urban Five', date(2026, 8, 5), 10, 'Alex', 'Urban Stays'),
         make_published_review(2, 1002, 'Urban Four', date(2026, 8, 3), 7, 'Bailey', 'Urban Stays'),
         make_published_review(3, 558675, 'Crestwood Two', date(2026, 8, 4), 4, 'Casey'),
+        make_published_review(4, 1004, 'Urban Three', date(2026, 8, 2), 6, 'Drew', 'Urban Stays'),
     ]
     session = PublishedReviewSession(reviews)
     get_session.return_value = session
@@ -137,7 +138,8 @@ def test_published_review_filters_compose_and_summary_matches_results(get_sessio
         'five_star_count': 1,
         'portfolio_count': 1,
     }
-    assert payload['filter_options']['range_total'] == 3
+    assert payload['filter_options']['range_total'] == 4
+    assert payload['filter_options']['rating_total'] == 3
     assert payload['filters'] == {
         'portfolio': 'Urban Stays',
         'ratings': [4, 5],
@@ -147,7 +149,7 @@ def test_published_review_filters_compose_and_summary_matches_results(get_sessio
         item['rating']: item['count']
         for item in payload['filter_options']['ratings']
     }
-    assert rating_counts == {5: 1, 4: 1, 3: 0, 2: 1, 1: 0}
+    assert rating_counts == {5: 1, 4: 1, 3: 1, 2: 0, 1: 0}
     assert session.closed
 
 

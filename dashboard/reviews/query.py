@@ -1248,16 +1248,21 @@ def get_published_reviews(
 
         range_cards = [_published_review_card(review) for review in published_reviews]
         portfolio_counts = {}
-        rating_counts = {rating: 0 for rating in range(1, 6)}
         for card in range_cards:
             portfolio_counts[card['portfolio']] = portfolio_counts.get(card['portfolio'], 0) + 1
+
+        rating_scope_cards = [
+            card for card in range_cards
+            if not normalized_portfolio or card['portfolio'] == normalized_portfolio
+        ]
+        rating_counts = {rating: 0 for rating in range(1, 6)}
+        for card in rating_scope_cards:
             if card['rating_bucket']:
                 rating_counts[card['rating_bucket']] += 1
 
         cards = [
-            card for card in range_cards
-            if (not normalized_portfolio or card['portfolio'] == normalized_portfolio)
-            and (not selected_ratings or card['rating_bucket'] in selected_ratings)
+            card for card in rating_scope_cards
+            if not selected_ratings or card['rating_bucket'] in selected_ratings
         ]
         if sort == 'oldest':
             cards.sort(key=lambda card: (card['publication_date'] or '9999-12-31', card['review_id']))
@@ -1316,6 +1321,7 @@ def get_published_reviews(
             },
             'filter_options': {
                 'range_total': len(range_cards),
+                'rating_total': len(rating_scope_cards),
                 'portfolios': [
                     {
                         'portfolio': name,
