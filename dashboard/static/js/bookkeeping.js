@@ -30,6 +30,12 @@
                 driveStatus: null,
                 isExporting: false,
                 bulkFeedback: null,
+                activeReceiptUploadId: null,
+                pendingReceiptUploadIds: [],
+                receiptReviewTotal: 0,
+                receiptReviewCompleted: 0,
+                generatedReceiptFilename: null,
+                isReceiptEditorOpen: false,
             };
             this.processingPolls = {};
 
@@ -89,6 +95,7 @@
                 expenseUploadForm: document.getElementById('expenseUploadForm'),
                 corroborationUploadForm: document.getElementById('corroborationUploadForm'),
                 expenseFilesInput: document.getElementById('expenseFilesInput'),
+                expenseFilePrompt: document.getElementById('expenseFilePrompt'),
                 expenseNotesInput: document.getElementById('expenseNotesInput'),
                 clearRevenueUploadsBtn: document.getElementById('clearRevenueUploadsBtn'),
                 clearExpenseUploadsBtn: document.getElementById('clearExpenseUploadsBtn'),
@@ -148,6 +155,24 @@
                 exportStatusPanel: document.getElementById('exportStatusPanel'),
                 exportStatusTitle: document.getElementById('exportStatusTitle'),
                 exportStatusCopy: document.getElementById('exportStatusCopy'),
+                receiptOrganizerWorkspace: document.getElementById('receiptOrganizerWorkspace'),
+                receiptOrganizerProgress: document.getElementById('receiptOrganizerProgress'),
+                receiptOrganizerCloseBtn: document.getElementById('receiptOrganizerCloseBtn'),
+                receiptOrganizerForm: document.getElementById('receiptOrganizerForm'),
+                receiptOrganizerOriginalName: document.getElementById('receiptOrganizerOriginalName'),
+                receiptOrganizerPreview: document.getElementById('receiptOrganizerPreview'),
+                receiptOrganizerDate: document.getElementById('receiptOrganizerDate'),
+                receiptOrganizerType: document.getElementById('receiptOrganizerType'),
+                receiptOrganizerExpenseTypeField: document.getElementById('receiptOrganizerExpenseTypeField'),
+                receiptOrganizerExpenseType: document.getElementById('receiptOrganizerExpenseType'),
+                receiptOrganizerStoreField: document.getElementById('receiptOrganizerStoreField'),
+                receiptOrganizerStore: document.getElementById('receiptOrganizerStore'),
+                receiptOrganizerFilename: document.getElementById('receiptOrganizerFilename'),
+                receiptOrganizerFilenamePreview: document.getElementById('receiptOrganizerFilenamePreview'),
+                receiptOrganizerPathPreview: document.getElementById('receiptOrganizerPathPreview'),
+                receiptOrganizerReviewNote: document.getElementById('receiptOrganizerReviewNote'),
+                receiptOrganizerSaveBtn: document.getElementById('receiptOrganizerSaveBtn'),
+                receiptOrganizerApproveBtn: document.getElementById('receiptOrganizerApproveBtn'),
             };
         }
 
@@ -213,6 +238,22 @@
             this.elements.stepNextBtn.addEventListener('click', () => this.goToRelativeStep(1));
             this.elements.stepModalCloseBtn.addEventListener('click', () => this.closeStepModal());
 
+            this.elements.receiptOrganizerCloseBtn.addEventListener('click', () => this.closeReceiptOrganizer());
+            this.elements.receiptOrganizerForm.addEventListener('submit', (event) => {
+                event.preventDefault();
+                this.saveReceiptOrganization(false);
+            });
+            this.elements.receiptOrganizerSaveBtn.addEventListener('click', () => this.saveReceiptOrganization(false));
+            this.elements.receiptOrganizerApproveBtn.addEventListener('click', () => this.saveReceiptOrganization(true));
+            this.elements.receiptOrganizerType.addEventListener('change', () => this.updateReceiptOrganizerPreview());
+            [
+                this.elements.receiptOrganizerDate,
+                this.elements.receiptOrganizerExpenseType,
+                this.elements.receiptOrganizerStore,
+            ].forEach((input) => input.addEventListener('input', () => this.updateReceiptOrganizerPreview()));
+            this.elements.receiptOrganizerFilename.addEventListener('input', () => this.updateReceiptOrganizerDestination());
+            this.elements.expenseFilesInput.addEventListener('change', () => this.handleExpenseFileSelection());
+
             this.elements.stepModal.addEventListener('click', (event) => {
                 if (event.target === this.elements.stepModal) {
                     this.closeStepModal();
@@ -240,6 +281,10 @@
             });
 
             document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && this.state.isReceiptEditorOpen) {
+                    this.closeReceiptOrganizer();
+                    return;
+                }
                 if (event.key === 'Escape' && this.state.isStepModalOpen) {
                     this.closeStepModal();
                     return;
@@ -880,7 +925,7 @@
             const revenueUploads = (uploads || []).filter((upload) => upload.stage === 'revenue');
             const expenseUploads = (uploads || []).filter((upload) => upload.stage === 'expense');
             const expenseBatch = this.getActiveProcessingBatch('expense');
-            const expenseUploadLocked = this.stageHasActiveUpload('expense');
+            const expenseUploadLocked = this.stageHasActiveUpload('expense') || this.state.isReceiptEditorOpen;
             const revenueChecklist = this.state.workspace?.revenue_checklist || [];
             const missingChannels = revenueChecklist.filter((entry) => entry.expected && entry.missing);
 
@@ -888,7 +933,9 @@
             this.elements.clearExpenseUploadsBtn.disabled = !expenseUploads.length || Boolean(expenseBatch);
             if (this.elements.expenseUploadSubmitBtn) {
                 this.elements.expenseUploadSubmitBtn.disabled = expenseUploadLocked;
-                this.elements.expenseUploadSubmitBtn.textContent = expenseUploadLocked ? 'Processing expense evidence...' : 'Upload expense evidence';
+                this.elements.expenseUploadSubmitBtn.textContent = this.stageHasActiveUpload('expense')
+                    ? 'Analyzing receipts...'
+                    : (this.state.isReceiptEditorOpen ? 'Finish this review batch first' : 'Analyze receipts');
             }
             if (this.elements.expenseFilesInput) {
                 this.elements.expenseFilesInput.disabled = expenseUploadLocked;
@@ -904,6 +951,11 @@
                 : (expenseUploads.length
                     ? `Clear expense uploads (${expenseUploads.length})`
                     : 'Clear expense uploads');
+            const receiptOrganizations = expenseUploads
+                .map((upload) => upload.summary?.receipt_organization)
+                .filter(Boolean);
+            const receiptReadyCount = receiptOrganizations.filter((organization) => ['suggested', 'approved'].includes(organization.status)).length;
+            const receiptReviewCount = receiptOrganizations.filter((organization) => organization.status === 'needs_review').length;
             this.elements.revenueUploadSummary.textContent = revenueUploads.length
                 ? `${revenueUploads.length} revenue upload${revenueUploads.length === 1 ? '' : 's'} currently feeding workbook revenue tabs and owner totals.${missingChannels.length ? ` Missing: ${missingChannels.map((entry) => this.channelDisplayLabel(entry.source)).join(', ')}.` : ''}`
                 : (missingChannels.length
@@ -912,7 +964,7 @@
             this.elements.expenseUploadSummary.textContent = expenseBatch
                     ? `${expenseBatch.processed_uploads || 0} of ${expenseBatch.total_uploads || 0} expense file${(expenseBatch.total_uploads || 0) === 1 ? '' : 's'} processed. ${expenseBatch.remaining_uploads || 0} left.${expenseBatch.failed_uploads ? ` ${expenseBatch.failed_uploads} failed.` : ''}`
                     : (expenseUploads.length
-                        ? `${expenseUploads.length} expense upload${expenseUploads.length === 1 ? '' : 's'} currently feeding workbook expense tabs and owner totals.`
+                        ? `${expenseUploads.length} expense upload${expenseUploads.length === 1 ? '' : 's'} · ${receiptReadyCount} ready to file${receiptReviewCount ? ` · ${receiptReviewCount} need${receiptReviewCount === 1 ? 's' : ''} details` : ''}.`
                         : 'No expense uploads are currently loaded into this workspace.');
             this.renderExpenseStepUploads(expenseUploads, expenseBatch);
         }
@@ -935,6 +987,27 @@
 
         getUploadsForStage(stage) {
             return (this.state.workspace?.uploads || []).filter((upload) => upload.stage === stage);
+        }
+
+        receiptOrganizationForUpload(upload) {
+            const organization = upload?.summary?.receipt_organization;
+            return organization && typeof organization === 'object' ? organization : {};
+        }
+
+        receiptStatusMeta(upload, organization) {
+            if (['queued', 'processing'].includes(upload.upload_status)) {
+                return { label: 'Reading receipt', className: '' };
+            }
+            if (organization.status === 'approved') {
+                return { label: 'Approved', className: ' is-approved' };
+            }
+            if (organization.status === 'needs_review') {
+                return { label: 'Needs details', className: ' is-needs-review' };
+            }
+            if (organization.status === 'suggested') {
+                return { label: 'Ready to review', className: '' };
+            }
+            return { label: upload.upload_status === 'failed' ? 'Processing failed' : 'Not organized', className: ' is-needs-review' };
         }
 
         renderExpenseStepUploads(expenseUploads, expenseBatch) {
@@ -967,22 +1040,35 @@
                 </div>
             `;
 
-            const items = uploads.map((upload) => `
-                <div class="bk-stage-upload-item">
-                    <div class="bk-stage-upload-item-head">
-                        <div style="display:grid;gap:0.35rem;">
-                            <strong>${this.escapeHtml(upload.original_filename)}</strong>
-                            <span class="bk-upload-badge is-${this.escapeHtml(upload.upload_status || 'stored')}">${this.escapeHtml((upload.upload_status || 'stored').replace(/_/g, ' '))}</span>
+            const items = uploads.map((upload) => {
+                const organization = this.receiptOrganizationForUpload(upload);
+                const statusMeta = this.receiptStatusMeta(upload, organization);
+                const displayName = organization.effective_filename || organization.suggested_filename || 'Cotton Candy is preparing a file name';
+                const path = organization.relative_path || 'Destination appears after receipt analysis';
+                const missingCopy = (organization.missing_fields || []).length
+                    ? `Missing: ${organization.missing_fields.join(', ')}`
+                    : (upload.processing_error || 'Service date and receipt context stay editable.');
+                const reviewDisabled = ['queued', 'processing'].includes(upload.upload_status);
+                return `
+                    <div class="bk-stage-upload-item bk-receipt-card">
+                        ${this.buildUploadThumbnailMarkup(upload)}
+                        <div class="bk-receipt-card-main">
+                            <div class="bk-receipt-card-topline">
+                                <span class="bk-receipt-status${statusMeta.className}">${this.escapeHtml(statusMeta.label)}</span>
+                                <span class="bk-receipt-original">Original: ${this.escapeHtml(upload.original_filename)}</span>
+                            </div>
+                            <div class="bk-receipt-name">${this.escapeHtml(displayName)}</div>
+                            <div class="bk-receipt-path">${this.escapeHtml(path)}</div>
+                            <div class="bk-receipt-original">${this.escapeHtml(missingCopy)}</div>
                         </div>
-                        <input type="checkbox" data-select-upload-id="${upload.bookkeeping_upload_id}" ${this.state.selectedUploadIds.has(upload.bookkeeping_upload_id) ? 'checked' : ''} ${['queued', 'processing'].includes(upload.upload_status) || removalLocked ? 'disabled' : ''}>
+                        <div class="bk-receipt-card-actions">
+                            <label class="bk-receipt-original"><input type="checkbox" data-select-upload-id="${upload.bookkeeping_upload_id}" ${this.state.selectedUploadIds.has(upload.bookkeeping_upload_id) ? 'checked' : ''} ${['queued', 'processing'].includes(upload.upload_status) || removalLocked ? 'disabled' : ''}> Select</label>
+                            <button class="btn btn-primary" type="button" data-review-receipt-id="${upload.bookkeeping_upload_id}" ${reviewDisabled ? 'disabled' : ''}>${organization.status === 'approved' ? 'Edit name' : 'Review name'}</button>
+                            <button class="btn btn-secondary" type="button" data-delete-upload-id="${upload.bookkeeping_upload_id}" ${['queued', 'processing'].includes(upload.upload_status) ? 'disabled' : ''}>Remove</button>
+                        </div>
                     </div>
-                    ${this.buildUploadThumbnailMarkup(upload)}
-                    <p>${this.escapeHtml(this.labelForSource(upload.source))}${upload.processing_error ? ` · ${this.escapeHtml(upload.processing_error)}` : ''}</p>
-                    <div class="bk-inline-actions">
-                        <button class="btn btn-secondary" type="button" data-delete-upload-id="${upload.bookkeeping_upload_id}" ${['queued', 'processing'].includes(upload.upload_status) ? 'disabled' : ''}>Remove</button>
-                    </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
 
             this.elements.expenseStepUploadsList.innerHTML = toolbar + items;
         }
@@ -1075,12 +1161,27 @@
             });
         }
 
+        setPendingReceiptUploads(uploads) {
+            const uploadIds = (uploads || [])
+                .map((upload) => Number(upload?.bookkeeping_upload_id))
+                .filter(Boolean);
+            if (!uploadIds.length || this.state.pendingReceiptUploadIds.length) {
+                return;
+            }
+            this.state.pendingReceiptUploadIds = [...new Set(uploadIds)];
+            this.state.receiptReviewTotal = this.state.pendingReceiptUploadIds.length;
+            this.state.receiptReviewCompleted = 0;
+        }
+
         startProcessingBatchPolling(batch) {
             if (!batch?.bookkeeping_processing_batch_id || !batch?.stage) {
                 return;
             }
             const stage = batch.stage;
             const batchId = Number(batch.bookkeeping_processing_batch_id);
+            if (stage === 'expense') {
+                this.setPendingReceiptUploads(batch.uploads);
+            }
             const current = this.processingPolls[stage];
             this.renderProcessingBatchStatus(stage, batch);
             if (current?.batchId === batchId) {
@@ -1093,11 +1194,17 @@
                 try {
                     const data = await this.fetchJson(`/bookkeeping/api/processing-batches/${batchId}`);
                     const latestBatch = data.processing_batch;
+                    if (stage === 'expense') {
+                        this.setPendingReceiptUploads(latestBatch.uploads);
+                    }
                     this.renderProcessingBatchStatus(stage, latestBatch);
                     if (['completed', 'completed_with_errors', 'failed'].includes(latestBatch.status)) {
                         this.stopProcessingBatchPolling(stage);
                         await this.refreshWorkspace();
                         this.renderProcessingBatchStatus(stage, latestBatch);
+                        if (stage === 'expense') {
+                            this.openPendingReceiptAfterProcessing();
+                        }
                         return;
                     }
                     if (this.processingPolls[stage]?.batchId === batchId) {
@@ -2559,6 +2666,18 @@
             await this.submitUploadForm(this.elements.revenueUploadForm, this.elements.revenueUploadStatus, 'revenue');
         }
 
+        handleExpenseFileSelection() {
+            const files = Array.from(this.elements.expenseFilesInput.files || []);
+            this.elements.expenseFilePrompt.textContent = files.length > 1
+                ? `${files.length} receipts selected`
+                : (files[0]?.name || 'Select clear images or PDFs');
+        }
+
+        resetExpenseUploadForm() {
+            this.elements.expenseUploadForm.reset();
+            this.elements.expenseFilePrompt.textContent = 'Select clear images or PDFs';
+        }
+
         async handleExpenseUpload(event) {
             event.preventDefault();
             await this.submitUploadForm(this.elements.expenseUploadForm, this.elements.expenseUploadStatus, 'expense');
@@ -2582,7 +2701,7 @@
             const formData = new FormData(form);
             const files = formData.getAll('files');
             if (!files.length || !files[0] || !files[0].name) {
-                window.alert('Choose at least one file to upload.');
+                window.alert(stage === 'expense' ? 'Choose one or more receipts to analyze.' : 'Choose at least one file to upload.');
                 return;
             }
             formData.set('stage', stage);
@@ -2598,8 +2717,10 @@
                 };
 
                 this.setUploadStatus(statusElement, {
-                    title: 'Uploading files',
-                    meta: 'Sending files to Cotton Candy and waiting for bookkeeping normalization.',
+                    title: stage === 'expense' ? 'Uploading receipt batch' : 'Uploading files',
+                    meta: stage === 'expense'
+                        ? `Sending ${files.length} receipt${files.length === 1 ? '' : 's'} to Cotton Candy for extraction and naming.`
+                        : 'Sending files to Cotton Candy and waiting for bookkeeping normalization.',
                     progress: 3,
                 });
 
@@ -2607,7 +2728,7 @@
                     if (!event.lengthComputable) return;
                     const percent = Math.max(3, Math.round((event.loaded / event.total) * 92));
                     this.setUploadStatus(statusElement, {
-                        title: 'Uploading files',
+                        title: stage === 'expense' ? 'Uploading receipt batch' : 'Uploading files',
                         meta: `${files.length} file${files.length === 1 ? '' : 's'} in flight`,
                         progress: percent,
                     });
@@ -2615,8 +2736,10 @@
 
                 xhr.upload.onload = () => {
                     this.setUploadStatus(statusElement, {
-                        title: 'Processing uploaded files',
-                        meta: 'Cotton Candy received the files and is extracting bookkeeping rows on the server.',
+                        title: stage === 'expense' ? 'Reading receipts' : 'Processing uploaded files',
+                        meta: stage === 'expense'
+                            ? 'Cotton Candy is extracting each receipt and preparing the review queue.'
+                            : 'Cotton Candy received the files and is extracting bookkeeping rows on the server.',
                         progress: 95,
                     });
                 };
@@ -2630,7 +2753,11 @@
                             responseData = {};
                         }
                         if (xhr.status === 409 && responseData.processing_batch) {
-                            form.reset();
+                            if (stage === 'expense') {
+                                this.setPendingReceiptUploads(responseData.processing_batch.uploads);
+                            } else if (stage !== 'expense') {
+                                form.reset();
+                            }
                             this.startProcessingBatchPolling(responseData.processing_batch);
                             await this.refreshWorkspace();
                             releasePendingStage();
@@ -2645,7 +2772,11 @@
                             return;
                         }
                         if (xhr.status === 202 && responseData.processing_batch) {
-                            form.reset();
+                            if (stage === 'expense') {
+                                this.setPendingReceiptUploads(responseData.uploads);
+                            } else {
+                                form.reset();
+                            }
                             this.startProcessingBatchPolling(responseData.processing_batch);
                             await this.refreshWorkspace();
                             releasePendingStage();
@@ -2658,7 +2789,12 @@
                             progress: 100,
                         });
                         await this.refreshWorkspace();
-                        form.reset();
+                        if (stage === 'expense') {
+                            this.setPendingReceiptUploads(responseData.uploads);
+                            this.openPendingReceiptAfterProcessing();
+                        } else {
+                            form.reset();
+                        }
                         this.setUploadStatus(statusElement, {
                             title: 'Upload complete',
                             meta: 'The live spreadsheet has been refreshed.',
@@ -2848,6 +2984,11 @@
         }
 
         handleUploadListClick(event) {
+            const reviewReceiptButton = event.target.closest('[data-review-receipt-id]');
+            if (reviewReceiptButton) {
+                this.openReceiptOrganizer(Number(reviewReceiptButton.dataset.reviewReceiptId));
+                return;
+            }
             const toggleStageButton = event.target.closest('[data-toggle-upload-stage]');
             if (toggleStageButton) {
                 this.toggleStageUploadSelection(toggleStageButton.dataset.toggleUploadStage);
@@ -2995,6 +3136,220 @@
                 `;
             }
             this.elements.evidencePreview.innerHTML = previewHtml;
+        }
+
+        openPendingReceiptAfterProcessing() {
+            const uploadsById = new Map(
+                (this.state.workspace?.uploads || []).map((upload) => [upload.bookkeeping_upload_id, upload])
+            );
+            this.state.pendingReceiptUploadIds = this.state.pendingReceiptUploadIds.filter((uploadId) => {
+                const upload = uploadsById.get(uploadId);
+                return upload && upload.upload_status !== 'failed';
+            });
+            this.state.receiptReviewTotal = this.state.pendingReceiptUploadIds.length;
+            if (!this.state.pendingReceiptUploadIds.length) {
+                this.closeReceiptOrganizer();
+                return;
+            }
+            const nextUpload = uploadsById.get(this.state.pendingReceiptUploadIds[0]);
+            if (!nextUpload || ['queued', 'processing'].includes(nextUpload.upload_status)) return;
+            this.openReceiptOrganizer(nextUpload.bookkeeping_upload_id, { preserveQueue: true });
+        }
+
+        openReceiptOrganizer(uploadId, options = {}) {
+            const upload = (this.state.workspace?.uploads || []).find((entry) => entry.bookkeeping_upload_id === uploadId);
+            if (!upload) return;
+            const organization = this.receiptOrganizationForUpload(upload);
+            const previewUrl = `/bookkeeping/api/uploads/${uploadId}/file`;
+            const previewKind = this.resolveUploadPreviewKind(upload);
+
+            if (!options.preserveQueue) {
+                this.state.pendingReceiptUploadIds = [uploadId];
+                this.state.receiptReviewTotal = 1;
+                this.state.receiptReviewCompleted = 0;
+            }
+
+            this.state.activeReceiptUploadId = uploadId;
+            this.state.isReceiptEditorOpen = true;
+            this.elements.receiptOrganizerOriginalName.textContent = upload.original_filename || 'Untitled upload';
+            if (previewKind === 'image') {
+                this.elements.receiptOrganizerPreview.innerHTML = `<img src="${previewUrl}" alt="${this.escapeHtml(upload.original_filename || 'Receipt preview')}">`;
+            } else if (previewKind === 'pdf') {
+                this.elements.receiptOrganizerPreview.innerHTML = `<iframe src="${previewUrl}" title="${this.escapeHtml(upload.original_filename || 'Receipt preview')}"></iframe>`;
+            } else {
+                this.elements.receiptOrganizerPreview.innerHTML = `<a class="btn btn-secondary" href="${previewUrl}" target="_blank" rel="noopener noreferrer">Open source file</a>`;
+            }
+
+            this.elements.receiptOrganizerDate.value = organization.receipt_date || '';
+            this.elements.receiptOrganizerType.value = organization.document_group || 'operations';
+            this.elements.receiptOrganizerExpenseType.value = organization.expense_type || '';
+            this.elements.receiptOrganizerStore.value = organization.store_name || '';
+            this.state.generatedReceiptFilename = organization.suggested_filename || null;
+            this.elements.receiptOrganizerFilename.value = organization.effective_filename || organization.suggested_filename || '';
+            this.elements.receiptOrganizerReviewNote.textContent = !organization.status
+                ? 'This receipt predates AI naming. Add the date and receipt context to create its filing name.'
+                : (organization.missing_fields || []).length
+                ? `Cotton Candy needs confirmation for: ${organization.missing_fields.join(', ')}.`
+                : (organization.status === 'approved'
+                    ? 'This name is approved. Editing and approving again will update the future Drive filing target.'
+                    : 'The AI suggestion is ready. Confirm it once and the file will use this name during Drive sync.');
+            this.elements.receiptOrganizerWorkspace.hidden = false;
+            this.updateReceiptOrganizerPreview();
+            this.updateReceiptReviewProgress();
+            this.renderStageUploadControls(this.state.workspace?.uploads || []);
+            window.setTimeout(() => {
+                this.elements.receiptOrganizerWorkspace.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                this.elements.receiptOrganizerDate.focus({ preventScroll: true });
+            }, 0);
+        }
+
+        closeReceiptOrganizer() {
+            this.state.activeReceiptUploadId = null;
+            this.state.pendingReceiptUploadIds = [];
+            this.state.receiptReviewTotal = 0;
+            this.state.receiptReviewCompleted = 0;
+            this.state.generatedReceiptFilename = null;
+            this.state.isReceiptEditorOpen = false;
+            this.elements.receiptOrganizerWorkspace.hidden = true;
+            this.resetExpenseUploadForm();
+            this.renderStageUploadControls(this.state.workspace?.uploads || []);
+        }
+
+        updateReceiptReviewProgress() {
+            const total = Math.max(this.state.receiptReviewTotal, this.state.pendingReceiptUploadIds.length, 1);
+            const position = Math.min(this.state.receiptReviewCompleted + 1, total);
+            const hasNext = this.state.pendingReceiptUploadIds.length > 1;
+            this.elements.receiptOrganizerProgress.textContent = `2 · Receipt ${position} of ${total}`;
+            this.elements.receiptOrganizerCloseBtn.textContent = total > 1 ? 'Exit batch review' : 'Back to upload';
+            this.elements.receiptOrganizerSaveBtn.textContent = hasNext ? 'Save & review next' : 'Save & finish';
+            this.elements.receiptOrganizerApproveBtn.textContent = hasNext ? 'Approve & review next' : 'Approve & finish';
+        }
+
+        advanceReceiptReview() {
+            const completedUploadId = this.state.activeReceiptUploadId;
+            const total = Math.max(this.state.receiptReviewTotal, 1);
+            this.state.pendingReceiptUploadIds = this.state.pendingReceiptUploadIds
+                .filter((uploadId) => uploadId !== completedUploadId);
+            this.state.receiptReviewCompleted = Math.min(this.state.receiptReviewCompleted + 1, total);
+            const progress = {
+                completed: this.state.receiptReviewCompleted,
+                total,
+                remaining: this.state.pendingReceiptUploadIds.length,
+            };
+            if (progress.remaining) {
+                this.openReceiptOrganizer(this.state.pendingReceiptUploadIds[0], { preserveQueue: true });
+            } else {
+                this.closeReceiptOrganizer();
+            }
+            return progress;
+        }
+
+        receiptDateLabel(value) {
+            const parts = String(value || '').split('-').map(Number);
+            if (parts.length !== 3 || parts.some((part) => !part)) return 'Date needed';
+            const [year, month, day] = parts;
+            const monthName = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC' })
+                .format(new Date(Date.UTC(year, month - 1, 1)));
+            return `${monthName} ${day}, ${year}`;
+        }
+
+        receiptPeriodPath() {
+            const filingDate = this.elements.receiptOrganizerDate?.value
+                || this.state.workspace?.period?.period_start
+                || '';
+            const parts = String(filingDate).split('-').map(Number);
+            if (parts.length !== 3 || !parts[0] || !parts[1]) {
+                return { year: 'Year needed', month: 'Month needed' };
+            }
+            const [year, month] = parts;
+            const monthName = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC' })
+                .format(new Date(Date.UTC(year, month - 1, 1)));
+            return { year: String(year), month: `${month}. ${monthName} ${year}` };
+        }
+
+        receiptOriginalExtension() {
+            const upload = (this.state.workspace?.uploads || []).find((entry) => entry.bookkeeping_upload_id === this.state.activeReceiptUploadId);
+            const filename = String(upload?.original_filename || 'receipt.jpg');
+            const dotIndex = filename.lastIndexOf('.');
+            return dotIndex >= 0 ? filename.slice(dotIndex).toLowerCase() : '.jpg';
+        }
+
+        generatedReceiptName() {
+            const type = this.elements.receiptOrganizerType.value;
+            const dateLabel = this.receiptDateLabel(this.elements.receiptOrganizerDate.value);
+            const extension = this.receiptOriginalExtension();
+            if (type === 'operations') {
+                const expenseType = this.elements.receiptOrganizerExpenseType.value.trim() || 'Expense type needed';
+                return `${dateLabel} - ${expenseType}${extension}`;
+            }
+            const receiptKind = type === 'reimbursement' ? 'Reimbursement Receipt' : 'Purchase Receipt';
+            const storeName = this.elements.receiptOrganizerStore.value.trim() || 'Store needed';
+            return `${dateLabel} - ${receiptKind} - ${storeName}${extension}`;
+        }
+
+        updateReceiptOrganizerPreview() {
+            const type = this.elements.receiptOrganizerType.value;
+            const isOperations = type === 'operations';
+            this.elements.receiptOrganizerExpenseTypeField.hidden = !isOperations;
+            this.elements.receiptOrganizerStoreField.hidden = isOperations;
+            this.elements.receiptOrganizerExpenseType.required = isOperations;
+            this.elements.receiptOrganizerStore.required = !isOperations;
+
+            const generatedFilename = this.generatedReceiptName();
+            const currentFilename = this.elements.receiptOrganizerFilename.value.trim();
+            if (!currentFilename || currentFilename === this.state.generatedReceiptFilename) {
+                this.elements.receiptOrganizerFilename.value = generatedFilename;
+            }
+            this.state.generatedReceiptFilename = generatedFilename;
+            this.updateReceiptOrganizerDestination();
+        }
+
+        updateReceiptOrganizerDestination() {
+            const type = this.elements.receiptOrganizerType.value;
+            const folder = type === 'operations'
+                ? 'Cleanings, Maintenance & Misc. Receipts'
+                : 'Purchase & Reimbursement Receipts';
+            const periodPath = this.receiptPeriodPath();
+            const filename = this.elements.receiptOrganizerFilename.value.trim() || this.generatedReceiptName();
+            this.elements.receiptOrganizerFilenamePreview.textContent = filename;
+            this.elements.receiptOrganizerPathPreview.textContent = `${periodPath.year} / ${periodPath.month} / ${folder}`;
+        }
+
+        async saveReceiptOrganization(approve) {
+            if (!this.state.activeReceiptUploadId || !this.elements.receiptOrganizerForm.reportValidity()) {
+                return;
+            }
+            const buttons = [this.elements.receiptOrganizerSaveBtn, this.elements.receiptOrganizerApproveBtn];
+            buttons.forEach((button) => { button.disabled = true; });
+            try {
+                await this.fetchJson(`/bookkeeping/api/uploads/${this.state.activeReceiptUploadId}/receipt-organization`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        receipt_date: this.elements.receiptOrganizerDate.value,
+                        document_group: this.elements.receiptOrganizerType.value,
+                        expense_type: this.elements.receiptOrganizerExpenseType.value.trim(),
+                        store_name: this.elements.receiptOrganizerStore.value.trim(),
+                        filename: this.elements.receiptOrganizerFilename.value.trim(),
+                        status: approve ? 'approved' : 'suggested',
+                    }),
+                });
+                await this.refreshWorkspace();
+                const reviewProgress = this.advanceReceiptReview();
+                this.setUploadStatus(this.elements.expenseUploadStatus, {
+                    title: reviewProgress.remaining
+                        ? `${approve ? 'Approved' : 'Saved'} · next receipt ready`
+                        : 'Receipt batch review complete',
+                    meta: reviewProgress.remaining
+                        ? `${reviewProgress.completed} of ${reviewProgress.total} reviewed. Confirm the next AI-suggested name.`
+                        : `${reviewProgress.completed} receipt${reviewProgress.completed === 1 ? '' : 's'} reviewed. You can upload another batch or reopen any receipt below.`,
+                    progress: Math.round((reviewProgress.completed / reviewProgress.total) * 100),
+                });
+            } catch (error) {
+                window.alert(error.message || 'Could not save the receipt name.');
+            } finally {
+                buttons.forEach((button) => { button.disabled = false; });
+            }
         }
 
         async clearUploadsByStage(stage) {

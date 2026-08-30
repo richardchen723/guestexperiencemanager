@@ -103,6 +103,9 @@ PAYMENT_APP_FILENAME_HINTS = (
 GOOGLE_DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 GOOGLE_DRIVE_BOOKKEEPING_SCOPES = ("https://www.googleapis.com/auth/drive",)
 GOOGLE_DRIVE_EVIDENCE_SUBFOLDER = "evidences"
+GOOGLE_DRIVE_OPERATIONS_RECEIPT_SUBFOLDER = "Cleanings, Maintenance & Misc. Receipts"
+GOOGLE_DRIVE_PURCHASE_RECEIPT_SUBFOLDER = "Purchase & Reimbursement Receipts"
+RECEIPT_ORGANIZATION_STATUSES = {"suggested", "needs_review", "approved"}
 RECEIPT_LINK_TEXT = "Click/Tap Here"
 OWNER_STATEMENT_HEADER_FILL = "FF000000"
 OWNER_STATEMENT_BAND_FILL = "FFF3F3F3"
@@ -714,6 +717,294 @@ def _sanitize_drive_name(value: Optional[str], fallback: str) -> str:
     return cleaned or fallback
 
 
+def _receipt_filename_component(value: Any, fallback: Optional[str] = None) -> Optional[str]:
+    cleaned = _string_or_none(value) or _string_or_none(fallback)
+    if not cleaned:
+        return None
+    cleaned = re.sub(r'[\\/:*?"<>|]+', "-", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .-")
+    return cleaned or None
+
+
+def _receipt_display_date(value: date) -> str:
+    return f"{value.strftime('%B')} {value.day}, {value.year}"
+
+
+def _receipt_month_folder(value: date) -> str:
+    return f"{value.month}. {value.strftime('%B')} {value.year}"
+
+
+def _receipt_entry_dates(entries: Sequence[Dict[str, Any]], field_name: str) -> List[date]:
+    values = []
+    for entry in entries:
+        parsed = parse_date_or_none(entry.get(field_name))
+        if parsed and parsed not in values:
+            values.append(parsed)
+    return sorted(values)
+
+
+def _receipt_operation_label(entries: Sequence[Dict[str, Any]]) -> Optional[str]:
+    labels = []
+    category_labels = {
+        "cleaning": "Cleaning",
+        "maintenance": "Maintenance",
+        "software_fee": "Software Fee",
+        "direct_refund": "Guest Refund",
+    }
+    for entry in entries:
+        category = _string_or_none(entry.get("category"))
+        item_name = _receipt_filename_component(entry.get("item_name"))
+        if category == "misc" and item_name and item_name.lower() not in {"misc", "miscellaneous"}:
+            label = item_name
+        else:
+            label = category_labels.get(category or "") or (
+                item_name if item_name else _receipt_filename_component((category or "").replace("_", " ").title())
+            )
+        if label and label not in labels:
+            labels.append(label)
+    if not labels:
+        return None
+    return " & ".join(labels[:3])
+
+
+def build_receipt_organization(
+    structured_extraction: Optional[Dict[str, Any]],
+    original_filename: str,
+    period: Any,
+    *,
+    existing: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build a reviewable receipt filename and Drive destination from AI extraction."""
+    structured = structured_extraction if isinstance(structured_extraction, dict) else {}
+    shared_fields = structured.get("shared_fields") if isinstance(structured.get("shared_fields"), dict) else {}
+    entries = [entry for entry in (structured.get("entries") or []) if isinstance(entry, dict)]
+    existing = dict(existing or {})
+    extension = Path(original_filename or "").suffix.lower() or ".jpg"
+
+    # Reprocessing may improve the extraction, but it must never undo a name or
+    # filing choice that a bookkeeper already reviewed.
+    if existing.get("date_source") == "human_review" and existing.get("status") in {"suggested", "approved"}:
+        reviewed_date = parse_date_or_none(existing.get("receipt_date"))
+        reviewed_group = _string_or_none(existing.get("document_group"))
+        reviewed_expense_type = _receipt_filename_component(existing.get("expense_type"))
+        reviewed_store_name = _receipt_filename_component(existing.get("store_name"))
+        reviewed_filename = _receipt_filename_component(
+            existing.get("approved_filename") or existing.get("effective_filename")
+        )
+        has_reviewed_context = bool(
+            reviewed_date
+            and reviewed_filename
+            and (
+                (reviewed_group == "operations" and reviewed_expense_type)
+                or (reviewed_group in {"purchase", "reimbursement"} and reviewed_store_name)
+            )
+        )
+        if has_reviewed_context:
+            reviewed_folder = (
+                GOOGLE_DRIVE_OPERATIONS_RECEIPT_SUBFOLDER
+                if reviewed_group == "operations"
+                else GOOGLE_DRIVE_PURCHASE_RECEIPT_SUBFOLDER
+            )
+            year_folder = str(reviewed_date.year)
+            month_folder = _receipt_month_folder(reviewed_date)
+            return {
+                **existing,
+                "status": existing["status"],
+                "document_group": reviewed_group,
+                "receipt_date": reviewed_date.isoformat(),
+                "date_source": "human_review",
+                "expense_type": reviewed_expense_type if reviewed_group == "operations" else None,
+                "receipt_kind": (
+                    None
+                    if reviewed_group == "operations"
+                    else ("Reimbursement Receipt" if reviewed_group == "reimbursement" else "Purchase Receipt")
+                ),
+                "store_name": reviewed_store_name if reviewed_group != "operations" else None,
+                "approved_filename": reviewed_filename if existing["status"] == "approved" else None,
+                "effective_filename": reviewed_filename,
+                "folder_name": reviewed_folder,
+                "year_folder": year_folder,
+                "month_folder": month_folder,
+                "relative_path": "/".join([year_folder, month_folder, reviewed_folder, reviewed_filename]),
+                "missing_fields": [],
+            }
+
+    categories = {_string_or_none(entry.get("category")) for entry in entries}
+    categories.discard(None)
+    document_type = normalize_property_token(structured.get("document_type"))
+    has_store_context = bool(
+        _string_or_none(shared_fields.get("store_name"))
+        or any(_string_or_none(entry.get("store_name")) for entry in entries)
+    )
+    is_supply_receipt = bool(
+        "supplies" in categories
+        or has_store_context
+        or any(token in document_type for token in ("RETAILRECEIPT", "PURCHASERECEIPT", "ORDERRECEIPT", "INVOICE"))
+    )
+
+    service_dates = _receipt_entry_dates(entries, "service_date")
+    shared_service_date = parse_date_or_none(shared_fields.get("service_date"))
+    if shared_service_date and shared_service_date not in service_dates:
+        service_dates.append(shared_service_date)
+        service_dates.sort()
+    payment_dates = _receipt_entry_dates(entries, "payment_date")
+    for candidate in (
+        parse_date_or_none(shared_fields.get("payment_date")),
+        parse_date_or_none(shared_fields.get("reimbursement_date")),
+    ):
+        if candidate and candidate not in payment_dates:
+            payment_dates.append(candidate)
+    payment_dates.sort()
+
+    receipt_date = service_dates[0] if service_dates else (payment_dates[0] if payment_dates else None)
+    date_source = "purchase_date" if is_supply_receipt and service_dates else (
+        "service_date" if service_dates else ("payment_date" if payment_dates else None)
+    )
+
+    store_name = _receipt_filename_component(
+        shared_fields.get("store_name")
+        or next((entry.get("store_name") for entry in entries if _string_or_none(entry.get("store_name"))), None)
+        or shared_fields.get("vendor")
+        or next((entry.get("vendor") for entry in entries if _string_or_none(entry.get("vendor"))), None)
+    )
+    reimbursement_signal = bool(
+        structured.get("support_only")
+        or _string_or_none(shared_fields.get("reimbursement_method"))
+        or "REIMBURSEMENT" in document_type
+        or "reimbursement" in (original_filename or "").lower()
+    )
+
+    if is_supply_receipt:
+        document_group = "reimbursement" if reimbursement_signal else "purchase"
+        receipt_kind = "Reimbursement Receipt" if reimbursement_signal else "Purchase Receipt"
+        expense_type = None
+        folder_name = GOOGLE_DRIVE_PURCHASE_RECEIPT_SUBFOLDER
+        descriptor_parts = [receipt_kind, store_name]
+    else:
+        document_group = "operations"
+        receipt_kind = None
+        expense_type = _receipt_operation_label(entries)
+        folder_name = GOOGLE_DRIVE_OPERATIONS_RECEIPT_SUBFOLDER
+        descriptor_parts = [expense_type]
+
+    missing_fields = []
+    if not receipt_date:
+        missing_fields.append("receipt date")
+    elif date_source == "payment_date" and document_group == "operations":
+        missing_fields.append("service date")
+    if document_group == "operations" and not expense_type:
+        missing_fields.append("expense type")
+    if document_group in {"purchase", "reimbursement"} and not store_name:
+        missing_fields.append("store name")
+
+    display_date = _receipt_display_date(receipt_date) if receipt_date else "Date needed"
+    filename_parts = [display_date] + [part for part in descriptor_parts if part]
+    suggested_filename = " - ".join(filename_parts) + extension
+    filing_date = receipt_date or parse_date_or_none(getattr(period, "period_start", None))
+    year_folder = str(filing_date.year) if filing_date else "Year needed"
+    month_folder = _receipt_month_folder(filing_date) if filing_date else "Month needed"
+
+    confidence = _float_or_none(structured.get("overall_confidence"))
+    status = "needs_review" if missing_fields else "suggested"
+    approved_filename = _receipt_filename_component(existing.get("approved_filename"))
+    approved_at = _string_or_none(existing.get("approved_at"))
+    approved_by = existing.get("approved_by")
+    if existing.get("status") == "approved" and approved_filename:
+        status = "approved"
+
+    effective_filename = approved_filename if status == "approved" else suggested_filename
+    relative_path = "/".join([year_folder, month_folder, folder_name, effective_filename])
+    return {
+        "status": status,
+        "document_group": document_group,
+        "receipt_date": receipt_date.isoformat() if receipt_date else None,
+        "date_source": date_source,
+        "expense_type": expense_type,
+        "receipt_kind": receipt_kind,
+        "store_name": store_name,
+        "suggested_filename": suggested_filename,
+        "approved_filename": approved_filename,
+        "effective_filename": effective_filename,
+        "folder_name": folder_name,
+        "year_folder": year_folder,
+        "month_folder": month_folder,
+        "relative_path": relative_path,
+        "missing_fields": missing_fields,
+        "confidence": round(confidence, 4) if confidence is not None else None,
+        "approved_at": approved_at,
+        "approved_by": approved_by,
+    }
+
+
+def update_receipt_organization(
+    existing: Dict[str, Any],
+    payload: Dict[str, Any],
+    original_filename: str,
+    period: Any,
+    *,
+    approved_by: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Validate a human review and return the normalized receipt organization payload."""
+    current = dict(existing or {})
+    document_group = _string_or_none(payload.get("document_group")) or current.get("document_group") or "operations"
+    if document_group not in {"operations", "purchase", "reimbursement"}:
+        raise ValueError("Choose a valid receipt type")
+
+    receipt_date = parse_date_or_none(payload.get("receipt_date") or current.get("receipt_date"))
+    if not receipt_date:
+        raise ValueError("Receipt date is required")
+
+    expense_type = _receipt_filename_component(payload.get("expense_type") or current.get("expense_type"))
+    store_name = _receipt_filename_component(payload.get("store_name") or current.get("store_name"))
+    if document_group == "operations" and not expense_type:
+        raise ValueError("Expense type is required for operations receipts")
+    if document_group in {"purchase", "reimbursement"} and not store_name:
+        raise ValueError("Store name is required for purchase and reimbursement receipts")
+
+    extension = Path(original_filename or "").suffix.lower() or ".jpg"
+    if document_group == "operations":
+        folder_name = GOOGLE_DRIVE_OPERATIONS_RECEIPT_SUBFOLDER
+        receipt_kind = None
+        generated_filename = f"{_receipt_display_date(receipt_date)} - {expense_type}{extension}"
+    else:
+        folder_name = GOOGLE_DRIVE_PURCHASE_RECEIPT_SUBFOLDER
+        receipt_kind = "Reimbursement Receipt" if document_group == "reimbursement" else "Purchase Receipt"
+        generated_filename = f"{_receipt_display_date(receipt_date)} - {receipt_kind} - {store_name}{extension}"
+
+    requested_filename = _receipt_filename_component(payload.get("filename"))
+    if requested_filename:
+        requested_extension = Path(requested_filename).suffix.lower()
+        approved_filename = requested_filename if requested_extension else f"{requested_filename}{extension}"
+    else:
+        approved_filename = generated_filename
+
+    year_folder = str(receipt_date.year)
+    month_folder = _receipt_month_folder(receipt_date)
+    approve = payload.get("status") == "approved" or payload.get("approve") is True
+    status = "approved" if approve else "suggested"
+    effective_filename = approved_filename
+    return {
+        **current,
+        "status": status,
+        "document_group": document_group,
+        "receipt_date": receipt_date.isoformat(),
+        "date_source": "human_review",
+        "expense_type": expense_type if document_group == "operations" else None,
+        "receipt_kind": receipt_kind,
+        "store_name": store_name if document_group != "operations" else None,
+        "suggested_filename": generated_filename,
+        "approved_filename": approved_filename if approve else None,
+        "effective_filename": effective_filename,
+        "folder_name": folder_name,
+        "year_folder": year_folder,
+        "month_folder": month_folder,
+        "relative_path": "/".join([year_folder, month_folder, folder_name, effective_filename]),
+        "missing_fields": [],
+        "approved_at": datetime.utcnow().isoformat() if approve else None,
+        "approved_by": approved_by if approve else None,
+    }
+
+
 @lru_cache(maxsize=1)
 def _get_service_account_google_drive_service():
     if service_account is None or build_google_api is None or MediaFileUpload is None:
@@ -887,11 +1178,23 @@ def sync_bookkeeping_uploads_to_google_drive(
 
     service, auth_context = get_bookkeeping_google_drive_service(user=user)
     portfolio_folder_name = _sanitize_drive_name(getattr(portfolio, "name", None) or getattr(portfolio, "code", None), "Portfolio")
-    month_folder_name = _sanitize_drive_name(month_label or getattr(period, "name", None), "Month")
+    period_start = parse_date_or_none(getattr(period, "period_start", None))
+    default_year_folder_name = str(period_start.year) if period_start else "Unsorted year"
+    default_month_folder_name = (
+        _receipt_month_folder(period_start)
+        if period_start
+        else _sanitize_drive_name(month_label or getattr(period, "name", None), "Month")
+    )
     portfolio_folder = _ensure_google_drive_folder(service, root_folder_id, portfolio_folder_name)
-    month_folder = _ensure_google_drive_folder(service, portfolio_folder["id"], month_folder_name)
-    evidence_folder = _ensure_google_drive_folder(service, month_folder["id"], GOOGLE_DRIVE_EVIDENCE_SUBFOLDER)
-    evidence_children = _list_google_drive_children(service, evidence_folder["id"])
+    year_folders: Dict[str, Dict[str, Any]] = {}
+    month_folders: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    target_folders: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+    target_children: Dict[Tuple[str, str, str], Dict[str, Dict[str, Any]]] = {}
+    synced_folder_paths: List[str] = []
+    last_year_folder = None
+    last_month_folder = None
+    last_year_folder_name = default_year_folder_name
+    last_month_folder_name = default_month_folder_name
     synced_at = datetime.utcnow().isoformat()
 
     for upload in relevant_uploads:
@@ -899,24 +1202,72 @@ def sync_bookkeeping_uploads_to_google_drive(
         if not file_path.exists():
             raise FileNotFoundError(f"Bookkeeping upload file is missing on disk: {file_path}")
 
-        drive_name = getattr(upload, "original_filename", file_path.name)
-        existing = evidence_children.get(drive_name)
+        summary = dict(getattr(upload, "summary", None) or {})
+        organization = summary.get("receipt_organization") if isinstance(summary.get("receipt_organization"), dict) else {}
+        organized = bool(
+            getattr(upload, "stage", None) == "expense"
+            and organization.get("status") in {"suggested", "approved"}
+            and organization.get("effective_filename")
+            and organization.get("folder_name")
+        )
+        year_folder_name = _sanitize_drive_name(
+            organization.get("year_folder") if organized else default_year_folder_name,
+            default_year_folder_name,
+        )
+        month_folder_name = _sanitize_drive_name(
+            organization.get("month_folder") if organized else default_month_folder_name,
+            default_month_folder_name,
+        )
+        folder_name = _sanitize_drive_name(
+            organization.get("folder_name") if organized else GOOGLE_DRIVE_EVIDENCE_SUBFOLDER,
+            GOOGLE_DRIVE_EVIDENCE_SUBFOLDER,
+        )
+        if year_folder_name not in year_folders:
+            year_folders[year_folder_name] = _ensure_google_drive_folder(service, portfolio_folder["id"], year_folder_name)
+        year_folder = year_folders[year_folder_name]
+        month_key = (year_folder_name, month_folder_name)
+        if month_key not in month_folders:
+            month_folders[month_key] = _ensure_google_drive_folder(service, year_folder["id"], month_folder_name)
+        month_folder = month_folders[month_key]
+        target_key = (year_folder_name, month_folder_name, folder_name)
+        if target_key not in target_folders:
+            target_folders[target_key] = _ensure_google_drive_folder(service, month_folder["id"], folder_name)
+            target_children[target_key] = _list_google_drive_children(service, target_folders[target_key]["id"])
+        target_folder = target_folders[target_key]
+        children = target_children[target_key]
+        last_year_folder = year_folder
+        last_month_folder = month_folder
+        last_year_folder_name = year_folder_name
+        last_month_folder_name = month_folder_name
+        folder_path = f"{portfolio_folder_name}/{year_folder_name}/{month_folder_name}/{folder_name}"
+        if folder_path not in synced_folder_paths:
+            synced_folder_paths.append(folder_path)
+
+        drive_name = _receipt_filename_component(
+            organization.get("effective_filename") if organized else getattr(upload, "original_filename", file_path.name),
+            getattr(upload, "original_filename", file_path.name),
+        )
+        existing = children.get(drive_name)
         prior_payload = _drive_sync_payload(upload)
         if (
-            existing
-            and prior_payload.get("file_id") == existing.get("id")
+            prior_payload.get("file_id")
             and prior_payload.get("authorization_mode") == auth_context.get("mode")
-            and prior_payload.get("evidence_folder_id") == evidence_folder.get("id")
+            and prior_payload.get("evidence_folder_id") == target_folder.get("id")
             and prior_payload.get("month_folder_id") == month_folder.get("id")
+            and prior_payload.get("year_folder_id") == year_folder.get("id")
             and prior_payload.get("portfolio_folder_id") == portfolio_folder.get("id")
             and prior_payload.get("root_folder_id") == root_folder_id
             and prior_payload.get("stored_path") == getattr(upload, "stored_path", None)
-            and prior_payload.get("original_filename") == drive_name
+            and prior_payload.get("drive_filename", prior_payload.get("original_filename")) == drive_name
         ):
-            existing_url = existing.get("webViewLink") or prior_payload.get("file_url") or (
-                f"https://drive.google.com/file/d/{existing.get('id')}/view?usp=drive_link" if existing.get("id") else None
+            existing_url = (existing or {}).get("webViewLink") or prior_payload.get("file_url") or (
+                f"https://drive.google.com/file/d/{prior_payload.get('file_id')}/view?usp=drive_link"
             )
-            if existing_url != prior_payload.get("file_url"):
+            if existing_url != prior_payload.get("file_url") or organization.get("drive_sync_pending"):
+                if organization.get("drive_sync_pending"):
+                    organization = {**organization, "drive_sync_pending": False}
+                    summary["receipt_organization"] = organization
+                    upload.summary = summary
                 _set_drive_sync_payload(
                     upload,
                     {
@@ -932,7 +1283,21 @@ def sync_bookkeeping_uploads_to_google_drive(
             mimetype=getattr(upload, "content_type", None) or mimetypes.guess_type(getattr(upload, "original_filename", ""))[0] or "application/octet-stream",
             resumable=False,
         )
-        if existing:
+        prior_file_id = prior_payload.get("file_id")
+        prior_folder_id = prior_payload.get("evidence_folder_id")
+        if prior_file_id:
+            update_kwargs = {
+                "fileId": prior_file_id,
+                "media_body": media,
+                "body": {"name": drive_name},
+                "fields": "id, name, webViewLink",
+                "supportsAllDrives": True,
+            }
+            if prior_folder_id and prior_folder_id != target_folder.get("id"):
+                update_kwargs["addParents"] = target_folder.get("id")
+                update_kwargs["removeParents"] = prior_folder_id
+            uploaded = service.files().update(**update_kwargs).execute()
+        elif existing:
             uploaded = service.files().update(
                 fileId=existing["id"],
                 media_body=media,
@@ -944,7 +1309,7 @@ def sync_bookkeeping_uploads_to_google_drive(
             uploaded = service.files().create(
                 body={
                     "name": drive_name,
-                    "parents": [evidence_folder["id"]],
+                    "parents": [target_folder["id"]],
                 },
                 media_body=media,
                 fields="id, name, webViewLink",
@@ -954,7 +1319,11 @@ def sync_bookkeeping_uploads_to_google_drive(
         file_id = uploaded.get("id")
         file_url = uploaded.get("webViewLink") or (f"https://drive.google.com/file/d/{file_id}/view?usp=drive_link" if file_id else None)
         if drive_name:
-            evidence_children[drive_name] = uploaded
+            children[drive_name] = uploaded
+        if organized:
+            organization = {**organization, "drive_sync_pending": False}
+            summary["receipt_organization"] = organization
+            upload.summary = summary
         _set_drive_sync_payload(
             upload,
             {
@@ -963,11 +1332,13 @@ def sync_bookkeeping_uploads_to_google_drive(
                 "google_email": auth_context.get("google_email"),
                 "root_folder_id": root_folder_id,
                 "portfolio_folder_id": portfolio_folder.get("id"),
+                "year_folder_id": year_folder.get("id"),
                 "month_folder_id": month_folder.get("id"),
-                "evidence_folder_id": evidence_folder.get("id"),
-                "folder_path": f"{portfolio_folder_name}/{month_folder_name}/{GOOGLE_DRIVE_EVIDENCE_SUBFOLDER}",
+                "evidence_folder_id": target_folder.get("id"),
+                "folder_path": folder_path,
                 "stored_path": getattr(upload, "stored_path", None),
-                "original_filename": drive_name,
+                "original_filename": getattr(upload, "original_filename", drive_name),
+                "drive_filename": drive_name,
                 "file_id": file_id,
                 "file_url": file_url,
                 "synced_at": synced_at,
@@ -976,9 +1347,10 @@ def sync_bookkeeping_uploads_to_google_drive(
 
     return {
         "portfolio_folder_id": portfolio_folder.get("id"),
-        "month_folder_id": month_folder.get("id"),
-        "evidence_folder_id": evidence_folder.get("id"),
-        "folder_path": f"{portfolio_folder_name}/{month_folder_name}/{GOOGLE_DRIVE_EVIDENCE_SUBFOLDER}",
+        "year_folder_id": last_year_folder.get("id") if last_year_folder else None,
+        "month_folder_id": last_month_folder.get("id") if last_month_folder else None,
+        "folder_path": f"{portfolio_folder_name}/{last_year_folder_name}/{last_month_folder_name}",
+        "folder_paths": synced_folder_paths,
         "authorization_mode": auth_context.get("mode"),
         "google_email": auth_context.get("google_email"),
     }
@@ -3162,6 +3534,34 @@ def _compact_upload_summary(summary: Optional[Dict[str, Any]]) -> Dict[str, Any]
     page_count = summary.get("page_count")
     if page_count not in (None, ""):
         compact["page_count"] = page_count
+
+    receipt_organization = summary.get("receipt_organization")
+    if isinstance(receipt_organization, dict) and receipt_organization:
+        compact["receipt_organization"] = {
+            key: json_safe_value(receipt_organization.get(key))
+            for key in (
+                "status",
+                "document_group",
+                "receipt_date",
+                "date_source",
+                "expense_type",
+                "receipt_kind",
+                "store_name",
+                "suggested_filename",
+                "approved_filename",
+                "effective_filename",
+                "folder_name",
+                "year_folder",
+                "month_folder",
+                "relative_path",
+                "missing_fields",
+                "confidence",
+                "approved_at",
+                "approved_by",
+                "drive_sync_pending",
+            )
+            if receipt_organization.get(key) not in (None, "", [], {})
+        }
 
     auto_extraction = summary.get("auto_extraction")
     if isinstance(auto_extraction, dict) and auto_extraction:
