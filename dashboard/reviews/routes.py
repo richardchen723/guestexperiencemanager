@@ -14,13 +14,16 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, project_root)
 
 from dashboard.reviews.query import (
+    REVIEW_RISK_KEYS,
     add_review_resolution_note,
     get_review_resolution_detail,
     get_review_queue,
+    get_review_risk_context,
     get_review_resolutions,
     get_published_reviews,
     get_reviews_by_filter,
     mark_host_reviewed,
+    update_review_risk_override,
     update_review_resolution_rule,
     update_review_resolution,
     update_review_resolution_stage,
@@ -123,6 +126,45 @@ def api_mark_host_reviewed(reservation_id):
     except Exception as e:
         logger.error(f"Error marking reservation {reservation_id} host reviewed: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+@reviews_bp.route('/api/queue/<int:reservation_id>/severity', methods=['GET', 'PATCH'])
+@approved_required
+def api_update_review_severity(reservation_id):
+    """Load severity context or apply a human decision for one active stay."""
+    if request.method == 'GET':
+        try:
+            return jsonify(get_review_risk_context(reservation_id)), 200
+        except LookupError as e:
+            return jsonify({'error': str(e)}), 404
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 409
+        except Exception as e:
+            logger.error('Error loading review severity context for reservation %s: %s', reservation_id, e, exc_info=True)
+            return jsonify({'error': 'Could not load the conversation'}), 500
+
+    data = request.get_json(silent=True) or {}
+    restore_ai = data.get('restore_ai') is True
+    risk_key = str(data.get('severity') or '').strip() or None
+    if restore_ai and risk_key:
+        return jsonify({'error': 'Choose a severity or restore the AI assessment, not both'}), 400
+    if not restore_ai and risk_key not in REVIEW_RISK_KEYS:
+        return jsonify({'error': 'Choose a valid severity'}), 400
+    try:
+        result = update_review_risk_override(
+            reservation_id,
+            get_current_user().user_id,
+            risk_key=risk_key,
+            restore_ai=restore_ai,
+        )
+        return jsonify(result), 200
+    except LookupError as e:
+        return jsonify({'error': str(e)}), 404
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 409
+    except Exception as e:
+        logger.error('Error updating review severity for reservation %s: %s', reservation_id, e, exc_info=True)
+        return jsonify({'error': 'Could not update severity'}), 500
 
 
 @reviews_bp.route('/api/templates')

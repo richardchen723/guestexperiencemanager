@@ -10,6 +10,7 @@ from dashboard.reviews.query import (
     _review_for_origin,
     add_review_resolution_note,
     default_bad_review_threshold,
+    effective_review_risk,
     get_review_queue,
     is_in_review_window,
     is_reservation_in_review_window,
@@ -23,8 +24,10 @@ from dashboard.reviews.query import (
     review_channel_name,
     should_offer_review_chase,
     update_review_resolution,
+    update_review_risk_override,
     review_resolution_window_start,
     review_window_start,
+    serialize_review_conversation,
 )
 from dashboard.reviews.timezone import (
     listing_timezone,
@@ -228,6 +231,181 @@ class ReviewRiskTests(unittest.TestCase):
     def test_review_chase_is_not_offered_after_guest_submission(self):
         self.assertTrue(should_offer_review_chase({'key': 'mixed'}, guest_reviewed=False))
         self.assertFalse(should_offer_review_chase({'key': 'mixed'}, guest_reviewed=True))
+
+    def test_manual_severity_survives_later_ai_signal_changes(self):
+        reservation = SimpleNamespace(conversations=[SimpleNamespace(messages=[SimpleNamespace(
+            sender_type='guest',
+            is_incoming=True,
+            content_preview='Thank you, the home was amazing and perfect.',
+        )])])
+        state = SimpleNamespace(
+            risk_override_key='bad_high',
+            risk_overridden_by=None,
+            risk_overridden_at=datetime(2026, 8, 29, 18, 30),
+            ai_risk_key='mixed',
+            ai_risk_confidence='low',
+            ai_risk_good_review_likelihood=58,
+            ai_risk_reasons=['No strong sentiment signals in recent guest messages'],
+        )
+
+        result = effective_review_risk(reservation, state)
+
+        self.assertEqual(result['key'], 'bad_high')
+        self.assertEqual(result['short_label'], 'Red flags')
+        self.assertEqual(result['source'], 'manual')
+        self.assertEqual(result['ai']['key'], 'mixed')
+        self.assertEqual(result['ai']['confidence'], 'low')
+
+    @patch('dashboard.reviews.query.get_user_by_id')
+    @patch('dashboard.reviews.query.get_workflow_session')
+    @patch('dashboard.reviews.query.get_session')
+    def test_override_captures_ai_snapshot_and_operator(
+        self,
+        main_session_factory,
+        workflow_session_factory,
+        get_user_mock,
+    ):
+        listing = SimpleNamespace(
+            listing_id=10,
+            check_out_time=11,
+            timezone_name='America/New_York',
+            city='Atlanta',
+            state='GA',
+        )
+        reservation = SimpleNamespace(
+            reservation_id=44,
+            listing_id=10,
+            departure_date=date(2026, 8, 28),
+            listing=listing,
+            conversations=[],
+        )
+        main_session = Mock()
+        main_session.query.return_value.filter.return_value.options.return_value.first.return_value = reservation
+        main_session_factory.return_value = main_session
+        workflow_session = Mock()
+        workflow_session.query.return_value.filter.return_value.first.return_value = None
+        workflow_session_factory.return_value = workflow_session
+        get_user_mock.return_value = SimpleNamespace(name='Richard Chen', email='yunhang.chen@gmail.com')
+
+        result = update_review_risk_override(
+            44,
+            7,
+            risk_key='bad_high',
+            reference_time=datetime(2026, 8, 29, 16, 0, tzinfo=timezone.utc),
+        )
+
+        state = workflow_session.add.call_args.args[0]
+        self.assertEqual(state.risk_override_key, 'bad_high')
+        self.assertEqual(state.risk_overridden_by, 7)
+        self.assertEqual(state.ai_risk_key, 'mixed')
+        self.assertEqual(state.ai_risk_confidence, 'low')
+        self.assertEqual(result['risk']['source'], 'manual')
+        self.assertEqual(result['risk']['override']['updated_by']['name'], 'Richard Chen')
+        workflow_session.commit.assert_called_once_with()
+
+    @patch('dashboard.reviews.query.get_workflow_session')
+    @patch('dashboard.reviews.query.get_session')
+    def test_restore_clears_override_and_uses_fresh_ai_result(
+        self,
+        main_session_factory,
+        workflow_session_factory,
+    ):
+        listing = SimpleNamespace(
+            listing_id=10,
+            check_out_time=11,
+            timezone_name='America/New_York',
+            city='Atlanta',
+            state='GA',
+        )
+        reservation = SimpleNamespace(
+            reservation_id=44,
+            listing_id=10,
+            departure_date=date(2026, 8, 28),
+            listing=listing,
+            conversations=[],
+        )
+        state = ReviewQueueState(
+            reservation_id=44,
+            listing_id=10,
+            risk_override_key='bad_high',
+            risk_overridden_by=7,
+            risk_overridden_at=datetime(2026, 8, 29, 18, 30),
+            ai_risk_key='bad_elevated',
+            ai_risk_confidence='medium',
+        )
+        main_session = Mock()
+        main_session.query.return_value.filter.return_value.options.return_value.first.return_value = reservation
+        main_session_factory.return_value = main_session
+        workflow_session = Mock()
+        workflow_session.query.return_value.filter.return_value.first.return_value = state
+        workflow_session_factory.return_value = workflow_session
+
+        result = update_review_risk_override(
+            44,
+            7,
+            restore_ai=True,
+            reference_time=datetime(2026, 8, 29, 16, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertIsNone(state.risk_override_key)
+        self.assertIsNone(state.risk_overridden_by)
+        self.assertIsNone(state.risk_overridden_at)
+        self.assertTrue(result['restored_ai'])
+        self.assertEqual(result['risk']['source'], 'ai')
+        self.assertEqual(result['risk']['key'], 'mixed')
+
+
+class ReviewConversationContextTests(unittest.TestCase):
+    def test_complete_thread_combines_conversations_in_chronological_order(self):
+        early_guest_message = SimpleNamespace(
+            message_id=1,
+            sender_type='guest',
+            sender_name='Ketan Konanur',
+            is_incoming=1,
+            message_type='incoming',
+            content_preview='The full guest message remains available for the human reviewer.',
+            has_attachment=0,
+            created_at=datetime(2026, 8, 12, 14, 5),
+        )
+        team_reply = SimpleNamespace(
+            message_id=2,
+            sender_type='host',
+            sender_name='Maya from Guest Services',
+            is_incoming=0,
+            message_type='outgoing',
+            content_preview='Thank you for letting us know. The team is checking this now.',
+            has_attachment=1,
+            created_at=datetime(2026, 8, 12, 14, 9),
+        )
+        reservation = SimpleNamespace(
+            guest_name='Ketan Konanur',
+            guest=None,
+            conversations=[
+                SimpleNamespace(
+                    conversation_id=91,
+                    communication_type='Airbnb',
+                    messages=[team_reply],
+                ),
+                SimpleNamespace(
+                    conversation_id=90,
+                    communication_type='Airbnb',
+                    messages=[early_guest_message, team_reply],
+                ),
+            ],
+        )
+
+        result = serialize_review_conversation(reservation)
+
+        self.assertEqual([message['message_id'] for message in result['messages']], [1, 2])
+        self.assertEqual([message['direction'] for message in result['messages']], ['guest', 'team'])
+        self.assertEqual(result['messages'][0]['content'], early_guest_message.content_preview)
+        self.assertTrue(result['messages'][1]['has_attachment'])
+        self.assertEqual(result['message_count'], 2)
+        self.assertEqual(result['guest_message_count'], 1)
+        self.assertEqual(result['team_message_count'], 1)
+        self.assertEqual(result['conversation_count'], 2)
+        self.assertEqual(result['communication_types'], ['Airbnb'])
+        self.assertEqual(result['display_timezone'], 'America/New_York')
 
 
 class ReviewHostawayLinkTests(unittest.TestCase):

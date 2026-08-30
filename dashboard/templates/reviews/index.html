@@ -3,7 +3,7 @@
 {% block title %}Review Operations - Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260817-2') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260830-3') }}">
 {% endblock %}
 
 {% block content %}
@@ -137,6 +137,62 @@
     </details>
 </div>
 
+<div id="reviewSeverityModal" class="review-action-modal" hidden>
+    <button type="button" class="review-action-backdrop" data-close-review-severity aria-label="Close severity editor"></button>
+    <form id="reviewSeverityForm" class="review-action-dialog review-severity-dialog" role="dialog" aria-modal="true" aria-labelledby="reviewSeverityTitle">
+        <header class="review-action-dialog-head">
+            <div>
+                <span class="review-ops-eyebrow">Human review</span>
+                <h2 id="reviewSeverityTitle">Review the stay conversation</h2>
+                <p id="reviewSeverityContext">Read the complete thread, then choose the signal the team should use.</p>
+            </div>
+            <button type="button" class="review-action-close" data-close-review-severity aria-label="Close">×</button>
+        </header>
+        <div class="review-action-dialog-body review-severity-dialog-body">
+            <section class="review-conversation-panel" aria-labelledby="reviewConversationHeading">
+                <header class="review-conversation-head">
+                    <div>
+                        <span class="review-conversation-kicker">Guest communication</span>
+                        <h3 id="reviewConversationHeading">Complete conversation</h3>
+                    </div>
+                    <span id="reviewConversationSummary" class="review-conversation-summary">Loading thread…</span>
+                </header>
+                <div id="reviewConversationThread" class="review-conversation-thread" aria-live="polite">
+                    <div class="review-conversation-loading">
+                        <span class="review-ops-spinner" aria-hidden="true"></span>
+                        <span>Loading the complete conversation…</span>
+                    </div>
+                </div>
+            </section>
+            <aside class="review-severity-decision" aria-label="Stay severity decision">
+                <section class="review-ai-reference" aria-labelledby="reviewAiAssessmentLabel">
+                    <div class="review-ai-reference-head">
+                        <div>
+                            <span id="reviewAiAssessmentLabel">Original AI assessment</span>
+                            <strong id="reviewAiAssessment">—</strong>
+                        </div>
+                        <span id="reviewAiConfidence" class="review-ai-confidence">—</span>
+                    </div>
+                    <p id="reviewAiReason">Loading the communication signal…</p>
+                </section>
+                <fieldset class="review-severity-fieldset">
+                    <legend>Severity used by the team</legend>
+                    <p>Choose one. This updates the queue and review-chase safeguards.</p>
+                    <div id="reviewSeverityOptions" class="review-severity-options"></div>
+                    <p id="reviewSeverityDescription" class="review-severity-description" aria-live="polite"></p>
+                </fieldset>
+                <div id="reviewSeverityAudit" class="review-severity-audit" hidden></div>
+            </aside>
+        </div>
+        <footer class="review-action-dialog-foot review-severity-dialog-foot">
+            <button type="button" id="reviewSeverityRestore" class="review-severity-restore" hidden>Restore AI assessment</button>
+            <span id="reviewSeverityStatus" class="review-template-status" role="status"></span>
+            <button type="button" class="review-action-secondary" data-close-review-severity>Cancel</button>
+            <button type="submit" id="reviewSeveritySave" class="review-action-primary">Save severity</button>
+        </footer>
+    </form>
+</div>
+
 <div id="reviewActionModal" class="review-action-modal" hidden>
     <button type="button" class="review-action-backdrop" data-close-review-action aria-label="Close review action"></button>
     <section class="review-action-dialog" role="dialog" aria-modal="true" aria-labelledby="reviewActionTitle">
@@ -266,5 +322,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/reviews-page.js', v='20260825-2') }}"></script>
+<script src="{{ url_for('static', filename='js/reviews-page.js', v='20260830-3') }}"></script>
 {% endblock %}
