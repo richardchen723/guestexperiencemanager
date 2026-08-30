@@ -16,8 +16,9 @@ sys.path.insert(0, project_root)
 
 from dashboard.tickets.models import (
     Ticket, TicketComment, TicketTag, TicketImage, CommentImage, get_session, create_ticket, get_ticket,
-    get_tickets, update_ticket, delete_ticket, add_ticket_comment, get_ticket_comments, delete_ticket_comment,
-    init_ticket_database, TICKET_CATEGORIES, STANDARD_TICKET_TYPE
+    get_tickets, update_ticket, transition_ticket_status_with_comment, delete_ticket, add_ticket_comment,
+    get_ticket_comments, delete_ticket_comment,
+    init_ticket_database, TICKET_CATEGORIES, TicketTransitionConflict, STANDARD_TICKET_TYPE
 )
 from dashboard.tickets.recurring_tasks import process_recurring_tasks, get_next_occurrence_date, get_admin_user
 from dashboard.tickets.image_utils import save_uploaded_image
@@ -1384,6 +1385,161 @@ def api_update_ticket(ticket_id):
         )
         logger.debug(f"Full error traceback:\n{error_details}")
         return jsonify({'error': str(e)}), 500
+
+
+@tickets_bp.route('/api/tickets/<int:ticket_id>/transition', methods=['POST'])
+@approved_required
+def api_transition_ticket(ticket_id):
+    """Move a ticket to another status and save its handoff comment together."""
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({'error': 'Authentication required'}), 401
+
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        return jsonify({'error': 'Ticket not found'}), 404
+
+    is_creator = ticket.created_by == current_user.user_id
+    is_assigned = ticket.assigned_user_id == current_user.user_id
+    if not (is_creator or is_assigned or current_user.is_admin()):
+        return jsonify({'error': 'Permission denied'}), 403
+
+    data = request.get_json(silent=True) or {}
+    new_status = str(data.get('status') or '').strip()
+    expected_status = str(data.get('from_status') or ticket.status or 'Open').strip()
+    comment_text = str(data.get('comment_text') or '').strip()
+    assigned_user_id_raw = data.get('assigned_user_id', ticket.assigned_user_id)
+    expected_assigned_user_id_raw = data.get('from_assigned_user_id', ticket.assigned_user_id)
+    try:
+        assigned_user_id = int(assigned_user_id_raw) if assigned_user_id_raw not in (None, '') else None
+        expected_assigned_user_id = (
+            int(expected_assigned_user_id_raw)
+            if expected_assigned_user_id_raw not in (None, '')
+            else None
+        )
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Choose a valid assignee'}), 400
+    if assigned_user_id != ticket.assigned_user_id:
+        assigned_user = get_user_by_id(assigned_user_id) if assigned_user_id else None
+        if assigned_user_id and (not assigned_user or not assigned_user.is_approved):
+            return jsonify({'error': 'Choose an approved team member'}), 400
+    if new_status not in TICKET_STATUSES:
+        return jsonify({'error': 'Choose a valid destination status'}), 400
+    if new_status == expected_status:
+        return jsonify({'error': 'Choose a different destination status'}), 400
+    if not comment_text:
+        return jsonify({'error': 'Add a handoff comment before moving this ticket'}), 400
+    if len(comment_text) > 4000:
+        return jsonify({'error': 'Keep the handoff comment under 4,000 characters'}), 400
+
+    old_status = ticket.status or 'Open'
+    old_assigned_user_id = ticket.assigned_user_id
+    try:
+        result = transition_ticket_status_with_comment(
+            ticket_id=ticket_id,
+            user_id=current_user.user_id,
+            status=new_status,
+            comment_text=comment_text,
+            expected_status=expected_status,
+            assigned_user_id=assigned_user_id,
+            expected_assigned_user_id=expected_assigned_user_id,
+        )
+        if not result:
+            return jsonify({'error': 'Ticket not found'}), 404
+
+        try:
+            sync_issue_from_ticket_status(
+                ticket_id,
+                ticket_status=new_status,
+                user_id=current_user.user_id,
+            )
+        except Exception:
+            logger.exception(
+                'Ticket %s transitioned but its linked guest issue could not be synchronized',
+                ticket_id,
+            )
+
+        try:
+            from dashboard.activities.logger import log_comment_activity, log_ticket_activity
+
+            log_ticket_activity(
+                user_id=current_user.user_id,
+                action='status_change',
+                ticket_id=ticket_id,
+                metadata={
+                    'title': ticket.title,
+                    'old_status': old_status,
+                    'new_status': new_status,
+                    'source': 'swimlane',
+                },
+            )
+            if assigned_user_id != old_assigned_user_id:
+                old_user = get_user_by_id(old_assigned_user_id) if old_assigned_user_id else None
+                new_user = get_user_by_id(assigned_user_id) if assigned_user_id else None
+                log_ticket_activity(
+                    user_id=current_user.user_id,
+                    action='assign',
+                    ticket_id=ticket_id,
+                    metadata={
+                        'title': ticket.title,
+                        'old_assigned_user_id': old_assigned_user_id,
+                        'new_assigned_user_id': assigned_user_id,
+                        'old_assigned_user_name': (old_user.name or old_user.email) if old_user else None,
+                        'new_assigned_user_name': (new_user.name or new_user.email) if new_user else None,
+                        'source': 'swimlane',
+                    },
+                )
+            log_comment_activity(
+                user_id=current_user.user_id,
+                action='create',
+                ticket_id=ticket_id,
+                comment_id=result['comment']['comment_id'],
+                metadata={'comment_length': len(comment_text), 'source': 'swimlane'},
+            )
+        except Exception:
+            logger.exception('Could not log swim-lane transition activity for ticket %s', ticket_id)
+
+        try:
+            from dashboard.notifications.helpers import (
+                send_assignment_notification,
+                send_mention_notification,
+                send_status_change_notification,
+            )
+            from dashboard.notifications.mention_parser import parse_mentions
+
+            changer_name = current_user.name or current_user.email
+            if assigned_user_id and assigned_user_id != old_assigned_user_id:
+                send_assignment_notification(assigned_user_id, ticket_id)
+            if assigned_user_id:
+                send_status_change_notification(
+                    assigned_user_id,
+                    ticket_id,
+                    old_status,
+                    new_status,
+                    changer_name,
+                )
+            for mentioned_user_id, _mention_text in parse_mentions(comment_text):
+                if mentioned_user_id != current_user.user_id:
+                    send_mention_notification(
+                        mentioned_user_id,
+                        ticket_id,
+                        comment_text,
+                        changer_name,
+                    )
+        except Exception:
+            logger.exception('Could not send swim-lane transition notifications for ticket %s', ticket_id)
+
+        return jsonify({
+            **result,
+            'old_status': old_status,
+            'old_assigned_user_id': old_assigned_user_id,
+            'message': f'Ticket moved to {new_status}',
+        }), 200
+    except TicketTransitionConflict as exc:
+        return jsonify({'error': str(exc), 'code': 'stale_ticket'}), 409
+    except Exception as exc:
+        logger.exception('Could not transition ticket %s from the swim-lane board', ticket_id)
+        return jsonify({'error': 'Could not move the ticket. Nothing was changed.'}), 500
 
 
 @tickets_bp.route('/api/tickets/<int:ticket_id>', methods=['DELETE'])

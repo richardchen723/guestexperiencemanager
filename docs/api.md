@@ -318,6 +318,9 @@ All ticket APIs are prefixed with `/tickets`.
 - `GET /tickets/api/tickets/{ticket_id}`
 - `POST /tickets/api/tickets`
 - `PUT /tickets/api/tickets/{ticket_id}`
+- `POST /tickets/api/tickets/{ticket_id}/transition` — atomically update the
+  status and assignee and add its required handoff comment. Body:
+  `{"status":"In Progress","from_status":"Open","assigned_user_id":12,"from_assigned_user_id":4,"comment_text":"@Alex Kim Starting work."}`.
 - `DELETE /tickets/api/tickets/{ticket_id}`
 - `GET /tickets/api/tickets/{ticket_id}/comments`
 - `POST /tickets/api/tickets/{ticket_id}/comments`

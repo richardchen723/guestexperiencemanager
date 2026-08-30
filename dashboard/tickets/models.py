@@ -30,6 +30,7 @@ TICKET_STATUSES = ['Open', 'Assigned', 'In Progress', 'Blocked', 'Resolved', 'Cl
 TICKET_PRIORITIES = ['Low', 'Medium', 'High', 'Critical']
 TICKET_CATEGORIES = ['cleaning', 'maintenance', 'online', 'technology', 'review management', 'other']
 STANDARD_TICKET_TYPE = 'standard'
+_ASSIGNEE_UNSET = object()
 REVIEW_RESOLUTION_TICKET_TYPE = 'review_resolution'
 REVIEW_RESOLUTION_STAGE_DEFINITIONS = [
     {
@@ -76,6 +77,10 @@ REVIEW_RESOLUTION_LEGACY_STAGE_MAP = {
 }
 REVIEW_ACTION_CHASE = 'chase_review'
 REVIEW_ACTION_HOST = 'host_review'
+
+
+class TicketTransitionConflict(ValueError):
+    """Raised when a workflow card was moved after the board became stale."""
 
 
 def normalize_review_resolution_stage(stage):
@@ -1413,6 +1418,71 @@ def update_ticket(ticket_id: int, **kwargs) -> Optional[Ticket]:
     except Exception as e:
         session.rollback()
         raise e
+    finally:
+        session.close()
+
+
+def transition_ticket_status_with_comment(
+    ticket_id: int,
+    user_id: int,
+    status: str,
+    comment_text: str,
+    expected_status: Optional[str] = None,
+    assigned_user_id=_ASSIGNEE_UNSET,
+    expected_assigned_user_id=_ASSIGNEE_UNSET,
+) -> Optional[dict]:
+    """Commit workflow, assignment, and handoff-comment changes atomically."""
+    session = get_session()
+    try:
+        ticket = session.query(Ticket).filter(Ticket.ticket_id == ticket_id).first()
+        if not ticket:
+            return None
+        if expected_status and ticket.status != expected_status:
+            raise TicketTransitionConflict(
+                f'Ticket is already in {ticket.status}. Refresh the board and try again.'
+            )
+        if (
+            expected_assigned_user_id is not _ASSIGNEE_UNSET
+            and ticket.assigned_user_id != expected_assigned_user_id
+        ):
+            raise TicketTransitionConflict(
+                'Ticket assignment changed. Refresh the board and try again.'
+            )
+
+        changed_at = datetime.utcnow()
+        ticket.status = status
+        if assigned_user_id is not _ASSIGNEE_UNSET:
+            ticket.assigned_user_id = assigned_user_id
+        ticket.updated_at = changed_at
+        comment = TicketComment(
+            ticket_id=ticket_id,
+            user_id=user_id,
+            comment_text=comment_text,
+            created_at=changed_at,
+        )
+        session.add(comment)
+        session.commit()
+        session.refresh(ticket)
+        session.refresh(comment)
+
+        return {
+            'ticket': {
+                'ticket_id': ticket.ticket_id,
+                'status': ticket.status,
+                'assigned_user_id': ticket.assigned_user_id,
+                'updated_at': ticket.updated_at.isoformat() if ticket.updated_at else None,
+            },
+            'comment': {
+                'comment_id': comment.comment_id,
+                'ticket_id': comment.ticket_id,
+                'user_id': comment.user_id,
+                'comment_text': comment.comment_text,
+                'created_at': comment.created_at.isoformat() if comment.created_at else None,
+            },
+        }
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
 
