@@ -314,9 +314,8 @@ def get_review_automation_preview(
 
     # Imported here so the queue can import the action models without a cycle.
     from dashboard.reviews.query import (
-        _guest_message_previews,
         _review_for_origin,
-        rate_guest_review_risk,
+        effective_review_risk,
         require_reservation_in_review_window,
         should_offer_review_chase,
     )
@@ -345,7 +344,7 @@ def get_review_automation_preview(
         if already_sent:
             raise ValueError('This action has already been completed for the reservation')
 
-        risk = rate_guest_review_risk(_guest_message_previews(reservation))
+        risk = effective_review_risk(reservation, state)
         conversation = _latest_conversation(reservation)
         if action_type == REVIEW_ACTION_CHASE:
             if not should_offer_review_chase(risk, bool(guest_review)):

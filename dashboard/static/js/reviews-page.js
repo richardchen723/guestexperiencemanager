@@ -15,11 +15,11 @@ const reviewSummaryHeadings = {
 };
 
 const reviewRiskFilterOptions = [
-    { value: 'bad_high', label: 'High bad-review risk' },
-    { value: 'bad_elevated', label: 'Elevated bad-review risk' },
-    { value: 'mixed', label: 'Unclear outcome' },
-    { value: 'good_likely', label: 'Likely good' },
-    { value: 'good_high', label: 'High chance of good' },
+    { value: 'bad_high', label: 'Red flags', description: 'Strong concern; do not chase a guest review.' },
+    { value: 'bad_elevated', label: 'Elevated concern', description: 'Meaningful warning signals; pause outreach.' },
+    { value: 'mixed', label: 'Unclear', description: 'Communication does not point clearly positive or negative.' },
+    { value: 'good_likely', label: 'Likely good', description: 'Mostly positive signals with some uncertainty.' },
+    { value: 'good_high', label: 'Strong positive', description: 'Clear confidence in a positive guest outcome.' },
 ];
 
 let allTags = [];
@@ -27,6 +27,9 @@ let currentEditingFilterId = null;
 let toastTimer = null;
 let activeReviewAction = null;
 let reviewTemplateProperties = [];
+let activeReviewSeverity = null;
+let reviewSeverityReturnFocus = null;
+let reviewSeverityRequestToken = 0;
 
 document.addEventListener('DOMContentLoaded', async () => {
     const queueContainer = document.getElementById('reviewQueueContainer');
@@ -62,6 +65,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('reviewTemplatesForm')?.addEventListener('submit', saveReviewTemplates);
         document.querySelectorAll('[data-close-review-templates]').forEach((element) => {
             element.addEventListener('click', closeReviewTemplatesModal);
+        });
+        document.getElementById('reviewSeverityForm')?.addEventListener('submit', saveReviewSeverity);
+        document.getElementById('reviewSeverityRestore')?.addEventListener('click', restoreAiSeverity);
+        document.getElementById('reviewSeverityOptions')?.addEventListener('change', updateReviewSeverityDescription);
+        document.querySelectorAll('[data-close-review-severity]').forEach((element) => {
+            element.addEventListener('click', closeReviewSeverityModal);
         });
         document.addEventListener('keydown', handleReviewModalKeydown);
         loadReviewQueue();
@@ -206,6 +215,29 @@ function updateQueueSummary(summary) {
     setText('reviewMetricRisk', summary.high_risk ?? 0);
 }
 
+function queueSummaryFromReviews() {
+    return {
+        total: reviewQueueState.reviews.length,
+        needs_host_review: reviewQueueState.reviews.filter((review) => !review.host_reviewed).length,
+        guest_reviewed: reviewQueueState.reviews.filter((review) => review.guest_reviewed).length,
+        high_risk: reviewQueueState.reviews.filter((review) => (review.risk?.order ?? 2) <= 1).length,
+    };
+}
+
+function applyReviewSeverityResult(result) {
+    const index = reviewQueueState.reviews.findIndex((review) => (
+        Number(review.reservation_id) === Number(result.reservation_id)
+    ));
+    if (index < 0) return;
+    reviewQueueState.reviews[index] = {
+        ...reviewQueueState.reviews[index],
+        risk: result.risk,
+    };
+    populateQueueRiskFilter();
+    updateQueueSummary(queueSummaryFromReviews());
+    renderReviewQueue();
+}
+
 function updateWindowDescription(windowData) {
     const element = document.getElementById('reviewWindowDescription');
     if (!element || !windowData.start_date || !windowData.end_date) return;
@@ -318,6 +350,8 @@ function createPortfolioGroup(name, reviews) {
 
 function createQueueCard(review) {
     const risk = review.risk || { key: 'mixed', short_label: 'Unclear', confidence: 'low', reasons: [] };
+    const aiRisk = risk.ai || risk;
+    const isManualSeverity = risk.source === 'manual';
     const guestComplete = Boolean(review.guest_reviewed);
     const hostComplete = Boolean(review.host_reviewed);
     const guestStatus = guestComplete
@@ -340,14 +374,22 @@ function createQueueCard(review) {
     const hostawayLink = review.hostaway_url
         ? `<a class="review-hostaway-link" href="${escapeHtml(review.hostaway_url)}" target="_blank" rel="noopener noreferrer" aria-label="Open ${escapeHtml(review.guest_name || 'guest')} ${review.hostaway_destination === 'conversation' ? 'message thread' : 'booking'} in Hostaway">${review.hostaway_destination === 'conversation' ? 'Messages' : 'Booking'} <span aria-hidden="true">↗</span></a>`
         : '';
-    const riskReason = risk.reasons?.[0] || 'No strong sentiment signals in recent guest messages';
+    const riskReason = `${isManualSeverity ? 'AI context: ' : ''}${risk.reasons?.[0] || 'No strong sentiment signals in recent guest messages'}`;
+    const riskContext = isManualSeverity
+        ? `<span class="review-manual-flag">Manual</span><span>AI was ${escapeHtml(aiRisk.short_label || 'Unclear')} · ${escapeHtml(aiRisk.confidence || 'low')} confidence</span>`
+        : `<span>${escapeHtml(risk.confidence || 'low')} AI confidence</span>`;
     const guestInitials = initialsFor(review.guest_name);
 
     return `
         <article class="review-queue-card review-risk-${escapeHtml(risk.key)}" data-risk="${escapeHtml(risk.key)}">
             <div class="review-queue-card-top">
-                <span class="review-risk-badge">${escapeHtml(risk.short_label)}</span>
-                <span class="review-confidence">${escapeHtml(risk.confidence)} signal confidence</span>
+                <button type="button" class="review-risk-edit" data-action="edit-severity" data-reservation-id="${review.reservation_id}" aria-label="Edit severity for ${escapeHtml(review.guest_name || 'guest')}">
+                    <span class="review-risk-chip">
+                        <span>${escapeHtml(risk.short_label)}</span>
+                        <span class="review-risk-edit-icon" aria-hidden="true">✎</span>
+                    </span>
+                </button>
+                <span class="review-confidence">${riskContext}</span>
             </div>
             <div class="review-queue-identity">
                 <span class="review-guest-avatar" aria-hidden="true">${escapeHtml(guestInitials)}</span>
@@ -404,6 +446,11 @@ async function handleQueueClick(event) {
     const reservationId = Number(button.dataset.reservationId);
     if (!reservationId) return;
 
+    if (button.dataset.action === 'edit-severity') {
+        openReviewSeverityModal(reservationId, button);
+        return;
+    }
+
     if (button.dataset.action === 'chase_review' || button.dataset.action === 'host_review') {
         await openReviewActionModal(reservationId, button.dataset.action, button);
         return;
@@ -431,6 +478,254 @@ async function handleQueueClick(event) {
         button.textContent = originalText;
         showToast(error.message, true);
     }
+}
+
+async function openReviewSeverityModal(reservationId, triggerButton) {
+    const modal = document.getElementById('reviewSeverityModal');
+    const review = reviewQueueState.reviews.find((item) => (
+        Number(item.reservation_id) === Number(reservationId)
+    ));
+    if (!modal || !review) return;
+
+    activeReviewSeverity = review;
+    reviewSeverityReturnFocus = triggerButton;
+    const requestToken = ++reviewSeverityRequestToken;
+    renderReviewSeverityDecision(review);
+    renderReviewConversationLoading();
+    setText('reviewSeverityStatus', '');
+    modal.hidden = false;
+    document.body.classList.add('review-modal-open');
+
+    try {
+        const context = await fetchJson(`/reviews/api/queue/${reservationId}/severity`);
+        if (requestToken !== reviewSeverityRequestToken || modal.hidden) return;
+        activeReviewSeverity = { ...review, ...context };
+        renderReviewSeverityDecision(activeReviewSeverity);
+        renderReviewConversation(context.conversation || {}, activeReviewSeverity);
+        window.setTimeout(() => (
+            document.getElementById('reviewConversationThread')?.focus({ preventScroll: true })
+        ), 0);
+    } catch (error) {
+        if (requestToken !== reviewSeverityRequestToken || modal.hidden) return;
+        renderReviewConversationError(error.message);
+        setText('reviewSeverityStatus', 'Conversation unavailable. You can still update severity.');
+    }
+}
+
+function renderReviewSeverityDecision(review) {
+    const risk = review.risk || {};
+    const aiRisk = risk.ai || risk;
+    setText(
+        'reviewSeverityContext',
+        `${review.guest_name} · ${review.listing_name} · ${reviewChannelLabel(review.channel_name)}`,
+    );
+    setText('reviewAiAssessment', aiRisk.short_label || 'Unclear');
+    const likelihood = Number(aiRisk.good_review_likelihood);
+    setText(
+        'reviewAiConfidence',
+        `${aiRisk.confidence || 'low'} confidence${Number.isFinite(likelihood) ? ` · ${likelihood}% positive likelihood` : ''}`,
+    );
+    setText('reviewAiReason', aiRisk.reasons?.[0] || 'No strong sentiment signals in recent guest messages');
+
+    const options = document.getElementById('reviewSeverityOptions');
+    if (options) {
+        options.innerHTML = reviewRiskFilterOptions.map((option) => `
+            <label class="review-severity-option review-risk-${escapeHtml(option.value)}" title="${escapeHtml(option.description)}">
+                <input type="radio" name="reviewSeverity" value="${escapeHtml(option.value)}" ${risk.key === option.value ? 'checked' : ''}>
+                <span class="review-severity-marker" aria-hidden="true"></span>
+                <strong>${escapeHtml(option.label)}</strong>
+                <span class="review-severity-check" aria-hidden="true">✓</span>
+            </label>
+        `).join('');
+    }
+    updateReviewSeverityDescription();
+
+    const audit = document.getElementById('reviewSeverityAudit');
+    const restore = document.getElementById('reviewSeverityRestore');
+    const override = risk.override;
+    if (audit) {
+        audit.hidden = !override;
+        audit.innerHTML = override ? `
+            <span class="review-manual-flag">Manual override active</span>
+            <span>Changed by ${escapeHtml(override.updated_by?.name || 'a team member')} · ${escapeHtml(formatDateTime(override.updated_at))}</span>
+        ` : '';
+    }
+    if (restore) restore.hidden = !override;
+}
+
+function updateReviewSeverityDescription() {
+    const selected = document.querySelector('input[name="reviewSeverity"]:checked')?.value;
+    const option = reviewRiskFilterOptions.find((item) => item.value === selected);
+    setText('reviewSeverityDescription', option?.description || 'Choose the signal the team should use.');
+}
+
+function renderReviewConversationLoading() {
+    setText('reviewConversationSummary', 'Loading thread…');
+    const thread = document.getElementById('reviewConversationThread');
+    if (!thread) return;
+    thread.innerHTML = `
+        <div class="review-conversation-loading">
+            <span class="review-ops-spinner" aria-hidden="true"></span>
+            <span>Loading the complete conversation…</span>
+        </div>
+    `;
+}
+
+function renderReviewConversationError(message) {
+    setText('reviewConversationSummary', 'Could not load');
+    const thread = document.getElementById('reviewConversationThread');
+    if (!thread) return;
+    thread.innerHTML = `
+        <div class="review-conversation-empty is-error">
+            <strong>Conversation unavailable</strong>
+            <span>${escapeHtml(message || 'Please close this window and try again.')}</span>
+        </div>
+    `;
+}
+
+function renderReviewConversation(conversation, review) {
+    const thread = document.getElementById('reviewConversationThread');
+    if (!thread) return;
+    const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
+    const count = Number(conversation.message_count ?? messages.length);
+    const channel = reviewChannelLabel(review.channel_name);
+    setText('reviewConversationSummary', `${count} ${count === 1 ? 'message' : 'messages'} · ${channel}`);
+    thread.tabIndex = 0;
+    thread.setAttribute('aria-label', `Complete conversation with ${review.guest_name}`);
+
+    if (!messages.length) {
+        thread.innerHTML = `
+            <div class="review-conversation-empty">
+                <strong>No synced messages</strong>
+                <span>The stay has no team or guest messages available to review.</span>
+            </div>
+        `;
+        return;
+    }
+
+    const timezoneName = conversation.display_timezone || 'America/New_York';
+    let previousDay = '';
+    thread.innerHTML = messages.map((message) => {
+        const dayLabel = formatConversationTimestamp(
+            message.created_at,
+            timezoneName,
+            { month: 'long', day: 'numeric', year: 'numeric' },
+        );
+        const dayDivider = dayLabel && dayLabel !== previousDay
+            ? `<div class="review-conversation-day"><span>${escapeHtml(dayLabel)}</span></div>`
+            : '';
+        previousDay = dayLabel;
+        const direction = message.direction === 'guest' ? 'guest' : 'team';
+        const sender = message.sender_name || (direction === 'guest' ? review.guest_name : 'Team');
+        const attachment = message.has_attachment
+            ? '<span class="review-message-attachment">Attachment included</span>'
+            : '';
+        const content = message.content || (message.has_attachment ? 'Attachment' : 'Message content unavailable');
+        return `
+            ${dayDivider}
+            <article class="review-message review-message--${direction}">
+                <header>
+                    <strong>${escapeHtml(sender)}</strong>
+                    <time datetime="${escapeHtml(message.created_at || '')}">${escapeHtml(formatConversationTimestamp(
+                        message.created_at,
+                        timezoneName,
+                        { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' },
+                    ))}</time>
+                </header>
+                <p>${escapeHtml(content)}</p>
+                ${attachment}
+            </article>
+        `;
+    }).join('');
+    thread.scrollTop = thread.scrollHeight;
+}
+
+function formatConversationTimestamp(value, timezoneName, options) {
+    if (!value) return '';
+    const normalized = /(?:Z|[+-]\d\d:\d\d)$/.test(String(value)) ? String(value) : `${value}Z`;
+    const parsed = new Date(normalized);
+    if (Number.isNaN(parsed.getTime())) return '';
+    try {
+        return parsed.toLocaleString('en-US', { ...options, timeZone: timezoneName });
+    } catch (error) {
+        return parsed.toLocaleString('en-US', options);
+    }
+}
+
+async function saveReviewSeverity(event) {
+    event.preventDefault();
+    if (!activeReviewSeverity) return;
+    const selected = document.querySelector('input[name="reviewSeverity"]:checked')?.value;
+    const saveButton = document.getElementById('reviewSeveritySave');
+    if (!selected || !saveButton) return;
+
+    saveButton.disabled = true;
+    saveButton.textContent = 'Saving…';
+    setText('reviewSeverityStatus', '');
+    try {
+        const result = await fetchJson(`/reviews/api/queue/${activeReviewSeverity.reservation_id}/severity`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ severity: selected }),
+        });
+        applyReviewSeverityResult(result);
+        closeReviewSeverityModal();
+        showToast('Severity updated across the review queue.');
+    } catch (error) {
+        setText('reviewSeverityStatus', error.message);
+        showToast(error.message, true);
+    } finally {
+        saveButton.disabled = false;
+        saveButton.textContent = 'Save severity';
+    }
+}
+
+async function restoreAiSeverity() {
+    if (!activeReviewSeverity) return;
+    const restoreButton = document.getElementById('reviewSeverityRestore');
+    const saveButton = document.getElementById('reviewSeveritySave');
+    if (!restoreButton || !saveButton) return;
+
+    restoreButton.disabled = true;
+    saveButton.disabled = true;
+    restoreButton.textContent = 'Restoring…';
+    setText('reviewSeverityStatus', '');
+    try {
+        const result = await fetchJson(`/reviews/api/queue/${activeReviewSeverity.reservation_id}/severity`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ restore_ai: true }),
+        });
+        applyReviewSeverityResult(result);
+        closeReviewSeverityModal();
+        showToast('AI assessment restored.');
+    } catch (error) {
+        setText('reviewSeverityStatus', error.message);
+        showToast(error.message, true);
+    } finally {
+        restoreButton.disabled = false;
+        restoreButton.textContent = 'Restore AI assessment';
+        saveButton.disabled = false;
+    }
+}
+
+function closeReviewSeverityModal() {
+    const modal = document.getElementById('reviewSeverityModal');
+    const reservationId = activeReviewSeverity?.reservation_id;
+    reviewSeverityRequestToken += 1;
+    if (modal) modal.hidden = true;
+    activeReviewSeverity = null;
+    if (
+        document.getElementById('reviewActionModal')?.hidden !== false
+        && document.getElementById('reviewTemplatesModal')?.hidden !== false
+    ) {
+        document.body.classList.remove('review-modal-open');
+    }
+    const nextButton = reservationId
+        ? document.querySelector(`[data-action="edit-severity"][data-reservation-id="${reservationId}"]`)
+        : null;
+    (nextButton || reviewSeverityReturnFocus)?.focus?.();
+    reviewSeverityReturnFocus = null;
 }
 
 async function openReviewActionModal(reservationId, actionType, triggerButton) {
@@ -577,7 +872,10 @@ function closeReviewActionModal() {
     if (modal) modal.hidden = true;
     renderReviewPlatformDestination(null);
     activeReviewAction = null;
-    if (document.getElementById('reviewTemplatesModal')?.hidden !== false) {
+    if (
+        document.getElementById('reviewTemplatesModal')?.hidden !== false
+        && document.getElementById('reviewSeverityModal')?.hidden !== false
+    ) {
         document.body.classList.remove('review-modal-open');
     }
 }
@@ -649,13 +947,17 @@ async function saveReviewTemplates(event) {
 function closeReviewTemplatesModal() {
     const modal = document.getElementById('reviewTemplatesModal');
     if (modal) modal.hidden = true;
-    if (document.getElementById('reviewActionModal')?.hidden !== false) {
+    if (
+        document.getElementById('reviewActionModal')?.hidden !== false
+        && document.getElementById('reviewSeverityModal')?.hidden !== false
+    ) {
         document.body.classList.remove('review-modal-open');
     }
 }
 
 function handleReviewModalKeydown(event) {
     if (event.key !== 'Escape') return;
+    if (document.getElementById('reviewSeverityModal')?.hidden === false) closeReviewSeverityModal();
     if (document.getElementById('reviewActionModal')?.hidden === false) closeReviewActionModal();
     if (document.getElementById('reviewTemplatesModal')?.hidden === false) closeReviewTemplatesModal();
 }
@@ -873,6 +1175,21 @@ function formatDate(value, options = { month: 'short', day: 'numeric', year: 'nu
     if (!value) return 'N/A';
     const parsed = new Date(`${String(value).slice(0, 10)}T12:00:00`);
     return Number.isNaN(parsed.getTime()) ? 'N/A' : parsed.toLocaleDateString('en-US', options);
+}
+
+function formatDateTime(value) {
+    if (!value) return 'time unavailable';
+    const normalized = /(?:Z|[+-]\d\d:\d\d)$/.test(String(value)) ? String(value) : `${value}Z`;
+    const parsed = new Date(normalized);
+    return Number.isNaN(parsed.getTime())
+        ? 'time unavailable'
+        : parsed.toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+        });
 }
 
 function escapeHtml(value) {

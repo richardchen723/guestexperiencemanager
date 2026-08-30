@@ -192,6 +192,52 @@ class ReviewAutomationCheckoutGuardTests(unittest.TestCase):
                 reference_time=datetime(2026, 8, 28, 14, 59, tzinfo=timezone.utc),
             )
 
+    @patch('dashboard.reviews.query.effective_review_risk')
+    @patch('dashboard.reviews.automation.get_workflow_session')
+    @patch('dashboard.reviews.automation.get_session')
+    def test_manual_red_flag_override_blocks_review_chase(
+        self,
+        main_session_factory,
+        workflow_session_factory,
+        effective_risk_mock,
+    ):
+        listing = SimpleNamespace(
+            listing_id=10,
+            internal_listing_name='Test home',
+            name='Test home',
+            tags=[],
+            check_out_time=11,
+            timezone_name='America/New_York',
+            city='Atlanta',
+            state='GA',
+        )
+        reservation = SimpleNamespace(
+            reservation_id=44,
+            listing_id=10,
+            departure_date=date(2026, 8, 28),
+            listing=listing,
+            reviews=[],
+            conversations=[],
+        )
+        main_session = Mock()
+        main_session.query.return_value.filter.return_value.options.return_value.first.return_value = reservation
+        main_session_factory.return_value = main_session
+        state = SimpleNamespace(host_reviewed=False, risk_override_key='bad_high')
+        workflow_session = Mock()
+        workflow_session.query.return_value.filter.return_value.first.side_effect = [state, None]
+        workflow_session_factory.return_value = workflow_session
+        effective_risk_mock.return_value = {'key': 'bad_high', 'source': 'manual'}
+
+        with self.assertRaisesRegex(ValueError, 'high or elevated'):
+            get_review_automation_preview(
+                44,
+                REVIEW_ACTION_CHASE,
+                7,
+                reference_time=datetime(2026, 8, 29, 16, 0, tzinfo=timezone.utc),
+            )
+
+        effective_risk_mock.assert_called_once_with(reservation, state)
+
 
 class LiveGuestMessageTests(unittest.TestCase):
     @patch('dashboard.reviews.automation.get_workflow_session')

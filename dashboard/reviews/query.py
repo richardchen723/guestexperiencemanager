@@ -4,7 +4,7 @@ Query functions for reviews with tag joins and filtering.
 """
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from dateutil.relativedelta import relativedelta
 from typing import List, Dict, Optional, Sequence
 from sqlalchemy import and_, or_, func
@@ -16,6 +16,7 @@ from dashboard.portfolio_mapping import (
     portfolio_name_for_tags,
 )
 from dashboard.reviews.timezone import (
+    application_timezone_name,
     application_local_date,
     listing_timezone,
     reference_time_utc,
@@ -68,12 +69,13 @@ DEFAULT_PORTFOLIO_BAD_REVIEW_THRESHOLDS = {
 }
 HOSTAWAY_DASHBOARD_BASE_URL = 'https://dashboard.hostaway.com'
 REVIEW_RISK_TIERS = (
-    {'key': 'bad_high', 'label': 'High chance of a bad review', 'short_label': 'High risk'},
-    {'key': 'bad_elevated', 'label': 'Elevated chance of a bad review', 'short_label': 'Elevated risk'},
+    {'key': 'bad_high', 'label': 'Red flags — high bad-review risk', 'short_label': 'Red flags'},
+    {'key': 'bad_elevated', 'label': 'Elevated bad-review concern', 'short_label': 'Elevated'},
     {'key': 'mixed', 'label': 'Review outcome is unclear', 'short_label': 'Unclear'},
     {'key': 'good_likely', 'label': 'Likely to leave a good review', 'short_label': 'Likely good'},
     {'key': 'good_high', 'label': 'High chance of a good review', 'short_label': 'High confidence'},
 )
+REVIEW_RISK_KEYS = {tier['key'] for tier in REVIEW_RISK_TIERS}
 
 NEGATIVE_REVIEW_SIGNALS = {
     'refund': 24,
@@ -206,6 +208,67 @@ def rate_guest_review_risk(message_previews: Sequence[str]) -> Dict:
         'good_review_likelihood': good_likelihood,
         'confidence': confidence,
         'reasons': reasons,
+    }
+
+
+def _risk_tier(key: Optional[str]) -> Optional[Dict]:
+    return next((tier for tier in REVIEW_RISK_TIERS if tier['key'] == key), None)
+
+
+def _stored_ai_risk(state: Optional[ReviewQueueState], fallback: Dict) -> Dict:
+    """Build the immutable AI snapshot captured when an override began."""
+    tier = _risk_tier(getattr(state, 'ai_risk_key', None))
+    if not tier:
+        return dict(fallback)
+    stored_reasons = getattr(state, 'ai_risk_reasons', None)
+    return {
+        'key': tier['key'],
+        'label': tier['label'],
+        'short_label': tier['short_label'],
+        'order': REVIEW_RISK_TIERS.index(tier),
+        'good_review_likelihood': (
+            state.ai_risk_good_review_likelihood
+            if state.ai_risk_good_review_likelihood is not None
+            else fallback.get('good_review_likelihood')
+        ),
+        'confidence': state.ai_risk_confidence or fallback.get('confidence', 'low'),
+        'reasons': list(stored_reasons) if isinstance(stored_reasons, (list, tuple)) else list(fallback.get('reasons') or []),
+    }
+
+
+def effective_review_risk(
+    reservation: Reservation,
+    state: Optional[ReviewQueueState],
+) -> Dict:
+    """Return the human override when present, with the original AI result attached."""
+    current_ai = rate_guest_review_risk(_guest_message_previews(reservation))
+    override_tier = _risk_tier(getattr(state, 'risk_override_key', None))
+    if not override_tier:
+        return {
+            **current_ai,
+            'source': 'ai',
+            'ai': dict(current_ai),
+            'override': None,
+        }
+
+    original_ai = _stored_ai_risk(state, current_ai)
+    overrider = get_user_by_id(state.risk_overridden_by) if state.risk_overridden_by else None
+    return {
+        **original_ai,
+        'key': override_tier['key'],
+        'label': override_tier['label'],
+        'short_label': override_tier['short_label'],
+        'order': REVIEW_RISK_TIERS.index(override_tier),
+        'source': 'manual',
+        'ai': original_ai,
+        'override': {
+            'updated_at': state.risk_overridden_at.isoformat() if state.risk_overridden_at else None,
+            'updated_by': {
+                'user_id': state.risk_overridden_by,
+                'name': (overrider.name or overrider.email) if overrider else 'Former team member',
+                'email': overrider.email if overrider else None,
+            },
+        },
     }
 
 
@@ -606,7 +669,7 @@ def _serialize_queue_card(
     age_days = max(0, (now_local.date() - checkout_local.date()).days)
     days_remaining = max(1, (expires_local.date() - now_local.date()).days)
     checkout_timezone, checkout_timezone_source = listing_timezone(reservation.listing)
-    risk = rate_guest_review_risk(_guest_message_previews(reservation))
+    risk = effective_review_risk(reservation, state)
     host_reviewed = bool(host_review or _has_manual_host_review_confirmation(state))
     rating = _rating_on_five_point_scale(guest_review)
     sent_action_types = sent_action_types or set()
@@ -773,6 +836,181 @@ def get_review_queue(
                 'guest_reviewed': sum(card['guest_reviewed'] for card in cards),
                 'high_risk': sum(card['risk']['order'] <= 1 for card in cards),
             },
+        }
+    except Exception:
+        workflow_session.rollback()
+        raise
+    finally:
+        workflow_session.close()
+        main_session.close()
+
+
+def _conversation_message_sort_key(message) -> tuple:
+    """Sort synced messages chronologically, including mixed aware/naive dates."""
+    created_at = getattr(message, 'created_at', None)
+    if created_at and created_at.tzinfo:
+        created_at = created_at.astimezone(timezone.utc).replace(tzinfo=None)
+    return (
+        created_at is None,
+        created_at or datetime.max,
+        getattr(message, 'message_id', None) or 0,
+    )
+
+
+def serialize_review_conversation(reservation: Reservation) -> Dict:
+    """Return the complete synced team/guest thread across reservation conversations."""
+    guest_name = (
+        reservation.guest_name
+        or (reservation.guest.full_name if reservation.guest else None)
+        or 'Guest'
+    )
+    messages = []
+    seen_message_ids = set()
+    conversations = list(reservation.conversations or [])
+    for conversation in conversations:
+        for message in conversation.messages or []:
+            message_id = getattr(message, 'message_id', None)
+            if message_id is not None and message_id in seen_message_ids:
+                continue
+            if message_id is not None:
+                seen_message_ids.add(message_id)
+
+            content = str(getattr(message, 'content_preview', None) or '').strip()
+            has_attachment = bool(getattr(message, 'has_attachment', False))
+            if not content and not has_attachment:
+                continue
+
+            sender_type = str(getattr(message, 'sender_type', None) or '').strip().lower()
+            is_guest = bool(getattr(message, 'is_incoming', False)) or sender_type == 'guest'
+            sender_name = str(getattr(message, 'sender_name', None) or '').strip()
+            if not sender_name:
+                sender_name = guest_name if is_guest else 'Team'
+            created_at = getattr(message, 'created_at', None)
+            messages.append({
+                '_sort_key': _conversation_message_sort_key(message),
+                'message_id': message_id,
+                'conversation_id': getattr(conversation, 'conversation_id', None),
+                'direction': 'guest' if is_guest else 'team',
+                'sender_name': sender_name,
+                'sender_type': sender_type or ('guest' if is_guest else 'host'),
+                'content': content,
+                'created_at': created_at.isoformat() if created_at else None,
+                'message_type': getattr(message, 'message_type', None),
+                'has_attachment': has_attachment,
+            })
+
+    messages.sort(key=lambda item: item.pop('_sort_key'))
+    timestamps = [message['created_at'] for message in messages if message['created_at']]
+    channel_names = sorted({
+        str(getattr(conversation, 'communication_type', None) or '').strip()
+        for conversation in conversations
+        if str(getattr(conversation, 'communication_type', None) or '').strip()
+    })
+    return {
+        'messages': messages,
+        'message_count': len(messages),
+        'guest_message_count': sum(message['direction'] == 'guest' for message in messages),
+        'team_message_count': sum(message['direction'] == 'team' for message in messages),
+        'conversation_count': len(conversations),
+        'started_at': timestamps[0] if timestamps else None,
+        'last_message_at': timestamps[-1] if timestamps else None,
+        'communication_types': channel_names,
+        'display_timezone': application_timezone_name(),
+    }
+
+
+def get_review_risk_context(
+    reservation_id: int,
+    *,
+    reference_time: Optional[datetime] = None,
+) -> Dict:
+    """Load the severity decision and full conversation only when its modal opens."""
+    reference_at = reference_time_utc(reference_time)
+    main_session = get_session(get_database_path())
+    workflow_session = get_workflow_session()
+    try:
+        reservation = main_session.query(Reservation).filter(
+            Reservation.reservation_id == reservation_id
+        ).options(*_reservation_options()).first()
+        if not reservation:
+            raise LookupError('Reservation not found')
+        require_reservation_in_review_window(reservation, reference_at)
+
+        state = workflow_session.query(ReviewQueueState).filter(
+            ReviewQueueState.reservation_id == reservation_id
+        ).first()
+        return {
+            'reservation_id': reservation.reservation_id,
+            'guest_name': (
+                reservation.guest_name
+                or (reservation.guest.full_name if reservation.guest else None)
+                or 'Guest'
+            ),
+            'listing_name': (
+                reservation.listing.internal_listing_name or reservation.listing.name
+                if reservation.listing else 'Unknown property'
+            ),
+            'channel_name': reservation.channel_name or reservation.source or 'Direct',
+            'risk': effective_review_risk(reservation, state),
+            'conversation': serialize_review_conversation(reservation),
+        }
+    finally:
+        workflow_session.close()
+        main_session.close()
+
+
+def update_review_risk_override(
+    reservation_id: int,
+    current_user_id: int,
+    *,
+    risk_key: Optional[str] = None,
+    restore_ai: bool = False,
+    reference_time: Optional[datetime] = None,
+) -> Dict:
+    """Set or clear a durable human severity decision for one review window."""
+    if not current_user_id:
+        raise ValueError('A current user is required')
+    if restore_ai and risk_key:
+        raise ValueError('Choose a severity or restore the AI assessment, not both')
+    if not restore_ai and risk_key not in REVIEW_RISK_KEYS:
+        raise ValueError('Choose a valid severity')
+
+    reference_at = reference_time_utc(reference_time)
+    main_session = get_session(get_database_path())
+    workflow_session = get_workflow_session()
+    try:
+        reservation = main_session.query(Reservation).filter(
+            Reservation.reservation_id == reservation_id
+        ).options(*_reservation_options()).first()
+        if not reservation:
+            raise LookupError('Reservation not found')
+        require_reservation_in_review_window(reservation, reference_at)
+
+        state = workflow_session.query(ReviewQueueState).filter(
+            ReviewQueueState.reservation_id == reservation_id
+        ).first()
+        if restore_ai:
+            if state:
+                state.risk_override_key = None
+                state.risk_overridden_by = None
+                state.risk_overridden_at = None
+        else:
+            state = _ensure_queue_state(workflow_session, reservation, state)
+            ai_risk = rate_guest_review_risk(_guest_message_previews(reservation))
+            if not state.risk_override_key:
+                state.ai_risk_key = ai_risk['key']
+                state.ai_risk_confidence = ai_risk['confidence']
+                state.ai_risk_good_review_likelihood = ai_risk['good_review_likelihood']
+                state.ai_risk_reasons = list(ai_risk.get('reasons') or [])
+            state.risk_override_key = risk_key
+            state.risk_overridden_by = current_user_id
+            state.risk_overridden_at = datetime.utcnow()
+
+        workflow_session.commit()
+        return {
+            'reservation_id': reservation_id,
+            'restored_ai': restore_ai,
+            'risk': effective_review_risk(reservation, state),
         }
     except Exception:
         workflow_session.rollback()

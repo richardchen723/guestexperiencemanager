@@ -219,6 +219,17 @@ class ReviewQueueState(Base):
     host_reviewed_at = Column(DateTime, nullable=True)
     _users_fk_schema = 'users.' if os.getenv("DATABASE_URL") else ''
     host_reviewed_by = Column(Integer, ForeignKey(f'{_users_fk_schema}users.user_id'), nullable=True)
+    risk_override_key = Column(String, nullable=True, index=True)
+    risk_overridden_at = Column(DateTime, nullable=True)
+    risk_overridden_by = Column(
+        Integer,
+        ForeignKey(f'{_users_fk_schema}users.user_id'),
+        nullable=True,
+    )
+    ai_risk_key = Column(String, nullable=True)
+    ai_risk_confidence = Column(String, nullable=True)
+    ai_risk_good_review_likelihood = Column(Integer, nullable=True)
+    ai_risk_reasons = Column(JSON, nullable=True)
     guest_review_id = Column(Integer, nullable=True, index=True)
     host_review_id = Column(Integer, nullable=True)
     _tickets_fk_schema = 'tickets.' if os.getenv("DATABASE_URL") else ''
@@ -233,6 +244,7 @@ class ReviewQueueState(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     reviewer = relationship('User', foreign_keys=[host_reviewed_by])
+    risk_overrider = relationship('User', foreign_keys=[risk_overridden_by])
     resolution_ticket = relationship('Ticket', foreign_keys=[resolution_ticket_id])
 
 
@@ -607,8 +619,70 @@ def init_ticket_database():
         _migrate_ticket_listings_table(engine)
         # Migrate review-resolution ticket fields
         _migrate_review_resolution_fields(engine)
+
+    # Review queue state is shared by both installations and needs an explicit
+    # migration because create_all does not add columns to an existing table.
+    _migrate_review_queue_severity_fields(engine)
     
     return engine
+
+
+def _migrate_review_queue_severity_fields(engine):
+    """Add durable human severity override fields to review queue state."""
+    database_url = os.getenv("DATABASE_URL")
+    table_name = 'tickets.review_queue_states' if database_url else 'review_queue_states'
+
+    with engine.connect() as conn:
+        if database_url:
+            exists = conn.execute(sqlalchemy.text(
+                "SELECT EXISTS (SELECT FROM information_schema.tables "
+                "WHERE table_schema = 'tickets' AND table_name = 'review_queue_states')"
+            )).scalar()
+            if not exists:
+                return
+            rows = conn.execute(sqlalchemy.text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'tickets' AND table_name = 'review_queue_states'"
+            ))
+            existing_columns = {row[0] for row in rows}
+            columns_to_add = [
+                ('risk_override_key', 'VARCHAR'),
+                ('risk_overridden_at', 'TIMESTAMP'),
+                ('risk_overridden_by', 'INTEGER'),
+                ('ai_risk_key', 'VARCHAR'),
+                ('ai_risk_confidence', 'VARCHAR'),
+                ('ai_risk_good_review_likelihood', 'INTEGER'),
+                ('ai_risk_reasons', 'JSONB'),
+            ]
+        else:
+            exists = conn.execute(sqlalchemy.text(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name='review_queue_states'"
+            )).fetchone()
+            if not exists:
+                return
+            existing_columns = {
+                row[1]
+                for row in conn.execute(sqlalchemy.text(
+                    "PRAGMA table_info(review_queue_states)"
+                ))
+            }
+            columns_to_add = [
+                ('risk_override_key', 'TEXT'),
+                ('risk_overridden_at', 'TIMESTAMP'),
+                ('risk_overridden_by', 'INTEGER'),
+                ('ai_risk_key', 'TEXT'),
+                ('ai_risk_confidence', 'TEXT'),
+                ('ai_risk_good_review_likelihood', 'INTEGER'),
+                ('ai_risk_reasons', 'JSON'),
+            ]
+
+        for column_name, column_type in columns_to_add:
+            if column_name not in existing_columns:
+                conn.execute(sqlalchemy.text(
+                    f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
+                ))
+        conn.commit()
 
 
 def _migrate_tickets_table(engine):
