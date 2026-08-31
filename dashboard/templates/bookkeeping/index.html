@@ -842,9 +842,14 @@
     }
 
     .bk-taskpane {
+        position: sticky;
+        top: calc(var(--product-topbar-height) + 0.9rem);
+        align-self: start;
         display: grid;
         grid-template-rows: auto minmax(0, 1fr);
         min-height: 72vh;
+        max-height: calc(100vh - var(--product-topbar-height) - 4.5rem);
+        max-height: calc(100dvh - var(--product-topbar-height) - 4.5rem);
         overflow: hidden;
     }
 
@@ -872,6 +877,7 @@
     }
 
     .bk-taskpane-body {
+        min-height: 0;
         overflow: hidden;
         position: relative;
     }
@@ -880,6 +886,8 @@
         display: none;
         height: 100%;
         overflow: auto;
+        overscroll-behavior: contain;
+        scrollbar-gutter: stable;
         padding: 0.9rem;
     }
 
@@ -1796,7 +1804,9 @@
         }
 
         .bk-taskpane {
+            position: static;
             min-height: auto;
+            max-height: none;
         }
 
         .bk-sheet-area {
