@@ -403,7 +403,7 @@ class GuestIssueDashboardService:
             "source_date": issue.source_date,
             "reported_at": reported_at,
             "reported_at_iso": f"{reported_at.isoformat()}Z",
-            "reported_label": reported_at.strftime("%b %-d, %Y · %-I:%M %p UTC"),
+            "reported_label": reported_at.strftime("%b %-d, %Y"),
             "category": issue.issue_category,
             "category_label": str(issue.issue_category or "Other").replace("_", " ").title(),
             "summary": issue.summary,

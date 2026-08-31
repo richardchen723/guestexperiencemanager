@@ -464,3 +464,20 @@ def test_reported_timestamp_recency_presets_custom_range_and_sort_are_wired():
     assert "localDateBoundary" in script
     assert "To date must be on or after From date." in script
     assert "localizeReportedTimes" in script
+
+
+def test_guest_issue_card_reports_date_without_time_or_timezone():
+    project_root = Path(__file__).resolve().parents[2]
+    script = (project_root / "dashboard/static/js/guest-issues.js").read_text()
+    service = (project_root / "dashboard/stay_issues/service.py").read_text()
+    template = (project_root / "dashboard/templates/stay_issues/index.html").read_text()
+
+    reported_formatter = script.split("const localizeReportedTimes", 1)[1].split("};", 1)[0]
+
+    assert 'class="issue-reported-summary">Reported <time' in template
+    assert "month: 'short', day: 'numeric', year: 'numeric'" in reported_formatter
+    assert "hour:" not in reported_formatter
+    assert "minute:" not in reported_formatter
+    assert "timeZoneName:" not in reported_formatter
+    assert 'reported_at.strftime("%b %-d, %Y")' in service
+    assert "%p UTC" not in service

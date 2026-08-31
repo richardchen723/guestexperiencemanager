@@ -118,8 +118,7 @@
             const reportedAt = parseReportedAt(timeElement.getAttribute('datetime'));
             if (!reportedAt) return;
             timeElement.textContent = reportedAt.toLocaleString('en-US', {
-                month: 'short', day: 'numeric', year: 'numeric',
-                hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
+                month: 'short', day: 'numeric', year: 'numeric'
             });
         });
     };
