@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -37,3 +38,25 @@ def test_receipt_organizer_communicates_read_only_development_boundary():
 
     assert "The shared sample Drive remains read-only during development and testing." in template
     assert "Nothing in Drive changes until the normal export sync runs." in template
+
+
+def test_task_pane_follows_long_workbook_scroll_and_remains_usable():
+    template = (PROJECT_ROOT / "dashboard/templates/bookkeeping/index.html").read_text()
+
+    taskpane_rule = re.search(r"\.bk-taskpane\s*\{(?P<body>.*?)\}", template, re.DOTALL)
+    assert taskpane_rule is not None
+    taskpane_css = taskpane_rule.group("body")
+    assert "position: sticky" in taskpane_css
+    assert "top: calc(var(--product-topbar-height) + 0.9rem)" in taskpane_css
+    assert "max-height: calc(100dvh - var(--product-topbar-height) - 4.5rem)" in taskpane_css
+
+    active_pane_rule = re.search(r"\.bk-pane\s*\{(?P<body>.*?)\}", template, re.DOTALL)
+    assert active_pane_rule is not None
+    assert "overflow: auto" in active_pane_rule.group("body")
+    assert "overscroll-behavior: contain" in active_pane_rule.group("body")
+
+    compact_layout = template.split("@media (max-width: 1120px)", 1)[1]
+    compact_taskpane_rule = re.search(r"\.bk-taskpane\s*\{(?P<body>.*?)\}", compact_layout, re.DOTALL)
+    assert compact_taskpane_rule is not None
+    assert "position: static" in compact_taskpane_rule.group("body")
+    assert "max-height: none" in compact_taskpane_rule.group("body")
