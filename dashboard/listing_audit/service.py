@@ -290,7 +290,7 @@ def dashboard_payload(
         problem_units = [
             channel_problem_unit(item, asset)
             for item, asset in channel_items
-            if not asset.get("configured") or not asset.get("url") or confirmed_channel_link_problem(asset)
+            if confirmed_channel_link_problem(asset)
         ]
         problem_units.sort(key=lambda unit: (
             CHANNEL_PROBLEM_ORDER.get(unit["channel_status"], 9),
@@ -306,6 +306,9 @@ def dashboard_payload(
             "healthy": sum(1 for asset in assets if asset.get("status") == "healthy"),
             "needs_attention": len(attention_units),
             "attention_units": attention_units,
+            "unverified_count": sum(
+                1 for asset in assets if asset.get("configured") and not asset.get("url")
+            ),
             "problem_count": len(problem_units),
             "problem_units": problem_units,
             "deep_reviewed": sum(1 for asset in assets if asset.get("deep_inspection")),

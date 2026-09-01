@@ -112,7 +112,8 @@ class ListingAuditDashboardPayloadTests(unittest.TestCase):
         self.assertEqual(google_coverage["healthy"], 1)
         self.assertEqual(google_coverage["deep_reviewed"], 1)
         self.assertEqual(google_coverage["deep_issues"], 1)
-        self.assertEqual(google_coverage["problem_count"], 1)
+        self.assertEqual(google_coverage["unverified_count"], 1)
+        self.assertEqual(google_coverage["problem_count"], 0)
         self.assertEqual(result["summary"]["deep_reviewed_count"], 1)
         self.assertTrue(result["has_deep_review"])
         self.assertEqual(result["top_actions"][0]["listing_name"], "Skyline Retreat")
@@ -283,6 +284,58 @@ class ListingAuditDashboardPayloadTests(unittest.TestCase):
         self.assertEqual(coverage["needs_attention"], 1)
         self.assertEqual(coverage["problem_count"], 0)
         self.assertEqual(coverage["problem_units"], [])
+
+    def test_configured_listing_without_public_url_is_unverified_not_broken(self):
+        run = SimpleNamespace(
+            listing_audit_run_id=17,
+            cadence="daily",
+            status="completed",
+            snapshot_date=date.today(),
+            listing_count=1,
+            critical_count=0,
+            high_count=1,
+            watch_count=0,
+            healthy_count=0,
+            source_statuses={},
+            error_message=None,
+            started_at=datetime.utcnow(),
+            completed_at=datetime.utcnow(),
+        )
+        item = {
+            "listing_id": 41,
+            "listing_name": "Skyline Retreat",
+            "portfolio_name": "Urban Stays",
+            "health_score": 58.0,
+            "severity": "high",
+            "online_assets": [{
+                "channel": "bookingcom",
+                "label": "Booking.com",
+                "configured": True,
+                "status": "high",
+                "url": None,
+                "page": {"status": "missing_url"},
+                "deep_inspection": {"status": "high", "issues": []},
+            }],
+            "action_items": [],
+        }
+
+        coverage = dashboard_payload(run, [item], recent_runs=[run])["summary"]["channel_coverage"]["bookingcom"]
+
+        self.assertEqual(coverage["configured"], 1)
+        self.assertEqual(coverage["unverified_count"], 1)
+        self.assertEqual(coverage["problem_count"], 0)
+        self.assertEqual(coverage["problem_units"], [])
+
+    def test_channel_card_distinguishes_unverified_urls_from_link_issues(self):
+        template = (
+            Path(__file__).resolve().parents[2]
+            / "templates/listing_audit/index.html"
+        ).read_text()
+
+        self.assertIn("channel.unverified_count", template)
+        self.assertIn("URLs unverified", template)
+        self.assertIn("Missing stored URLs are shown as unverified, not broken.", template)
+        self.assertNotIn("Connection gaps, missing public URLs, and confirmed guest-page failures.", template)
 
     def test_payload_exposes_confirmed_rendered_page_errors_with_links(self):
         run = SimpleNamespace(

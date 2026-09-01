@@ -115,7 +115,7 @@
                 <div><strong>{{ channel.label }}</strong><span>{{ channel.configured }} / {{ channel.total }} connected</span></div>
                 <div class="coverage-meter" aria-label="{{ channel.configured }} of {{ channel.total }} connected"><span style="width: {{ ((channel.configured / channel.total * 100) if channel.total else 0) | round }}%"></span></div>
                 <div class="channel-card-footer">
-                    <small>{{ channel.healthy }} clear · {{ channel.needs_attention }} content review</small>
+                    <small>{{ channel.healthy }} clear · {{ channel.needs_attention }} need review{% if channel.unverified_count %} · {{ channel.unverified_count }} URLs unverified{% endif %}</small>
                     {% if channel.problem_count %}
                     <button class="channel-missing-trigger" type="button" data-channel-panel="channel-missing-{{ channel_key }}" aria-expanded="false" aria-controls="channel-missing-{{ channel_key }}">
                         <span>{{ channel.problem_count }} {{ 'link issue' if channel.problem_count == 1 else 'link issues' }}</span>
@@ -133,7 +133,7 @@
             {% if channel.problem_count %}
             <section class="channel-missing-panel channel-missing-panel-{{ channel_key }}" id="channel-missing-{{ channel_key }}" hidden>
                 <div class="channel-missing-header">
-                    <div><span class="section-kicker">Link attention</span><h3>{{ channel.problem_count }} {{ channel.label }} {{ 'listing needs' if channel.problem_count == 1 else 'listings need' }} review</h3><p>Connection gaps, missing public URLs, and confirmed guest-page failures.</p></div>
+                    <div><span class="section-kicker">Link attention</span><h3>{{ channel.problem_count }} {{ channel.label }} {{ 'listing needs' if channel.problem_count == 1 else 'listings need' }} review</h3><p>Connection gaps and confirmed guest-page failures. Missing stored URLs are shown as unverified, not broken.</p></div>
                     <button class="channel-missing-close" type="button" aria-label="Close {{ channel.label }} problems" data-close-channel-panel="channel-missing-{{ channel_key }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
                 </div>
                 <div class="channel-missing-unit-grid">
