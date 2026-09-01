@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Portfolio-wide listing health audit backed by Hostaway and PriceLabs."""
+"""Portfolio-wide listing-quality audit backed by Hostaway and guest channels."""
 
 from __future__ import annotations
 
@@ -11,14 +11,12 @@ import os
 import re
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import requests
-from sqlalchemy import func
 
 import dashboard.config as config
 from brain.channel_page_audit import (
@@ -27,16 +25,15 @@ from brain.channel_page_audit import (
     channel_destination_valid,
     deep_content_is_sparse,
     extract_deep_page_content,
+    listing_amenities,
     render_deep_public_pages,
     rendered_page_error_message,
 )
 from brain.models import (
-    BookingHealthAnalysis,
     ListingAuditRun,
     ListingAuditSnapshot,
     Portfolio,
     PortfolioListing,
-    PriceLabsSnapshot,
     as_json_safe,
     get_session as get_brain_session,
     init_listing_audit_tables,
@@ -46,7 +43,7 @@ from sync.api_client import HostawayAPIClient
 
 logger = logging.getLogger(__name__)
 
-AUDIT_TIMEZONE = os.getenv("LISTING_AUDIT_TIMEZONE", "Asia/Kuala_Lumpur")
+AUDIT_TIMEZONE = os.getenv("LISTING_AUDIT_TIMEZONE", "America/New_York")
 PUBLIC_PAGE_TIMEOUT = int(os.getenv("LISTING_AUDIT_PAGE_TIMEOUT_SECONDS", "12"))
 PUBLIC_PAGE_WORKERS = max(1, min(int(os.getenv("LISTING_AUDIT_PAGE_WORKERS", "8")), 16))
 HOSTAWAY_DETAIL_WORKERS = max(1, min(int(os.getenv("LISTING_AUDIT_HOSTAWAY_WORKERS", "8")), 16))
@@ -67,6 +64,42 @@ CHANNEL_LABELS = {
     "googlevr": "Google Vacation Rentals",
     "direct": "Direct booking",
 }
+AUDIT_SCOPE = "listing_quality_v2"
+LISTING_FIELD_GROUPS = {
+    "amenities": "amenities",
+    "guest_notes": "policies",
+    "house_rules": "policies",
+    "title": "content",
+    "description": "content",
+    "location": "content",
+    "page": "content",
+}
+LISTING_FIELD_PROBLEM_STATUSES = {"source_missing", "not_found_on_page", "mismatch", "partial"}
+LISTING_CHECK_DEFINITIONS = {
+    "links": {
+        "label": "Channel links",
+        "description": "Connection gaps, missing URLs, and confirmed guest-page errors.",
+    },
+    "amenities": {
+        "label": "Amenities",
+        "description": "Amenity coverage and channel-to-Hostaway consistency.",
+    },
+    "policies": {
+        "label": "Guest policies",
+        "description": "House rules, guest notes, and policy consistency.",
+    },
+    "content": {
+        "label": "Listing content",
+        "description": "Titles, descriptions, photos, location, and public-page details.",
+    },
+}
+TECHNICAL_PAGE_PAYLOAD_MARKERS = (
+    "window.productionhostname",
+    "window.__gcstate__",
+    "webpackchunk",
+    "__next_data__",
+    "function(){",
+)
 
 TITLE_PATTERN = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 META_DESCRIPTION_PATTERN = re.compile(
@@ -74,6 +107,288 @@ META_DESCRIPTION_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 TAG_PATTERN = re.compile(r"<[^>]+>")
+
+
+def confirmed_channel_link_problem(asset: dict[str, Any]) -> bool:
+    """Return true only for a connection gap or a confirmed guest-page failure."""
+    if not asset.get("configured"):
+        return True
+    if not asset.get("url"):
+        return False
+    page = asset.get("page") or {}
+    status = page.get("status")
+    if (
+        status == "blocked"
+        or page.get("failure_kind") == "automation_blocked"
+        or automation_blocked_page_message(" ".join(str(page.get(key) or "") for key in ("summary", "title", "error")))
+    ):
+        return False
+    if status in {"missing_url", "not_found", "invalid_domain", "non_html"}:
+        return True
+    if page.get("failure_kind") in CONFIRMED_RENDER_FAILURE_KINDS:
+        return True
+    try:
+        return int(page.get("http_status") or 0) >= 400
+    except (TypeError, ValueError):
+        return False
+
+
+def public_page_finding_message(page: dict[str, Any], label: str) -> str:
+    """Keep script payloads and generated page state out of operator-facing cards."""
+    summary = " ".join(_text(page.get("summary")).split())
+    if any(marker in summary.casefold() for marker in TECHNICAL_PAGE_PAYLOAD_MARKERS):
+        return f"The {label} guest page returned unreadable technical content; open the page and verify it manually."
+    return summary or f"The {label} guest page did not return a valid listing."
+
+
+def classify_listing_action(action: dict[str, Any]) -> str | None:
+    """Map a recommendation to the listing-quality area persisted by this audit."""
+    body = str(action.get("text") or "").casefold()
+    text = f"{action.get('category') or ''} {body}".casefold()
+    if any(token in text for token in ("url", "public page", "guest page", "not exported", "not connected", "connection")):
+        return "links"
+    if any(token in body for token in (
+        "occupancy", "night stay", "night gap", "minimum stay", "min stay", "open dates", "pickup",
+        "demand", "revenue", "rate", "pricing", "discount", "adr", "restriction",
+    )):
+        return None
+    if "amenit" in text or "facilit" in text:
+        return "amenities"
+    if any(token in text for token in (
+        "house rule", "guest note", "policy", "policies", "cancellation", "check-in", "check in",
+        "checkout", "check-out", "check out",
+    )):
+        return "policies"
+    if any(token in text for token in (
+        "title", "description", "photo", "content", "copy", "location", "address", "placeholder",
+        "presentation", "merchandising", "messaging", "guest benefit", "stay experience",
+    )):
+        return "content"
+    return None
+
+
+def build_listing_checks(
+    detail: dict[str, Any] | None,
+    assets: list[dict[str, Any]],
+    *,
+    inherited_actions: list[dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Build link, amenity, policy, and content findings for one listing."""
+    checks = {
+        key: {
+            "key": key,
+            **definition,
+            "reviewed_count": 0,
+            "findings": [],
+            "status": "pending",
+        }
+        for key, definition in LISTING_CHECK_DEFINITIONS.items()
+    }
+    seen_findings: dict[str, set[tuple[str, str]]] = {key: set() for key in checks}
+
+    def add_finding(
+        group: str,
+        *,
+        source: str,
+        message: str,
+        priority: str = "medium",
+        field: str | None = None,
+    ) -> None:
+        source_text = str(source or LISTING_CHECK_DEFINITIONS[group]["label"])
+        message_text = " ".join(str(message or "").split())
+        if not message_text:
+            return
+        signature = (source_text.casefold(), message_text.casefold())
+        if signature in seen_findings[group]:
+            return
+        seen_findings[group].add(signature)
+        checks[group]["findings"].append({
+            "source": source_text,
+            "message": message_text,
+            "priority": priority,
+            "field": field,
+        })
+
+    if detail is not None:
+        amenities = listing_amenities(detail)
+        checks["amenities"]["reviewed_count"] += 1
+        if not amenities:
+            add_finding(
+                "amenities",
+                source="Hostaway",
+                message="Add the property's amenities in Hostaway so every connected channel has a complete source list.",
+                priority="high",
+                field="amenities",
+            )
+        elif len(amenities) < 10:
+            add_finding(
+                "amenities",
+                source="Hostaway",
+                message=f"Review amenity coverage; Hostaway contains only {len(amenities)} named amenities.",
+                priority="medium",
+                field="amenities",
+            )
+
+        house_rules = _text(detail.get("houseRules"))
+        checks["policies"]["reviewed_count"] += 1
+        if not house_rules:
+            add_finding(
+                "policies",
+                source="Hostaway",
+                message="Add guest-facing house rules in Hostaway before comparing policies across channels.",
+                priority="high",
+                field="house_rules",
+            )
+        elif len(house_rules) < 24:
+            add_finding(
+                "policies",
+                source="Hostaway",
+                message="Expand the house rules so the core guest expectations are explicit.",
+                priority="medium",
+                field="house_rules",
+            )
+
+        airbnb_connected = any(asset.get("channel") == "airbnb" and asset.get("configured") for asset in assets)
+        if airbnb_connected:
+            checks["policies"]["reviewed_count"] += 1
+            if not _text(detail.get("airbnbNotes")):
+                add_finding(
+                    "policies",
+                    source="Airbnb",
+                    message="Add Airbnb guest notes for arrival details and important stay expectations.",
+                    priority="medium",
+                    field="guest_notes",
+                )
+
+        source_title = _text(detail.get("name") or detail.get("externalListingName"))
+        source_description = _text(detail.get("description"))
+        source_location = _join_text(detail.get("city"), detail.get("state"), detail.get("country"))
+        photo_count = len(detail.get("listingImages") or [])
+        checks["content"]["reviewed_count"] += 4
+        if not source_title:
+            add_finding("content", source="Hostaway", message="Add a guest-facing listing title.", priority="high", field="title")
+        elif len(source_title) < 24:
+            add_finding("content", source="Hostaway", message=f"Strengthen the listing title; it is only {len(source_title)} characters.", field="title")
+        if not source_description:
+            add_finding("content", source="Hostaway", message="Add a complete guest-facing listing description.", priority="high", field="description")
+        elif len(source_description) < 220:
+            add_finding("content", source="Hostaway", message=f"Expand the listing description; it is only {len(source_description)} characters.", field="description")
+        if not source_location:
+            add_finding("content", source="Hostaway", message="Add the listing location used by connected channels.", priority="high", field="location")
+        if photo_count == 0:
+            add_finding("content", source="Hostaway", message="Add listing photos before publishing to guest channels.", priority="high", field="photos")
+        elif photo_count < 20:
+            add_finding("content", source="Hostaway", message=f"Increase and reorder photo coverage; only {photo_count} source photos are available.", field="photos")
+
+    for asset in assets:
+        label = asset.get("label") or asset.get("channel") or "Channel"
+        page = asset.get("page") or {}
+        if not asset.get("configured"):
+            add_finding("links", source=label, message=f"{label} is not connected for this listing.", priority="low", field="link")
+        elif not asset.get("url"):
+            add_finding("links", source=label, message=f"Store the public {label} URL so the guest page can be checked.", field="link")
+        else:
+            checks["links"]["reviewed_count"] += 1
+            if confirmed_channel_link_problem(asset):
+                add_finding(
+                    "links",
+                    source=label,
+                    message=public_page_finding_message(page, str(label)),
+                    priority="critical" if page.get("status") in {"not_found", "invalid_domain"} else "high",
+                    field="link",
+                )
+
+        inspection = asset.get("deep_inspection") or {}
+        issue_fields: set[str] = set()
+        for issue in inspection.get("issues") or []:
+            field_key = str(issue.get("field") or "page")
+            group = "links" if field_key == "link" else LISTING_FIELD_GROUPS.get(field_key, "content")
+            issue_fields.add(field_key)
+            add_finding(
+                group,
+                source=label,
+                message=issue.get("message") or "Review the detailed channel finding.",
+                priority=issue.get("priority") or "medium",
+                field=field_key,
+            )
+        for field_key, field in (inspection.get("fields") or {}).items():
+            group = LISTING_FIELD_GROUPS.get(field_key)
+            if not group or field.get("status") == "not_applicable":
+                continue
+            checks[group]["reviewed_count"] += 1
+            if field.get("status") in LISTING_FIELD_PROBLEM_STATUSES and field_key not in issue_fields:
+                label_text = field.get("label") or field_key.replace("_", " ").title()
+                add_finding(
+                    group,
+                    source=label,
+                    message=f"Review {label_text.lower()} on {label}; it is {str(field.get('status')).replace('_', ' ')}.",
+                    field=field_key,
+                )
+
+        for text in asset.get("actions") or []:
+            action = {"category": label, "text": text, "priority": "high" if asset.get("status") == "critical" else "medium"}
+            group = classify_listing_action(action)
+            if not group or group == "links":
+                continue
+            add_finding(group, source=label, message=text, priority=action["priority"])
+
+    for action in inherited_actions or []:
+        group = action.get("check_group") or classify_listing_action(action)
+        if not group or group == "links":
+            continue
+        add_finding(
+            group,
+            source=str(action.get("category") or action.get("source") or LISTING_CHECK_DEFINITIONS[group]["label"]),
+            message=str(action.get("text") or action.get("message") or ""),
+            priority=str(action.get("priority") or "medium"),
+            field=action.get("field"),
+        )
+
+    priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    for check in checks.values():
+        check["findings"].sort(key=lambda finding: (
+            priority_order.get(finding["priority"], 9),
+            finding["source"].casefold(),
+            finding["message"].casefold(),
+        ))
+        check["issue_count"] = len(check["findings"])
+        check["status"] = "issue" if check["issue_count"] else "clear" if check["reviewed_count"] else "pending"
+    return checks
+
+
+def listing_quality_score(assets: list[dict[str, Any]]) -> float:
+    scores = [float(asset.get("score") or 0) for asset in assets if asset.get("configured")]
+    return round(statistics.mean(scores), 1) if scores else 0.0
+
+
+def listing_quality_severity(score: float, checks: dict[str, dict[str, Any]]) -> str:
+    priorities = {
+        finding.get("priority") or "medium"
+        for check in checks.values()
+        for finding in check.get("findings") or []
+    }
+    if "critical" in priorities:
+        return "critical"
+    if "high" in priorities:
+        return "high"
+    if priorities or score < 85:
+        return "watch"
+    return "healthy"
+
+
+def listing_actions_from_checks(checks: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    actions = [
+        {
+            "priority": finding.get("priority") or "medium",
+            "category": finding.get("source") or check.get("label") or "Listing",
+            "text": finding.get("message") or "Review the listing-quality finding.",
+            "check_group": group,
+            "field": finding.get("field"),
+        }
+        for group, check in checks.items()
+        for finding in check.get("findings") or []
+    ]
+    return dedupe_actions(actions)[:18]
 
 
 def merge_rendered_page_result(original: dict[str, Any], rendered: dict[str, Any]) -> dict[str, Any]:
@@ -90,44 +405,6 @@ def merge_rendered_page_result(original: dict[str, Any], rendered: dict[str, Any
     result = dict(original)
     result["browser_render"] = browser_render
     return result
-
-
-@dataclass(frozen=True)
-class PriceLabsAuditContext:
-    """Latest PriceLabs refresh plus the safest snapshot to use for the audit."""
-
-    latest: Any | None
-    effective: Any | None
-    using_fallback: bool = False
-
-
-def configure_pricelabs_for_listing_audit(client: Any) -> Any:
-    """Keep audit refreshes focused on the forward window the audit actually scores."""
-    try:
-        window_days = int(os.getenv("LISTING_AUDIT_PRICELABS_WINDOW_DAYS", "90"))
-    except (TypeError, ValueError):
-        window_days = 90
-    client.price_window_days = max(30, min(window_days, 365))
-    client.include_price_reason = os.getenv(
-        "LISTING_AUDIT_PRICELABS_INCLUDE_PRICE_REASON",
-        "false",
-    ).strip().lower() not in {"0", "false", "no", "off"}
-    client.timeout = bounded_env_int("LISTING_AUDIT_PRICELABS_TIMEOUT_SECONDS", 60, 10, 120)
-    client.max_retries = bounded_env_int("LISTING_AUDIT_PRICELABS_MAX_RETRIES", 2, 1, 4)
-    try:
-        backoff_seconds = float(os.getenv("LISTING_AUDIT_PRICELABS_RETRY_BACKOFF_SECONDS", "3"))
-    except (TypeError, ValueError):
-        backoff_seconds = 3.0
-    client.retry_backoff_seconds = max(1.0, min(backoff_seconds, 15.0))
-    return client
-
-
-def bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
-    try:
-        value = int(os.getenv(name, str(default)))
-    except (TypeError, ValueError):
-        value = default
-    return max(minimum, min(value, maximum))
 
 
 class ListingAuditRunner:
@@ -163,17 +440,14 @@ class ListingAuditRunner:
             refresh_result = self._refresh_sources(cadence=cadence, deep=deep)
             details = self._active_listing_details()
             listing_ids = sorted(details)
-            analyses = self._latest_booking_analyses(listing_ids)
-            pricelabs = self._latest_pricelabs_snapshots(listing_ids)
             portfolio_map, portfolio_names = self._portfolio_maps(listing_ids)
             page_results = self._public_page_results(details, deep=deep)
 
             severity_counts = {"critical": 0, "high": 0, "watch": 0, "healthy": 0}
+            finding_counts = {"links": 0, "amenities": 0, "policies": 0, "content": 0}
             for listing_id in listing_ids:
                 result = build_listing_audit_result(
                     details[listing_id],
-                    booking_analysis=analyses.get(listing_id),
-                    pricelabs_snapshot=pricelabs.get(listing_id),
                     public_pages={
                         channel: page_results.get((listing_id, channel))
                         for channel in CHANNEL_LABELS
@@ -183,6 +457,8 @@ class ListingAuditRunner:
                     portfolio_name=portfolio_names.get(portfolio_map.get(listing_id)),
                 )
                 severity_counts[result["severity"]] += 1
+                for group in finding_counts:
+                    finding_counts[group] += int(result["listing_checks"][group]["issue_count"] or 0)
                 self.brain_session.add(
                     ListingAuditSnapshot(
                         run_id=audit_run.listing_audit_run_id,
@@ -192,9 +468,9 @@ class ListingAuditRunner:
                         snapshot_date=local_today,
                         severity=result["severity"],
                         health_score=result["health_score"],
-                        booking_health=as_json_safe(result["booking_health"]),
-                        pricing_health=as_json_safe(result["pricing_health"]),
-                        market_comparison=as_json_safe(result["market_comparison"]),
+                        audit_scope=AUDIT_SCOPE,
+                        listing_checks=as_json_safe(result["listing_checks"]),
+                        issue_count=result["issue_count"],
                         online_assets=as_json_safe(result["online_assets"]),
                         action_items=as_json_safe(result["action_items"]),
                         source_statuses=as_json_safe(result["source_statuses"]),
@@ -208,9 +484,13 @@ class ListingAuditRunner:
             audit_run.high_count = severity_counts["high"]
             audit_run.watch_count = severity_counts["watch"]
             audit_run.healthy_count = severity_counts["healthy"]
+            audit_run.audit_scope = AUDIT_SCOPE
+            audit_run.finding_counts = as_json_safe(finding_counts)
             audit_run.source_statuses = as_json_safe(
                 {
                     "hostaway": "ok" if listing_ids else "empty",
+                    "audit_scope": AUDIT_SCOPE,
+                    "inspection_mode": "weekly_deep" if deep else "daily_listing_quality",
                     "source_refresh": refresh_result,
                     "public_page_checks": {
                         "enabled": CHECK_PUBLIC_PAGES,
@@ -228,6 +508,7 @@ class ListingAuditRunner:
                 "snapshot_date": local_today.isoformat(),
                 "listing_count": len(listing_ids),
                 "severity_counts": severity_counts,
+                "finding_counts": finding_counts,
             }
         except Exception as exc:
             self.brain_session.rollback()
@@ -241,35 +522,16 @@ class ListingAuditRunner:
             raise
 
     def _refresh_sources(self, *, cadence: str, deep: bool) -> dict[str, Any]:
-        from brain.services import BrainRunService
-        from sync.sync_manager import incremental_sync
+        from sync.sync_listings import sync_listings
 
-        hostaway_pull = incremental_sync(force=bool(deep), include_messages=False)
-        runner = BrainRunService()
-        configure_pricelabs_for_listing_audit(runner.pricelabs)
-        try:
-            try:
-                result = runner.refresh_source_snapshots(
-                    run_type=f"listing_audit_source_{cadence}",
-                    pull_hostaway=False,
-                    force_hostaway=False,
-                    include_booking_analysis=True,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Listing audit source refresh degraded; using the latest stored source data: %s",
-                    exc,
-                    exc_info=True,
-                )
-                result = {
-                    "status": "degraded",
-                    "error": str(exc)[:1000],
-                    "source_counts": {},
-                }
-            result["hostaway_pull"] = as_json_safe(hostaway_pull)
-            return result
-        finally:
-            runner.close()
+        listing_sync = sync_listings(full_sync=bool(deep))
+        return {
+            "status": listing_sync.get("status") or "unknown",
+            "audit_scope": AUDIT_SCOPE,
+            "cadence": cadence,
+            "listings": as_json_safe(listing_sync),
+            "excluded_sources": ["reservations", "booking_health", "pricelabs", "market_occupancy"],
+        }
 
     def _active_listing_details(self) -> dict[int, dict[str, Any]]:
         summaries: list[dict[str, Any]] = []
@@ -315,68 +577,6 @@ class ListingAuditRunner:
                     logger.warning("Listing cover image check failed for %s: %s", listing_id, exc)
                     details[listing_id]["_audit_cover_image"] = fallback_cover_image(details[listing_id])
         return details
-
-    def _latest_booking_analyses(self, listing_ids: list[int]) -> dict[int, BookingHealthAnalysis]:
-        if not listing_ids:
-            return {}
-        self.brain_session.expire_all()
-        rows = (
-            self.brain_session.query(BookingHealthAnalysis)
-            .filter(BookingHealthAnalysis.listing_id.in_(listing_ids))
-            .order_by(
-                BookingHealthAnalysis.snapshot_date.desc(),
-                BookingHealthAnalysis.updated_at.desc(),
-                BookingHealthAnalysis.booking_health_analysis_id.desc(),
-            )
-            .all()
-        )
-        latest: dict[int, BookingHealthAnalysis] = {}
-        for row in rows:
-            latest.setdefault(int(row.listing_id), row)
-        return latest
-
-    def _latest_pricelabs_snapshots(self, listing_ids: list[int]) -> dict[int, PriceLabsAuditContext]:
-        if not listing_ids:
-            return {}
-        ordering = (
-            PriceLabsSnapshot.snapshot_date.desc(),
-            PriceLabsSnapshot.created_at.desc(),
-            PriceLabsSnapshot.pricelabs_snapshot_id.desc(),
-        )
-
-        def ranked_snapshot_ids(*, statuses: tuple[str, ...] | None, limit: int) -> list[int]:
-            ranked_query = self.brain_session.query(
-                PriceLabsSnapshot.pricelabs_snapshot_id.label("snapshot_id"),
-                func.row_number().over(
-                    partition_by=PriceLabsSnapshot.listing_id,
-                    order_by=ordering,
-                ).label("snapshot_rank"),
-            ).filter(PriceLabsSnapshot.listing_id.in_(listing_ids))
-            if statuses:
-                ranked_query = ranked_query.filter(PriceLabsSnapshot.status.in_(statuses))
-            ranked = ranked_query.subquery()
-            return [
-                int(row[0])
-                for row in self.brain_session.query(ranked.c.snapshot_id)
-                .filter(ranked.c.snapshot_rank <= limit)
-                .all()
-            ]
-
-        snapshot_ids = set(ranked_snapshot_ids(statuses=None, limit=3))
-        snapshot_ids.update(ranked_snapshot_ids(statuses=("ok", "partial"), limit=1))
-        rows = (
-            self.brain_session.query(PriceLabsSnapshot)
-            .filter(PriceLabsSnapshot.pricelabs_snapshot_id.in_(snapshot_ids))
-            .order_by(*ordering)
-            .all()
-        )
-        grouped: dict[int, list[PriceLabsSnapshot]] = {}
-        for row in rows:
-            grouped.setdefault(int(row.listing_id), []).append(row)
-        return {
-            listing_id: resolve_pricelabs_audit_context(listing_rows)
-            for listing_id, listing_rows in grouped.items()
-        }
 
     def _portfolio_maps(self, listing_ids: list[int]) -> tuple[dict[int, int], dict[int, str]]:
         mappings = (
@@ -439,8 +639,6 @@ class ListingAuditRunner:
 def build_listing_audit_result(
     detail: dict[str, Any],
     *,
-    booking_analysis: Any | None,
-    pricelabs_snapshot: Any | None,
     public_pages: dict[str, dict[str, Any] | None] | None = None,
     deep: bool = False,
     portfolio_id: int | None = None,
@@ -459,45 +657,17 @@ def build_listing_audit_result(
         build_channel_asset(detail, channel, public_pages.get(channel), deep=deep)
         for channel in CHANNEL_LABELS
     ]
-    booking_health = booking_health_payload(booking_analysis)
-    pricing_health, market_comparison = pricing_market_payload(pricelabs_snapshot)
     cover_image = detail.get("_audit_cover_image") or fallback_cover_image(detail)
-
-    booking_score = booking_health["score"]
-    configured_asset_scores = [
-        float(asset["score"])
-        for asset in assets
-        if asset["status"] not in {"not_configured", "not_exported"}
-    ]
-    asset_score = round(statistics.mean(configured_asset_scores), 1) if configured_asset_scores else 25.0
-    pricing_score = float(pricing_health["score"])
-    health_score = round((booking_score * 0.45) + (asset_score * 0.35) + (pricing_score * 0.20), 1)
-    severity = severity_for_score(health_score)
-
-    actions: list[dict[str, Any]] = []
-    for action in booking_health.get("actions") or []:
-        actions.append({"priority": priority_for_severity(booking_health["severity"]), "category": "Booking", "text": action})
-    for action in pricing_health.get("actions") or []:
-        actions.append({"priority": "high" if pricing_health["score"] < 60 else "medium", "category": "Pricing", "text": action})
-    for asset in assets:
-        for action in asset.get("actions") or []:
-            actions.append({
-                "priority": "high" if asset["status"] in {"critical", "not_found"} else "medium",
-                "category": asset["label"],
-                "text": action,
-            })
-        for issue in (asset.get("deep_inspection") or {}).get("issues") or []:
-            actions.append({
-                "priority": issue.get("priority") or "medium",
-                "category": asset["label"],
-                "text": issue.get("message") or "Review the detailed channel finding.",
-            })
-    actions = dedupe_actions(actions)[:12]
+    listing_checks = build_listing_checks(detail, assets)
+    health_score = listing_quality_score(assets)
+    severity = listing_quality_severity(health_score, listing_checks)
+    actions = listing_actions_from_checks(listing_checks)
+    issue_count = sum(int(check["issue_count"] or 0) for check in listing_checks.values())
 
     source_statuses = {
         "hostaway": "ok",
-        "booking_health": booking_health.get("status"),
-        "pricelabs": pricing_health.get("status"),
+        "audit_scope": AUDIT_SCOPE,
+        "inspection_mode": "weekly_deep" if deep else "daily_listing_quality",
         "online_assets": {asset["channel"]: asset["status"] for asset in assets},
     }
     return {
@@ -506,9 +676,9 @@ def build_listing_audit_result(
         "listing_name": listing_name,
         "severity": severity,
         "health_score": health_score,
-        "booking_health": booking_health,
-        "pricing_health": pricing_health,
-        "market_comparison": market_comparison,
+        "audit_scope": AUDIT_SCOPE,
+        "listing_checks": listing_checks,
+        "issue_count": issue_count,
         "online_assets": assets,
         "action_items": actions,
         "source_statuses": source_statuses,
@@ -522,6 +692,7 @@ def build_listing_audit_result(
             "state": detail.get("state"),
             "currency": detail.get("currencyCode") or detail.get("currency"),
             "photo_count": len(detail.get("listingImages") or []),
+            "audit_scope": AUDIT_SCOPE,
         },
     }
 
@@ -560,7 +731,11 @@ def build_channel_asset(
         description = _join_text(detail.get("bookingcomPropertyDescription"))
         configured = export_status == "exported"
     elif channel == "googlevr":
-        export_status = _text(detail.get("googleExportStatus"))
+        export_status = _text(
+            detail.get("googleExportStatus")
+            or detail.get("googleVrExportStatus")
+            or detail.get("googleVacationRentalsExportStatus")
+        )
         title = _text(detail.get("name") or detail.get("externalListingName"))
         description = _join_text(detail.get("description"))
         configured = export_status == "exported" or bool(url)
@@ -668,208 +843,6 @@ def build_channel_asset(
     }
 
 
-def booking_health_payload(analysis: Any | None) -> dict[str, Any]:
-    if not analysis:
-        return {
-            "status": "missing",
-            "severity": "high",
-            "score": 35.0,
-            "horizons": [],
-            "pattern": "No current forward-booking analysis is available.",
-            "actions": ["Refresh Hostaway reservations and forward calendar data."],
-        }
-    severity = _text(getattr(analysis, "severity", None)) or "watch"
-    score = {"healthy": 92.0, "watch": 72.0, "high": 52.0, "critical": 28.0}.get(severity, 65.0)
-    horizons = []
-    for item in getattr(analysis, "horizons", None) or []:
-        row = dict(item or {})
-        rate = _number(row.get("occupancy_rate"))
-        if rate is not None:
-            row["occupancy_percent"] = round(rate * 100 if rate <= 1 else rate, 1)
-        horizons.append(row)
-    return {
-        "status": "ok",
-        "severity": severity,
-        "score": score,
-        "snapshot_date": getattr(analysis, "snapshot_date", None).isoformat() if getattr(analysis, "snapshot_date", None) else None,
-        "horizons": horizons,
-        "pattern": _text(getattr(analysis, "booking_pattern", None) or getattr(analysis, "opinion", None)),
-        "opinion": _text(getattr(analysis, "opinion", None)),
-        "actions": [str(item) for item in (getattr(analysis, "action_items", None) or []) if item][:6],
-    }
-
-
-def resolve_pricelabs_audit_context(rows: list[Any]) -> PriceLabsAuditContext:
-    """Prefer the latest refresh, but retain prior good data after transient failures."""
-    if not rows:
-        return PriceLabsAuditContext(latest=None, effective=None)
-    latest = rows[0]
-    if pricelabs_snapshot_is_usable(latest):
-        return PriceLabsAuditContext(latest=latest, effective=latest)
-    if pricelabs_snapshot_is_transient_failure(latest):
-        fallback = next((row for row in rows[1:] if pricelabs_snapshot_is_usable(row)), None)
-        if fallback:
-            return PriceLabsAuditContext(latest=latest, effective=fallback, using_fallback=True)
-    return PriceLabsAuditContext(latest=latest, effective=latest)
-
-
-def pricelabs_snapshot_is_usable(snapshot: Any | None) -> bool:
-    if not snapshot:
-        return False
-    status = _text(getattr(snapshot, "status", None)).lower()
-    raw = getattr(snapshot, "raw_payload", None) or {}
-    return status in {"ok", "partial"} and bool(raw.get("prices") or raw.get("metrics"))
-
-
-def pricelabs_snapshot_is_transient_failure(snapshot: Any | None) -> bool:
-    status = _text(getattr(snapshot, "status", None)).lower()
-    return status in {"unavailable", "unknown", "error", "api_error"}
-
-
-def pricelabs_refresh_issue(snapshot: Any | None) -> tuple[str, str]:
-    error = _text(getattr(snapshot, "error_message", None)).lower()
-    if "429" in error or "too many requests" in error or "rate limit" in error:
-        return "rate_limited", "rate-limited"
-    if "timeout" in error or "timed out" in error:
-        return "timed_out", "timed out"
-    if any(token in error for token in ("500", "502", "503", "504")):
-        return "service_error", "temporarily unavailable"
-    return "temporarily_unavailable", "temporarily unavailable"
-
-
-def pricing_market_payload(snapshot: Any | None) -> tuple[dict[str, Any], dict[str, Any]]:
-    context = snapshot if isinstance(snapshot, PriceLabsAuditContext) else PriceLabsAuditContext(snapshot, snapshot)
-    latest_snapshot = context.latest
-    effective_snapshot = context.effective
-    if not effective_snapshot:
-        return (
-            {
-                "status": "missing",
-                "connection_status": "unknown",
-                "freshness_status": "missing",
-                "using_fallback": False,
-                "score": 25.0,
-                "summary": "No current PriceLabs snapshot is available.",
-                "actions": ["Connect or refresh PriceLabs before changing rates or stay restrictions."],
-            },
-            {"status": "missing", "summary": "Market benchmark unavailable."},
-        )
-
-    raw = getattr(effective_snapshot, "raw_payload", None) or {}
-    prices_payload = raw.get("prices") or {}
-    price_rows = prices_payload.get("data") or []
-    usable_rows = [row for row in price_rows[:90] if isinstance(row, dict)]
-    future_prices = [_number(row.get("price")) for row in usable_rows if not _truthy(row.get("unbookable"))]
-    future_prices = [value for value in future_prices if value is not None]
-    min_stays = [_number(row.get("min_stay")) for row in usable_rows]
-    min_stays = [int(value) for value in min_stays if value and value > 0]
-    unbookable_days = sum(1 for row in usable_rows if _truthy(row.get("unbookable")))
-
-    metrics = ((raw.get("metrics") or {}).get("data") or {})
-    listing_metrics = metrics.get("listing_level") or {}
-    market_metrics = metrics.get("market_level") or {}
-    listing_occupancy = horizon_metric(listing_metrics.get("occupancy"), 30)
-    market_occupancy = horizon_metric(market_metrics.get("occupancy"), 30)
-    difference = None
-    if listing_occupancy is not None and market_occupancy is not None:
-        difference = round(listing_occupancy - market_occupancy, 1)
-
-    effective_status = _text(getattr(effective_snapshot, "status", None)) or "unknown"
-    refresh_status = _text(getattr(latest_snapshot, "status", None)) or effective_status
-    display_status = "stale" if context.using_fallback else effective_status
-    score = 88.0 if effective_status == "ok" else 58.0 if effective_status == "partial" else 30.0
-    actions: list[str] = []
-    refresh_issue_code = None
-    refresh_issue_label = None
-    if context.using_fallback:
-        refresh_issue_code, refresh_issue_label = pricelabs_refresh_issue(latest_snapshot)
-        actions.append(
-            f"PriceLabs is connected, but the latest refresh was {refresh_issue_label}; retry the data refresh before making time-sensitive pricing changes."
-        )
-        score = max(70.0, score - 6.0)
-    elif effective_status != "ok":
-        normalized_status = effective_status.lower()
-        if normalized_status == "listing_toggle_off":
-            actions.append("PriceLabs is connected, but pricing sync is turned off for this listing; confirm whether that is intentional.")
-        elif normalized_status == "not_configured":
-            actions.append("Configure PriceLabs API access before relying on automated rate guidance.")
-        else:
-            actions.append("No successful PriceLabs snapshot is available; verify the listing mapping and API access, then retry the refresh.")
-    if difference is not None and difference <= -10:
-        actions.append(f"The 30-day PriceLabs occupancy is {abs(difference):.0f} points behind market; review price position and restrictions on open dates.")
-        score -= 12
-    if min_stays and max(min_stays) >= 4 and (listing_occupancy is None or listing_occupancy < 60):
-        actions.append("Minimum-stay rules reach four nights or more while forward occupancy is soft; inspect short gaps and weekday restrictions.")
-        score -= 8
-    if unbookable_days >= 5:
-        actions.append(f"PriceLabs marks {unbookable_days} of the next {len(usable_rows)} reviewed days unbookable; confirm those restrictions are intentional.")
-        score -= 8
-    score = max(0.0, min(score, 100.0))
-
-    avg_price = round(statistics.mean(future_prices), 2) if future_prices else None
-    currency = prices_payload.get("currency") or "USD"
-    summary_parts = []
-    if avg_price is not None:
-        summary_parts.append(f"Average recommended rate {currency} {avg_price:,.0f}")
-    if min_stays:
-        summary_parts.append(f"minimum stay {min(min_stays)}–{max(min_stays)} nights")
-    if listing_occupancy is not None:
-        summary_parts.append(f"30-day occupancy {listing_occupancy:.0f}%")
-
-    comparison_status = "unavailable"
-    comparison_summary = "PriceLabs did not return a comparable 30-day market occupancy metric."
-    if difference is not None:
-        comparison_status = "ahead" if difference >= 5 else "behind" if difference <= -5 else "in_line"
-        direction = "ahead of" if difference > 0 else "behind" if difference < 0 else "in line with"
-        comparison_summary = f"This listing is {abs(difference):.0f} occupancy points {direction} the 30-day market benchmark."
-
-    summary = "; ".join(summary_parts) or f"PriceLabs status is {effective_status}."
-    effective_date = getattr(effective_snapshot, "snapshot_date", None)
-    normalized_effective_status = effective_status.lower()
-    connection_status = (
-        "connected"
-        if pricelabs_snapshot_is_usable(effective_snapshot) or normalized_effective_status == "listing_toggle_off"
-        else "not_configured"
-        if normalized_effective_status == "not_configured"
-        else "unknown"
-    )
-    if context.using_fallback:
-        date_label = effective_date.isoformat() if effective_date else "an earlier run"
-        summary = (
-            f"Connected; using the last successful PriceLabs data from {date_label} because the latest refresh was {refresh_issue_label}. "
-            f"{summary}."
-        )
-
-    return (
-        {
-            "status": display_status,
-            "connection_status": connection_status,
-            "freshness_status": "stale" if context.using_fallback else "current",
-            "using_fallback": context.using_fallback,
-            "refresh_status": refresh_status,
-            "refresh_issue": refresh_issue_code,
-            "data_snapshot_date": effective_date.isoformat() if effective_date else None,
-            "score": round(score, 1),
-            "summary": summary,
-            "average_price": avg_price,
-            "min_price": min(future_prices) if future_prices else None,
-            "max_price": max(future_prices) if future_prices else None,
-            "currency": currency,
-            "min_stay_min": min(min_stays) if min_stays else None,
-            "min_stay_max": max(min_stays) if min_stays else None,
-            "unbookable_days": unbookable_days,
-            "actions": actions,
-        },
-        {
-            "status": comparison_status,
-            "listing_occupancy": listing_occupancy,
-            "market_occupancy": market_occupancy,
-            "difference_points": difference,
-            "summary": comparison_summary,
-        },
-    )
-
-
 def channel_profile_score(*, title: str, description: str, photo_count: int, has_url: bool, page_status: str | None) -> float:
     score = 25.0
     score += 10.0 if has_url else 0.0
@@ -895,6 +868,9 @@ def channel_urls(detail: dict[str, Any]) -> dict[str, str | None]:
             or overrides.get("google_vacation_rentals")
             or overrides.get("google")
             or detail.get("googleVrListingUrl")
+            or detail.get("googleVacationRentalsListingUrl")
+            or detail.get("googleVacationRentalUrl")
+            or detail.get("googleListingUrl")
         ),
         "direct": normalize_url(overrides.get("direct") or first_url(detail.get("bookingEngineUrls"))),
     }
@@ -1143,29 +1119,6 @@ def fetch_public_page(url: str, channel: str, *, deep: bool = False) -> dict[str
     return result
 
 
-def horizon_metric(values: Any, horizon: int) -> float | None:
-    if not isinstance(values, dict):
-        return None
-    value = _number(values.get(str(horizon), values.get(horizon)))
-    if value is None:
-        return None
-    return round(value * 100 if 0 <= value <= 1 else value, 1)
-
-
-def severity_for_score(score: float) -> str:
-    if score < 45:
-        return "critical"
-    if score < 65:
-        return "high"
-    if score < 82:
-        return "watch"
-    return "healthy"
-
-
-def priority_for_severity(severity: str) -> str:
-    return "critical" if severity == "critical" else "high" if severity == "high" else "medium"
-
-
 def dedupe_actions(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     seen: set[str] = set()
@@ -1203,7 +1156,3 @@ def _number(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def _truthy(value: Any) -> bool:
-    return value is True or str(value).strip().lower() in {"1", "true", "yes", "unbookable"}

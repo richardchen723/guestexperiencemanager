@@ -1,23 +1,24 @@
 import os
 import unittest
-from datetime import date
-from types import SimpleNamespace
 from unittest.mock import patch
+
+from sqlalchemy import create_engine, inspect, text
 
 os.environ.setdefault("DATABASE_URL", "postgresql://user:pass@localhost/db")
 os.environ.setdefault("OPENAI_API_KEY", "test")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 
 from brain.listing_audit import (
-    booking_health_payload,
+    AUDIT_SCOPE,
+    ListingAuditRunner,
     build_channel_asset,
+    build_listing_checks,
     build_listing_audit_result,
-    configure_pricelabs_for_listing_audit,
+    channel_urls,
     cover_image_candidates,
     merge_rendered_page_result,
-    pricing_market_payload,
+    public_page_finding_message,
     resolve_cover_image,
-    resolve_pricelabs_audit_context,
 )
 from brain.channel_page_audit import (
     automation_blocked_page_message,
@@ -26,6 +27,7 @@ from brain.channel_page_audit import (
     extract_deep_page_content,
     rendered_page_error_message,
 )
+from brain.models import _migrate_listing_audit_tables
 
 
 def listing_detail(**overrides):
@@ -99,41 +101,6 @@ class ListingAuditTests(unittest.TestCase):
         self.assertEqual(result["source"], "hostaway_gallery")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["attempted"], 2)
-
-    def test_audit_pricelabs_refresh_uses_bounded_window_without_reasons(self):
-        client = SimpleNamespace(price_window_days=365, include_price_reason=True)
-
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("LISTING_AUDIT_PRICELABS_WINDOW_DAYS", None)
-            os.environ.pop("LISTING_AUDIT_PRICELABS_INCLUDE_PRICE_REASON", None)
-            configure_pricelabs_for_listing_audit(client)
-
-        self.assertEqual(client.price_window_days, 90)
-        self.assertFalse(client.include_price_reason)
-        self.assertEqual(client.timeout, 60)
-        self.assertEqual(client.max_retries, 2)
-        self.assertEqual(client.retry_backoff_seconds, 3)
-
-    def test_audit_pricelabs_refresh_honors_bounded_overrides(self):
-        client = SimpleNamespace(price_window_days=365, include_price_reason=False)
-
-        with patch.dict(
-            os.environ,
-            {
-                "LISTING_AUDIT_PRICELABS_WINDOW_DAYS": "120",
-                "LISTING_AUDIT_PRICELABS_INCLUDE_PRICE_REASON": "true",
-                "LISTING_AUDIT_PRICELABS_TIMEOUT_SECONDS": "45",
-                "LISTING_AUDIT_PRICELABS_MAX_RETRIES": "3",
-                "LISTING_AUDIT_PRICELABS_RETRY_BACKOFF_SECONDS": "2.5",
-            },
-        ):
-            configure_pricelabs_for_listing_audit(client)
-
-        self.assertEqual(client.price_window_days, 120)
-        self.assertTrue(client.include_price_reason)
-        self.assertEqual(client.timeout, 45)
-        self.assertEqual(client.max_retries, 3)
-        self.assertEqual(client.retry_backoff_seconds, 2.5)
 
     def test_airbnb_asset_scores_complete_guest_content(self):
         asset = build_channel_asset(
@@ -213,6 +180,17 @@ class ListingAuditTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["browser_render"]["status"], "blocked")
 
+    def test_operator_message_replaces_embedded_channel_script_payload(self):
+        message = public_page_finding_message(
+            {"summary": "window.productionhostname = 'www.vrbo.com'; window.__GCSTATE__ = {};"},
+            "Vrbo",
+        )
+
+        self.assertEqual(
+            message,
+            "The Vrbo guest page returned unreadable technical content; open the page and verify it manually.",
+        )
+
     def test_deep_page_extraction_reads_structured_listing_content(self):
         html = """
         <html><head>
@@ -283,106 +261,9 @@ class ListingAuditTests(unittest.TestCase):
         self.assertEqual(asset["status"], "watch")
         self.assertTrue(any("public Booking.com URL" in action for action in asset["actions"]))
 
-    def test_pricelabs_payload_compares_listing_with_market(self):
-        snapshot = SimpleNamespace(
-            status="ok",
-            raw_payload={
-                "prices": {
-                    "currency": "USD",
-                    "data": [
-                        {"price": 210, "min_stay": 2, "unbookable": 0},
-                        {"price": 230, "min_stay": 3, "unbookable": 0},
-                    ],
-                },
-                "metrics": {
-                    "data": {
-                        "listing_level": {"occupancy": {"30": 52}},
-                        "market_level": {"occupancy": {"30": 68}},
-                    }
-                },
-            },
-        )
-
-        pricing, market = pricing_market_payload(snapshot)
-
-        self.assertEqual(pricing["average_price"], 220)
-        self.assertEqual(market["difference_points"], -16)
-        self.assertEqual(market["status"], "behind")
-        self.assertTrue(any("behind market" in action for action in pricing["actions"]))
-
-    def test_pricelabs_rate_limit_uses_last_success_without_claiming_disconnection(self):
-        latest = SimpleNamespace(
-            status="unavailable",
-            snapshot_date=date(2026, 8, 21),
-            raw_payload={"source_statuses": {"prices": "unavailable", "metrics": "unavailable"}},
-            error_message="429 Client Error: Too Many Requests",
-        )
-        prior = SimpleNamespace(
-            status="ok",
-            snapshot_date=date(2026, 8, 17),
-            error_message=None,
-            raw_payload={
-                "prices": {
-                    "currency": "USD",
-                    "data": [{"price": 250, "min_stay": 2, "unbookable": 0}],
-                },
-                "metrics": {
-                    "data": {
-                        "listing_level": {"occupancy": {"30": 61}},
-                        "market_level": {"occupancy": {"30": 64}},
-                    }
-                },
-            },
-        )
-
-        context = resolve_pricelabs_audit_context([latest, prior])
-        pricing, market = pricing_market_payload(context)
-
-        self.assertTrue(context.using_fallback)
-        self.assertEqual(pricing["status"], "stale")
-        self.assertEqual(pricing["connection_status"], "connected")
-        self.assertEqual(pricing["refresh_issue"], "rate_limited")
-        self.assertEqual(pricing["data_snapshot_date"], "2026-08-17")
-        self.assertEqual(pricing["average_price"], 250)
-        self.assertEqual(market["difference_points"], -3)
-        self.assertIn("Connected; using the last successful", pricing["summary"])
-        self.assertFalse(any("Repair" in action for action in pricing["actions"]))
-
-    def test_pricelabs_toggle_off_is_not_hidden_by_an_older_success(self):
-        latest = SimpleNamespace(
-            status="LISTING_TOGGLE_OFF",
-            snapshot_date=date(2026, 8, 21),
-            raw_payload={},
-            error_message="Listing toggle is off",
-        )
-        prior = SimpleNamespace(
-            status="ok",
-            snapshot_date=date(2026, 8, 17),
-            raw_payload={"prices": {"data": [{"price": 200}]}},
-            error_message=None,
-        )
-
-        context = resolve_pricelabs_audit_context([latest, prior])
-        pricing, _ = pricing_market_payload(context)
-
-        self.assertFalse(context.using_fallback)
-        self.assertEqual(pricing["status"], "LISTING_TOGGLE_OFF")
-        self.assertEqual(pricing["connection_status"], "connected")
-        self.assertTrue(any("sync is turned off" in action for action in pricing["actions"]))
-
-    def test_combined_result_contains_all_five_channels_and_actions(self):
-        analysis = SimpleNamespace(
-            severity="high",
-            snapshot_date=date(2026, 8, 21),
-            horizons=[{"horizon_days": 30, "occupancy_rate": 0.3, "booked_nights": 9, "available_nights": 21}],
-            booking_pattern="Forward demand is soft.",
-            opinion="Forward demand is soft.",
-            action_items=["Review the next 30 days of open weekday gaps."],
-        )
+    def test_listing_quality_result_contains_all_channels_and_no_booking_data(self):
         result = build_listing_audit_result(
             listing_detail(),
-            booking_analysis=analysis,
-            pricelabs_snapshot=None,
             public_pages={},
             portfolio_id=8,
             portfolio_name="Urban Stays",
@@ -392,9 +273,70 @@ class ListingAuditTests(unittest.TestCase):
             [asset["channel"] for asset in result["online_assets"]],
             ["airbnb", "vrbo", "bookingcom", "googlevr", "direct"],
         )
-        self.assertEqual(result["booking_health"]["horizons"][0]["occupancy_percent"], 30)
+        self.assertEqual(result["audit_scope"], AUDIT_SCOPE)
+        self.assertEqual(set(result["listing_checks"]), {"links", "amenities", "policies", "content"})
+        self.assertNotIn("booking_health", result)
+        self.assertNotIn("pricing_health", result)
+        self.assertNotIn("market_comparison", result)
         self.assertGreater(len(result["action_items"]), 1)
         self.assertNotIn("doorSecurityCode", result["raw_payload"])
+
+    def test_daily_listing_checks_cover_source_amenities_policies_and_content(self):
+        detail = listing_detail(
+            listingAmenities=[],
+            houseRules="",
+            airbnbNotes="",
+            description="Too short",
+            listingImages=[],
+        )
+        assets = [build_channel_asset(detail, channel) for channel in ("airbnb", "googlevr")]
+
+        checks = build_listing_checks(detail, assets)
+
+        self.assertEqual(checks["amenities"]["status"], "issue")
+        self.assertTrue(any(finding["field"] == "house_rules" for finding in checks["policies"]["findings"]))
+        self.assertTrue(any(finding["field"] == "photos" for finding in checks["content"]["findings"]))
+
+    def test_google_vacation_rental_aliases_are_audited(self):
+        detail = listing_detail(
+            googleExportStatus=None,
+            googleVrListingUrl=None,
+            googleVacationRentalsExportStatus="exported",
+            googleVacationRentalsListingUrl="https://www.google.com/travel/hotels/entity/alternate/overview",
+        )
+
+        asset = build_channel_asset(detail, "googlevr")
+
+        self.assertEqual(channel_urls(detail)["googlevr"], detail["googleVacationRentalsListingUrl"])
+        self.assertTrue(asset["configured"])
+        self.assertEqual(asset["export_status"], "exported")
+
+    def test_source_refresh_only_syncs_listings(self):
+        runner = ListingAuditRunner.__new__(ListingAuditRunner)
+        with patch("sync.sync_listings.sync_listings", return_value={"status": "success", "synced": 48}) as sync:
+            result = runner._refresh_sources(cadence="weekly", deep=True)
+
+        sync.assert_called_once_with(full_sync=True)
+        self.assertEqual(result["audit_scope"], AUDIT_SCOPE)
+        self.assertEqual(
+            result["excluded_sources"],
+            ["reservations", "booking_health", "pricelabs", "market_occupancy"],
+        )
+
+    def test_existing_audit_tables_receive_listing_quality_columns(self):
+        engine = create_engine("sqlite://")
+        with engine.begin() as connection:
+            connection.execute(text("CREATE TABLE listing_audit_runs (listing_audit_run_id INTEGER PRIMARY KEY)"))
+            connection.execute(text("CREATE TABLE listing_audit_snapshots (listing_audit_snapshot_id INTEGER PRIMARY KEY)"))
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("DATABASE_URL", None)
+                _migrate_listing_audit_tables(connection)
+
+            run_columns = {column["name"] for column in inspect(connection).get_columns("listing_audit_runs")}
+            snapshot_columns = {column["name"] for column in inspect(connection).get_columns("listing_audit_snapshots")}
+
+        self.assertTrue({"audit_scope", "finding_counts"}.issubset(run_columns))
+        self.assertTrue({"audit_scope", "listing_checks", "issue_count"}.issubset(snapshot_columns))
 
     def test_combined_result_persists_validated_cover_instead_of_stale_channel_thumbnail(self):
         detail = listing_detail(
@@ -408,8 +350,6 @@ class ListingAuditTests(unittest.TestCase):
 
         result = build_listing_audit_result(
             detail,
-            booking_analysis=None,
-            pricelabs_snapshot=None,
             public_pages={},
             portfolio_id=None,
             portfolio_name=None,

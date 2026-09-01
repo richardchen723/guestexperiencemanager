@@ -98,6 +98,10 @@ sudo -u hostaway "$VENV_DIR/bin/python" "$APP_DIR/database/migrations.py" || {
     echo -e "${YELLOW}Warning: Migration script failed, but continuing. Migrations will run on app startup.${NC}"
 }
 
+echo -e "${GREEN}Step 5b: Migrating listing-quality audit tables...${NC}"
+sudo -u hostaway "$VENV_DIR/bin/python" -c \
+    "from brain.models import init_listing_audit_tables; init_listing_audit_tables()"
+
 echo -e "${GREEN}Step 6: Installing/updating systemd services...${NC}"
 # Install disk-usage safeguards before restarting the application services.
 if [ -f "$APP_DIR/deployment/logrotate-hostaway" ]; then

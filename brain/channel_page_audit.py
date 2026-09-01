@@ -603,7 +603,8 @@ def _visible_section(visible_text: str, field: str) -> str:
     return clean_text(visible_text[content_start:end])
 
 
-def _listing_amenities(detail: dict[str, Any]) -> list[str]:
+def listing_amenities(detail: dict[str, Any]) -> list[str]:
+    """Return normalized Hostaway amenities for listing-quality audits."""
     values = detail.get("listingAmenities") or detail.get("amenities") or []
     if isinstance(values, dict):
         values = list(values.values())
@@ -634,7 +635,7 @@ def _source_fields(detail: dict[str, Any], channel: str, title: str, description
         "title": clean_text(title, limit=500),
         "description": clean_text(description),
         "location": location,
-        "amenities": _listing_amenities(detail),
+        "amenities": listing_amenities(detail),
         "guest_notes": clean_text(guest_notes),
         "house_rules": clean_text(detail.get("houseRules")),
     }

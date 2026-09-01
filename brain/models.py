@@ -590,6 +590,8 @@ class ListingAuditRun(Base):
     high_count = Column(Integer, nullable=False, default=0)
     watch_count = Column(Integer, nullable=False, default=0)
     healthy_count = Column(Integer, nullable=False, default=0)
+    audit_scope = Column(String, nullable=False, default="listing_quality_v2")
+    finding_counts = Column(_json_type())
     source_statuses = Column(_json_type())
     error_message = Column(Text)
     started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -633,6 +635,11 @@ class ListingAuditSnapshot(Base):
     snapshot_date = Column(Date, default=date.today, nullable=False, index=True)
     severity = Column(String, nullable=False, default="watch", index=True)
     health_score = Column(Float, nullable=False, default=0.0)
+    audit_scope = Column(String, nullable=False, default="listing_quality_v2")
+    listing_checks = Column(_json_type())
+    issue_count = Column(Integer, nullable=False, default=0)
+    # Legacy combined-health columns are retained for backward-compatible reads.
+    # Listing-quality audit jobs no longer populate them.
     booking_health = Column(_json_type())
     pricing_health = Column(_json_type())
     market_comparison = Column(_json_type())
@@ -1197,7 +1204,39 @@ def init_listing_audit_tables():
             conn.execute(sqlalchemy.text(f"CREATE SCHEMA IF NOT EXISTS {BRAIN_SCHEMA}"))
         ListingAuditRun.__table__.create(bind=conn, checkfirst=True)
         ListingAuditSnapshot.__table__.create(bind=conn, checkfirst=True)
+        _migrate_listing_audit_tables(conn)
     return engine
+
+
+def _migrate_listing_audit_tables(conn) -> None:
+    """Add listing-quality columns without rewriting legacy audit history."""
+    schema = BRAIN_SCHEMA if os.getenv("DATABASE_URL") else None
+    inspector = sqlalchemy.inspect(conn)
+    table_names = set(inspector.get_table_names(schema=schema))
+    json_type = "JSONB" if os.getenv("DATABASE_URL") else "JSON"
+
+    migrations = {
+        "listing_audit_runs": (
+            ("audit_scope", "VARCHAR NOT NULL DEFAULT 'legacy_combined'"),
+            ("finding_counts", json_type),
+        ),
+        "listing_audit_snapshots": (
+            ("audit_scope", "VARCHAR NOT NULL DEFAULT 'legacy_combined'"),
+            ("listing_checks", json_type),
+            ("issue_count", "INTEGER NOT NULL DEFAULT 0"),
+        ),
+    }
+    for table_name, columns_to_add in migrations.items():
+        if table_name not in table_names:
+            continue
+        columns = {column["name"] for column in inspector.get_columns(table_name, schema=schema)}
+        qualified_name = f"{schema}.{table_name}" if schema else table_name
+        for column_name, column_type in columns_to_add:
+            if column_name in columns:
+                continue
+            conn.execute(sqlalchemy.text(
+                f"ALTER TABLE {qualified_name} ADD COLUMN {column_name} {column_type}"
+            ))
 
 
 def _migrate_brain_tables(bind):
@@ -1209,6 +1248,7 @@ def _migrate_brain_tables(bind):
     def migrate(conn):
         _ensure_stay_outcome_once_index(conn)
         _migrate_guest_issue_lifecycle(conn)
+        _migrate_listing_audit_tables(conn)
         result = conn.execute(
             sqlalchemy.text(
                 """

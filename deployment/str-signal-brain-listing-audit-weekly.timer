@@ -1,8 +1,8 @@
 [Unit]
-Description=Run the deep listing health audit every Monday at 10:00 AM Malaysia time
+Description=Run the deep listing-quality audit every Monday at 10:00 AM US Eastern time
 
 [Timer]
-OnCalendar=Mon *-*-* 10:00:00 Asia/Kuala_Lumpur
+OnCalendar=Mon *-*-* 10:00:00 America/New_York
 Persistent=true
 Unit=str-signal-brain-listing-audit-weekly.service
 

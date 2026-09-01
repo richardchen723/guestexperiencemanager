@@ -1,5 +1,5 @@
 [Unit]
-Description=Weekly deep Hostaway listing health audit
+Description=Weekly deep Hostaway listing-quality audit
 After=network.target postgresql.service
 Requires=postgresql.service
 
@@ -11,7 +11,7 @@ WorkingDirectory=/opt/hostaway-messages/app
 Environment="PATH=/opt/hostaway-messages/venv/bin"
 Environment="PLAYWRIGHT_BROWSERS_PATH=/opt/hostaway-messages/app/data/ms-playwright"
 EnvironmentFile=/opt/hostaway-messages/.env
-ExecStart=/usr/bin/flock -n /opt/hostaway-messages/app/data/listing-audit.lock /usr/bin/env BRAIN_ENABLE_OPENAI_BOOKING_HEALTH=False BRAIN_ENABLE_OPENAI_SIGNALS=False KPI_ENABLE_STAY_OUTCOME_CLASSIFICATION=False /opt/hostaway-messages/venv/bin/python3 -m brain.jobs listing-audit-weekly
+ExecStart=/usr/bin/flock -n /opt/hostaway-messages/app/data/listing-audit.lock /opt/hostaway-messages/venv/bin/python3 -m brain.jobs listing-audit-weekly
 TimeoutStartSec=120min
 
 NoNewPrivileges=true

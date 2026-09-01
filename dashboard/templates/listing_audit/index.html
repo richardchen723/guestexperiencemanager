@@ -3,31 +3,28 @@
 {% block title %}Listing Health - Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/listing-audit.css', v='20260824-1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/listing-audit.css', v='20260901-2') }}">
 {% endblock %}
 
 {% block content %}
 <div class="listing-audit-page" id="listingAuditPage">
     <header class="audit-hero">
         <div class="audit-hero-copy">
-            <span class="audit-eyebrow"><span></span> Portfolio listing intelligence</span>
-            <h1>Every listing, seen through a guest’s eyes</h1>
-            <p>One readable health check across forward demand, PriceLabs, market position, and every channel where guests discover and book your properties.</p>
+            <span class="audit-eyebrow"><span></span> Listing quality</span>
+            <h1>Find listing issues before guests do</h1>
+            <p>One focused view of channel links, amenities, guest policies, and the content guests use to choose a stay.</p>
             <div class="audit-run-meta">
                 {% if audit.run %}
-                <span><strong>Latest {{ audit.run.cadence }}</strong> {{ audit.run.completed_at[:16] | replace('T', ' ') if audit.run.completed_at else 'in progress' }}</span>
+                <span><strong>Last checked</strong> {{ audit.run.completed_at[:16] | replace('T', ' ') if audit.run.completed_at else 'in progress' }}</span>
                 {% endif %}
-                <span><strong>Daily</strong> 9:00 AM</span>
-                <span><strong>Weekly deep review</strong> Monday 10:00 AM</span>
+                <span><strong>Deep content review</strong> Weekly</span>
                 <span>{{ audit.timezone }}</span>
             </div>
         </div>
-        <div class="audit-hero-score" aria-label="Portfolio average health score">
-            <div class="portfolio-score-ring" style="--score: {{ audit.summary.average_score }}">
-                <div><strong>{{ audit.summary.average_score | round | int }}</strong><span>/ 100</span></div>
-            </div>
-            <p>{{ audit.selected_portfolio ~ ' health' if audit.selected_portfolio else 'Portfolio health' }}</p>
-            <span class="score-caption">{{ audit.summary.healthy_count }} healthy · {{ audit.summary.critical_count + audit.summary.high_count }} need action</span>
+        <div class="audit-hero-status">
+            <strong>{{ audit.summary.critical_count + audit.summary.high_count }}</strong>
+            <span>listings need prompt attention</span>
+            <small>{{ audit.summary.listing_count }} listings in this view</small>
         </div>
     </header>
 
@@ -35,7 +32,7 @@
     <section class="portfolio-scope-bar" aria-label="Audit portfolio view">
         <div class="portfolio-scope-copy">
             <span class="portfolio-scope-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V8l8-5 8 5v12M8 20v-7h8v7M2 20h20"/></svg></span>
-            <div><span>Audit profile</span><strong>{{ audit.profile_label }}</strong><small>Every metric below is calculated for this selection.</small></div>
+            <div><span>Audit profile</span><strong>{{ audit.profile_label }}</strong><small>All findings below follow this portfolio selection.</small></div>
         </div>
         <form class="portfolio-scope-form" method="get" action="{{ url_for('listing_audit.listing_audit_page') }}">
             <label for="auditPortfolioScope">View portfolio</label>
@@ -43,131 +40,56 @@
                 <option value="" {% if not audit.selected_portfolio %}selected{% endif %}>All properties</option>
                 {% for portfolio in audit.portfolios %}<option value="{{ portfolio }}" {% if portfolio == audit.selected_portfolio %}selected{% endif %}>{{ portfolio }}</option>{% endfor %}
             </select>
-            <button type="submit">View</button>
+            <button type="submit">Apply</button>
         </form>
-        <span class="portfolio-scope-count"><strong>{{ audit.summary.listing_count }}</strong><span>{{ 'property' if audit.summary.listing_count == 1 else 'properties' }} in view</span></span>
+        <span class="portfolio-scope-count"><strong>{{ audit.summary.listing_count }}</strong><span>{{ 'property' if audit.summary.listing_count == 1 else 'properties' }}</span></span>
     </section>
     {% endif %}
 
     {% if audit.is_stale and audit.has_data %}
     <div class="audit-notice audit-notice-warning" role="status">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 4.1 2.8 17a2 2 0 0 0 1.7 3h15a2 2 0 0 0 1.7-3L13.7 4.1a2 2 0 0 0-3.4 0Z"/></svg>
-        <div><strong>This audit is {{ audit.freshness_days }} days old</strong><span>The scheduled worker will replace it after the next successful run. Treat rates and forward occupancy as historical until then.</span></div>
+        <div><strong>This listing audit is {{ audit.freshness_days }} days old</strong><span>The next successful audit will refresh link checks and channel-content findings.</span></div>
     </div>
     {% endif %}
 
     {% if not audit.has_data %}
     <section class="audit-empty-state">
-        <div class="audit-empty-icon">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9Z"/><path d="M8 14h8M8 17h5"/></svg>
-        </div>
+        <div class="audit-empty-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9Z"/><path d="M8 14h8M8 17h5"/></svg></div>
         <span class="audit-eyebrow">Ready for the first run</span>
-        <h2>Your listing-health workspace is connected</h2>
-        <p>The first scheduled audit will pull Hostaway, PriceLabs, forward-calendar, market, and public channel data into this page.</p>
-        <div class="empty-schedule"><span>Daily · 9:00 AM</span><span>Deep review · Monday 10:00 AM</span><span>{{ audit.timezone }}</span></div>
+        <h2>Your listing-quality workspace is connected</h2>
+        <p>The first audit will check channel links, amenities, guest policies, photos, descriptions, titles, and other guest-facing listing details.</p>
+        <div class="empty-schedule"><span>Link check · Daily</span><span>Deep content review · Weekly</span><span>{{ audit.timezone }}</span></div>
     </section>
     {% else %}
 
-    <section class="audit-summary-grid" aria-label="Portfolio audit summary">
-        <article class="summary-card summary-card-primary">
-            <span>Active listings audited</span>
-            <strong>{{ audit.summary.listing_count }}</strong>
-            <small>Hostaway inventory in the latest run</small>
+    <section class="focus-summary-grid" aria-label="Listing quality findings">
+        <article class="focus-summary-card focus-links">
+            <span class="focus-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1"/></svg></span>
+            <div><span>Confirmed link failures</span><strong>{{ audit.summary.confirmed_link_issue_count }}</strong><small>{{ audit.summary.link_reviewed_count }} URLs checked · {{ audit.summary.missing_public_url_count }} missing URLs · {{ audit.summary.connection_gap_count }} gaps</small></div>
         </article>
-        <article class="summary-card summary-card-critical">
-            <span>Immediate attention</span>
-            <strong>{{ audit.summary.critical_count + audit.summary.high_count }}</strong>
-            <small>{{ audit.summary.critical_count }} critical · {{ audit.summary.high_count }} high</small>
+        <article class="focus-summary-card focus-amenities">
+            <span class="focus-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 3v6M17 3v6M5 11h6v9H5zM14 11h5v4h-5zM14 18h5v2h-5z"/></svg></span>
+            <div><span>Amenity findings</span><strong>{{ audit.summary.amenities_issue_count }}</strong><small>{{ audit.summary.amenities_reviewed_count }} channel sections compared</small></div>
         </article>
-        <article class="summary-card summary-card-watch">
-            <span>Watch list</span>
-            <strong>{{ audit.summary.watch_count }}</strong>
-            <small>Monitor pace, rates, or merchandising</small>
+        <article class="focus-summary-card focus-policies">
+            <span class="focus-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h8l4 4v14H7zM15 3v5h5M10 12h6M10 16h6"/></svg></span>
+            <div><span>Guest policy findings</span><strong>{{ audit.summary.policies_issue_count }}</strong><small>{{ audit.summary.policies_reviewed_count }} policy sections compared</small></div>
         </article>
-        <article class="summary-card summary-card-healthy">
-            <span>Healthy</span>
-            <strong>{{ audit.summary.healthy_count }}</strong>
-            <small>No urgent action surfaced</small>
+        <article class="focus-summary-card focus-content">
+            <span class="focus-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5M8 17h8"/></svg></span>
+            <div><span>Content findings</span><strong>{{ audit.summary.content_issue_count }}</strong><small>{{ audit.summary.content_reviewed_count }} listing fields compared</small></div>
         </article>
-    </section>
-
-    <section class="audit-section channel-section">
-        <div class="section-heading-row">
-            <div><span class="section-kicker">Guest-facing footprint</span><h2>Channel coverage</h2></div>
-            <p>Configuration and public-page quality across {{ audit.profile_label | lower }}.</p>
-        </div>
-        <div class="channel-coverage-grid">
-            {% for channel_key, channel in audit.summary.channel_coverage.items() %}
-            <article class="channel-coverage-card channel-{{ channel_key }}">
-                <div class="channel-monogram">{{ 'B' if channel_key == 'bookingcom' else 'D' if channel_key == 'direct' else channel.label[0] }}</div>
-                <div>
-                    <strong>{{ channel.label }}</strong>
-                    <span>{{ channel.configured }} of {{ channel.total }} connected</span>
-                </div>
-                <div class="coverage-meter" aria-label="{{ channel.configured }} of {{ channel.total }} connected">
-                    <span style="width: {{ ((channel.configured / channel.total * 100) if channel.total else 0) | round }}%"></span>
-                </div>
-                <div class="channel-card-footer">
-                    <small>{{ channel.healthy }} healthy · {{ channel.needs_attention }} need review</small>
-                    {% if channel.problem_count %}
-                    <button class="channel-missing-trigger" type="button" data-channel-panel="channel-missing-{{ channel_key }}" aria-expanded="false" aria-controls="channel-missing-{{ channel_key }}">
-                        <span>{{ channel.problem_count }} {{ 'missing/error' if channel.problem_count == 1 else 'missing/errors' }}</span>
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-                    </button>
-                    {% else %}
-                    <span class="channel-all-connected"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>All links working</span>
-                    {% endif %}
-                </div>
-                {% if channel.deep_reviewed %}
-                <div class="channel-deep-meta"><strong>{{ channel.deep_reviewed }} deep-reviewed</strong><span>{{ channel.deep_issues }} detailed findings</span></div>
-                {% endif %}
-            </article>
-            {% endfor %}
-        </div>
-        <div class="channel-missing-panels" aria-live="polite">
-            {% for channel_key, channel in audit.summary.channel_coverage.items() %}
-            {% if channel.problem_count %}
-            <section class="channel-missing-panel channel-missing-panel-{{ channel_key }}" id="channel-missing-{{ channel_key }}" hidden>
-                <div class="channel-missing-header">
-                    <div>
-                        <span class="section-kicker">Missing or broken pages</span>
-                        <h3>{{ channel.problem_count }} {{ channel.label }} {{ 'listing needs' if channel.problem_count == 1 else 'listings need' }} attention</h3>
-                        <p>Only connection gaps and guest pages that displayed a confirmed error appear here. Content improvements remain in the detailed audit.</p>
-                    </div>
-                    <button class="channel-missing-close" type="button" aria-label="Close {{ channel.label }} problems" data-close-channel-panel="channel-missing-{{ channel_key }}">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
-                    </button>
-                </div>
-                <div class="channel-missing-unit-grid">
-                    {% for unit in channel.problem_units %}
-                    <article class="channel-problem-unit channel-problem-{{ unit.channel_status }}">
-                    <button class="channel-missing-unit" type="button" data-audit-target="listing-{{ unit.listing_id }}">
-                        <span class="missing-unit-initial">{{ unit.listing_name[0] }}</span>
-                        <span class="missing-unit-copy"><strong>{{ unit.listing_name }}</strong><small>{{ unit.connection_status }} · {{ unit.review_reason }}</small></span>
-                        <span class="missing-unit-score health-{{ unit.severity }}">{{ unit.health_score | round | int }}</span>
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-                    </button>
-                    <div class="channel-problem-actions">
-                        <span>{{ unit.portfolio_name }} · page {{ unit.page_status }}</span>
-                        {% if unit.url %}<a href="{{ unit.url }}" target="_blank" rel="noopener noreferrer">Open guest page <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5M10 14 19 5M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg></a>{% else %}<strong>Public URL not stored</strong>{% endif %}
-                    </div>
-                    </article>
-                    {% endfor %}
-                </div>
-            </section>
-            {% endif %}
-            {% endfor %}
-        </div>
     </section>
 
     <section class="audit-section action-section">
         <div class="section-heading-row">
-            <div><span class="section-kicker">Highest-leverage work</span><h2>What to improve first</h2></div>
-            <span class="action-count">{{ audit.top_actions | length }} prioritized actions</span>
+            <div><span class="section-kicker">Do these first</span><h2>Priority listing fixes</h2></div>
+            <p>Only guest-facing listing recommendations appear here. Rates, demand, and occupancy are intentionally excluded.</p>
         </div>
         {% if audit.top_actions %}
         <div class="priority-action-grid">
-            {% for action in audit.top_actions[:8] %}
+            {% for action in audit.top_actions[:6] %}
             <button class="priority-action-card" type="button" data-audit-target="listing-{{ action.listing_id }}">
                 <span class="action-priority action-priority-{{ action.priority }}">{{ action.priority }}</span>
                 <strong>{{ action.listing_name }}</strong>
@@ -177,141 +99,120 @@
             {% endfor %}
         </div>
         {% else %}
-        <div class="compact-empty">No urgent improvements surfaced in this run.</div>
+        <div class="compact-empty">No listing-quality actions surfaced in this run.</div>
         {% endif %}
+    </section>
+
+    <section class="audit-section channel-section">
+        <div class="section-heading-row">
+            <div><span class="section-kicker">Guest-facing footprint</span><h2>Are the channel links working?</h2></div>
+            <p>See connection coverage first, then open only the channel with a confirmed gap or page error.</p>
+        </div>
+        <div class="channel-coverage-grid">
+            {% for channel_key, channel in audit.summary.channel_coverage.items() %}
+            <article class="channel-coverage-card channel-{{ channel_key }}">
+                <div class="channel-monogram">{{ 'B' if channel_key == 'bookingcom' else 'D' if channel_key == 'direct' else channel.label[0] }}</div>
+                <div><strong>{{ channel.label }}</strong><span>{{ channel.configured }} / {{ channel.total }} connected</span></div>
+                <div class="coverage-meter" aria-label="{{ channel.configured }} of {{ channel.total }} connected"><span style="width: {{ ((channel.configured / channel.total * 100) if channel.total else 0) | round }}%"></span></div>
+                <div class="channel-card-footer">
+                    <small>{{ channel.healthy }} clear · {{ channel.needs_attention }} content review</small>
+                    {% if channel.problem_count %}
+                    <button class="channel-missing-trigger" type="button" data-channel-panel="channel-missing-{{ channel_key }}" aria-expanded="false" aria-controls="channel-missing-{{ channel_key }}">
+                        <span>{{ channel.problem_count }} {{ 'link issue' if channel.problem_count == 1 else 'link issues' }}</span>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                    </button>
+                    {% else %}
+                    <span class="channel-all-connected"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>Links clear</span>
+                    {% endif %}
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+        <div class="channel-missing-panels" aria-live="polite">
+            {% for channel_key, channel in audit.summary.channel_coverage.items() %}
+            {% if channel.problem_count %}
+            <section class="channel-missing-panel channel-missing-panel-{{ channel_key }}" id="channel-missing-{{ channel_key }}" hidden>
+                <div class="channel-missing-header">
+                    <div><span class="section-kicker">Link attention</span><h3>{{ channel.problem_count }} {{ channel.label }} {{ 'listing needs' if channel.problem_count == 1 else 'listings need' }} review</h3><p>Connection gaps, missing public URLs, and confirmed guest-page failures.</p></div>
+                    <button class="channel-missing-close" type="button" aria-label="Close {{ channel.label }} problems" data-close-channel-panel="channel-missing-{{ channel_key }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+                </div>
+                <div class="channel-missing-unit-grid">
+                    {% for unit in channel.problem_units %}
+                    <article class="channel-problem-unit channel-problem-{{ unit.channel_status }}">
+                        <button class="channel-missing-unit" type="button" data-audit-target="listing-{{ unit.listing_id }}">
+                            <span class="missing-unit-initial">{{ unit.listing_name[0] }}</span>
+                            <span class="missing-unit-copy"><strong>{{ unit.listing_name }}</strong><small>{{ unit.review_reason }}</small></span>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                        </button>
+                        <div class="channel-problem-actions"><span>{{ unit.portfolio_name }} · {{ unit.page_status }}</span>{% if unit.url %}<a href="{{ unit.url }}" target="_blank" rel="noopener noreferrer">Open guest page</a>{% else %}<strong>Public URL not stored</strong>{% endif %}</div>
+                    </article>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+            {% endfor %}
+        </div>
     </section>
 
     <section class="audit-section properties-section">
         <div class="section-heading-row properties-heading">
-            <div><span class="section-kicker">Property-by-property review</span><h2>Listing health</h2></div>
+            <div><span class="section-kicker">Property-by-property</span><h2>Listing review</h2></div>
             <span id="auditVisibleCount">{{ audit["items"] | length }} properties</span>
         </div>
         <div class="audit-toolbar">
-            <label class="audit-search">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
-                <input type="search" id="auditSearch" placeholder="Search properties in this profile" autocomplete="off">
-            </label>
-            <label class="audit-select"><span>Health</span><select id="auditSeverityFilter"><option value="">All health levels</option><option value="critical">Critical</option><option value="high">High</option><option value="watch">Watch</option><option value="healthy">Healthy</option></select></label>
+            <label class="audit-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input type="search" id="auditSearch" placeholder="Search property, portfolio, or location" autocomplete="off"></label>
+            <label class="audit-select"><span>Priority</span><select id="auditSeverityFilter"><option value="">All priorities</option><option value="critical">Critical</option><option value="high">High</option><option value="watch">Needs review</option><option value="healthy">Clear</option></select></label>
         </div>
 
         <div class="property-audit-list" id="propertyAuditList">
             {% for item in audit["items"] %}
-            <details class="audit-property-card severity-{{ item.severity }}" id="listing-{{ item.listing_id }}" data-severity="{{ item.severity }}" data-portfolio="{{ item.portfolio_name | lower }}" data-search="{{ (item.listing_name ~ ' ' ~ item.portfolio_name ~ ' ' ~ item.location) | lower }}" {% if loop.index <= 2 and item.severity in ['critical', 'high'] %}open{% endif %}>
+            <details class="audit-property-card severity-{{ item.severity }}" id="listing-{{ item.listing_id }}" data-severity="{{ item.severity }}" data-portfolio="{{ item.portfolio_name | lower }}" data-search="{{ (item.listing_name ~ ' ' ~ item.portfolio_name ~ ' ' ~ item.location) | lower }}">
                 <summary>
                     <div class="property-identity">
-                        <div class="property-thumb" data-cover-source="{{ item.cover_image_source }}">
-                            <span aria-hidden="true">{{ item.listing_name[0] }}</span>
-                            {% if item.thumbnail_url %}<img src="{{ item.thumbnail_url }}" alt="" loading="lazy" data-audit-cover>{% endif %}
-                        </div>
-                        <div><div class="property-badges"><span class="health-badge health-{{ item.severity }}">{{ item.severity }}</span><span>{{ item.portfolio_name }}</span></div><h3>{{ item.listing_name }}</h3><p>{{ item.location or 'Location not available' }} · {{ item.photo_count }} photos · ID {{ item.listing_id }}</p></div>
+                        <div class="property-thumb" data-cover-source="{{ item.cover_image_source }}"><span aria-hidden="true">{{ item.listing_name[0] }}</span>{% if item.thumbnail_url %}<img src="{{ item.thumbnail_url }}" alt="" loading="lazy" data-audit-cover>{% endif %}</div>
+                        <div><div class="property-badges"><span class="health-badge health-{{ item.severity }}">{{ 'needs review' if item.severity == 'watch' else 'clear' if item.severity == 'healthy' else item.severity }}</span><span>{{ item.portfolio_name }}</span></div><h3>{{ item.listing_name }}</h3><p>{{ item.location or 'Location not available' }} · {{ item.photo_count }} photos · ID {{ item.listing_id }}</p></div>
                     </div>
-                    <div class="property-glance">
-                        <div class="mini-score"><strong>{{ item.health_score | round | int }}</strong><span>health</span></div>
-                        <div class="glance-occupancy">
-                            {% for horizon in item.booking_health.horizons[:3] %}
-                            <span><small>{{ horizon.horizon_days }}d</small><strong>{{ horizon.occupancy_percent | round | int if horizon.occupancy_percent is defined else '—' }}%</strong></span>
-                            {% endfor %}
-                        </div>
-                        <svg class="details-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
+                    <div class="listing-check-glance">
+                        {% for check in item.listing_checks.values() %}
+                        <span class="check-chip check-{{ check.status }}"><i></i><b>{{ check.label }}</b><em>{{ check.issue_count ~ ' issue' if check.issue_count == 1 else check.issue_count ~ ' issues' if check.issue_count else 'Clear' if check.status == 'clear' else 'Not reviewed' }}</em></span>
+                        {% endfor %}
                     </div>
+                    <div class="property-glance"><div class="mini-score"><strong>{{ item.health_score | round | int }}</strong><span>listing quality</span></div><svg class="details-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></div>
                 </summary>
 
                 <div class="property-audit-body">
-                    <div class="property-analysis-grid">
-                        <section class="audit-panel booking-panel">
-                            <div class="panel-heading"><div><span>Forward calendar</span><h4>Booking health</h4></div><span class="source-pill source-{{ item.booking_health.status }}">{{ item.booking_health.status }}</span></div>
-                            <p class="panel-narrative">{{ item.booking_health.pattern or 'No current booking pattern available.' }}</p>
-                            <div class="horizon-bars">
-                                {% for horizon in item.booking_health.horizons[:3] %}
-                                <div class="horizon-row"><div><strong>{{ horizon.horizon_days }} days</strong><span>{{ horizon.booked_nights or 0 }} booked · {{ horizon.available_nights or 0 }} open</span></div><div class="horizon-track"><span style="width: {{ [horizon.occupancy_percent or 0, 100] | min }}%"></span></div><strong>{{ horizon.occupancy_percent | round | int if horizon.occupancy_percent is defined else '—' }}%</strong></div>
-                                {% endfor %}
-                            </div>
-                        </section>
-
-                        <section class="audit-panel pricing-panel">
-                            <div class="panel-heading"><div><span>Revenue controls</span><h4>PriceLabs</h4></div><span class="source-pill source-{{ item.pricing_health.status }}">{{ 'connected · stale' if item.pricing_health.using_fallback else item.pricing_health.status }}</span></div>
-                            <p class="panel-narrative">{{ item.pricing_health.summary }}</p>
-                            {% if item.pricing_health.using_fallback %}
-                            <div class="pricing-freshness-note">
-                                <span><i></i>Connection confirmed</span>
-                                <span>Data from {{ item.pricing_health.data_snapshot_date or 'last successful run' }}</span>
-                                <span>Latest refresh {{ item.pricing_health.refresh_issue | replace('_', ' ') }}</span>
-                            </div>
-                            {% endif %}
-                            <div class="pricing-metrics">
-                                <div><span>Avg. recommended</span><strong>{% if item.pricing_health.average_price %}{{ item.pricing_health.currency }} {{ item.pricing_health.average_price | round | int }}{% else %}—{% endif %}</strong></div>
-                                <div><span>Rate range</span><strong>{% if item.pricing_health.min_price %}{{ item.pricing_health.min_price | round | int }}–{{ item.pricing_health.max_price | round | int }}{% else %}—{% endif %}</strong></div>
-                                <div><span>Min stay</span><strong>{% if item.pricing_health.min_stay_min %}{{ item.pricing_health.min_stay_min }}–{{ item.pricing_health.min_stay_max }} nights{% else %}—{% endif %}</strong></div>
-                            </div>
-                            <div class="market-callout market-{{ item.market_comparison.status }}">
-                                <span>30-day market position</span>
-                                <strong>{% if item.market_comparison.get('difference_points') is not none %}{{ '%+.0f' | format(item.market_comparison.get('difference_points')) }} pts{% else %}No benchmark{% endif %}</strong>
-                                <p>{{ item.market_comparison.summary }}</p>
-                            </div>
-                        </section>
-                    </div>
+                    <section class="listing-findings-grid" aria-label="Listing findings for {{ item.listing_name }}">
+                        {% for check in item.listing_checks.values() %}
+                        <article class="listing-check-panel check-panel-{{ check.status }}">
+                            <div class="check-panel-heading"><div><span>{{ check.label }}</span><p>{{ check.description }}</p></div><strong>{{ check.issue_count if check.issue_count else 'Clear' if check.status == 'clear' else 'Pending' }}</strong></div>
+                            {% if check.findings %}
+                            <ul class="check-finding-list">
+                                {% for finding in check.findings[:3] %}<li><span class="finding-dot finding-{{ finding.priority }}"></span><p><b>{{ finding.source }}</b>{{ finding.message }}</p></li>{% endfor %}
+                            </ul>
+                            {% if check.findings | length > 3 %}<details class="more-findings"><summary>Show {{ check.findings | length - 3 }} more</summary><ul class="check-finding-list">{% for finding in check.findings[3:] %}<li><span class="finding-dot finding-{{ finding.priority }}"></span><p><b>{{ finding.source }}</b>{{ finding.message }}</p></li>{% endfor %}</ul></details>{% endif %}
+                            {% elif check.status == 'clear' %}<p class="check-clear-copy">No issues found in the available audit.</p>{% else %}<p class="check-pending-copy">No deep comparison is available yet.</p>{% endif %}
+                        </article>
+                        {% endfor %}
+                    </section>
 
                     <section class="online-assets-panel">
-                        <div class="panel-heading"><div><span>Guest perspective</span><h4>Online asset health</h4></div><small>Hostaway content + public-page check</small></div>
+                        <div class="panel-heading"><div><span>Channel evidence</span><h4>Guest-facing listing pages</h4></div><small>Open a page only when you need to verify the source.</small></div>
                         <div class="online-asset-grid">
                             {% for asset in item.online_assets %}
                             <article class="online-asset-card asset-{{ asset.status }}">
                                 <div class="asset-topline"><div class="asset-icon asset-icon-{{ asset.channel }}">{{ 'B' if asset.channel == 'bookingcom' else 'D' if asset.channel == 'direct' else asset.label[0] }}</div><div><strong>{{ asset.label }}</strong><span>{{ asset.export_status | replace('_', ' ') }}</span></div><span class="asset-score">{{ asset.score | round | int }}</span></div>
                                 <div class="asset-status-row"><span class="status-dot"></span><strong>{{ asset.status | replace('_', ' ') }}</strong>{% if asset.page.http_status %}<small>HTTP {{ asset.page.http_status }}</small>{% endif %}</div>
                                 <p>{{ asset.title or asset.page.summary or 'No guest-facing title captured.' }}</p>
-                                <div class="asset-metadata"><span>{{ asset.description_length }} chars</span><span>{{ asset.photo_count }} photos</span></div>
-                                {% if asset.url %}<a href="{{ asset.url }}" target="_blank" rel="noopener noreferrer">Open guest page <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5M10 14 19 5M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg></a>{% else %}<span class="asset-missing-link">Public URL not stored</span>{% endif %}
+                                <div class="asset-metadata"><span>{{ asset.description_length }} description chars</span><span>{{ asset.photo_count }} photos</span></div>
+                                <div class="asset-footer">{% if asset.url %}<a href="{{ asset.url }}" target="_blank" rel="noopener noreferrer">Open guest page <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5M10 14 19 5M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg></a>{% else %}<span>Public URL not stored</span>{% endif %}</div>
+                                {% if asset.deep_inspection %}
+                                <details class="asset-evidence"><summary>View content comparison <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></summary><div class="asset-evidence-body">
+                                    {% for field_key, field in asset.deep_inspection.fields.items() %}<div class="evidence-row evidence-{{ field.status }}"><strong>{{ field.label }}</strong><span>{{ field.status | replace('_', ' ') }}</span>{% if field.page_excerpt %}<p>{{ field.page_excerpt | join(', ') if field.page_excerpt is not string else field.page_excerpt }}</p>{% endif %}</div>{% endfor %}
+                                </div></details>
+                                {% endif %}
                             </article>
                             {% endfor %}
                         </div>
-                        {% if audit.has_deep_review %}
-                        <div class="deep-channel-review">
-                            <div class="deep-review-heading">
-                                <div><span>Weekly deep inspection</span><h5>Detailed guest-page findings</h5></div>
-                                <small>{{ audit.summary.deep_issue_count }} findings across {{ audit.summary.deep_reviewed_count }} channel pages</small>
-                            </div>
-                            <div class="deep-channel-grid">
-                                {% for asset in item.online_assets %}
-                                {% if asset.deep_inspection %}
-                                {% set inspection = asset.deep_inspection %}
-                                <details class="deep-channel-card deep-status-{{ inspection.status }}">
-                                    <summary>
-                                        <span class="asset-icon asset-icon-{{ asset.channel }}">{{ 'B' if asset.channel == 'bookingcom' else 'D' if asset.channel == 'direct' else asset.label[0] }}</span>
-                                        <span><strong>{{ asset.label }}</strong><small>{{ inspection.summary }}</small></span>
-                                        <span class="deep-status-pill">{{ inspection.status }}</span>
-                                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
-                                    </summary>
-                                    <div class="deep-channel-body">
-                                        <div class="deep-field-grid">
-                                            {% for field_key, field in inspection.fields.items() %}
-                                            <article class="deep-field deep-field-{{ field.status }}">
-                                                <div><strong>{{ field.label }}</strong><span>{{ field.status | replace('_', ' ') }}</span></div>
-                                                {% if field.page_excerpt %}<p><b>Channel</b>{{ field.page_excerpt | join(', ') if field.page_excerpt is not string else field.page_excerpt }}</p>{% endif %}
-                                                {% if field.source_excerpt and field.status in ['mismatch', 'not_found_on_page', 'source_missing'] %}<p><b>Hostaway</b>{{ field.source_excerpt | join(', ') if field.source_excerpt is not string else field.source_excerpt }}</p>{% endif %}
-                                            </article>
-                                            {% endfor %}
-                                        </div>
-                                        {% if inspection.issues %}
-                                        <ul class="deep-issue-list">
-                                            {% for issue in inspection.issues %}<li class="deep-issue-{{ issue.priority }}"><span>{{ issue.priority }}</span><p>{{ issue.message }}</p></li>{% endfor %}
-                                        </ul>
-                                        {% else %}<div class="deep-review-clear">No detailed channel-content issues found.</div>{% endif %}
-                                    </div>
-                                </details>
-                                {% endif %}
-                                {% endfor %}
-                            </div>
-                        </div>
-                        {% endif %}
-                    </section>
-
-                    <section class="property-actions-panel">
-                        <div class="panel-heading"><div><span>Recommended next moves</span><h4>Action plan</h4></div><small>{{ item.action_items | length }} items</small></div>
-                        {% if item.action_items %}
-                        <ol class="property-action-list">
-                            {% for action in item.action_items %}<li><span class="action-priority action-priority-{{ action.priority }}">{{ action.priority }}</span><div><strong>{{ action.category }}</strong><p>{{ action.text }}</p></div></li>{% endfor %}
-                        </ol>
-                        {% else %}<div class="compact-empty">No action required beyond routine monitoring.</div>{% endif %}
                     </section>
                 </div>
             </details>
@@ -324,5 +225,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/listing-audit.js', v='20260824-1') }}"></script>
+<script src="{{ url_for('static', filename='js/listing-audit.js', v='20260901-1') }}"></script>
 {% endblock %}

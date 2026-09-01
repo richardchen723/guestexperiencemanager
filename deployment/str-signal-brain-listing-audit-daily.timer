@@ -1,8 +1,8 @@
 [Unit]
-Description=Run the listing health audit every day at 9:00 AM Malaysia time
+Description=Run the listing-quality audit every day at 9:00 AM US Eastern time
 
 [Timer]
-OnCalendar=*-*-* 09:00:00 Asia/Kuala_Lumpur
+OnCalendar=*-*-* 09:00:00 America/New_York
 Persistent=true
 Unit=str-signal-brain-listing-audit-daily.service
 

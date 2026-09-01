@@ -8,8 +8,19 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from brain.models import ListingAuditRun, ListingAuditSnapshot, get_session
-from brain.channel_page_audit import automation_blocked_page_message
-from brain.listing_audit import AUDIT_TIMEZONE, CHANNEL_LABELS
+from brain.listing_audit import (
+    AUDIT_TIMEZONE,
+    CHANNEL_LABELS,
+    CONFIRMED_RENDER_FAILURE_KINDS,
+    LISTING_CHECK_DEFINITIONS,
+    build_listing_checks,
+    configured_channel_urls,
+    confirmed_channel_link_problem,
+    listing_actions_from_checks,
+    listing_quality_score,
+    listing_quality_severity,
+    public_page_finding_message,
+)
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "watch": 2, "healthy": 3}
 CHANNEL_PROBLEM_ORDER = {
@@ -19,31 +30,70 @@ CHANNEL_PROBLEM_ORDER = {
     "not_exported": 3,
     "not_configured": 3,
 }
-CONFIRMED_PAGE_FAILURE_KINDS = {"rendered_error", "http_error", "not_found", "invalid_domain", "non_html"}
+def prepare_listing_quality_item(item: dict[str, Any]) -> None:
+    """Combine persisted source checks with current and weekly channel evidence."""
+    derived_checks = build_listing_checks(
+        None,
+        item.get("online_assets") or [],
+        inherited_actions=item.get("action_items") or [],
+    )
+    checks = merge_listing_checks(item.get("listing_checks") or {}, derived_checks)
+    item["action_items"] = listing_actions_from_checks(checks)
+    item["listing_checks"] = checks
+    item["issue_count"] = sum(check["issue_count"] for check in checks.values())
+    item["health_score"] = listing_quality_score(item.get("online_assets") or [])
+    item["severity"] = listing_quality_severity(item["health_score"], checks)
 
 
-def confirmed_channel_link_problem(asset: dict[str, Any]) -> bool:
-    """Return true only for an original connection gap or a confirmed guest-page failure."""
-    if not asset.get("configured"):
-        return True
-    if not asset.get("url"):
-        return False
-    page = asset.get("page") or {}
-    status = page.get("status")
-    if (
-        status == "blocked"
-        or page.get("failure_kind") == "automation_blocked"
-        or automation_blocked_page_message(" ".join(str(page.get(key) or "") for key in ("summary", "title", "error")))
-    ):
-        return False
-    if status in {"missing_url", "not_found", "invalid_domain", "non_html"}:
-        return True
-    if page.get("failure_kind") in CONFIRMED_PAGE_FAILURE_KINDS:
-        return True
-    try:
-        return int(page.get("http_status") or 0) >= 400
-    except (TypeError, ValueError):
-        return False
+def merge_listing_checks(*models: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Merge stored and derived checks without duplicating the same finding."""
+    merged = {
+        key: {
+            "key": key,
+            **definition,
+            "reviewed_count": 0,
+            "findings": [],
+            "status": "pending",
+        }
+        for key, definition in LISTING_CHECK_DEFINITIONS.items()
+    }
+    seen: dict[str, set[tuple[str, str]]] = {key: set() for key in merged}
+    for model in models:
+        for key, target in merged.items():
+            source_check = (model or {}).get(key) or {}
+            target["reviewed_count"] = max(
+                int(target["reviewed_count"] or 0),
+                int(source_check.get("reviewed_count") or 0),
+            )
+            for finding in source_check.get("findings") or []:
+                source_label = str(finding.get("source") or target["label"])
+                normalized = {
+                    **finding,
+                    "source": source_label,
+                    "message": public_page_finding_message(
+                        {"summary": finding.get("message")},
+                        source_label,
+                    ),
+                    "priority": str(finding.get("priority") or "medium"),
+                }
+                if not normalized["message"]:
+                    continue
+                signature = (normalized["source"].casefold(), normalized["message"].casefold())
+                if signature in seen[key]:
+                    continue
+                seen[key].add(signature)
+                target["findings"].append(normalized)
+
+    priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    for check in merged.values():
+        check["findings"].sort(key=lambda finding: (
+            priority_order.get(finding["priority"], 9),
+            finding["source"].casefold(),
+            finding["message"].casefold(),
+        ))
+        check["issue_count"] = len(check["findings"])
+        check["status"] = "issue" if check["issue_count"] else "clear" if check["reviewed_count"] else "pending"
+    return merged
 
 
 def channel_problem_unit(item: dict[str, Any], asset: dict[str, Any]) -> dict[str, Any]:
@@ -59,9 +109,9 @@ def channel_problem_unit(item: dict[str, Any], asset: dict[str, Any]) -> dict[st
     if not asset.get("url"):
         reason = "The public guest-page URL is not stored."
     elif page.get("failure_kind") == "rendered_error":
-        reason = page.get("summary") or "The channel page displays an error instead of listing details."
-    elif page.get("status") in {"not_found", "invalid_domain", "non_html"} or page.get("failure_kind") in CONFIRMED_PAGE_FAILURE_KINDS:
-        reason = page.get("summary") or "The public guest page did not return a valid listing."
+        reason = public_page_finding_message(page, str(asset.get("label") or "channel"))
+    elif page.get("status") in {"not_found", "invalid_domain", "non_html"} or page.get("failure_kind") in CONFIRMED_RENDER_FAILURE_KINDS:
+        reason = public_page_finding_message(page, str(asset.get("label") or "channel"))
     elif not configured:
         reason = actions[0] if actions else "Hostaway does not show this listing as connected to the channel."
     elif issues:
@@ -71,7 +121,7 @@ def channel_problem_unit(item: dict[str, Any], asset: dict[str, Any]) -> dict[st
     elif actions:
         reason = actions[0]
     else:
-        reason = page.get("summary") or "This channel page needs review."
+        reason = public_page_finding_message(page, str(asset.get("label") or "channel"))
 
     page_status = (page.get("status") or "not_checked").replace("_", " ")
     if page.get("failure_kind") == "rendered_error":
@@ -151,7 +201,6 @@ class ListingAuditDashboardService:
             all_items,
             portfolio_name,
         )
-        items.sort(key=lambda item: (SEVERITY_ORDER.get(item["severity"], 9), item["health_score"], item["listing_name"].lower()))
         return dashboard_payload(
             latest_run,
             items,
@@ -197,6 +246,14 @@ def dashboard_payload(
     now_local = datetime.now(ZoneInfo(AUDIT_TIMEZONE))
     snapshot_date = getattr(run, "snapshot_date", None)
     freshness_days = (now_local.date() - snapshot_date).days if snapshot_date else None
+    for item in items:
+        prepare_listing_quality_item(item)
+    items.sort(key=lambda item: (
+        SEVERITY_ORDER.get(item["severity"], 9),
+        -item["issue_count"],
+        item["health_score"],
+        item["listing_name"].lower(),
+    ))
     channel_coverage = {}
     for channel, label in CHANNEL_LABELS.items():
         channel_items = [
@@ -221,7 +278,7 @@ def dashboard_payload(
         problem_units = [
             channel_problem_unit(item, asset)
             for item, asset in channel_items
-            if confirmed_channel_link_problem(asset)
+            if not asset.get("configured") or not asset.get("url") or confirmed_channel_link_problem(asset)
         ]
         problem_units.sort(key=lambda unit: (
             CHANNEL_PROBLEM_ORDER.get(unit["channel_status"], 9),
@@ -245,7 +302,7 @@ def dashboard_payload(
 
     top_actions = []
     for item in items:
-        for action in item["action_items"][:3]:
+        for action in item["action_items"][:2]:
             top_actions.append({
                 **action,
                 "listing_id": item["listing_id"],
@@ -268,6 +325,32 @@ def dashboard_payload(
         "watch_count": sum(1 for item in items if item["severity"] == "watch"),
         "healthy_count": sum(1 for item in items if item["severity"] == "healthy"),
         "average_score": round(sum(item["health_score"] for item in items) / len(items), 1) if items else 0,
+        "link_issue_count": sum(item["listing_checks"]["links"]["issue_count"] for item in items),
+        "link_reviewed_count": sum(item["listing_checks"]["links"]["reviewed_count"] for item in items),
+        "confirmed_link_issue_count": sum(
+            1
+            for item in items
+            for asset in item["online_assets"]
+            if asset.get("configured") and asset.get("url") and confirmed_channel_link_problem(asset)
+        ),
+        "missing_public_url_count": sum(
+            1
+            for item in items
+            for asset in item["online_assets"]
+            if asset.get("configured") and not asset.get("url")
+        ),
+        "amenities_issue_count": sum(item["listing_checks"]["amenities"]["issue_count"] for item in items),
+        "amenities_reviewed_count": sum(item["listing_checks"]["amenities"]["reviewed_count"] for item in items),
+        "policies_issue_count": sum(item["listing_checks"]["policies"]["issue_count"] for item in items),
+        "policies_reviewed_count": sum(item["listing_checks"]["policies"]["reviewed_count"] for item in items),
+        "content_issue_count": sum(item["listing_checks"]["content"]["issue_count"] for item in items),
+        "content_reviewed_count": sum(item["listing_checks"]["content"]["reviewed_count"] for item in items),
+        "connection_gap_count": sum(
+            1
+            for item in items
+            for asset in item["online_assets"]
+            if not asset.get("configured")
+        ),
         "channel_coverage": channel_coverage,
         "deep_reviewed_count": sum(
             1
@@ -342,6 +425,9 @@ def merge_deep_inspections(
                 if rank.get(deep_status, 9) < rank.get(current_status, 9):
                     asset["status"] = deep_status
                     asset["status_source"] = "weekly_deep_review"
+                score_caps = {"critical": 35.0, "high": 60.0, "watch": 78.0}
+                if deep_status in score_caps:
+                    asset["score"] = min(float(asset.get("score") or 0), score_caps[deep_status])
             for issue in inspection.get("issues") or []:
                 text = str(issue.get("message") or "").strip()
                 if not text or text.casefold() in existing_actions:
@@ -357,20 +443,72 @@ def merge_deep_inspections(
         item["action_items"].sort(key=lambda action: priority_order.get(action.get("priority"), 9))
 
 
+def ensure_all_channel_assets(listing_id: int, assets: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Keep all supported channels visible while older audit rows age out."""
+    existing = {
+        str(asset.get("channel")): dict(asset)
+        for asset in assets or []
+        if asset.get("channel")
+    }
+    overrides = configured_channel_urls().get(str(listing_id), {})
+    normalized: list[dict[str, Any]] = []
+    for channel, label in CHANNEL_LABELS.items():
+        asset = existing.get(channel)
+        if asset:
+            asset.setdefault("label", label)
+            normalized.append(asset)
+            continue
+        url = overrides.get(channel)
+        if channel == "googlevr":
+            url = url or overrides.get("google_vacation_rentals") or overrides.get("google")
+        configured = bool(url)
+        normalized.append({
+            "channel": channel,
+            "label": label,
+            "status": "watch" if configured else "not_configured" if channel == "direct" else "not_exported",
+            "score": 60.0 if configured else 0.0,
+            "configured": configured,
+            "export_status": "mapped" if configured else "not synced",
+            "url": url,
+            "title": "",
+            "description_excerpt": "",
+            "title_length": 0,
+            "description_length": 0,
+            "photo_count": 0,
+            "page": {
+                "status": "not_checked" if configured else "missing_url",
+                "url": url,
+                "domain_valid": bool(url),
+                "summary": (
+                    "This channel was added after the stored audit. Its public-page check is pending."
+                    if configured
+                    else "This channel was added after the stored audit; the next audit will refresh its connection and URL."
+                ),
+            },
+            "actions": [
+                f"Run the listing audit to refresh {label} connection and public-page evidence."
+            ],
+            "deep_inspection": None,
+            "compatibility_placeholder": True,
+        })
+    return normalized
+
+
 def snapshot_dict(snapshot: Any) -> dict[str, Any]:
     raw = snapshot.raw_payload or {}
+    listing_id = int(snapshot.listing_id)
     return {
         "listing_audit_snapshot_id": snapshot.listing_audit_snapshot_id,
-        "listing_id": snapshot.listing_id,
+        "listing_id": listing_id,
         "listing_name": snapshot.listing_name,
         "portfolio_id": snapshot.portfolio_id,
         "portfolio_name": raw.get("portfolio_name") or "Unassigned",
         "health_score": round(float(snapshot.health_score or 0), 1),
         "severity": snapshot.severity or "watch",
-        "booking_health": snapshot.booking_health or {},
-        "pricing_health": snapshot.pricing_health or {},
-        "market_comparison": snapshot.market_comparison or {},
-        "online_assets": snapshot.online_assets or [],
+        "audit_scope": getattr(snapshot, "audit_scope", None) or raw.get("audit_scope") or "legacy_combined",
+        "listing_checks": getattr(snapshot, "listing_checks", None) or {},
+        "issue_count": int(getattr(snapshot, "issue_count", 0) or 0),
+        "online_assets": ensure_all_channel_assets(listing_id, snapshot.online_assets),
         "action_items": snapshot.action_items or [],
         "source_statuses": snapshot.source_statuses or {},
         "thumbnail_url": raw.get("thumbnail_url"),
@@ -395,6 +533,8 @@ def run_dict(run: Any | None) -> dict[str, Any] | None:
         "high_count": int(run.high_count or 0),
         "watch_count": int(run.watch_count or 0),
         "healthy_count": int(run.healthy_count or 0),
+        "audit_scope": getattr(run, "audit_scope", None) or "legacy_combined",
+        "finding_counts": getattr(run, "finding_counts", None) or {},
         "source_statuses": run.source_statuses or {},
         "error_message": run.error_message,
         "started_at": local_datetime(run.started_at),
@@ -424,6 +564,17 @@ def empty_dashboard(*, recent_runs: list[Any] | None = None) -> dict[str, Any]:
             "watch_count": 0,
             "healthy_count": 0,
             "average_score": 0,
+            "link_issue_count": 0,
+            "link_reviewed_count": 0,
+            "confirmed_link_issue_count": 0,
+            "missing_public_url_count": 0,
+            "amenities_issue_count": 0,
+            "amenities_reviewed_count": 0,
+            "policies_issue_count": 0,
+            "policies_reviewed_count": 0,
+            "content_issue_count": 0,
+            "content_reviewed_count": 0,
+            "connection_gap_count": 0,
             "channel_coverage": {},
             "deep_reviewed_count": 0,
             "deep_issue_count": 0,
