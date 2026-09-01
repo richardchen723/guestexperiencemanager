@@ -24,6 +24,7 @@ from brain.channel_page_audit import (
     build_deep_channel_inspection,
     channel_destination_valid,
     deep_content_is_sparse,
+    extract_google_vr_website_url,
     extract_deep_page_content,
     listing_amenities,
     render_deep_public_pages,
@@ -100,6 +101,7 @@ TECHNICAL_PAGE_PAYLOAD_MARKERS = (
     "__next_data__",
     "function(){",
 )
+GOOGLE_VR_WEBSITE_CRITICAL_STATUSES = {"missing", "invalid", "not_found", "unavailable"}
 
 TITLE_PATTERN = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 META_DESCRIPTION_PATTERN = re.compile(
@@ -110,12 +112,19 @@ TAG_PATTERN = re.compile(r"<[^>]+>")
 
 
 def confirmed_channel_link_problem(asset: dict[str, Any]) -> bool:
-    """Return true only for a connection gap or a confirmed guest-page failure."""
+    """Return true for a connection gap or a confirmed guest-path failure."""
     if not asset.get("configured"):
         return True
     if not asset.get("url"):
         return False
     page = asset.get("page") or {}
+    website_status = str((page.get("website_link") or {}).get("status") or "")
+    if (
+        asset.get("channel") == "googlevr"
+        and page.get("status") == "ok"
+        and website_status in GOOGLE_VR_WEBSITE_CRITICAL_STATUSES
+    ):
+        return True
     status = page.get("status")
     if (
         status == "blocked"
@@ -139,6 +148,42 @@ def public_page_finding_message(page: dict[str, Any], label: str) -> str:
     if any(marker in summary.casefold() for marker in TECHNICAL_PAGE_PAYLOAD_MARKERS):
         return f"The {label} guest page returned unreadable technical content; open the page and verify it manually."
     return summary or f"The {label} guest page did not return a valid listing."
+
+
+def google_vr_website_finding(page: dict[str, Any]) -> tuple[str, str] | None:
+    """Return the operator finding for Google VR's outbound Website link."""
+    website = page.get("website_link") or {}
+    status = str(website.get("status") or "")
+    if not status or status in {"ok", "found"}:
+        return None
+    if status == "missing":
+        return (
+            "critical",
+            "The Google Vacation Rentals page is missing its Website link. Add the guest-facing booking website so guests can continue from Google to the property site.",
+        )
+    if status == "invalid":
+        return (
+            "critical",
+            "The Website link on Google Vacation Rentals is invalid or unsafe. Replace it with a valid public guest-facing URL.",
+        )
+    if status == "not_found":
+        return (
+            "critical",
+            "The Website link on Google Vacation Rentals returns a page-not-found response. Repair the destination immediately.",
+        )
+    if status == "unavailable":
+        http_status = website.get("http_status")
+        suffix = f" (HTTP {http_status})" if http_status else ""
+        return (
+            "critical",
+            f"The Website link on Google Vacation Rentals is not working{suffix}. Repair the destination immediately.",
+        )
+    if status in {"blocked", "unverified"}:
+        return (
+            "high",
+            "Manually verify the Website link on Google Vacation Rentals; the audit could not confirm that the destination opens successfully.",
+        )
+    return None
 
 
 def classify_listing_action(action: dict[str, Any]) -> str | None:
@@ -298,6 +343,19 @@ def build_listing_checks(
                     field="link",
                 )
 
+        if asset.get("channel") == "googlevr" and page.get("status") == "ok" and "website_link" in page:
+            checks["links"]["reviewed_count"] += 1
+            website_finding = google_vr_website_finding(page)
+            if website_finding:
+                priority, message = website_finding
+                add_finding(
+                    "links",
+                    source="Google Vacation Rentals Website",
+                    message=message,
+                    priority=priority,
+                    field="website_link",
+                )
+
         inspection = asset.get("deep_inspection") or {}
         issue_fields: set[str] = set()
         for issue in inspection.get("issues") or []:
@@ -403,6 +461,12 @@ def merge_rendered_page_result(original: dict[str, Any], rendered: dict[str, Any
         result["browser_render"] = browser_render
         return result
     result = dict(original)
+    if (original.get("website_link") or {}).get("status") == "missing":
+        result["website_link"] = dict(rendered.get("website_link") or {
+            "status": "unverified",
+            "url": None,
+            "source": "rendered_google_page",
+        })
     result["browser_render"] = browser_render
     return result
 
@@ -624,15 +688,48 @@ class ListingAuditRunner:
                         "summary": "The public page check failed.",
                         "error": str(exc)[:500],
                     }
+        render_targets: dict[tuple[int, str], tuple[str, str]] = {}
         if deep:
-            sparse_targets = {
+            render_targets.update({
                 key: (targets[key], key[1])
                 for key, result in results.items()
                 if deep_content_is_sparse(result)
-            }
-            rendered_results = render_deep_public_pages(sparse_targets)
+            })
+        render_targets.update({
+            key: (targets[key], key[1])
+            for key, result in results.items()
+            if key[1] == "googlevr"
+            and result.get("status") == "ok"
+            and (result.get("website_link") or {}).get("status") == "missing"
+        })
+        if render_targets:
+            rendered_results = render_deep_public_pages(render_targets)
             for key, rendered in rendered_results.items():
                 results[key] = merge_rendered_page_result(results[key], rendered)
+
+        website_targets = {
+            key: str((result.get("website_link") or {}).get("url"))
+            for key, result in results.items()
+            if key[1] == "googlevr"
+            and (result.get("website_link") or {}).get("status") == "found"
+            and (result.get("website_link") or {}).get("url")
+        }
+        if website_targets:
+            with ThreadPoolExecutor(max_workers=PUBLIC_PAGE_WORKERS) as executor:
+                futures = {
+                    executor.submit(fetch_google_vr_website, url): key
+                    for key, url in website_targets.items()
+                }
+                for future in as_completed(futures):
+                    key = futures[future]
+                    try:
+                        results[key]["website_link"] = future.result()
+                    except Exception as exc:
+                        results[key]["website_link"] = {
+                            "status": "unavailable",
+                            "url": website_targets[key],
+                            "error": str(exc)[:500],
+                        }
         return results
 
 
@@ -781,6 +878,20 @@ def build_channel_asset(
         else:
             status = "high"
 
+    website_finding = (
+        google_vr_website_finding(page)
+        if channel == "googlevr" and page.get("status") == "ok" and "website_link" in page
+        else None
+    )
+    if website_finding:
+        website_priority, _ = website_finding
+        if website_priority == "critical":
+            status = "critical"
+            score = min(score, 25.0)
+        elif status != "critical":
+            status = "high"
+            score = min(score, 55.0)
+
     actions: list[str] = []
     label = CHANNEL_LABELS[channel]
     if not configured:
@@ -789,6 +900,8 @@ def build_channel_asset(
         else:
             actions.append(f"Confirm whether this property should be live on {label}; Hostaway does not show it as exported.")
     else:
+        if website_finding:
+            actions.append(website_finding[1])
         if not url:
             actions.append(f"Store the public {label} URL in Hostaway or the audit URL mapping.")
         if len(effective_title) < 24:
@@ -1034,6 +1147,72 @@ def is_safe_public_url(url: str) -> bool:
         return False
 
 
+def fetch_google_vr_website(url: str | None) -> dict[str, Any]:
+    """Verify the outbound Website destination exposed by Google Vacation Rentals."""
+    checked_at = datetime.utcnow().isoformat()
+    normalized = normalize_url(url)
+    if not normalized or not is_safe_public_url(normalized):
+        return {
+            "status": "invalid",
+            "url": normalized,
+            "requested_url": url,
+            "checked_at": checked_at,
+            "summary": "The Google Vacation Rentals Website destination is not a valid public URL.",
+        }
+
+    response = None
+    try:
+        response = requests.get(
+            normalized,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+            timeout=PUBLIC_PAGE_TIMEOUT,
+            allow_redirects=True,
+            stream=True,
+        )
+        final_url = normalize_url(response.url) or normalized
+        if not is_safe_public_url(final_url):
+            status = "invalid"
+            summary = "The Website link redirected to an invalid or unsafe destination."
+        elif response.status_code in {404, 410}:
+            status = "not_found"
+            summary = f"The Website link returned HTTP {response.status_code}."
+        elif response.status_code in {401, 403, 429}:
+            status = "blocked"
+            summary = f"The Website destination blocked the automated check with HTTP {response.status_code}."
+        elif response.status_code >= 400:
+            status = "unavailable"
+            summary = f"The Website link returned HTTP {response.status_code}."
+        else:
+            status = "ok"
+            summary = "The Website link opened successfully."
+        return {
+            "status": status,
+            "url": final_url,
+            "requested_url": normalized,
+            "checked_at": checked_at,
+            "http_status": response.status_code,
+            "redirected": bool(response.history) or final_url.rstrip("/") != normalized.rstrip("/"),
+            "summary": summary,
+            "source": "google_vr_website_button",
+        }
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "url": normalized,
+            "requested_url": normalized,
+            "checked_at": checked_at,
+            "summary": "The Website link did not return a public page.",
+            "error": str(exc)[:500],
+            "source": "google_vr_website_button",
+        }
+    finally:
+        if response is not None:
+            response.close()
+
+
 def fetch_public_page(url: str, channel: str, *, deep: bool = False) -> dict[str, Any]:
     """Fetch public guest-facing metadata without using stored browser sessions."""
     checked_at = datetime.utcnow().isoformat()
@@ -1108,6 +1287,17 @@ def fetch_public_page(url: str, channel: str, *, deep: bool = False) -> dict[str
     }
     if failure_kind:
         result["failure_kind"] = failure_kind
+    if channel == "googlevr":
+        website_url = extract_google_vr_website_url(text, page_url=final_url) if status == "ok" else None
+        if website_url:
+            result["website_link"] = fetch_google_vr_website(website_url)
+        else:
+            result["website_link"] = {
+                "status": "missing" if status == "ok" else "unverified",
+                "url": None,
+                "checked_at": checked_at,
+                "source": "static_google_page",
+            }
     if deep and status == "ok":
         deep_content = extract_deep_page_content(
             text,

@@ -16,6 +16,7 @@ from brain.listing_audit import (
     build_listing_checks,
     configured_channel_urls,
     confirmed_channel_link_problem,
+    google_vr_website_finding,
     listing_actions_from_checks,
     listing_quality_score,
     listing_quality_severity,
@@ -105,6 +106,11 @@ def channel_problem_unit(item: dict[str, Any], asset: dict[str, Any]) -> dict[st
     actions = asset.get("actions") or []
     page = asset.get("page") or {}
     issue_codes = {issue.get("code") for issue in issues}
+    website_finding = (
+        google_vr_website_finding(page)
+        if asset.get("channel") == "googlevr" and page.get("status") == "ok"
+        else None
+    )
 
     if not asset.get("url"):
         reason = "The public guest-page URL is not stored."
@@ -112,6 +118,8 @@ def channel_problem_unit(item: dict[str, Any], asset: dict[str, Any]) -> dict[st
         reason = public_page_finding_message(page, str(asset.get("label") or "channel"))
     elif page.get("status") in {"not_found", "invalid_domain", "non_html"} or page.get("failure_kind") in CONFIRMED_RENDER_FAILURE_KINDS:
         reason = public_page_finding_message(page, str(asset.get("label") or "channel"))
+    elif website_finding:
+        reason = website_finding[1]
     elif not configured:
         reason = actions[0] if actions else "Hostaway does not show this listing as connected to the channel."
     elif issues:
@@ -130,6 +138,9 @@ def channel_problem_unit(item: dict[str, Any], asset: dict[str, Any]) -> dict[st
         page_status = "content unverified"
     elif page.get("status") == "missing_url":
         page_status = "URL missing"
+    elif website_finding:
+        website_status = str((page.get("website_link") or {}).get("status") or "unverified")
+        page_status = f"website {website_status.replace('_', ' ')}"
 
     return {
         "listing_id": item["listing_id"],
@@ -144,6 +155,7 @@ def channel_problem_unit(item: dict[str, Any], asset: dict[str, Any]) -> dict[st
         "issue_count": len(issues),
         "url": asset.get("url"),
         "configured": configured,
+        "website_link_status": (page.get("website_link") or {}).get("status"),
     }
 
 

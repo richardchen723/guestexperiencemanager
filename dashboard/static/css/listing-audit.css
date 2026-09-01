@@ -600,6 +600,37 @@
 .asset-status-row small { margin-left: auto; color: var(--audit-muted); }
 .online-asset-card > p { display: -webkit-box; margin: 0; overflow: hidden; color: #48574f; font-size: 10px; line-height: 1.5; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .asset-metadata { display: flex; gap: 9px; margin: 10px 0; color: var(--audit-muted); font-size: 8px; }
+.google-website-link {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 2px;
+    padding: 8px 9px;
+    border: 1px solid #dce5df;
+    border-radius: 9px;
+    background: #f7faf8;
+}
+.google-website-link div { min-width: 0; }
+.google-website-link span,
+.google-website-link strong { display: block; font-size: 8px; line-height: 1.35; }
+.google-website-link span { color: var(--audit-muted); text-transform: uppercase; letter-spacing: .05em; }
+.google-website-link strong { margin-top: 2px; color: var(--audit-green); }
+.google-website-link a { flex: 0 0 auto; color: var(--audit-green); font-size: 8px; font-weight: 800; text-decoration: none; }
+.google-website-link.website-link-missing,
+.google-website-link.website-link-invalid,
+.google-website-link.website-link-not_found,
+.google-website-link.website-link-unavailable { border-color: #efc8bd; background: #fff3f0; }
+.google-website-link.website-link-missing strong,
+.google-website-link.website-link-invalid strong,
+.google-website-link.website-link-not_found strong,
+.google-website-link.website-link-unavailable strong { color: #b44631; }
+.google-website-link.website-link-blocked,
+.google-website-link.website-link-unverified,
+.google-website-link.website-link-found { border-color: #e5d8b6; background: #fffaf0; }
+.google-website-link.website-link-blocked strong,
+.google-website-link.website-link-unverified strong,
+.google-website-link.website-link-found strong { color: #9b6c12; }
 .online-asset-card > a, .asset-missing-link { display: flex; gap: 5px; align-items: center; margin-top: auto; padding-top: 8px; color: var(--audit-green); font-size: 9px; font-weight: 750; text-decoration: none; }
 .online-asset-card > a svg { width: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 .asset-missing-link { color: #8a9690; }

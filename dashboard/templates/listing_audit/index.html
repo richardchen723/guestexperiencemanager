@@ -204,6 +204,13 @@
                                 <div class="asset-status-row"><span class="status-dot"></span><strong>{{ asset.status | replace('_', ' ') }}</strong>{% if asset.page.http_status %}<small>HTTP {{ asset.page.http_status }}</small>{% endif %}</div>
                                 <p>{{ asset.title or asset.page.summary or 'No guest-facing title captured.' }}</p>
                                 <div class="asset-metadata"><span>{{ asset.description_length }} description chars</span><span>{{ asset.photo_count }} photos</span></div>
+                                {% if asset.channel == 'googlevr' and asset.page.website_link %}
+                                {% set website = asset.page.website_link %}
+                                <div class="google-website-link website-link-{{ website.status }}">
+                                    <div><span>Website link</span><strong>{{ 'Working' if website.status == 'ok' else 'Missing' if website.status == 'missing' else 'Needs review' if website.status in ['blocked', 'unverified', 'found'] else 'Not working' }}</strong></div>
+                                    {% if website.url %}<a href="{{ website.url }}" target="_blank" rel="noopener noreferrer">Open</a>{% endif %}
+                                </div>
+                                {% endif %}
                                 <div class="asset-footer">{% if asset.url %}<a href="{{ asset.url }}" target="_blank" rel="noopener noreferrer">Open guest page <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 5h5v5M10 14 19 5M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg></a>{% else %}<span>Public URL not stored</span>{% endif %}</div>
                                 {% if asset.deep_inspection %}
                                 <details class="asset-evidence"><summary>View content comparison <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></summary><div class="asset-evidence-body">

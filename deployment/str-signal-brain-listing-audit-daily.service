@@ -9,6 +9,7 @@ User=hostaway
 Group=hostaway
 WorkingDirectory=/opt/hostaway-messages/app
 Environment="PATH=/opt/hostaway-messages/venv/bin"
+Environment="PLAYWRIGHT_BROWSERS_PATH=/opt/hostaway-messages/app/data/ms-playwright"
 EnvironmentFile=/opt/hostaway-messages/.env
 ExecStart=/usr/bin/flock -n /opt/hostaway-messages/app/data/listing-audit.lock /opt/hostaway-messages/venv/bin/python3 -m brain.jobs listing-audit-daily
 TimeoutStartSec=90min

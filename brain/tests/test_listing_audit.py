@@ -1,6 +1,6 @@
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from sqlalchemy import create_engine, inspect, text
 
@@ -16,6 +16,7 @@ from brain.listing_audit import (
     build_listing_audit_result,
     channel_urls,
     cover_image_candidates,
+    fetch_google_vr_website,
     merge_rendered_page_result,
     public_page_finding_message,
     resolve_cover_image,
@@ -24,6 +25,7 @@ from brain.channel_page_audit import (
     automation_blocked_page_message,
     channel_destination_valid,
     deep_content_is_sparse,
+    extract_google_vr_website_url,
     extract_deep_page_content,
     rendered_page_error_message,
 )
@@ -132,6 +134,108 @@ class ListingAuditTests(unittest.TestCase):
             "https://www.google.com/travel/hotels/entity/example/overview",
         )
         self.assertEqual(asset["status"], "healthy")
+
+    def test_google_vacation_rentals_extracts_website_button_and_google_redirect(self):
+        direct = extract_google_vr_website_url(
+            '<a href="https://stay.example.com/listings/41" aria-label="Website">Visit</a>',
+            page_url="https://www.google.com/travel/hotels/entity/41",
+        )
+        redirected = extract_google_vr_website_url(
+            '<a href="/url?sa=t&url=https%3A%2F%2Fbook.example.com%2F41">Website</a>',
+            page_url="https://www.google.com/travel/hotels/entity/41",
+        )
+
+        self.assertEqual(direct, "https://stay.example.com/listings/41")
+        self.assertEqual(redirected, "https://book.example.com/41")
+
+    def test_google_vacation_rentals_ignores_non_website_links(self):
+        result = extract_google_vr_website_url(
+            '<a href="https://support.google.com/travel">Help</a><a href="https://example.com/photos">Photos</a>',
+            page_url="https://www.google.com/travel/hotels/entity/41",
+        )
+
+        self.assertIsNone(result)
+
+    def test_missing_google_vr_website_is_a_critical_link_finding(self):
+        page = {
+            "status": "ok",
+            "url": "https://www.google.com/travel/hotels/entity/41",
+            "title": "Skyline Retreat",
+            "website_link": {"status": "missing", "url": None},
+        }
+        asset = build_channel_asset(listing_detail(), "googlevr", page)
+        checks = build_listing_checks(listing_detail(), [asset])
+
+        self.assertEqual(asset["status"], "critical")
+        self.assertEqual(asset["score"], 25.0)
+        website_finding = next(
+            finding for finding in checks["links"]["findings"]
+            if finding["field"] == "website_link"
+        )
+        self.assertEqual(website_finding["priority"], "critical")
+        self.assertIn("missing its Website link", website_finding["message"])
+
+    def test_broken_google_vr_website_is_a_critical_link_finding(self):
+        page = {
+            "status": "ok",
+            "url": "https://www.google.com/travel/hotels/entity/41",
+            "title": "Skyline Retreat",
+            "website_link": {
+                "status": "unavailable",
+                "url": "https://stay.example.com/listings/41",
+                "http_status": 500,
+            },
+        }
+        asset = build_channel_asset(listing_detail(), "googlevr", page)
+        checks = build_listing_checks(listing_detail(), [asset])
+
+        self.assertEqual(asset["status"], "critical")
+        self.assertTrue(any(
+            finding["priority"] == "critical" and "HTTP 500" in finding["message"]
+            for finding in checks["links"]["findings"]
+        ))
+
+    def test_google_vr_website_http_check_records_page_not_found(self):
+        response = Mock(
+            status_code=404,
+            url="https://stay.example.com/listings/41",
+            history=[],
+        )
+        response.close = Mock()
+        with patch("brain.listing_audit.requests.get", return_value=response):
+            result = fetch_google_vr_website("https://stay.example.com/listings/41")
+
+        self.assertEqual(result["status"], "not_found")
+        self.assertEqual(result["http_status"], 404)
+        response.close.assert_called_once()
+
+    def test_daily_google_vr_check_renders_missing_dynamic_website_button(self):
+        runner = ListingAuditRunner.__new__(ListingAuditRunner)
+        static_result = {
+            "status": "ok",
+            "url": "https://www.google.com/travel/hotels/entity/41",
+            "website_link": {"status": "missing", "url": None},
+        }
+        rendered_result = {
+            "status": "ok",
+            "url": "https://www.google.com/travel/hotels/entity/41",
+            "website_link": {"status": "found", "url": "https://stay.example.com/listings/41"},
+        }
+        verified_result = {
+            "status": "ok",
+            "url": "https://stay.example.com/listings/41",
+            "http_status": 200,
+        }
+        with (
+            patch("brain.listing_audit.fetch_public_page", return_value=static_result),
+            patch("brain.listing_audit.render_deep_public_pages", return_value={(41, "googlevr"): rendered_result}) as render,
+            patch("brain.listing_audit.fetch_google_vr_website", return_value=verified_result) as verify,
+        ):
+            result = runner._public_page_results({41: listing_detail()}, deep=False)
+
+        self.assertEqual(result[(41, "googlevr")]["website_link"]["status"], "ok")
+        self.assertIn((41, "googlevr"), render.call_args.args[0])
+        verify.assert_called_once_with("https://stay.example.com/listings/41")
 
     def test_channel_destination_validation_rejects_cross_channel_redirects(self):
         self.assertTrue(channel_destination_valid("https://www.airbnb.com/rooms/41", "airbnb"))

@@ -10,7 +10,7 @@ import re
 from collections import defaultdict
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urljoin, urlparse
 
 
 CHANNEL_HOST_SUFFIXES = {
@@ -122,11 +122,13 @@ class _PublicPageParser(HTMLParser):
         self.title_parts: list[str] = []
         self.meta: dict[str, str] = {}
         self.json_scripts: list[str] = []
+        self.links: list[dict[str, str]] = []
         self.image_count = 0
         self._ignored_depth = 0
         self._in_title = False
         self._json_script = False
         self._script_parts: list[str] = []
+        self._link_stack: list[dict[str, Any]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]):
         tag = tag.lower()
@@ -148,6 +150,13 @@ class _PublicPageParser(HTMLParser):
                 self.meta.setdefault(key, content)
         elif tag == "img":
             self.image_count += 1
+        elif tag == "a":
+            self._link_stack.append({
+                "href": str(attr_map.get("href") or "").strip(),
+                "aria_label": clean_text(attr_map.get("aria-label"), limit=300),
+                "title": clean_text(attr_map.get("title"), limit=300),
+                "text_parts": [],
+            })
 
     def handle_endtag(self, tag: str):
         tag = tag.lower()
@@ -163,6 +172,11 @@ class _PublicPageParser(HTMLParser):
             self._ignored_depth = max(0, self._ignored_depth - 1)
         elif tag == "title":
             self._in_title = False
+        elif tag == "a" and self._link_stack:
+            link = self._link_stack.pop()
+            link["text"] = clean_text(" ".join(link.pop("text_parts", [])), limit=300)
+            if link.get("href"):
+                self.links.append(link)
 
     def handle_data(self, data: str):
         if self._json_script:
@@ -174,8 +188,66 @@ class _PublicPageParser(HTMLParser):
             return
         if self._in_title:
             self.title_parts.append(text)
+        if self._link_stack:
+            self._link_stack[-1]["text_parts"].append(text)
         if self._ignored_depth == 0 and sum(len(part) for part in self.visible_parts) < MAX_VISIBLE_TEXT:
             self.visible_parts.append(text)
+
+
+def extract_google_vr_website_url(html_text: str, *, page_url: str = "") -> str | None:
+    """Extract the guest-facing Website button destination from a Google VR page."""
+    parser = _PublicPageParser()
+    try:
+        parser.feed((html_text or "")[:8_000_000])
+    except Exception:
+        pass
+    return google_vr_website_url_from_links(parser.links, page_url=page_url)
+
+
+def google_vr_website_url_from_links(links: list[dict[str, Any]], *, page_url: str = "") -> str | None:
+    """Choose a Google VR Website/official-site anchor and unwrap Google redirects."""
+    candidates: list[tuple[int, str]] = []
+    for link in links:
+        label = clean_text(
+            " ".join(str(link.get(key) or "") for key in ("text", "aria_label", "title")),
+            limit=500,
+        ).casefold()
+        if not re.search(r"\b(?:website|official\s+site)\b", label):
+            continue
+        href = str(link.get("href") or "").strip()
+        destination = _external_google_destination(href, page_url=page_url)
+        if not destination:
+            continue
+        exact_website = label.strip() == "website"
+        candidates.append((0 if exact_website else 1, destination))
+    return min(candidates, default=(9, None), key=lambda item: item[0])[1]
+
+
+def _external_google_destination(href: str, *, page_url: str = "") -> str | None:
+    if not href:
+        return None
+    absolute = urljoin(page_url or "https://www.google.com/", href)
+    for _ in range(3):
+        try:
+            parsed = urlparse(absolute)
+        except ValueError:
+            return None
+        hostname = (parsed.hostname or "").casefold().rstrip(".")
+        if not hostname:
+            return None
+        if hostname != "google.com" and not hostname.endswith(".google.com"):
+            return absolute if parsed.scheme in {"http", "https"} else None
+        query = parse_qs(parsed.query)
+        nested = next((
+            values[0]
+            for key in ("url", "q", "adurl", "dest", "destination", "continue")
+            for values in (query.get(key) or [],)
+            if values
+        ), None)
+        if not nested:
+            return None
+        absolute = urljoin(absolute, unquote(nested))
+    return None
 
 
 def extract_deep_page_content(html_text: str, *, fallback_title: str = "", fallback_description: str = "") -> dict[str, Any]:
@@ -296,6 +368,11 @@ def render_deep_public_pages(targets: dict[Any, tuple[str, str]]) -> dict[Any, d
                             failure_kind = "rendered_error"
                         else:
                             status = "ok"
+                        website_url = (
+                            extract_google_vr_website_url(html_text, page_url=final_url)
+                            if channel == "googlevr" and status == "ok"
+                            else None
+                        )
                         result = {
                             "status": status,
                             "url": final_url,
@@ -310,6 +387,12 @@ def render_deep_public_pages(targets: dict[Any, tuple[str, str]]) -> dict[Any, d
                             "title": title,
                             "summary": rendered_error or title or "Rendered public page returned without extractable text.",
                         }
+                        if channel == "googlevr":
+                            result["website_link"] = {
+                                "status": "found" if website_url else "missing" if status == "ok" else "unverified",
+                                "url": website_url,
+                                "source": "rendered_google_page",
+                            }
                         if failure_kind:
                             result["failure_kind"] = failure_kind
                         if status == "ok":

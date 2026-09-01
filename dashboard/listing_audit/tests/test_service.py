@@ -42,6 +42,15 @@ class ListingAuditDashboardPayloadTests(unittest.TestCase):
                 "summary": "Bot or Not?",
             },
         }))
+        self.assertTrue(confirmed_channel_link_problem({
+            "channel": "googlevr",
+            "configured": True,
+            "url": "https://www.google.com/travel/hotels/entity/41",
+            "page": {
+                "status": "ok",
+                "website_link": {"status": "missing", "url": None},
+            },
+        }))
 
     def test_payload_summarizes_channel_coverage_and_actions(self):
         run = SimpleNamespace(
