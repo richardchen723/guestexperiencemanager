@@ -180,3 +180,14 @@ def test_booking_health_frontend_keeps_pricing_and_diagnosis_out_of_the_page():
     assert "Adjust rates" not in combined
     assert "Why it is behind" not in combined
     assert "suggested improvement" not in combined.lower()
+
+
+def test_booking_health_header_resets_the_global_sticky_header_styles():
+    dashboard = Path(__file__).parents[2]
+    stylesheet = (dashboard / "static" / "css" / "booking-health.css").read_text()
+
+    header_rule = stylesheet.split(".booking-health-header {", 1)[1].split("}", 1)[0]
+    assert "position: static" in header_rule
+    assert "height: auto" in header_rule
+    assert "background: transparent" in header_rule
+    assert "box-shadow: none" in header_rule

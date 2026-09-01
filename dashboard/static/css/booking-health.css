@@ -19,11 +19,18 @@
 }
 
 .booking-health-header {
+    position: static;
+    z-index: auto;
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
     gap: 24px;
+    width: 100%;
+    height: auto;
     padding: 8px 0 20px;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
 }
 
 .booking-health-header h1 {
