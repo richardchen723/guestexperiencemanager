@@ -116,6 +116,7 @@ API_KEY_SECRET = os.getenv("API_KEY_SECRET") or SECRET_KEY
 # Google OAuth Configuration
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_DRIVE_OAUTH_REDIRECT_URI = (os.getenv("GOOGLE_DRIVE_OAUTH_REDIRECT_URI") or "").strip() or None
 if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
     import logging
     logger = logging.getLogger(__name__)

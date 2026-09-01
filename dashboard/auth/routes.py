@@ -72,6 +72,27 @@ def _append_query_value(url: str, key: str, value: str) -> str:
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
+def _google_drive_oauth_redirect_uri() -> str:
+    configured_redirect = getattr(config, 'GOOGLE_DRIVE_OAUTH_REDIRECT_URI', None)
+    if configured_redirect:
+        return configured_redirect
+    if 'google.authorized' in current_app.view_functions:
+        return url_for('google.authorized', _external=True)
+    return url_for('auth.google_drive_callback_authorized', _external=True)
+
+
+@auth_bp.before_app_request
+def _intercept_google_authorized_drive_callback():
+    """Route Drive consent back through the already-registered login callback."""
+    if (
+        request.endpoint == 'google.authorized'
+        and session.get(GOOGLE_DRIVE_OAUTH_STATE_KEY)
+        and request.args.get('state')
+    ):
+        return google_drive_callback_authorized()
+    return None
+
+
 def _google_drive_status_payload(user) -> dict:
     credential = get_google_drive_credential_for_user(user.user_id) if user else None
     service_account_configured = bool(
@@ -136,6 +157,8 @@ def login():
 @auth_bp.route('/google/callback')
 def google_callback():
     """Google OAuth callback handler."""
+    if session.get(GOOGLE_DRIVE_OAUTH_STATE_KEY) and request.args.get('state'):
+        return google_drive_callback_authorized()
     return handle_google_callback()
 
 
@@ -203,7 +226,7 @@ def google_drive_connect():
 
     query = {
         'client_id': config.GOOGLE_CLIENT_ID,
-        'redirect_uri': url_for('auth.google_drive_callback_authorized', _external=True),
+        'redirect_uri': _google_drive_oauth_redirect_uri(),
         'response_type': 'code',
         'scope': ' '.join(GOOGLE_DRIVE_OAUTH_SCOPES),
         'access_type': 'offline',
@@ -249,7 +272,7 @@ def google_drive_callback_authorized():
                 'code': code,
                 'client_id': config.GOOGLE_CLIENT_ID,
                 'client_secret': config.GOOGLE_CLIENT_SECRET,
-                'redirect_uri': url_for('auth.google_drive_callback_authorized', _external=True),
+                'redirect_uri': _google_drive_oauth_redirect_uri(),
                 'grant_type': 'authorization_code',
             },
             timeout=30,

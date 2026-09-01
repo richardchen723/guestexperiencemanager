@@ -1065,7 +1065,10 @@ def _build_user_google_drive_credentials(user: Any):
     if credentials.expired:
         if not credentials.refresh_token:
             raise RuntimeError("Google Drive authorization expired. Reconnect Drive from Cotton Candy and try again.")
-        credentials.refresh(GoogleAuthRequest())
+        try:
+            credentials.refresh(GoogleAuthRequest())
+        except Exception as exc:
+            raise RuntimeError("Google Drive authorization expired. Reconnect Drive from Cotton Candy and try again.") from exc
         save_google_drive_credential(
             user.user_id,
             access_token=credentials.token,
@@ -1097,6 +1100,98 @@ def get_bookkeeping_google_drive_service(*, user: Any = None):
     return service, {
         "mode": "service_account",
         "google_email": None,
+    }
+
+
+def list_google_drive_folders(*, parent_id: str = "root", user: Any = None) -> Dict[str, Any]:
+    """Return one browsable level of folders from the connected Google Drive."""
+    service, auth_context = get_bookkeeping_google_drive_service(user=user)
+    resolved_parent_id = (parent_id or "root").strip() or "root"
+    current_folder = service.files().get(
+        fileId=resolved_parent_id,
+        fields="id, name, parents, webViewLink, mimeType",
+        supportsAllDrives=True,
+    ).execute()
+    if current_folder.get("mimeType") != GOOGLE_DRIVE_FOLDER_MIME_TYPE:
+        raise ValueError("The selected Google Drive item is not a folder.")
+
+    page_token = None
+    folders: List[Dict[str, Any]] = []
+    while True:
+        response = service.files().list(
+            q=(
+                f"'{_drive_query_escape(resolved_parent_id)}' in parents "
+                f"and mimeType = '{GOOGLE_DRIVE_FOLDER_MIME_TYPE}' and trashed = false"
+            ),
+            fields="nextPageToken, files(id, name, parents, webViewLink, mimeType)",
+            includeItemsFromAllDrives=True,
+            supportsAllDrives=True,
+            spaces="drive",
+            pageSize=1000,
+            pageToken=page_token,
+        ).execute()
+        folders.extend(response.get("files") or [])
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            break
+
+    folders.sort(key=lambda entry: (entry.get("name") or "").casefold())
+    return {
+        "current_folder": {
+            **current_folder,
+            "name": current_folder.get("name") or ("My Drive" if resolved_parent_id == "root" else "Untitled folder"),
+        },
+        "folders": folders,
+        "authorization_mode": auth_context.get("mode"),
+        "google_email": auth_context.get("google_email"),
+    }
+
+
+def create_google_drive_folder(*, parent_id: str, folder_name: str, user: Any = None) -> Dict[str, Any]:
+    """Create a folder inside a user-selected Google Drive folder."""
+    resolved_parent_id = (parent_id or "root").strip() or "root"
+    normalized_name = (folder_name or "").strip()
+    if not normalized_name:
+        raise ValueError("Enter a folder name.")
+    if len(normalized_name) > 150:
+        raise ValueError("Folder names must be 150 characters or fewer.")
+    if any(character in normalized_name for character in ("/", "\\")) or any(
+        ord(character) < 32 for character in normalized_name
+    ):
+        raise ValueError("Folder names cannot contain slashes or control characters.")
+
+    service, auth_context = get_bookkeeping_google_drive_service(user=user)
+    parent_folder = service.files().get(
+        fileId=resolved_parent_id,
+        fields="id, name, parents, webViewLink, mimeType",
+        supportsAllDrives=True,
+    ).execute()
+    if parent_folder.get("mimeType") != GOOGLE_DRIVE_FOLDER_MIME_TYPE:
+        raise ValueError("The selected Google Drive item is not a folder.")
+
+    existing_folder = _find_google_drive_child(
+        service,
+        resolved_parent_id,
+        normalized_name,
+        mime_type=GOOGLE_DRIVE_FOLDER_MIME_TYPE,
+    )
+    if existing_folder:
+        raise ValueError(f'A folder named "{normalized_name}" already exists here.')
+
+    folder = service.files().create(
+        body={
+            "name": normalized_name,
+            "mimeType": GOOGLE_DRIVE_FOLDER_MIME_TYPE,
+            "parents": [resolved_parent_id],
+        },
+        fields="id, name, parents, webViewLink, mimeType",
+        supportsAllDrives=True,
+    ).execute()
+    return {
+        "folder": folder,
+        "parent_folder": parent_folder,
+        "authorization_mode": auth_context.get("mode"),
+        "google_email": auth_context.get("google_email"),
     }
 
 
@@ -1166,14 +1261,15 @@ def sync_bookkeeping_uploads_to_google_drive(
     month_label: Optional[str] = None,
     stages: Optional[Sequence[str]] = None,
     user: Any = None,
+    root_folder_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     relevant_stages = set(stages or ("expense", "corroboration"))
     relevant_uploads = [upload for upload in uploads if getattr(upload, "stage", None) in relevant_stages]
     if not relevant_uploads:
         return None
 
-    root_folder_id = (config.GOOGLE_DRIVE_BOOKKEEPING_ROOT_FOLDER_ID or "").strip()
-    if not root_folder_id:
+    resolved_root_folder_id = (root_folder_id or config.GOOGLE_DRIVE_BOOKKEEPING_ROOT_FOLDER_ID or "").strip()
+    if not resolved_root_folder_id:
         raise RuntimeError("GOOGLE_DRIVE_BOOKKEEPING_ROOT_FOLDER_ID is not configured.")
 
     service, auth_context = get_bookkeeping_google_drive_service(user=user)
@@ -1185,7 +1281,7 @@ def sync_bookkeeping_uploads_to_google_drive(
         if period_start
         else _sanitize_drive_name(month_label or getattr(period, "name", None), "Month")
     )
-    portfolio_folder = _ensure_google_drive_folder(service, root_folder_id, portfolio_folder_name)
+    portfolio_folder = _ensure_google_drive_folder(service, resolved_root_folder_id, portfolio_folder_name)
     year_folders: Dict[str, Dict[str, Any]] = {}
     month_folders: Dict[Tuple[str, str], Dict[str, Any]] = {}
     target_folders: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
@@ -1196,6 +1292,8 @@ def sync_bookkeeping_uploads_to_google_drive(
     last_year_folder_name = default_year_folder_name
     last_month_folder_name = default_month_folder_name
     synced_at = datetime.utcnow().isoformat()
+    synced_file_count = 0
+    unchanged_file_count = 0
 
     for upload in relevant_uploads:
         file_path = get_upload_absolute_path(getattr(upload, "stored_path"))
@@ -1256,7 +1354,7 @@ def sync_bookkeeping_uploads_to_google_drive(
             and prior_payload.get("month_folder_id") == month_folder.get("id")
             and prior_payload.get("year_folder_id") == year_folder.get("id")
             and prior_payload.get("portfolio_folder_id") == portfolio_folder.get("id")
-            and prior_payload.get("root_folder_id") == root_folder_id
+            and prior_payload.get("root_folder_id") == resolved_root_folder_id
             and prior_payload.get("stored_path") == getattr(upload, "stored_path", None)
             and prior_payload.get("drive_filename", prior_payload.get("original_filename")) == drive_name
         ):
@@ -1276,6 +1374,7 @@ def sync_bookkeeping_uploads_to_google_drive(
                         "synced_at": synced_at,
                     },
                 )
+            unchanged_file_count += 1
             continue
 
         media = MediaFileUpload(
@@ -1330,7 +1429,7 @@ def sync_bookkeeping_uploads_to_google_drive(
                 "provider": "google_drive",
                 "authorization_mode": auth_context.get("mode"),
                 "google_email": auth_context.get("google_email"),
-                "root_folder_id": root_folder_id,
+                "root_folder_id": resolved_root_folder_id,
                 "portfolio_folder_id": portfolio_folder.get("id"),
                 "year_folder_id": year_folder.get("id"),
                 "month_folder_id": month_folder.get("id"),
@@ -1344,13 +1443,23 @@ def sync_bookkeeping_uploads_to_google_drive(
                 "synced_at": synced_at,
             },
         )
+        synced_file_count += 1
 
     return {
+        "root_folder_id": resolved_root_folder_id,
         "portfolio_folder_id": portfolio_folder.get("id"),
+        "portfolio_folder_url": portfolio_folder.get("webViewLink") or (
+            f"https://drive.google.com/drive/folders/{portfolio_folder.get('id')}"
+            if portfolio_folder.get("id")
+            else None
+        ),
         "year_folder_id": last_year_folder.get("id") if last_year_folder else None,
         "month_folder_id": last_month_folder.get("id") if last_month_folder else None,
         "folder_path": f"{portfolio_folder_name}/{last_year_folder_name}/{last_month_folder_name}",
         "folder_paths": synced_folder_paths,
+        "receipt_count": len(relevant_uploads),
+        "synced_file_count": synced_file_count,
+        "unchanged_file_count": unchanged_file_count,
         "authorization_mode": auth_context.get("mode"),
         "google_email": auth_context.get("google_email"),
     }

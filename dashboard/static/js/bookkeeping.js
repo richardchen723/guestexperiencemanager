@@ -36,6 +36,10 @@
                 receiptReviewCompleted: 0,
                 generatedReceiptFilename: null,
                 isReceiptEditorOpen: false,
+                driveFolderStack: [],
+                isDriveUploadDialogOpen: false,
+                isUploadingReceiptsToDrive: false,
+                isCreatingDriveFolder: false,
             };
             this.processingPolls = {};
 
@@ -69,6 +73,7 @@
                 stepModal: document.getElementById('stepModal'),
                 stepModalCloseBtn: document.getElementById('stepModalCloseBtn'),
                 stepModalTitle: document.getElementById('stepModalTitle'),
+                stepModalFooter: document.getElementById('stepModalFooter'),
                 portfolioQuickSwitch: document.getElementById('portfolioQuickSwitch'),
                 periodQuickSwitch: document.getElementById('periodQuickSwitch'),
                 driveStatusTitle: document.getElementById('driveStatusTitle'),
@@ -99,6 +104,7 @@
                 expenseNotesInput: document.getElementById('expenseNotesInput'),
                 clearRevenueUploadsBtn: document.getElementById('clearRevenueUploadsBtn'),
                 clearExpenseUploadsBtn: document.getElementById('clearExpenseUploadsBtn'),
+                uploadReceiptsToDriveBtn: document.getElementById('uploadReceiptsToDriveBtn'),
                 expenseUploadSubmitBtn: document.getElementById('expenseUploadSubmitBtn'),
                 expenseStepUploadsList: document.getElementById('expenseStepUploadsList'),
                 revenueUploadSummary: document.getElementById('revenueUploadSummary'),
@@ -172,7 +178,24 @@
                 receiptOrganizerPathPreview: document.getElementById('receiptOrganizerPathPreview'),
                 receiptOrganizerReviewNote: document.getElementById('receiptOrganizerReviewNote'),
                 receiptOrganizerSaveBtn: document.getElementById('receiptOrganizerSaveBtn'),
-                receiptOrganizerApproveBtn: document.getElementById('receiptOrganizerApproveBtn'),
+                receiptOrganizerNextBtn: document.getElementById('receiptOrganizerNextBtn'),
+                driveUploadDialog: document.getElementById('driveUploadDialog'),
+                driveUploadCloseBtn: document.getElementById('driveUploadCloseBtn'),
+                driveUploadCancelBtn: document.getElementById('driveUploadCancelBtn'),
+                driveUploadSubmitBtn: document.getElementById('driveUploadSubmitBtn'),
+                driveUploadReadiness: document.getElementById('driveUploadReadiness'),
+                driveUploadStatus: document.getElementById('driveUploadStatus'),
+                driveUploadReconnectBtn: document.getElementById('driveUploadReconnectBtn'),
+                driveUploadOpenFolderLink: document.getElementById('driveUploadOpenFolderLink'),
+                driveFolderBackBtn: document.getElementById('driveFolderBackBtn'),
+                driveFolderBreadcrumbs: document.getElementById('driveFolderBreadcrumbs'),
+                driveFolderList: document.getElementById('driveFolderList'),
+                driveNewFolderBtn: document.getElementById('driveNewFolderBtn'),
+                driveFolderCreateForm: document.getElementById('driveFolderCreateForm'),
+                driveFolderNameInput: document.getElementById('driveFolderNameInput'),
+                driveFolderCreateBtn: document.getElementById('driveFolderCreateBtn'),
+                driveFolderCreateCancelBtn: document.getElementById('driveFolderCreateCancelBtn'),
+                driveSelectedFolderLabel: document.getElementById('driveSelectedFolderLabel'),
             };
         }
 
@@ -213,6 +236,7 @@
             this.elements.corroborationUploadForm.addEventListener('submit', (event) => this.handleCorroborationUpload(event));
             this.elements.clearRevenueUploadsBtn.addEventListener('click', () => this.clearUploadsByStage('revenue'));
             this.elements.clearExpenseUploadsBtn.addEventListener('click', () => this.clearUploadsByStage('expense'));
+            this.elements.uploadReceiptsToDriveBtn.addEventListener('click', () => this.openDriveUploadDialog());
             this.elements.editRevenueChannelsBtn.addEventListener('click', () => this.setRevenueChannelsEditMode(true));
             this.elements.cancelRevenueChannelsBtn.addEventListener('click', () => this.cancelRevenueChannelsEdit());
             this.elements.saveRevenueChannelsBtn.addEventListener('click', () => this.saveRevenueChannels());
@@ -241,10 +265,10 @@
             this.elements.receiptOrganizerCloseBtn.addEventListener('click', () => this.closeReceiptOrganizer());
             this.elements.receiptOrganizerForm.addEventListener('submit', (event) => {
                 event.preventDefault();
-                this.saveReceiptOrganization(false);
+                this.saveReceiptOrganization({ advance: false });
             });
-            this.elements.receiptOrganizerSaveBtn.addEventListener('click', () => this.saveReceiptOrganization(false));
-            this.elements.receiptOrganizerApproveBtn.addEventListener('click', () => this.saveReceiptOrganization(true));
+            this.elements.receiptOrganizerSaveBtn.addEventListener('click', () => this.saveReceiptOrganization({ advance: false }));
+            this.elements.receiptOrganizerNextBtn.addEventListener('click', () => this.nextReceiptOrganization());
             this.elements.receiptOrganizerType.addEventListener('change', () => this.updateReceiptOrganizerPreview());
             [
                 this.elements.receiptOrganizerDate,
@@ -253,6 +277,34 @@
             ].forEach((input) => input.addEventListener('input', () => this.updateReceiptOrganizerPreview()));
             this.elements.receiptOrganizerFilename.addEventListener('input', () => this.updateReceiptOrganizerDestination());
             this.elements.expenseFilesInput.addEventListener('change', () => this.handleExpenseFileSelection());
+            this.elements.driveUploadCloseBtn.addEventListener('click', () => this.closeDriveUploadDialog());
+            this.elements.driveUploadCancelBtn.addEventListener('click', () => this.closeDriveUploadDialog());
+            this.elements.driveUploadSubmitBtn.addEventListener('click', () => this.uploadApprovedReceiptsToDrive());
+            this.elements.driveUploadReconnectBtn.addEventListener('click', () => this.connectGoogleDrive());
+            this.elements.driveFolderBackBtn.addEventListener('click', () => this.goBackOneDriveFolder());
+            this.elements.driveNewFolderBtn.addEventListener('click', () => this.showDriveFolderCreateForm());
+            this.elements.driveFolderCreateCancelBtn.addEventListener('click', () => this.hideDriveFolderCreateForm());
+            this.elements.driveFolderCreateForm.addEventListener('submit', (event) => {
+                event.preventDefault();
+                this.createDriveFolder();
+            });
+            this.elements.driveFolderList.addEventListener('click', (event) => {
+                const folderButton = event.target.closest('[data-drive-folder-id]');
+                if (folderButton) {
+                    this.openDriveFolder(folderButton.dataset.driveFolderId, folderButton.dataset.driveFolderName);
+                }
+            });
+            this.elements.driveFolderBreadcrumbs.addEventListener('click', (event) => {
+                const crumb = event.target.closest('[data-drive-crumb-index]');
+                if (crumb && !crumb.disabled) {
+                    this.openDriveBreadcrumb(Number(crumb.dataset.driveCrumbIndex));
+                }
+            });
+            this.elements.driveUploadDialog.addEventListener('click', (event) => {
+                if (event.target === this.elements.driveUploadDialog) {
+                    this.closeDriveUploadDialog();
+                }
+            });
 
             this.elements.stepModal.addEventListener('click', (event) => {
                 if (event.target === this.elements.stepModal) {
@@ -281,6 +333,10 @@
             });
 
             document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && this.state.isDriveUploadDialogOpen) {
+                    this.closeDriveUploadDialog();
+                    return;
+                }
                 if (event.key === 'Escape' && this.state.isReceiptEditorOpen) {
                     this.closeReceiptOrganizer();
                     return;
@@ -468,6 +524,255 @@
             const nextQuery = params.toString();
             const nextUrl = nextQuery ? `${window.location.pathname}?${nextQuery}` : window.location.pathname;
             window.history.replaceState({}, document.title, nextUrl);
+        }
+
+        approvedReceiptUploads() {
+            return (this.state.workspace?.uploads || []).filter((upload) => {
+                const organization = this.receiptOrganizationForUpload(upload);
+                return upload.stage === 'expense'
+                    && !['queued', 'processing', 'failed'].includes(upload.upload_status)
+                    && organization.status === 'approved'
+                    && Boolean(organization.effective_filename);
+            });
+        }
+
+        expenseReceiptsEligibleForReview() {
+            return (this.state.workspace?.uploads || []).filter((upload) => (
+                upload.stage === 'expense' && upload.upload_status !== 'failed'
+            ));
+        }
+
+        renderDriveUploadReadiness() {
+            const approvedCount = this.approvedReceiptUploads().length;
+            const receiptCount = this.expenseReceiptsEligibleForReview().length;
+            const incompleteCount = Math.max(0, receiptCount - approvedCount);
+            const account = this.state.driveStatus?.display_name || this.state.driveStatus?.google_email || 'the connected account';
+            this.elements.driveUploadReadiness.innerHTML = `
+                <strong>${approvedCount} approved receipt${approvedCount === 1 ? '' : 's'} ready</strong>
+                <span>${this.escapeHtml(account)} · ${incompleteCount ? `${incompleteCount} incomplete receipt${incompleteCount === 1 ? '' : 's'} will remain in Cotton Candy.` : 'Every processed receipt has an approved file name.'}</span>
+            `;
+            if (!this.state.isUploadingReceiptsToDrive) {
+                const hasDestination = this.state.driveFolderStack.length > 0;
+                this.elements.driveUploadSubmitBtn.disabled = approvedCount === 0 || !hasDestination;
+                this.elements.driveUploadSubmitBtn.textContent = approvedCount && hasDestination
+                    ? `Upload ${approvedCount} receipt${approvedCount === 1 ? '' : 's'} here`
+                    : (approvedCount ? 'Choose a folder' : 'No approved receipts');
+            }
+            this.elements.driveNewFolderBtn.disabled = !this.state.driveFolderStack.length
+                || this.state.isCreatingDriveFolder
+                || this.state.isUploadingReceiptsToDrive;
+        }
+
+        async openDriveUploadDialog() {
+            if (!this.state.selectedPeriodId || !this.state.workspace) {
+                window.alert('Select a month workspace before uploading receipts to Google Drive.');
+                return;
+            }
+            if ((this.state.driveStatus?.effective_mode || this.state.driveStatus?.mode) !== 'user_authorized') {
+                this.connectGoogleDrive();
+                return;
+            }
+            this.state.isDriveUploadDialogOpen = true;
+            this.state.driveFolderStack = [];
+            this.hideDriveFolderCreateForm();
+            this.elements.driveUploadDialog.hidden = false;
+            this.elements.driveUploadStatus.textContent = '';
+            this.elements.driveUploadStatus.classList.remove('is-error');
+            this.elements.driveUploadOpenFolderLink.hidden = true;
+            this.elements.driveUploadReconnectBtn.hidden = true;
+            this.renderDriveUploadReadiness();
+            await this.loadDriveFolder('root', [{ id: 'root', name: 'My Drive' }]);
+            this.elements.driveUploadCloseBtn.focus({ preventScroll: true });
+        }
+
+        closeDriveUploadDialog() {
+            if (this.state.isUploadingReceiptsToDrive || this.state.isCreatingDriveFolder) return;
+            this.state.isDriveUploadDialogOpen = false;
+            this.state.driveFolderStack = [];
+            this.hideDriveFolderCreateForm();
+            this.elements.driveUploadDialog.hidden = true;
+        }
+
+        async loadDriveFolder(folderId, nextStack) {
+            this.hideDriveFolderCreateForm();
+            this.elements.driveFolderList.innerHTML = '<div class="bk-empty">Loading your folders…</div>';
+            this.elements.driveFolderBackBtn.disabled = true;
+            this.elements.driveNewFolderBtn.disabled = true;
+            this.elements.driveUploadSubmitBtn.disabled = true;
+            this.elements.driveUploadStatus.textContent = 'Loading Google Drive folders…';
+            this.elements.driveUploadStatus.classList.remove('is-error');
+            try {
+                const data = await this.fetchJson(`/bookkeeping/api/google-drive/folders?parent_id=${encodeURIComponent(folderId)}`);
+                const stack = nextStack.map((entry) => ({ ...entry }));
+                if (stack.length) {
+                    stack[stack.length - 1].name = data.current_folder?.name || stack[stack.length - 1].name;
+                }
+                this.state.driveFolderStack = stack;
+                this.renderDriveFolderBrowser(data.folders || []);
+                this.elements.driveUploadStatus.textContent = '';
+                this.elements.driveUploadReconnectBtn.hidden = true;
+                return true;
+            } catch (error) {
+                const needsReconnect = /reconnect|authorization/i.test(error.message || '');
+                this.elements.driveFolderList.innerHTML = `<div class="bk-empty">${needsReconnect ? 'Folder access is unavailable until Google Drive is reconnected.' : 'This folder could not be loaded.'}</div>`;
+                this.elements.driveUploadStatus.textContent = error.message || 'Could not load this folder.';
+                this.elements.driveUploadStatus.classList.add('is-error');
+                this.elements.driveUploadReconnectBtn.hidden = !needsReconnect;
+                this.renderDriveFolderPath();
+                return false;
+            } finally {
+                this.renderDriveUploadReadiness();
+            }
+        }
+
+        renderDriveFolderBrowser(folders) {
+            this.renderDriveFolderPath();
+            this.elements.driveFolderList.innerHTML = folders.length
+                ? folders.map((folder) => `
+                    <button
+                        class="bk-drive-folder"
+                        type="button"
+                        data-drive-folder-id="${this.escapeHtml(folder.id)}"
+                        data-drive-folder-name="${this.escapeHtml(folder.name || 'Untitled folder')}"
+                    >
+                        <span class="bk-drive-folder-icon" aria-hidden="true">▰</span>
+                        <strong>${this.escapeHtml(folder.name || 'Untitled folder')}</strong>
+                        <span class="bk-drive-folder-arrow" aria-hidden="true">›</span>
+                    </button>
+                `).join('')
+                : '<div class="bk-empty">This folder has no subfolders. You can upload here.</div>';
+        }
+
+        renderDriveFolderPath() {
+            const stack = this.state.driveFolderStack;
+            this.elements.driveFolderBackBtn.disabled = stack.length <= 1;
+            this.elements.driveNewFolderBtn.disabled = !stack.length
+                || this.state.isCreatingDriveFolder
+                || this.state.isUploadingReceiptsToDrive;
+            this.elements.driveFolderBreadcrumbs.innerHTML = stack.map((entry, index) => `
+                ${index ? '<span aria-hidden="true">›</span>' : ''}
+                <button class="bk-drive-crumb" type="button" data-drive-crumb-index="${index}" ${index === stack.length - 1 ? 'disabled' : ''}>${this.escapeHtml(entry.name)}</button>
+            `).join('');
+            this.elements.driveSelectedFolderLabel.textContent = stack.length
+                ? `${stack.map((entry) => entry.name).join(' / ')} selected`
+                : 'Choose a folder';
+        }
+
+        async openDriveFolder(folderId, folderName) {
+            const nextStack = [
+                ...this.state.driveFolderStack,
+                { id: folderId, name: folderName || 'Untitled folder' },
+            ];
+            await this.loadDriveFolder(folderId, nextStack);
+        }
+
+        async openDriveBreadcrumb(index) {
+            const nextStack = this.state.driveFolderStack.slice(0, index + 1);
+            const target = nextStack[nextStack.length - 1];
+            if (target) {
+                await this.loadDriveFolder(target.id, nextStack);
+            }
+        }
+
+        async goBackOneDriveFolder() {
+            if (this.state.driveFolderStack.length <= 1) return;
+            await this.openDriveBreadcrumb(this.state.driveFolderStack.length - 2);
+        }
+
+        showDriveFolderCreateForm() {
+            if (!this.state.driveFolderStack.length || this.state.isCreatingDriveFolder) return;
+            this.elements.driveFolderCreateForm.hidden = false;
+            this.elements.driveFolderNameInput.value = '';
+            this.elements.driveUploadStatus.textContent = '';
+            this.elements.driveUploadStatus.classList.remove('is-error');
+            this.elements.driveFolderNameInput.focus({ preventScroll: true });
+        }
+
+        hideDriveFolderCreateForm() {
+            this.elements.driveFolderCreateForm.hidden = true;
+            this.elements.driveFolderNameInput.value = '';
+        }
+
+        async createDriveFolder() {
+            const parentFolder = this.state.driveFolderStack[this.state.driveFolderStack.length - 1];
+            const folderName = this.elements.driveFolderNameInput.value.trim();
+            if (!parentFolder || !folderName || this.state.isCreatingDriveFolder) {
+                if (!folderName) this.elements.driveFolderNameInput.reportValidity();
+                return;
+            }
+
+            this.state.isCreatingDriveFolder = true;
+            this.elements.driveFolderCreateBtn.disabled = true;
+            this.elements.driveFolderCreateCancelBtn.disabled = true;
+            this.elements.driveNewFolderBtn.disabled = true;
+            this.elements.driveUploadSubmitBtn.disabled = true;
+            this.elements.driveFolderCreateBtn.textContent = 'Creating…';
+            this.elements.driveUploadStatus.textContent = `Creating “${folderName}”…`;
+            this.elements.driveUploadStatus.classList.remove('is-error');
+            try {
+                const data = await this.fetchJson('/bookkeeping/api/google-drive/folders', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ parent_id: parentFolder.id, name: folderName }),
+                });
+                const folder = data.folder;
+                const opened = folder?.id && await this.loadDriveFolder(folder.id, [
+                    ...this.state.driveFolderStack,
+                    { id: folder.id, name: folder.name || folderName },
+                ]);
+                if (opened) {
+                    this.elements.driveUploadStatus.textContent = `Created “${folder.name || folderName}”. This new folder is selected.`;
+                }
+            } catch (error) {
+                this.elements.driveUploadStatus.textContent = error.message || 'Could not create this folder.';
+                this.elements.driveUploadStatus.classList.add('is-error');
+                this.elements.driveFolderNameInput.focus({ preventScroll: true });
+            } finally {
+                this.state.isCreatingDriveFolder = false;
+                this.elements.driveFolderCreateBtn.disabled = false;
+                this.elements.driveFolderCreateCancelBtn.disabled = false;
+                this.elements.driveFolderCreateBtn.textContent = 'Create folder';
+                this.renderDriveUploadReadiness();
+                this.renderDriveFolderPath();
+            }
+        }
+
+        async uploadApprovedReceiptsToDrive() {
+            const targetFolder = this.state.driveFolderStack[this.state.driveFolderStack.length - 1];
+            const approvedCount = this.approvedReceiptUploads().length;
+            if (!targetFolder || !approvedCount || this.state.isUploadingReceiptsToDrive) return;
+
+            this.state.isUploadingReceiptsToDrive = true;
+            this.elements.driveUploadSubmitBtn.disabled = true;
+            this.elements.driveUploadSubmitBtn.textContent = 'Uploading receipts…';
+            this.elements.driveUploadCloseBtn.disabled = true;
+            this.elements.driveUploadCancelBtn.disabled = true;
+            this.elements.driveUploadStatus.textContent = `Uploading ${approvedCount} approved receipt${approvedCount === 1 ? '' : 's'} with confirmed file names…`;
+            this.elements.driveUploadStatus.classList.remove('is-error');
+            this.elements.driveUploadOpenFolderLink.hidden = true;
+            try {
+                const data = await this.fetchJson(`/bookkeeping/api/periods/${this.state.selectedPeriodId}/receipts/upload-to-google-drive`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder_id: targetFolder.id }),
+                });
+                await this.refreshWorkspace();
+                const receiptCount = data.drive_sync?.receipt_count || data.approved_receipt_count || approvedCount;
+                this.elements.driveUploadStatus.textContent = `${receiptCount} receipt${receiptCount === 1 ? '' : 's'} uploaded with approved names. The Drive folder structure is ready.`;
+                const folderUrl = data.drive_sync?.portfolio_folder_url;
+                if (folderUrl) {
+                    this.elements.driveUploadOpenFolderLink.href = folderUrl;
+                    this.elements.driveUploadOpenFolderLink.hidden = false;
+                }
+            } catch (error) {
+                this.elements.driveUploadStatus.textContent = error.message || 'Could not upload the receipts to Google Drive.';
+                this.elements.driveUploadStatus.classList.add('is-error');
+            } finally {
+                this.state.isUploadingReceiptsToDrive = false;
+                this.elements.driveUploadCloseBtn.disabled = false;
+                this.elements.driveUploadCancelBtn.disabled = false;
+                this.renderDriveUploadReadiness();
+            }
         }
 
         currentUserName() {
@@ -931,6 +1236,7 @@
 
             this.elements.clearRevenueUploadsBtn.disabled = !revenueUploads.length;
             this.elements.clearExpenseUploadsBtn.disabled = !expenseUploads.length || Boolean(expenseBatch);
+            this.elements.uploadReceiptsToDriveBtn.disabled = !expenseUploads.length || Boolean(expenseBatch);
             if (this.elements.expenseUploadSubmitBtn) {
                 this.elements.expenseUploadSubmitBtn.disabled = expenseUploadLocked;
                 this.elements.expenseUploadSubmitBtn.textContent = this.stageHasActiveUpload('expense')
@@ -3156,6 +3462,25 @@
             this.openReceiptOrganizer(nextUpload.bookkeeping_upload_id, { preserveQueue: true });
         }
 
+        setReceiptReviewQueueFrom(uploadId) {
+            const reviewableUploadIds = (this.state.workspace?.uploads || [])
+                .filter((entry) => (
+                    entry.stage === 'expense'
+                    && !['queued', 'processing', 'failed'].includes(entry.upload_status)
+                ))
+                .map((entry) => entry.bookkeeping_upload_id);
+            const selectedIndex = reviewableUploadIds.indexOf(uploadId);
+            if (selectedIndex < 0) {
+                this.state.pendingReceiptUploadIds = [uploadId];
+                this.state.receiptReviewTotal = 1;
+                this.state.receiptReviewCompleted = 0;
+                return;
+            }
+            this.state.pendingReceiptUploadIds = reviewableUploadIds.slice(selectedIndex);
+            this.state.receiptReviewTotal = reviewableUploadIds.length;
+            this.state.receiptReviewCompleted = selectedIndex;
+        }
+
         openReceiptOrganizer(uploadId, options = {}) {
             const upload = (this.state.workspace?.uploads || []).find((entry) => entry.bookkeeping_upload_id === uploadId);
             if (!upload) return;
@@ -3164,9 +3489,7 @@
             const previewKind = this.resolveUploadPreviewKind(upload);
 
             if (!options.preserveQueue) {
-                this.state.pendingReceiptUploadIds = [uploadId];
-                this.state.receiptReviewTotal = 1;
-                this.state.receiptReviewCompleted = 0;
+                this.setReceiptReviewQueueFrom(uploadId);
             }
 
             this.state.activeReceiptUploadId = uploadId;
@@ -3194,6 +3517,7 @@
                     ? 'This name is approved. Editing and approving again will update the future Drive filing target.'
                     : 'The AI suggestion is ready. Confirm it once and the file will use this name during Drive sync.');
             this.elements.receiptOrganizerWorkspace.hidden = false;
+            this.elements.stepModalFooter.hidden = true;
             this.updateReceiptOrganizerPreview();
             this.updateReceiptReviewProgress();
             this.renderStageUploadControls(this.state.workspace?.uploads || []);
@@ -3211,6 +3535,7 @@
             this.state.generatedReceiptFilename = null;
             this.state.isReceiptEditorOpen = false;
             this.elements.receiptOrganizerWorkspace.hidden = true;
+            this.elements.stepModalFooter.hidden = false;
             this.resetExpenseUploadForm();
             this.renderStageUploadControls(this.state.workspace?.uploads || []);
         }
@@ -3218,11 +3543,10 @@
         updateReceiptReviewProgress() {
             const total = Math.max(this.state.receiptReviewTotal, this.state.pendingReceiptUploadIds.length, 1);
             const position = Math.min(this.state.receiptReviewCompleted + 1, total);
-            const hasNext = this.state.pendingReceiptUploadIds.length > 1;
             this.elements.receiptOrganizerProgress.textContent = `2 · Receipt ${position} of ${total}`;
             this.elements.receiptOrganizerCloseBtn.textContent = total > 1 ? 'Exit batch review' : 'Back to upload';
-            this.elements.receiptOrganizerSaveBtn.textContent = hasNext ? 'Save & review next' : 'Save & finish';
-            this.elements.receiptOrganizerApproveBtn.textContent = hasNext ? 'Approve & review next' : 'Approve & finish';
+            this.elements.receiptOrganizerSaveBtn.textContent = 'Save';
+            this.elements.receiptOrganizerNextBtn.textContent = 'Next';
         }
 
         advanceReceiptReview() {
@@ -3315,11 +3639,29 @@
             this.elements.receiptOrganizerPathPreview.textContent = `${periodPath.year} / ${periodPath.month} / ${folder}`;
         }
 
-        async saveReceiptOrganization(approve) {
+        async nextReceiptOrganization() {
+            if (!this.state.activeReceiptUploadId) return;
+            if (this.elements.receiptOrganizerForm.checkValidity()) {
+                await this.saveReceiptOrganization({ advance: true });
+                return;
+            }
+            const reviewProgress = this.advanceReceiptReview();
+            this.setUploadStatus(this.elements.expenseUploadStatus, {
+                title: reviewProgress.remaining
+                    ? 'Skipped · next receipt ready'
+                    : 'Receipt review complete',
+                meta: reviewProgress.remaining
+                    ? `${reviewProgress.completed} of ${reviewProgress.total} visited. The skipped receipt was left unchanged.`
+                    : `Reached the end of ${reviewProgress.total} receipt${reviewProgress.total === 1 ? '' : 's'}. Incomplete receipts were left unchanged.`,
+                progress: Math.round((reviewProgress.completed / reviewProgress.total) * 100),
+            });
+        }
+
+        async saveReceiptOrganization({ advance = false } = {}) {
             if (!this.state.activeReceiptUploadId || !this.elements.receiptOrganizerForm.reportValidity()) {
                 return;
             }
-            const buttons = [this.elements.receiptOrganizerSaveBtn, this.elements.receiptOrganizerApproveBtn];
+            const buttons = [this.elements.receiptOrganizerSaveBtn, this.elements.receiptOrganizerNextBtn];
             buttons.forEach((button) => { button.disabled = true; });
             try {
                 await this.fetchJson(`/bookkeeping/api/uploads/${this.state.activeReceiptUploadId}/receipt-organization`, {
@@ -3331,14 +3673,25 @@
                         expense_type: this.elements.receiptOrganizerExpenseType.value.trim(),
                         store_name: this.elements.receiptOrganizerStore.value.trim(),
                         filename: this.elements.receiptOrganizerFilename.value.trim(),
-                        status: approve ? 'approved' : 'suggested',
+                        status: 'approved',
                     }),
                 });
                 await this.refreshWorkspace();
+                if (!advance) {
+                    const total = Math.max(this.state.receiptReviewTotal, 1);
+                    const position = Math.min(this.state.receiptReviewCompleted + 1, total);
+                    this.elements.receiptOrganizerReviewNote.textContent = 'Saved. This receipt will use the confirmed name during Drive sync.';
+                    this.setUploadStatus(this.elements.expenseUploadStatus, {
+                        title: 'Receipt saved',
+                        meta: `Still reviewing receipt ${position} of ${total}. Select Next when you are ready to continue.`,
+                        progress: Math.round((position / total) * 100),
+                    });
+                    return;
+                }
                 const reviewProgress = this.advanceReceiptReview();
                 this.setUploadStatus(this.elements.expenseUploadStatus, {
                     title: reviewProgress.remaining
-                        ? `${approve ? 'Approved' : 'Saved'} · next receipt ready`
+                        ? 'Saved · next receipt ready'
                         : 'Receipt batch review complete',
                     meta: reviewProgress.remaining
                         ? `${reviewProgress.completed} of ${reviewProgress.total} reviewed. Confirm the next AI-suggested name.`

@@ -62,11 +62,13 @@ from dashboard.bookkeeping.service import (
     build_bookkeeping_workbook,
     build_workspace_revision_snapshot,
     build_workspace_summary,
+    create_google_drive_folder,
     decimal_or_none,
     extract_expense_evidence_bundle,
     get_upload_absolute_path,
     infer_reporting_period_start,
     logical_month_label,
+    list_google_drive_folders,
     parse_date_or_none,
     parse_revenue_file,
     parse_supporting_file,
@@ -633,6 +635,20 @@ def _active_processing_batch(session, period_id: int, stage: str):
 
 def _upload_is_processing(upload) -> bool:
     return getattr(upload, "upload_status", None) in {"queued", "processing"}
+
+
+def _approved_expense_uploads_for_drive(uploads):
+    approved_uploads = []
+    for upload in uploads or []:
+        organization = (getattr(upload, "summary", None) or {}).get("receipt_organization") or {}
+        if (
+            getattr(upload, "stage", None) == UPLOAD_STAGE_EXPENSE
+            and getattr(upload, "upload_status", None) not in {"queued", "processing", "failed"}
+            and organization.get("status") == "approved"
+            and organization.get("effective_filename")
+        ):
+            approved_uploads.append(upload)
+    return approved_uploads
 
 
 def _supporting_upload_source(stage: str, source: str) -> str:
@@ -3046,6 +3062,104 @@ def api_export_period_workbook(period_id):
         session.rollback()
         logger.error("Error exporting bookkeeping workbook: %s", exc, exc_info=True)
         return jsonify({"error": str(exc) or "Failed to export bookkeeping workbook"}), 500
+    finally:
+        session.close()
+
+
+@bookkeeping_bp.route("/api/google-drive/folders", methods=["GET"])
+@feature_required('bookkeeping')
+def api_list_google_drive_folders():
+    current_user = get_current_user()
+    if not current_user or not get_google_drive_credential_for_user(current_user.user_id):
+        return jsonify({"error": "Connect your Google Drive account before choosing an upload folder."}), 400
+
+    parent_id = (request.args.get("parent_id") or "root").strip() or "root"
+    try:
+        return jsonify(list_google_drive_folders(parent_id=parent_id, user=current_user))
+    except (RuntimeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("Error browsing Google Drive folders: %s", exc, exc_info=True)
+        return jsonify({"error": "Cotton Candy could not load that Google Drive folder."}), 502
+
+
+@bookkeeping_bp.route("/api/google-drive/folders", methods=["POST"])
+@feature_required('bookkeeping')
+def api_create_google_drive_folder():
+    current_user = get_current_user()
+    if not current_user or not get_google_drive_credential_for_user(current_user.user_id):
+        return jsonify({"error": "Connect your Google Drive account before creating a folder."}), 400
+
+    payload = request.get_json(silent=True) or {}
+    parent_id = (payload.get("parent_id") or "root").strip() or "root"
+    folder_name = payload.get("name") or ""
+    try:
+        return jsonify(create_google_drive_folder(
+            parent_id=parent_id,
+            folder_name=folder_name,
+            user=current_user,
+        )), 201
+    except (RuntimeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error("Error creating Google Drive folder: %s", exc, exc_info=True)
+        return jsonify({"error": "Cotton Candy could not create that Google Drive folder."}), 502
+
+
+@bookkeeping_bp.route("/api/periods/<int:period_id>/receipts/upload-to-google-drive", methods=["POST"])
+@feature_required('bookkeeping')
+def api_upload_receipts_to_google_drive(period_id):
+    session = get_session()
+    current_user = get_current_user()
+    try:
+        if not current_user or not get_google_drive_credential_for_user(current_user.user_id):
+            return jsonify({"error": "Connect your Google Drive account before uploading receipts."}), 400
+
+        period, error_response = _get_period_or_404(session, period_id)
+        if error_response:
+            return error_response
+
+        payload = request.get_json(silent=True) or {}
+        folder_id = (payload.get("folder_id") or "").strip()
+        if not folder_id:
+            return jsonify({"error": "Choose a Google Drive destination folder."}), 400
+
+        expense_uploads = [
+            upload for upload in period.uploads
+            if upload.stage == UPLOAD_STAGE_EXPENSE and upload.upload_status != "failed"
+        ]
+        if any(upload.upload_status in ACTIVE_PROCESSING_BATCH_STATUSES for upload in expense_uploads):
+            return jsonify({"error": "Wait for the current receipt batch to finish processing before uploading to Drive."}), 409
+
+        approved_uploads = _approved_expense_uploads_for_drive(expense_uploads)
+        if not approved_uploads:
+            return jsonify({"error": "Approve at least one receipt name before uploading to Google Drive."}), 400
+
+        selected_folder = list_google_drive_folders(parent_id=folder_id, user=current_user)["current_folder"]
+        report_period_start = infer_reporting_period_start(period, period.uploads, period.expense_items)
+        drive_sync = sync_bookkeeping_uploads_to_google_drive(
+            period.portfolio,
+            period,
+            approved_uploads,
+            month_label=logical_month_label(report_period_start),
+            stages=(UPLOAD_STAGE_EXPENSE,),
+            user=current_user,
+            root_folder_id=folder_id,
+        )
+        session.commit()
+        return jsonify({
+            "drive_sync": drive_sync,
+            "selected_folder": selected_folder,
+            "approved_receipt_count": len(approved_uploads),
+            "skipped_receipt_count": max(0, len(expense_uploads) - len(approved_uploads)),
+        })
+    except (RuntimeError, ValueError, FileNotFoundError) as exc:
+        session.rollback()
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        session.rollback()
+        logger.error("Error uploading bookkeeping receipts to Google Drive: %s", exc, exc_info=True)
+        return jsonify({"error": "Cotton Candy could not upload the receipts to Google Drive."}), 502
     finally:
         session.close()
 

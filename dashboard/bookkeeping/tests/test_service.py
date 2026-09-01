@@ -211,10 +211,15 @@ def test_drive_sync_uses_reviewed_receipt_name_and_folder_hierarchy(monkeypatch,
     portfolio = SimpleNamespace(name="PT300", code="PT300")
     period = SimpleNamespace(period_start=date(2026, 8, 1), name="August 2026")
 
-    result = bookkeeping_service.sync_bookkeeping_uploads_to_google_drive(portfolio, period, [upload])
+    result = bookkeeping_service.sync_bookkeeping_uploads_to_google_drive(
+        portfolio,
+        period,
+        [upload],
+        root_folder_id="chosen-drive-folder",
+    )
 
     assert folder_calls == [
-        ("readonly-test-root", "PT300"),
+        ("chosen-drive-folder", "PT300"),
         ("folder-1", "2026"),
         ("folder-2", "7. July 2026"),
         ("folder-3", "Cleanings, Maintenance & Misc. Receipts"),
@@ -224,7 +229,159 @@ def test_drive_sync_uses_reviewed_receipt_name_and_folder_hierarchy(monkeypatch,
         "parents": ["folder-4"],
     }
     assert upload.summary["drive_sync"]["drive_filename"] == "July 21, 2026 - Cleaning.jpg"
+    assert upload.summary["drive_sync"]["root_folder_id"] == "chosen-drive-folder"
     assert result["folder_path"] == "PT300/2026/7. July 2026"
+    assert result["root_folder_id"] == "chosen-drive-folder"
+    assert result["receipt_count"] == 1
+    assert result["synced_file_count"] == 1
+    assert result["unchanged_file_count"] == 0
+
+
+def test_google_drive_folder_browser_lists_only_folders_in_name_order(monkeypatch):
+    requests = []
+
+    class FakeRequest:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def execute(self):
+            return self.payload
+
+    class FakeFiles:
+        def get(self, **kwargs):
+            requests.append(("get", kwargs))
+            return FakeRequest({
+                "id": kwargs["fileId"],
+                "name": "Bookkeeping",
+                "mimeType": bookkeeping_service.GOOGLE_DRIVE_FOLDER_MIME_TYPE,
+                "webViewLink": "https://drive.google.com/drive/folders/base-folder",
+            })
+
+        def list(self, **kwargs):
+            requests.append(("list", kwargs))
+            return FakeRequest({
+                "files": [
+                    {"id": "z", "name": "Taxes", "mimeType": bookkeeping_service.GOOGLE_DRIVE_FOLDER_MIME_TYPE},
+                    {"id": "a", "name": "Accounts", "mimeType": bookkeeping_service.GOOGLE_DRIVE_FOLDER_MIME_TYPE},
+                ]
+            })
+
+    class FakeDriveService:
+        def files(self):
+            return FakeFiles()
+
+    monkeypatch.setattr(
+        bookkeeping_service,
+        "get_bookkeeping_google_drive_service",
+        lambda **_: (FakeDriveService(), {"mode": "user_authorized", "google_email": "owner@example.com"}),
+    )
+
+    result = bookkeeping_service.list_google_drive_folders(parent_id="base-folder", user=object())
+
+    assert result["current_folder"]["name"] == "Bookkeeping"
+    assert [folder["name"] for folder in result["folders"]] == ["Accounts", "Taxes"]
+    assert result["authorization_mode"] == "user_authorized"
+    assert "mimeType = 'application/vnd.google-apps.folder'" in requests[1][1]["q"]
+
+
+def test_google_drive_folder_creation_uses_current_folder_and_returns_created_folder(monkeypatch):
+    requests = []
+
+    class FakeRequest:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def execute(self):
+            return self.payload
+
+    class FakeFiles:
+        def get(self, **kwargs):
+            requests.append(("get", kwargs))
+            return FakeRequest({
+                "id": kwargs["fileId"],
+                "name": "Bookkeeping",
+                "mimeType": bookkeeping_service.GOOGLE_DRIVE_FOLDER_MIME_TYPE,
+            })
+
+        def list(self, **kwargs):
+            requests.append(("list", kwargs))
+            return FakeRequest({"files": []})
+
+        def create(self, **kwargs):
+            requests.append(("create", kwargs))
+            return FakeRequest({
+                "id": "new-folder",
+                "name": kwargs["body"]["name"],
+                "parents": kwargs["body"]["parents"],
+                "mimeType": bookkeeping_service.GOOGLE_DRIVE_FOLDER_MIME_TYPE,
+            })
+
+    class FakeDriveService:
+        def files(self):
+            return FakeFiles()
+
+    monkeypatch.setattr(
+        bookkeeping_service,
+        "get_bookkeeping_google_drive_service",
+        lambda **_: (FakeDriveService(), {"mode": "user_authorized", "google_email": "owner@example.com"}),
+    )
+
+    result = bookkeeping_service.create_google_drive_folder(
+        parent_id="base-folder",
+        folder_name="  August receipts  ",
+        user=object(),
+    )
+
+    create_request = requests[-1][1]
+    assert create_request["body"] == {
+        "name": "August receipts",
+        "mimeType": bookkeeping_service.GOOGLE_DRIVE_FOLDER_MIME_TYPE,
+        "parents": ["base-folder"],
+    }
+    assert create_request["supportsAllDrives"] is True
+    assert result["folder"]["id"] == "new-folder"
+    assert result["parent_folder"]["id"] == "base-folder"
+
+
+def test_drive_receipt_upload_selection_requires_processed_approved_names():
+    approved = SimpleNamespace(
+        stage="expense",
+        upload_status="processed",
+        summary={"receipt_organization": {"status": "approved", "effective_filename": "July 21, 2026 - Cleaning.jpg"}},
+    )
+    stored_approved = SimpleNamespace(
+        stage="expense",
+        upload_status="stored",
+        summary={"receipt_organization": {"status": "approved", "effective_filename": "August 25, 2026 - Cleaning.jpg"}},
+    )
+    suggested = SimpleNamespace(
+        stage="expense",
+        upload_status="processed",
+        summary={"receipt_organization": {"status": "suggested", "effective_filename": "Suggested.jpg"}},
+    )
+    unnamed = SimpleNamespace(stage="expense", upload_status="processed", summary={})
+    processing = SimpleNamespace(
+        stage="expense",
+        upload_status="processing",
+        summary={"receipt_organization": {"status": "approved", "effective_filename": "Too soon.jpg"}},
+    )
+    other_stage = SimpleNamespace(
+        stage="corroboration",
+        upload_status="processed",
+        summary={"receipt_organization": {"status": "approved", "effective_filename": "Statement.pdf"}},
+    )
+
+    failed_approved = SimpleNamespace(
+        stage="expense",
+        upload_status="failed",
+        summary={"receipt_organization": {"status": "approved", "effective_filename": "Failed.jpg"}},
+    )
+
+    selected = bookkeeping_routes._approved_expense_uploads_for_drive(
+        [approved, stored_approved, suggested, unnamed, processing, failed_approved, other_stage]
+    )
+
+    assert selected == [approved, stored_approved]
 
 
 def test_expense_item_from_payload_preserves_upload_id_when_edit_payload_omits_it():

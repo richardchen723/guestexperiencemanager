@@ -1351,6 +1351,216 @@
         border-top: 1px solid #dfe5ee;
     }
 
+    .bk-drive-picker[hidden] {
+        display: none;
+    }
+
+    .bk-drive-picker {
+        position: fixed;
+        inset: 0;
+        z-index: 1320;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: rgba(15, 23, 42, 0.52);
+        backdrop-filter: blur(3px);
+    }
+
+    .bk-drive-picker-panel {
+        width: min(760px, calc(100vw - 2rem));
+        max-height: min(760px, calc(100dvh - 2rem));
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        overflow: hidden;
+        border: 1px solid #d7deea;
+        border-radius: 16px;
+        background: #ffffff;
+        box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+    }
+
+    .bk-drive-picker-head,
+    .bk-drive-picker-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.1rem;
+        background: #f8fafc;
+    }
+
+    .bk-drive-picker-head {
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .bk-drive-picker-footer {
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .bk-drive-picker-head h3 {
+        margin: 0.16rem 0 0;
+        color: #172033;
+        font-size: 1.08rem;
+    }
+
+    .bk-drive-picker-body {
+        min-height: 0;
+        display: grid;
+        gap: 0.9rem;
+        overflow: auto;
+        padding: 1rem 1.1rem;
+    }
+
+    .bk-drive-readiness {
+        display: grid;
+        gap: 0.3rem;
+        padding: 0.8rem 0.9rem;
+        border: 1px solid #bfe3cf;
+        border-radius: 10px;
+        background: #f0faf4;
+    }
+
+    .bk-drive-readiness strong {
+        color: #166534;
+    }
+
+    .bk-drive-readiness span,
+    .bk-drive-picker-copy {
+        color: #64748b;
+        font-size: 0.82rem;
+        line-height: 1.5;
+    }
+
+    .bk-drive-browser {
+        display: grid;
+        gap: 0.65rem;
+        padding: 0.8rem;
+        border: 1px solid #dbe3ef;
+        border-radius: 12px;
+        background: #fbfcfe;
+    }
+
+    .bk-drive-browser-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+    }
+
+    .bk-drive-breadcrumbs {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.32rem;
+        overflow-x: auto;
+        color: #64748b;
+        font-size: 0.8rem;
+        white-space: nowrap;
+    }
+
+    .bk-drive-crumb {
+        padding: 0.25rem 0.4rem;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: #2855a6;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .bk-drive-crumb:disabled {
+        color: #172033;
+        cursor: default;
+    }
+
+    .bk-drive-folder-list {
+        min-height: 190px;
+        max-height: 310px;
+        display: grid;
+        align-content: start;
+        gap: 0.4rem;
+        overflow: auto;
+    }
+
+    .bk-drive-create-form {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        align-items: end;
+        gap: 0.55rem;
+        padding: 0.75rem;
+        border: 1px solid #b9cae8;
+        border-radius: 10px;
+        background: #f5f8ff;
+    }
+
+    .bk-drive-create-form[hidden] {
+        display: none;
+    }
+
+    .bk-drive-create-form label {
+        display: grid;
+        gap: 0.32rem;
+        color: #46556d;
+        font-size: 0.76rem;
+        font-weight: 700;
+    }
+
+    .bk-drive-create-form input {
+        min-height: 40px;
+        padding: 0.55rem 0.65rem;
+        border: 1px solid #c9d5e8;
+        border-radius: 8px;
+        background: #ffffff;
+        color: #172033;
+        font: inherit;
+    }
+
+    .bk-drive-create-form input:focus {
+        border-color: #315fca;
+        outline: 3px solid rgba(49, 95, 202, 0.14);
+    }
+
+    .bk-drive-folder {
+        width: 100%;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 0.7rem;
+        padding: 0.68rem 0.75rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 9px;
+        background: #ffffff;
+        color: #172033;
+        text-align: left;
+        cursor: pointer;
+    }
+
+    .bk-drive-folder:hover,
+    .bk-drive-folder:focus-visible {
+        border-color: #9eb6e4;
+        background: #f5f8ff;
+    }
+
+    .bk-drive-folder-icon {
+        color: #d79b20;
+        font-size: 1.05rem;
+    }
+
+    .bk-drive-folder-arrow {
+        color: #7c8ba1;
+    }
+
+    .bk-drive-picker-status {
+        min-height: 1.25rem;
+        color: #64748b;
+        font-size: 0.8rem;
+    }
+
+    .bk-drive-picker-status.is-error {
+        color: #b42318;
+    }
+
     .bk-receipt-destination {
         display: grid;
         gap: 0.28rem;
@@ -1809,6 +2019,18 @@
             max-height: none;
         }
 
+        .bk-drive-browser-toolbar {
+            flex-wrap: wrap;
+        }
+
+        .bk-drive-breadcrumbs {
+            flex-basis: calc(100% - 90px);
+        }
+
+        .bk-drive-create-form {
+            grid-template-columns: 1fr;
+        }
+
         .bk-sheet-area {
             min-height: 60vh;
         }
@@ -2241,7 +2463,7 @@
                                 <textarea id="expenseNotesInput" name="notes" placeholder="Example: Cleaning service performed July 21; paid by Zelle July 23."></textarea>
                             </label>
                         </form>
-                        <div id="expenseUploadSummary" class="bk-subtitle">AI naming follows the service date for operations and the purchase date for store receipts. Nothing in Drive changes until the normal export sync runs.</div>
+                        <div id="expenseUploadSummary" class="bk-subtitle">AI naming follows the service date for operations and the purchase date for store receipts. Nothing in Drive changes until you choose Upload to Google Drive or run the normal export sync.</div>
                         <div id="expenseUploadStatus" class="bk-upload-status"></div>
 
                         <section id="receiptOrganizerWorkspace" class="bk-receipt-review-workspace" aria-labelledby="receiptOrganizerTitle" hidden>
@@ -2297,8 +2519,8 @@
                                     </div>
                                     <p id="receiptOrganizerReviewNote" class="bk-receipt-review-note"></p>
                                     <div class="bk-form-actions">
-                                        <button id="receiptOrganizerSaveBtn" class="btn btn-secondary" type="button">Save &amp; review next</button>
-                                        <button id="receiptOrganizerApproveBtn" class="btn btn-primary" type="button">Approve &amp; review next</button>
+                                        <button id="receiptOrganizerSaveBtn" class="btn btn-secondary" type="button">Save</button>
+                                        <button id="receiptOrganizerNextBtn" class="btn btn-primary" type="button">Next</button>
                                     </div>
                                     <p class="bk-receipt-review-note">The shared sample Drive remains read-only during development and testing.</p>
                                 </form>
@@ -2311,12 +2533,61 @@
                                     <h3>Processed receipts</h3>
                                     <p>Reopen a prior receipt to adjust its proposed or approved file name.</p>
                                 </div>
-                                <button id="clearExpenseUploadsBtn" class="btn btn-secondary" type="button">Clear expense uploads</button>
+                                <div class="bk-inline-actions">
+                                    <button id="uploadReceiptsToDriveBtn" class="btn btn-primary" type="button">Upload to Google Drive</button>
+                                    <button id="clearExpenseUploadsBtn" class="btn btn-secondary" type="button">Clear expense uploads</button>
+                                </div>
                             </div>
                             <div id="expenseStepUploadsList" class="bk-stage-upload-list">
                                 <div class="bk-empty">Approved and pending receipt names will appear here.</div>
                             </div>
                         </section>
+
+                        <div id="driveUploadDialog" class="bk-drive-picker" hidden>
+                            <section class="bk-drive-picker-panel" role="dialog" aria-modal="true" aria-labelledby="driveUploadDialogTitle">
+                                <header class="bk-drive-picker-head">
+                                    <div>
+                                        <div class="bk-eyebrow">Google Drive destination</div>
+                                        <h3 id="driveUploadDialogTitle">Choose a base folder</h3>
+                                    </div>
+                                    <button id="driveUploadCloseBtn" class="btn btn-secondary" type="button" aria-label="Close Google Drive folder browser">Close</button>
+                                </header>
+                                <div class="bk-drive-picker-body">
+                                    <div id="driveUploadReadiness" class="bk-drive-readiness">
+                                        <strong>Checking receipt readiness…</strong>
+                                        <span>Only approved receipt names are uploaded.</span>
+                                    </div>
+                                    <p class="bk-drive-picker-copy">Browse the connected Drive and choose where bookkeeping should live. Cotton Candy creates the portfolio, year, month, and receipt-type folders beneath your selection.</p>
+                                    <div class="bk-drive-browser">
+                                        <div class="bk-drive-browser-toolbar">
+                                            <button id="driveFolderBackBtn" class="btn btn-secondary" type="button" disabled>Back</button>
+                                            <nav id="driveFolderBreadcrumbs" class="bk-drive-breadcrumbs" aria-label="Google Drive folder path"></nav>
+                                            <button id="driveNewFolderBtn" class="btn btn-secondary" type="button">+ New folder</button>
+                                        </div>
+                                        <form id="driveFolderCreateForm" class="bk-drive-create-form" hidden>
+                                            <label for="driveFolderNameInput">Folder name
+                                                <input id="driveFolderNameInput" name="folder_name" type="text" maxlength="150" autocomplete="off" required placeholder="Example: August receipts">
+                                            </label>
+                                            <button id="driveFolderCreateCancelBtn" class="btn btn-secondary" type="button">Cancel</button>
+                                            <button id="driveFolderCreateBtn" class="btn btn-primary" type="submit">Create folder</button>
+                                        </form>
+                                        <div id="driveFolderList" class="bk-drive-folder-list">
+                                            <div class="bk-empty">Loading your folders…</div>
+                                        </div>
+                                    </div>
+                                    <div id="driveUploadStatus" class="bk-drive-picker-status" aria-live="polite"></div>
+                                    <button id="driveUploadReconnectBtn" class="btn btn-secondary" type="button" hidden>Reconnect Google Drive</button>
+                                    <a id="driveUploadOpenFolderLink" class="btn btn-secondary" href="#" target="_blank" rel="noopener noreferrer" hidden>Open uploaded folder in Google Drive ↗</a>
+                                </div>
+                                <footer class="bk-drive-picker-footer">
+                                    <span id="driveSelectedFolderLabel" class="bk-drive-picker-copy">My Drive selected</span>
+                                    <div class="bk-inline-actions">
+                                        <button id="driveUploadCancelBtn" class="btn btn-secondary" type="button">Cancel</button>
+                                        <button id="driveUploadSubmitBtn" class="btn btn-primary" type="button">Upload receipts here</button>
+                                    </div>
+                                </footer>
+                            </section>
+                        </div>
                     </div>
                 </section>
 
@@ -2431,7 +2702,7 @@
                 </section>
             </div>
 
-            <div class="bk-modal-footer">
+            <div id="stepModalFooter" class="bk-modal-footer">
                 <div class="bk-caption">Workbook-first bookkeeping workspace</div>
                 <div class="bk-form-actions">
                     <button id="stepBackBtn" class="btn btn-secondary" type="button">Back</button>
