@@ -24,6 +24,7 @@ class FeatureAccessTests(unittest.TestCase):
         access = effective_feature_access(user())
 
         self.assertTrue(access['dashboard'])
+        self.assertTrue(access['booking_health'])
         self.assertTrue(access['listing_audit'])
         self.assertTrue(access['properties'])
         self.assertTrue(access['tickets'])

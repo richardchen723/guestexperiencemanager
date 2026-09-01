@@ -23,6 +23,13 @@ FEATURES = OrderedDict((feature['key'], feature) for feature in (
         'endpoint': 'kpi.kpi_page',
     },
     {
+        'key': 'booking_health',
+        'label': 'Booking Health',
+        'description': 'Forward occupancy compared with market performance and the same listing last year.',
+        'default_access': True,
+        'endpoint': 'booking_health.booking_health_page',
+    },
+    {
         'key': 'listing_audit',
         'label': 'Listing Health',
         'description': 'Daily channel, booking, pricing, and market health checks for every active listing.',

@@ -58,6 +58,7 @@ from dashboard.knowledge.routes import register_knowledge_routes
 from dashboard.bookkeeping.routes import register_bookkeeping_routes
 from dashboard.boost.routes import register_boost_routes
 from dashboard.kpi.routes import register_kpi_routes
+from dashboard.booking_health.routes import register_booking_health_routes
 from dashboard.listing_audit.routes import register_listing_audit_routes
 from dashboard.stay_issues.routes import register_guest_issue_routes
 from dashboard.dashboard.routes import dashboard_bp
@@ -124,6 +125,7 @@ def create_app():
     register_bookkeeping_routes(app)
     register_boost_routes(app)
     register_kpi_routes(app)
+    register_booking_health_routes(app)
     register_listing_audit_routes(app)
     register_guest_issue_routes(app)
     app.register_blueprint(dashboard_bp)

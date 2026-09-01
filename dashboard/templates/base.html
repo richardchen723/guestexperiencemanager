@@ -28,6 +28,7 @@
 >
     {% set endpoint = request.endpoint or '' %}
     {% if 'guest_issues' in endpoint %}{% set workspace_name = 'Guest issues' %}
+    {% elif 'booking_health' in endpoint %}{% set workspace_name = 'Booking health' %}
     {% elif 'listing_audit' in endpoint %}{% set workspace_name = 'Listing health' %}
     {% elif 'kpi' in endpoint %}{% set workspace_name = 'KPI' %}
     {% elif 'tickets' in endpoint %}{% set workspace_name = 'Tickets' %}
@@ -74,6 +75,12 @@
                     <a href="{{ url_for('kpi.kpi_page') }}" class="app-nav-link {% if 'kpi' in endpoint %}active{% endif %}" title="KPI">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19V3"/><path d="M2 21h20"/></svg>
                         <span>KPI</span>
+                    </a>
+                    {% endif %}
+                    {% if feature_access.booking_health %}
+                    <a href="{{ url_for('booking_health.booking_health_page') }}" class="app-nav-link {% if 'booking_health' in endpoint %}active{% endif %}" title="Booking health">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18M7 14h2M11 14h2M15 14h2M7 18h2M11 18h2"/></svg>
+                        <span>Booking health</span>
                     </a>
                     {% endif %}
                     {% if feature_access.listing_audit %}

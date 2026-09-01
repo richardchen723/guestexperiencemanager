@@ -1,0 +1,476 @@
+:root {
+    --booking-ink: #17251f;
+    --booking-muted: #65736c;
+    --booking-line: #dfe6e1;
+    --booking-surface: #ffffff;
+    --booking-soft: #f1f4f2;
+    --booking-green: #23815d;
+    --booking-green-soft: #dff1e7;
+    --booking-blue: #4f7fae;
+    --booking-orange: #d47d52;
+    --booking-red: #b74444;
+}
+
+.booking-health-page {
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: 8px 0 56px;
+    color: var(--booking-ink);
+}
+
+.booking-health-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 8px 0 20px;
+}
+
+.booking-health-header h1 {
+    margin: 0;
+    color: var(--booking-ink);
+    font-size: clamp(28px, 3vw, 38px);
+    line-height: 1.1;
+    letter-spacing: -.035em;
+}
+
+.booking-health-header p {
+    margin: 7px 0 0;
+    color: var(--booking-muted);
+    font-size: 14px;
+}
+
+.booking-health-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 9px;
+    flex-wrap: wrap;
+}
+
+.booking-health-portfolio-form {
+    display: grid;
+    gap: 5px;
+}
+
+.booking-health-portfolio-form label {
+    color: var(--booking-muted);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.booking-health-portfolio-form select {
+    min-width: 245px;
+    height: 40px;
+    padding: 0 36px 0 12px;
+    border: 1px solid var(--booking-line);
+    border-radius: 10px;
+    color: var(--booking-ink);
+    background: var(--booking-surface);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.booking-health-horizon {
+    display: inline-flex;
+    padding: 3px;
+    border: 1px solid var(--booking-line);
+    border-radius: 10px;
+    background: var(--booking-surface);
+}
+
+.booking-health-horizon button {
+    min-width: 64px;
+    height: 32px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 7px;
+    color: var(--booking-muted);
+    background: transparent;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.booking-health-horizon button[aria-pressed="true"] {
+    color: #fff;
+    background: var(--booking-green);
+}
+
+.booking-health-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 14px 2px;
+    border-top: 1px solid var(--booking-line);
+    border-bottom: 1px solid var(--booking-line);
+}
+
+.booking-health-summary p {
+    margin: 0;
+    color: var(--booking-muted);
+    font-size: 13px;
+}
+
+.booking-health-summary strong {
+    color: var(--booking-ink);
+    font-size: 15px;
+}
+
+.booking-health-summary-context {
+    text-align: right;
+}
+
+.booking-health-list-section {
+    margin-top: 18px;
+}
+
+.booking-health-list-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 0 2px 10px;
+}
+
+.booking-health-list-heading h2 {
+    margin: 0;
+    color: var(--booking-ink);
+    font-size: 16px;
+}
+
+.booking-health-list-heading p,
+.booking-health-benchmark-note {
+    margin: 4px 0 0;
+    color: var(--booking-muted);
+    font-size: 11px;
+}
+
+.booking-health-legend {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+    color: var(--booking-muted);
+    font-size: 11px;
+}
+
+.booking-health-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.booking-night-key {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    background: var(--booking-soft);
+}
+
+.booking-night-key.is-booked { background: var(--booking-green); }
+.booking-night-key.is-blocked { background: #aab3ae; }
+.booking-night-key.is-unknown { border: 1px dashed #aab3ae; background: transparent; }
+
+.booking-health-list {
+    overflow: hidden;
+    border: 1px solid var(--booking-line);
+    border-radius: 14px;
+    background: var(--booking-surface);
+    box-shadow: 0 10px 32px rgba(35, 55, 46, .045);
+}
+
+.booking-health-row {
+    display: grid;
+    grid-template-columns: minmax(165px, .72fr) minmax(320px, 1.5fr) minmax(220px, 1fr);
+    gap: 22px;
+    align-items: center;
+    padding: 18px;
+}
+
+.booking-health-row + .booking-health-row {
+    border-top: 1px solid var(--booking-line);
+}
+
+.booking-health-identity {
+    min-width: 0;
+}
+
+.booking-health-identity h3 {
+    margin: 0;
+    overflow: hidden;
+    color: var(--booking-ink);
+    font-size: 14px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.booking-health-identity > span {
+    display: block;
+    margin-top: 4px;
+    color: var(--booking-muted);
+    font-size: 11px;
+}
+
+.booking-health-gaps {
+    display: flex;
+    gap: 8px 12px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+
+.booking-health-gap {
+    font-size: 12px;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+}
+
+.booking-health-gap.is-behind { color: var(--booking-red); }
+.booking-health-gap.is-ahead { color: var(--booking-green); }
+.booking-health-gap.is-neutral { color: var(--booking-muted); }
+
+.booking-health-calendar-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 7px;
+    color: var(--booking-muted);
+    font-size: 11px;
+}
+
+.booking-health-calendar {
+    display: grid;
+    grid-template-columns: repeat(14, minmax(18px, 1fr));
+    gap: 4px;
+}
+
+.booking-health-calendar[data-horizon="7"] {
+    grid-template-columns: repeat(7, minmax(24px, 1fr));
+}
+
+.booking-health-night {
+    display: grid;
+    min-width: 0;
+    height: 30px;
+    place-items: center;
+    border-radius: 5px;
+    color: var(--booking-muted);
+    background: var(--booking-soft);
+    font-size: 10px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.booking-health-night.is-booked {
+    color: #fff;
+    background: var(--booking-green);
+}
+
+.booking-health-night.is-blocked {
+    color: #fff;
+    background: #aab3ae;
+}
+
+.booking-health-night.is-unknown {
+    border: 1px dashed #aab3ae;
+    background: transparent;
+}
+
+.booking-health-benchmarks {
+    display: grid;
+    gap: 8px;
+}
+
+.booking-health-benchmark {
+    display: grid;
+    grid-template-columns: 68px minmax(70px, 1fr) 38px;
+    gap: 8px;
+    align-items: center;
+    color: var(--booking-muted);
+    font-size: 11px;
+}
+
+.booking-health-benchmark-track {
+    height: 7px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--booking-soft);
+}
+
+.booking-health-benchmark-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--booking-orange);
+    transition: width 180ms ease;
+}
+
+.booking-health-benchmark-fill.is-market { background: var(--booking-green); }
+.booking-health-benchmark-fill.is-last-year { background: var(--booking-blue); }
+
+.booking-health-benchmark-value {
+    text-align: right;
+    color: var(--booking-ink);
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+}
+
+.booking-health-row-action {
+    grid-column: 3;
+    justify-self: end;
+    margin-top: -8px;
+}
+
+.booking-health-pricelabs {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 0 10px;
+    border: 1px solid #cfe0d6;
+    border-radius: 9px;
+    color: var(--booking-green);
+    background: #f8fbf9;
+    font-size: 11px;
+    font-weight: 750;
+    text-decoration: none;
+}
+
+.booking-health-pricelabs:hover {
+    border-color: #8ebba5;
+    color: #176446;
+    background: #eef7f1;
+}
+
+.booking-health-empty,
+.booking-health-no-data {
+    display: grid;
+    gap: 5px;
+    padding: 42px 24px;
+    border: 1px solid var(--booking-line);
+    border-radius: 14px;
+    color: var(--booking-muted);
+    background: var(--booking-surface);
+    text-align: center;
+}
+
+.booking-health-empty strong,
+.booking-health-no-data strong {
+    color: var(--booking-ink);
+}
+
+.booking-health-empty span,
+.booking-health-no-data p {
+    margin: 0;
+    font-size: 12px;
+}
+
+@media (max-width: 1100px) {
+    .booking-health-row {
+        grid-template-columns: minmax(145px, .65fr) minmax(280px, 1.4fr) minmax(200px, 1fr);
+        gap: 16px;
+    }
+
+    .booking-health-calendar {
+        gap: 3px;
+    }
+}
+
+@media (max-width: 900px) {
+    .booking-health-header,
+    .booking-health-list-heading {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .booking-health-row {
+        grid-template-columns: minmax(150px, .55fr) minmax(0, 1.45fr);
+    }
+
+    .booking-health-benchmarks {
+        grid-column: 1 / -1;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+    }
+
+    .booking-health-benchmark {
+        grid-template-columns: 1fr 38px;
+    }
+
+    .booking-health-benchmark-track {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
+
+    .booking-health-row-action {
+        grid-column: 1 / -1;
+    }
+
+    .booking-health-legend {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 640px) {
+    .booking-health-page {
+        padding-top: 0;
+    }
+
+    .booking-health-controls,
+    .booking-health-portfolio-form,
+    .booking-health-portfolio-form select,
+    .booking-health-horizon {
+        width: 100%;
+    }
+
+    .booking-health-horizon button {
+        flex: 1;
+    }
+
+    .booking-health-summary {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .booking-health-summary-context {
+        text-align: left;
+    }
+
+    .booking-health-row {
+        grid-template-columns: 1fr;
+        gap: 14px;
+        padding: 16px;
+    }
+
+    .booking-health-calendar {
+        grid-template-columns: repeat(7, minmax(28px, 1fr));
+    }
+
+    .booking-health-benchmarks {
+        grid-column: 1;
+        grid-template-columns: 1fr;
+    }
+
+    .booking-health-benchmark {
+        grid-template-columns: 68px minmax(70px, 1fr) 38px;
+    }
+
+    .booking-health-benchmark-track {
+        grid-column: auto;
+        grid-row: auto;
+    }
+
+    .booking-health-row-action {
+        grid-column: 1;
+        justify-self: start;
+        margin-top: -2px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .booking-health-benchmark-fill { transition: none; }
+}

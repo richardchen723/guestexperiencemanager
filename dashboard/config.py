@@ -192,6 +192,7 @@ PRICELABS_API_KEY = os.getenv("PRICELABS_API_KEY")
 PRICELABS_ACCOUNT_ID = os.getenv("PRICELABS_ACCOUNT_ID")
 PRICELABS_BASE_URL = os.getenv("PRICELABS_BASE_URL") or "https://api.pricelabs.co/v1"
 PRICELABS_PMS_NAME = os.getenv("PRICELABS_PMS_NAME") or "hostaway"
+PRICELABS_APP_URL = os.getenv("PRICELABS_APP_URL") or "https://app.pricelabs.co"
 BRAIN_EMAIL_FROM = os.getenv("BRAIN_EMAIL_FROM")
 SMTP_HOST = os.getenv("SMTP_HOST")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))

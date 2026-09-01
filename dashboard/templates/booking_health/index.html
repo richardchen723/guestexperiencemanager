@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Booking Health - Hostaway Insights{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/booking-health.css', v='20260901-1') }}">
+{% endblock %}
+
+{% block content %}
+<div class="booking-health-page" id="bookingHealthPage">
+    <header class="booking-health-header">
+        <div>
+            <h1>Booking health</h1>
+            <p>Listings trailing the market or their own performance last year.</p>
+        </div>
+        <div class="booking-health-controls">
+            <form method="get" class="booking-health-portfolio-form">
+                <label for="bookingHealthPortfolio">Portfolio</label>
+                <select id="bookingHealthPortfolio" name="portfolio">
+                    <option value="all" {% if booking_health.scope.selected == 'all' %}selected{% endif %}>All portfolios · {{ booking_health.scope.total_property_count }} listings</option>
+                    {% for portfolio in booking_health.scope.portfolios %}
+                    <option value="{{ portfolio.name }}" {% if booking_health.scope.selected == portfolio.name %}selected{% endif %}>{{ portfolio.name }} · {{ portfolio.property_count }} listings</option>
+                    {% endfor %}
+                </select>
+            </form>
+            <div class="booking-health-horizon" role="group" aria-label="Comparison horizon">
+                <button type="button" data-booking-horizon="7" aria-pressed="false">7 days</button>
+                <button type="button" data-booking-horizon="14" aria-pressed="true">14 days</button>
+            </div>
+        </div>
+    </header>
+
+    {% if booking_health.has_data %}
+    <section class="booking-health-summary" aria-live="polite">
+        <p><strong id="bookingHealthSummaryCount">—</strong> <span id="bookingHealthSummaryText">listings are underperforming</span></p>
+        <p class="booking-health-summary-context">
+            Ranked by largest occupancy gap · {{ booking_health.threshold_points | round | int }}+ points below market or last year
+        </p>
+    </section>
+
+    <section class="booking-health-list-section" aria-labelledby="bookingHealthListTitle">
+        <div class="booking-health-list-heading">
+            <div>
+                <h2 id="bookingHealthListTitle">Underperforming listings</h2>
+                <p id="bookingHealthFreshness">
+                    Calendar snapshot {{ booking_health.snapshot_date }}
+                    {% if booking_health.updated_at %}· updated {{ booking_health.updated_at[:16] | replace('T', ' ') }} UTC{% endif %}
+                </p>
+            </div>
+            <div class="booking-health-legend" aria-label="Calendar legend">
+                <span><i class="booking-night-key is-booked" aria-hidden="true"></i>Booked</span>
+                <span><i class="booking-night-key is-open" aria-hidden="true"></i>Open</span>
+                <span><i class="booking-night-key is-blocked" aria-hidden="true"></i>Blocked</span>
+                <span><i class="booking-night-key is-unknown" aria-hidden="true"></i>No data</span>
+            </div>
+        </div>
+
+        <div class="booking-health-list" id="bookingHealthList"></div>
+        <div class="booking-health-empty" id="bookingHealthEmpty" hidden>
+            <strong>No listings cross the underperformance threshold.</strong>
+            <span>The selected portfolio is keeping pace with both available benchmarks for this horizon.</span>
+        </div>
+        <p class="booking-health-benchmark-note" id="bookingHealthBenchmarkNote"></p>
+    </section>
+    {% else %}
+    <section class="booking-health-no-data">
+        <strong>Booking-health comparisons are not available yet.</strong>
+        <p>{{ booking_health.reason }}</p>
+    </section>
+    {% endif %}
+</div>
+
+<script type="application/json" id="bookingHealthData">{{ booking_health | tojson }}</script>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/booking-health.js', v='20260901-1') }}"></script>
+{% endblock %}
