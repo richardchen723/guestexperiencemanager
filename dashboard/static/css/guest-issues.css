@@ -154,6 +154,19 @@
 .issue-filter-reset { min-width: 0; min-height: 38px; padding: 0 13px; border: 1px solid #cbd8d1; border-radius: 9px; color: #526159; background: #fff; font: inherit; font-size: 9px; font-weight: 800; cursor: pointer; transition: .16s ease; }
 .issue-filter-reset:hover:not(:disabled) { color: var(--issue-green); border-color: #8eb6a4; background: #f7fbf9; }
 .issue-filter-reset:disabled { cursor: default; opacity: .48; }
+.issue-report-count { display: inline-flex; gap: 4px; align-items: baseline; margin-top: 8px; padding: 3px 7px; border-radius: 6px; color: var(--issue-muted); background: var(--issue-soft); font-size: 10px; }
+.issue-report-count.is-recurring { color: var(--issue-green-dark); background: var(--issue-mint); }
+.issue-report-count strong { font-size: 12px; }
+.issue-report-history { margin-bottom: 14px; border: 1px solid var(--issue-line); border-radius: 8px; }
+.issue-report-history > summary { display: flex; justify-content: space-between; padding: 10px; color: var(--issue-green); font-size: 11px; font-weight: 750; cursor: pointer; }
+.issue-report-history > summary span { color: var(--issue-muted); font-weight: 500; }
+.issue-report-explanation { margin: 0 10px 8px; color: var(--issue-muted); font-size: 10px; }
+.issue-report-entry { margin: 0 10px; padding: 10px 0; border-top: 1px solid var(--issue-line); }
+.issue-report-entry > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px; color: var(--issue-muted); font-size: 10px; }
+.issue-report-entry small { color: var(--issue-subtle); font-size: 9px; }
+.issue-report-entry h6 { margin: 6px 0; font-size: 11px; }
+.issue-report-entry p { margin: 4px 0; color: var(--issue-muted); font-size: 11px; line-height: 1.5; }
+.issue-report-entry a { display: inline-block; margin: 4px 8px 0 0; color: var(--issue-green); font-size: 10px; }
 
 .portfolio-issue-list { display: grid; gap: 12px; margin-top: 20px; }
 .portfolio-issue-section { overflow: hidden; border: 1px solid var(--issue-line); border-radius: 14px; background: #f8faf8; }

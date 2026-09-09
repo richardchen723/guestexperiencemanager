@@ -11,6 +11,7 @@ from brain.models import (
     PropertyGuestIssueNote,
     get_session as get_brain_session,
 )
+from dashboard.stay_issues.grouping import group_issue_reports, representative_issue, report_count
 
 
 ACTIVE_TICKET_STATUSES = {"Open", "Assigned", "In Progress", "Blocked"}
@@ -55,6 +56,8 @@ def get_issue_context(issue_id: int, *, session=None) -> dict[str, Any] | None:
         ).first()
         if not issue:
             return None
+        reports = _get_issue_reports(session, issue_id)
+        issue = representative_issue(reports)
         return {
             "issue_id": issue.issue_id,
             "listing_id": issue.listing_id,
@@ -67,11 +70,12 @@ def get_issue_context(issue_id: int, *, session=None) -> dict[str, Any] | None:
             "details": issue.details,
             "severity": issue.severity,
             "workflow_status": issue.workflow_status or "open",
-            "operational_status": issue_operational_status(issue),
-            "priority": issue_priority(issue),
+            "operational_status": group_operational_status(reports),
+            "priority": issue_priority(group_priority_issue(reports)),
             "linked_ticket_id": issue.linked_ticket_id,
             "resolved_at": issue.resolved_at,
-            "references": list(issue.source_references or []),
+            "report_count": report_count(reports),
+            "references": [ref for row in reports for ref in (row.source_references or [])],
         }
     finally:
         if owns_session:
@@ -105,7 +109,8 @@ def resolve_issue(
     owns_session = session is None
     session = session or get_brain_session()
     try:
-        issue = _get_issue_for_update(session, issue_id)
+        reports = _get_issue_reports(session, issue_id, for_update=True)
+        issue = representative_issue(reports)
         if issue.linked_ticket_id:
             raise GuestIssueWorkflowError(
                 "This issue is tied to a ticket. Close the ticket to resolve it.",
@@ -115,13 +120,14 @@ def resolve_issue(
             raise GuestIssueWorkflowError("This issue is already resolved.", status_code=409)
 
         resolved_at = now or datetime.utcnow()
-        issue.workflow_status = "resolved"
-        issue.operational_status = "resolved"
-        issue.resolution_comment = note
-        issue.resolution_method = "quick"
-        issue.resolved_at = resolved_at
-        issue.resolved_by_user_id = user_id
-        issue.updated_at = resolved_at
+        for report in reports:
+            report.workflow_status = "resolved"
+            report.operational_status = "resolved"
+            report.resolution_comment = note
+            report.resolution_method = "quick"
+            report.resolved_at = resolved_at
+            report.resolved_by_user_id = user_id
+            report.updated_at = resolved_at
         _append_issue_note(
             session,
             issue_id=issue.issue_id,
@@ -166,6 +172,11 @@ def issue_reported_at(issue: PropertyGuestIssue) -> datetime:
     return datetime.min
 
 
+def group_priority_issue(reports: list[PropertyGuestIssue]) -> PropertyGuestIssue:
+    """Preserve the highest existing priority until the group is reprioritized."""
+    return min(reports, key=lambda row: (ISSUE_PRIORITY_ORDER[issue_priority(row)], row.issue_id))
+
+
 def change_issue_priority(
     issue_id: int,
     *,
@@ -182,16 +193,18 @@ def change_issue_priority(
     owns_session = session is None
     session = session or get_brain_session()
     try:
-        issue = _get_issue_for_update(session, issue_id)
-        previous = issue_priority(issue)
-        if previous == normalized:
+        reports = _get_issue_reports(session, issue_id, for_update=True)
+        issue = representative_issue(reports)
+        previous = issue_priority(group_priority_issue(reports))
+        if all(issue_priority(row) == normalized for row in reports):
             return issue, None
 
         changed_at = now or datetime.utcnow()
-        issue.priority = normalized
-        issue.priority_updated_at = changed_at
-        issue.priority_updated_by_user_id = user_id
-        issue.updated_at = changed_at
+        for report in reports:
+            report.priority = normalized
+            report.priority_updated_at = changed_at
+            report.priority_updated_by_user_id = user_id
+            report.updated_at = changed_at
         activity = _append_issue_note(
             session,
             issue_id=issue.issue_id,
@@ -210,6 +223,14 @@ def change_issue_priority(
     finally:
         if owns_session:
             session.close()
+
+
+def group_operational_status(reports: list[PropertyGuestIssue]) -> str:
+    issue = representative_issue(reports)
+    if issue.linked_ticket_id or issue.workflow_status == "resolved":
+        return issue_operational_status(issue)
+    priority = {"need_attention": 0, "scheduled": 1, "in_progress": 2, "stuck": 3}
+    return max((issue_operational_status(row) for row in reports), key=priority.__getitem__)
 
 
 def change_issue_status(
@@ -238,7 +259,8 @@ def change_issue_status(
     owns_session = session is None
     session = session or get_brain_session()
     try:
-        issue = _get_issue_for_update(session, issue_id)
+        reports = _get_issue_reports(session, issue_id, for_update=True)
+        issue = representative_issue(reports)
         if (issue.workflow_status or "open") == "resolved":
             raise GuestIssueWorkflowError("This issue is already resolved.", status_code=409)
         if issue.linked_ticket_id:
@@ -247,10 +269,11 @@ def change_issue_status(
                 status_code=409,
             )
 
-        previous = issue_operational_status(issue)
+        previous = group_operational_status(reports)
         changed_at = now or datetime.utcnow()
-        issue.operational_status = normalized
-        issue.updated_at = changed_at
+        for report in reports:
+            report.operational_status = normalized
+            report.updated_at = changed_at
         activity = None
         supplied_note = str(note or "").strip()
         if previous != normalized or supplied_note:
@@ -292,7 +315,7 @@ def add_issue_note(
     owns_session = session is None
     session = session or get_brain_session()
     try:
-        issue = _get_issue_for_update(session, issue_id)
+        issue = representative_issue(_get_issue_reports(session, issue_id, for_update=True))
         created_at = now or datetime.utcnow()
         activity = _append_issue_note(
             session,
@@ -349,7 +372,8 @@ def link_issue_to_ticket(
     owns_session = session is None
     session = session or get_brain_session()
     try:
-        issue = _get_issue_for_update(session, issue_id)
+        reports = _get_issue_reports(session, issue_id, for_update=True)
+        issue = representative_issue(reports)
         if issue.linked_ticket_id and issue.linked_ticket_id != ticket_id:
             raise GuestIssueWorkflowError(
                 f"This issue is already tied to ticket #{issue.linked_ticket_id}.",
@@ -358,8 +382,10 @@ def link_issue_to_ticket(
         if (issue.workflow_status or "open") == "resolved" and not issue.linked_ticket_id:
             raise GuestIssueWorkflowError("This issue is already resolved.", status_code=409)
 
-        issue.linked_ticket_id = ticket_id
-        _apply_ticket_status(issue, ticket_status=ticket_status, user_id=user_id, now=now)
+        changed_at = now or datetime.utcnow()
+        for report in reports:
+            report.linked_ticket_id = ticket_id
+            _apply_ticket_status(report, ticket_status=ticket_status, user_id=user_id, now=changed_at)
         session.commit()
         session.refresh(issue)
         return issue
@@ -383,15 +409,14 @@ def sync_issue_from_ticket_status(
     owns_session = session is None
     session = session or get_brain_session()
     try:
-        query = session.query(PropertyGuestIssue).filter(
-            PropertyGuestIssue.linked_ticket_id == ticket_id
-        )
-        if session.bind and session.bind.dialect.name == "postgresql":
-            query = query.with_for_update()
-        issue = query.first()
-        if not issue:
+        reports = _get_ticket_reports(session, ticket_id)
+        if not reports:
             return None
-        _apply_ticket_status(issue, ticket_status=ticket_status, user_id=user_id, now=now)
+        issue = representative_issue(reports)
+        changed_at = now or datetime.utcnow()
+        for report in reports:
+            report.linked_ticket_id = ticket_id
+            _apply_ticket_status(report, ticket_status=ticket_status, user_id=user_id, now=changed_at)
         session.commit()
         session.refresh(issue)
         return issue
@@ -413,23 +438,20 @@ def unlink_issue_from_ticket(
     owns_session = session is None
     session = session or get_brain_session()
     try:
-        query = session.query(PropertyGuestIssue).filter(
-            PropertyGuestIssue.linked_ticket_id == ticket_id
-        )
-        if session.bind and session.bind.dialect.name == "postgresql":
-            query = query.with_for_update()
-        issue = query.first()
-        if not issue:
+        reports = _get_ticket_reports(session, ticket_id)
+        if not reports:
             return None
+        issue = representative_issue(reports)
         changed_at = now or datetime.utcnow()
-        issue.linked_ticket_id = None
-        issue.workflow_status = "open"
-        issue.operational_status = "need_attention"
-        issue.resolution_comment = None
-        issue.resolution_method = None
-        issue.resolved_at = None
-        issue.resolved_by_user_id = None
-        issue.updated_at = changed_at
+        for report in reports:
+            report.linked_ticket_id = None
+            report.workflow_status = "open"
+            report.operational_status = "need_attention"
+            report.resolution_comment = None
+            report.resolution_method = None
+            report.resolved_at = None
+            report.resolved_by_user_id = None
+            report.updated_at = changed_at
         session.commit()
         session.refresh(issue)
         return issue
@@ -441,14 +463,32 @@ def unlink_issue_from_ticket(
             session.close()
 
 
-def _get_issue_for_update(session, issue_id: int) -> PropertyGuestIssue:
-    query = session.query(PropertyGuestIssue).filter(PropertyGuestIssue.issue_id == issue_id)
-    if session.bind and session.bind.dialect.name == "postgresql":
-        query = query.with_for_update()
-    issue = query.first()
+def _get_issue_reports(session, issue_id: int, *, for_update=False) -> list[PropertyGuestIssue]:
+    issue = session.query(PropertyGuestIssue).filter(PropertyGuestIssue.issue_id == issue_id).first()
     if not issue:
         raise GuestIssueWorkflowError("Guest issue not found.", status_code=404)
-    return issue
+    query = session.query(PropertyGuestIssue).filter(
+        PropertyGuestIssue.listing_id == issue.listing_id
+    ).order_by(PropertyGuestIssue.issue_id)
+    if for_update and session.bind and session.bind.dialect.name == "postgresql":
+        query = query.with_for_update().populate_existing()
+    for group in group_issue_reports(query.all()):
+        if any(row.issue_id == issue_id for row in group):
+            return group
+    raise GuestIssueWorkflowError("Guest issue not found.", status_code=404)
+
+
+def _get_ticket_reports(session, ticket_id: int) -> list[PropertyGuestIssue]:
+    linked = session.query(PropertyGuestIssue).filter(
+        PropertyGuestIssue.linked_ticket_id == ticket_id
+    ).order_by(PropertyGuestIssue.issue_id).all()
+    reports = {}
+    for issue in linked:
+        if issue.issue_id not in reports:
+            reports.update({row.issue_id: row for row in _get_issue_reports(
+                session, issue.issue_id, for_update=True,
+            )})
+    return list(reports.values())
 
 
 def _normalize_issue_priority(value: str | None) -> str | None:

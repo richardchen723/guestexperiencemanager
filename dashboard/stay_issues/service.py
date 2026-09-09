@@ -29,7 +29,10 @@ from dashboard.stay_issues.workflow import (
     issue_operational_status,
     issue_priority,
     issue_reported_at,
+    group_operational_status,
+    group_priority_issue,
 )
+from dashboard.stay_issues.grouping import group_issue_reports, representative_issue, report_count
 from database.models import (
     Listing,
     ListingPhoto,
@@ -191,8 +194,6 @@ class GuestIssueDashboardService:
             self.brain_session.query(PropertyGuestIssue)
             .filter(
                 PropertyGuestIssue.listing_id.in_(listing_ids or [-1]),
-                PropertyGuestIssue.source_date >= window_start.date(),
-                PropertyGuestIssue.source_date <= window_end.date(),
             )
             .order_by(PropertyGuestIssue.source_date.desc(), PropertyGuestIssue.issue_id.desc())
             .all()
@@ -229,16 +230,27 @@ class GuestIssueDashboardService:
 
         stay_by_listing: dict[int, list[Any]] = defaultdict(list)
         review_by_listing: dict[int, list[Any]] = defaultdict(list)
-        issues_by_listing: dict[int, list[Any]] = defaultdict(list)
+        issues_by_listing: dict[int, list[dict[str, Any]]] = defaultdict(list)
         notes_by_issue: dict[int, list[Any]] = defaultdict(list)
         for row in stay_analyses:
             stay_by_listing[int(row.listing_id)].append(row)
         for row in review_analyses:
             review_by_listing[int(row.listing_id)].append(row)
-        for row in issues:
-            issues_by_listing[int(row.listing_id)].append(row)
         for row in notes:
             notes_by_issue[int(row.issue_id)].append(row)
+        # Group the full history first so changing the window cannot change the
+        # issue's action target. Counts and evidence reflect the selected window.
+        for group in group_issue_reports(issues):
+            selected_reports = [
+                row for row in group
+                if window_start.date() <= row.source_date <= window_end.date()
+            ]
+            if selected_reports:
+                formatted = self._format_group(
+                    group, selected_reports, archive_cutoff=archive_cutoff,
+                    notes_by_issue=notes_by_issue, operator_names=operator_names,
+                )
+                issues_by_listing[int(group[0].listing_id)].append(formatted)
 
         portfolios: dict[str, list[dict[str, Any]]] = defaultdict(list)
         all_quality_counts = {quality: 0 for quality in QUALITY_ORDER}
@@ -248,10 +260,10 @@ class GuestIssueDashboardService:
         properties_with_selected_issues = 0
         active_issue_count = ticketed_issue_count = recently_resolved_count = archived_issue_count = 0
 
-        for issue in issues:
-            workflow_status = issue.workflow_status or "open"
+        for issue in (row for rows in issues_by_listing.values() for row in rows):
+            workflow_status = issue["workflow_status"]
             if workflow_status == "resolved":
-                if issue.resolved_at and issue.resolved_at < archive_cutoff:
+                if issue["is_archived"]:
                     archived_issue_count += 1
                 else:
                     recently_resolved_count += 1
@@ -272,24 +284,18 @@ class GuestIssueDashboardService:
                     all_quality_counts[quality] += 1
 
             formatted_issues = []
-            for issue in issues_by_listing.get(listing_id, []):
-                formatted = self._format_issue(
-                    issue,
-                    archive_cutoff=archive_cutoff,
-                    resolver_name=operator_names.get(issue.resolved_by_user_id),
-                    priority_updater_name=operator_names.get(issue.priority_updated_by_user_id),
-                    notes=notes_by_issue.get(int(issue.issue_id), []),
-                    operator_names=operator_names,
-                )
+            for formatted in issues_by_listing.get(listing_id, []):
                 if _issue_matches_view(formatted, view):
                     formatted_issues.append(formatted)
                     selected_status_counts[formatted["operational_status"]] += 1
                     selected_priority_counts[formatted["priority_key"]] += 1
-            formatted_issues = _sort_issues_by_priority(formatted_issues)
+            formatted_issues.sort(key=lambda row: (
+                -row["report_count"], -row["source_date"].toordinal(), row["issue_id"],
+            ))
             if formatted_issues:
                 properties_with_selected_issues += 1
             selected_issue_count += len(formatted_issues)
-            review_issue_count += sum(issue["source_kind"] == "review" for issue in formatted_issues)
+            review_issue_count += sum("review" in issue["source_kinds"] for issue in formatted_issues)
 
             # The issue workspace is an action queue; issue-free rentals stay out of
             # the way until a selected view contains work for them.
@@ -310,10 +316,7 @@ class GuestIssueDashboardService:
                 "quality_counts": quality_counts,
                 "search_text": " ".join(
                     [listing.internal_listing_name or listing.name or "", portfolio_name]
-                    + [
-                        issue["summary"] + " " + issue["category_label"] + " " + issue["priority"]
-                        for issue in formatted_issues
-                    ]
+                    + [issue["search_text"] for issue in formatted_issues]
                 ).lower(),
             })
 
@@ -358,6 +361,57 @@ class GuestIssueDashboardService:
             "portfolios": formatted_portfolios,
             "latest_run": _format_run(latest_run),
         }
+
+    def _format_group(self, group, selected_reports, *, archive_cutoff, notes_by_issue, operator_names):
+        representative = representative_issue(group)
+        priority_report = group_priority_issue(group)
+        notes = sorted(
+            [note for row in group for note in notes_by_issue.get(row.issue_id, [])],
+            key=lambda note: (note.created_at, note.note_id),
+        )
+        formatted = self._format_issue(
+            representative, archive_cutoff=archive_cutoff, notes=notes,
+            resolver_name=operator_names.get(representative.resolved_by_user_id),
+            operator_names=operator_names,
+        )
+        priority_fields = self._format_issue(
+            priority_report, archive_cutoff=archive_cutoff,
+            priority_updater_name=operator_names.get(priority_report.priority_updated_by_user_id),
+        )
+        formatted.update({key: value for key, value in priority_fields.items() if key.startswith("priority")})
+        reported_at = min(issue_reported_at(row) for row in group)
+        formatted.update({
+            "reported_at": reported_at,
+            "reported_at_iso": f"{reported_at.isoformat()}Z",
+            "reported_label": reported_at.strftime("%b %-d, %Y"),
+        })
+        reports = [self._format_issue(row, archive_cutoff=archive_cutoff) for row in sorted(
+            selected_reports, key=lambda row: (row.source_date, row.issue_id), reverse=True,
+        )]
+        sources = sorted({row["source_kind"] for row in reports})
+        references = {ref["url"]: ref for row in reports for ref in row["references"]}
+        formatted.update({
+            "report_count": report_count(selected_reports),
+            "reports": reports,
+            "issue_ids": sorted(row.issue_id for row in group),
+            "source_kinds": sources,
+            "source_label": "Messages & reviews" if len(sources) > 1 else reports[0]["source_label"],
+            "source_date": reports[0]["source_date"],
+            "first_reported_date": reports[-1]["source_date"],
+            "summary": reports[0]["summary"],
+            "details": reports[0]["details"],
+            "references": list(references.values()),
+            "severity": max((row.severity for row in group), key=lambda value: {
+                "minor": 0, "material": 1, "critical": 2,
+            }.get(value, 1)),
+            "search_text": " ".join(
+                row["summary"] + " " + row["category_label"] + " " + formatted["priority"] for row in reports
+            ).lower(),
+        })
+        status = group_operational_status(group)
+        formatted["operational_status"] = status
+        formatted["workflow_label"] = ISSUE_STATUS_LABELS[status]
+        return formatted
 
     def _format_issue(
         self,

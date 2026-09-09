@@ -134,6 +134,14 @@
                 const rightReported = parseReportedAt(right.dataset.reportedAt)?.getTime() || 0;
                 const originalOrder = Number(left.dataset.originalOrder || 0)
                     - Number(right.dataset.originalOrder || 0);
+                const reportDifference = Number(right.dataset.reportCount) - Number(left.dataset.reportCount);
+                const latestReportDifference = right.dataset.reportedDate.localeCompare(left.dataset.reportedDate);
+                if (sort.value === 'most_reported') {
+                    return reportDifference || latestReportDifference || originalOrder;
+                }
+                if (sort.value === 'least_reported') {
+                    return -reportDifference || latestReportDifference || originalOrder;
+                }
                 if (sort.value === 'priority_asc') {
                     return rightPriority - leftPriority || rightReported - leftReported || originalOrder;
                 }
@@ -173,7 +181,7 @@
                 const matchesSearch = !query || unit.dataset.search.includes(query);
                 let visibleIssues = 0;
                 unit.querySelectorAll('[data-issue]').forEach((issue) => {
-                    const matchesSource = !source.value || issue.dataset.source === source.value;
+                    const matchesSource = !source.value || issue.dataset.source.split(' ').includes(source.value);
                     const reportedAt = parseReportedAt(issue.dataset.reportedAt);
                     const matchesReported = range.invalid || !hasReportedFilter || Boolean(
                         reportedAt
@@ -215,7 +223,7 @@
         renderPriorityCounts(priorityCounts);
         if (resetFilters) {
             resetFilters.disabled = !Boolean(
-                filtersActive || sort.value !== 'priority_desc'
+                filtersActive || sort.value !== 'most_reported'
             );
         }
         if (empty) empty.hidden = visibleUnits > 0;
@@ -254,12 +262,39 @@
         source.value = '';
         status.value = '';
         priority.value = '';
-        sort.value = 'priority_desc';
+        sort.value = 'most_reported';
         if (reportedFrom) reportedFrom.value = '';
         if (reportedTo) reportedTo.value = '';
         setReportedPreset('');
         applyFilters();
+        persistSort();
     });
+    const persistSort = () => {
+        const url = new URL(window.location);
+        url.searchParams.set('sort', sort.value);
+        window.history.replaceState(null, '', url);
+        document.querySelectorAll('.issue-view-tabs a, .analysis-window-presets a').forEach((link) => {
+            const target = new URL(link.href);
+            target.searchParams.set('sort', sort.value);
+            link.href = target.toString();
+        });
+        if (customWindowForm) {
+            let input = customWindowForm.querySelector('[name="sort"]');
+            if (!input) {
+                input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'sort';
+                customWindowForm.append(input);
+            }
+            input.value = sort.value;
+        }
+    };
+    if (sort) {
+        const savedSort = new URLSearchParams(window.location.search).get('sort');
+        if (Array.from(sort.options).some((option) => option.value === savedSort)) sort.value = savedSort;
+        persistSort();
+        sort.addEventListener('change', persistSort);
+    }
     expandGroups?.addEventListener('click', () => {
         document.querySelectorAll('[data-portfolio-section], [data-unit]').forEach((group) => {
             if (!group.hidden) group.open = true;
@@ -560,7 +595,9 @@
 
     const focusedIssueId = new URLSearchParams(window.location.search).get('issue');
     if (focusedIssueId) {
-        const focusedIssue = document.getElementById(`issue-${focusedIssueId}`);
+        const focusedIssue = Array.from(document.querySelectorAll('[data-issue]')).find((issue) => {
+            return issue.dataset.issueIds.split(' ').includes(focusedIssueId);
+        });
         if (focusedIssue) {
             focusedIssue.open = true;
             const focusedUnit = focusedIssue.closest('[data-unit]');

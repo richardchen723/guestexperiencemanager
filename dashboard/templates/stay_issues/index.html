@@ -3,7 +3,7 @@
 {% block title %}Guest Issues · Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/guest-issues.css', v='20260829-5') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/guest-issues.css', v='20260909-1') }}">
 {% endblock %}
 
 {% block content %}
@@ -77,7 +77,7 @@
             <div>
                 <span class="section-kicker">{{ {'active': 'Current work', 'resolved': 'Last 30 days', 'archived': 'Older resolutions'}[dashboard.view] }}</span>
                 <h2>{{ {'active': 'Issues needing attention', 'resolved': 'Recently resolved issues', 'archived': 'Archived issues'}[dashboard.view] }}</h2>
-                {% if dashboard.view == 'archived' %}<p>Issues move here one calendar month after resolution and stay out of the active queue.</p>{% elif dashboard.view == 'resolved' %}<p>Resolution notes remain visible here for one calendar month.</p>{% else %}<p>Organized by portfolio and rental unit. Open the raw evidence before deciding what to do.</p>{% endif %}
+                {% if dashboard.view == 'archived' %}<p>Issues move here one calendar month after resolution and stay out of the active queue.</p>{% elif dashboard.view == 'resolved' %}<p>Resolution notes remain visible here for one calendar month.</p>{% else %}<p>Repeated reports share one issue per rental unit. Counts reflect distinct stays in the selected window.</p>{% endif %}
             </div>
             <div class="issue-filters">
                 <div class="fold-controls" aria-label="Expand or collapse issue groups">
@@ -104,7 +104,9 @@
                     <option value="medium" data-priority-label="Medium" data-priority-count="{{ dashboard.summary.priority_counts.medium }}">Medium ({{ dashboard.summary.priority_counts.medium }})</option>
                     <option value="low" data-priority-label="Low" data-priority-count="{{ dashboard.summary.priority_counts.low }}">Low ({{ dashboard.summary.priority_counts.low }})</option>
                 </select></label>
-                <label class="sort-filter"><span>Sort</span><select id="guestIssueSort">
+                <label class="sort-filter"><span>Sort</span><select id="guestIssueSort" aria-label="Sort issues within each rental unit">
+                    <option value="most_reported">Most reported</option>
+                    <option value="least_reported">Fewest reports</option>
                     <option value="priority_desc">Priority · urgent first</option>
                     <option value="priority_asc">Priority · low first</option>
                     <option value="reported_desc">Reported · newest first</option>
@@ -154,7 +156,7 @@
 
                         <div class="issue-card-list">
                             {% for issue in unit.issues %}
-                            <details class="guest-issue-card severity-{{ issue.severity }}" id="issue-{{ issue.issue_id }}" data-issue data-source="{{ issue.source_kind }}" data-status="{{ issue.operational_status }}" data-priority="{{ issue.priority_key }}" data-source-date="{{ issue.source_date.isoformat() }}" data-reported-at="{{ issue.reported_at_iso }}" data-original-order="{{ loop.index0 }}">
+                            <details class="guest-issue-card severity-{{ issue.severity }}" id="issue-{{ issue.issue_id }}" data-issue data-issue-ids="{{ issue.issue_ids|join(' ') }}" data-source="{{ issue.source_kinds|join(' ') }}" data-report-count="{{ issue.report_count }}" data-reported-date="{{ issue.source_date.isoformat() }}" data-status="{{ issue.operational_status }}" data-priority="{{ issue.priority_key }}" data-source-date="{{ issue.source_date.isoformat() }}" data-reported-at="{{ issue.reported_at_iso }}" data-original-order="{{ loop.index0 }}">
                                 <summary class="issue-card-summary">
                                     <div class="issue-card-content">
                                     <div class="issue-card-header">
@@ -165,6 +167,7 @@
                                         </div>
                                     </div>
                                     <h5>{{ issue.summary }}</h5>
+                                    <span class="issue-report-count {{ 'is-recurring' if issue.report_count > 1 else '' }}" title="Reports in the selected window. Messages and reviews from the same stay count once; reports with no stay ID count separately."><strong>{{ issue.report_count }}</strong> {{ 'report' if issue.report_count == 1 else 'reports' }}</span>
                                     <p class="issue-details">{{ issue.details }}</p>
                                     <div class="issue-card-toggle"><span>Issue details</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></div>
                                     </div>
@@ -175,6 +178,21 @@
                                         <div><small>Reported</small><strong><time datetime="{{ issue.reported_at_iso }}" data-reported-time>{{ issue.reported_label }}</time></strong></div>
                                         <p>First detected · unchanged by updates</p>
                                     </div>
+                                    {% if issue.reports|length > 1 %}
+                                    <details class="issue-report-history">
+                                        <summary>Report history <span>{{ issue.report_count }} {{ 'report' if issue.report_count == 1 else 'reports' }}</span></summary>
+                                        <p class="issue-report-explanation">Messages and reviews from the same stay count once.</p>
+                                        {% for report in issue.reports %}
+                                        <article class="issue-report-entry">
+                                            <div><strong>{{ report.source_label }}</strong><time datetime="{{ report.source_date.isoformat() }}">{{ report.source_date.strftime('%b %-d, %Y') }}</time></div>
+                                            {% if report.reservation_id %}<small>Stay #{{ report.reservation_id }}</small>{% endif %}
+                                            <h6>{{ report.summary }}</h6>
+                                            <p>{{ report.details }}</p>
+                                            {% for reference in report.references %}<a href="{{ reference.url }}">{{ reference.label }} →</a>{% endfor %}
+                                        </article>
+                                        {% endfor %}
+                                    </details>
+                                    {% endif %}
                                     <div class="issue-evidence-row">
                                         <span>Raw evidence</span>
                                         <div>{% for reference in issue.references %}<a href="{{ reference.url }}">{{ reference.label }} <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></a>{% else %}<small>Source record unavailable</small>{% endfor %}</div>
@@ -266,5 +284,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/guest-issues.js', v='20260901-1') }}"></script>
+<script src="{{ url_for('static', filename='js/guest-issues.js', v='20260909-1') }}"></script>
 {% endblock %}
