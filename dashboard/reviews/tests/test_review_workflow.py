@@ -440,11 +440,12 @@ class ReviewResolutionPolicyTests(unittest.TestCase):
             'Responded – Agreed to Remove',
             'Responded – Declined',
             'No Response',
+            'Disputed',
             'Resolved',
         ])
         self.assertEqual(
             [definition['step'] for definition in REVIEW_RESOLUTION_STAGE_DEFINITIONS],
-            ['1', '2', '3', '4', '4', '4', '5'],
+            ['1', '2', '3', '4', '4', '4', '4', '5'],
         )
 
     def test_retired_resolution_stages_are_mapped_without_losing_tickets(self):

@@ -64,6 +64,11 @@ REVIEW_RESOLUTION_STAGE_DEFINITIONS = [
         'description': 'Guest never got back to us.',
     },
     {
+        'stage': 'Disputed',
+        'step': '4',
+        'description': 'Review has been disputed with the booking platform.',
+    },
+    {
         'stage': 'Resolved',
         'step': '5',
         'description': 'Review removed or the outcome was accepted and closed.',
