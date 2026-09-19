@@ -23,6 +23,7 @@ from brain.models import (
     stable_hash,
 )
 from brain.scoring import is_confirmed_reservation_status
+from brain.guest_issue_identity import normalize_complaint_key
 from database.models import (
     Listing,
     MessageMetadata,
@@ -256,6 +257,7 @@ def normalize_stay_result(
         resolution_state = str(raw_issue.get("resolution_state") or "unclear").strip().lower()
         issues.append({
             "issue_category": _clean_label(raw_issue.get("issue_category"), "other"),
+            "complaint_key": normalize_complaint_key(raw_issue.get("complaint_key")),
             "summary": _clean_text(raw_issue.get("summary"), "Guest-reported issue", 240),
             "details": _clean_text(raw_issue.get("details"), "No additional detail supplied.", 2400),
             "suggested_improvement": _clean_text(raw_issue.get("suggested_improvement"), "", 1400),
@@ -349,6 +351,7 @@ def normalize_review_result(result: dict[str, Any], *, review_id: int) -> dict[s
         evidence_basis = str(raw_issue.get("evidence_basis") or "explicit_feedback").strip().lower()
         issues.append({
             "issue_category": _clean_label(raw_issue.get("issue_category"), "other"),
+            "complaint_key": normalize_complaint_key(raw_issue.get("complaint_key")),
             "summary": _clean_text(raw_issue.get("summary"), "Review issue", 240),
             "details": _clean_text(raw_issue.get("details"), "No additional detail supplied.", 2400),
             "suggested_improvement": _clean_text(raw_issue.get("suggested_improvement"), "", 1400),

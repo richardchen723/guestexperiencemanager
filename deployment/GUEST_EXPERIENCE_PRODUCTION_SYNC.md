@@ -40,3 +40,58 @@ Only stored analysis rows and evidence identifiers are replicated. Raw guest
 messages, stay notes, and raw public/private review text are not part of the
 replication payload. Existing production issue resolutions, operator comments,
 and ticket links are preserved on retries.
+
+## Meaning-based complaint consolidation
+
+Guest issue categories are display labels, not grouping boundaries. During the
+existing Codex analysis, the exporter now supplies `complaint_catalog` and
+`instructions.complaint_matching`. Read those instructions along with the full
+stay/review evidence. Include `complaint_key` on every new issue: reuse the
+catalog's key when the complaint concerns the same item, location, and defect,
+regardless of wording or category. For unclassified catalog reports, return the
+requested top-level `complaint_assignments` as well as `stays` and `reviews`.
+The importer validates the exported evidence hashes and preserves existing keys.
+No additional model API calls occur in the app or during page loads.
+
+Both dashboard rendering and issue actions use the saved identities. Different
+properties, separate tickets, and resolved versus active incidents remain
+separate. Reports of different problems with similar wording also remain
+separate when Codex assigns distinct identities. Reports without an identity
+continue using conservative text matching, without a category restriction.
+Counts still represent distinct stays; messages and a review from one stay
+count once.
+
+Deploy the additive `complaint_key` migration and importer on production before
+running the updated local exporter. Result replication now emits schema version
+2 so an older server refuses the payload instead of silently dropping grouping
+decisions. The updated server still accepts version 1 retries. Existing in-flight
+analysis batches can finish without new identity fields; newly exported batches
+require them.
+
+To classify existing reports without reanalyzing raw messages or changing issue
+statuses, export one property (omit `--listing-id` to include all properties with
+unclassified reports):
+
+```bash
+.venv/bin/python -m brain.guest_experience_codex export-complaints \
+  --listing-id LISTING_ID --output /tmp/complaint-batch.json
+```
+
+Have Codex read the entire packet and follow its instructions, writing a results
+file with `complaint_assignments`. Every previously unclassified report must
+receive a specific identity. Existing non-null identities must remain unchanged.
+Then import the decisions:
+
+```bash
+.venv/bin/python -m brain.guest_experience_codex import-complaints \
+  --batch /tmp/complaint-batch.json --results /tmp/complaint-results.json
+```
+
+The command returns `run_ids_to_sync`. Replicate **each** of those runs using
+`sync-production --run-id RUN_ID` with the SSH options above, including runs
+older than the current analysis window (which `--pending` does not select).
+Only identity metadata is added to existing production issues; resolution notes,
+statuses, ticket links, and guest evidence remain intact. Remove the temporary
+packets after verification. New analysis batches also classify unassigned reports
+in their properties' catalogs, so those existing identities travel with the next
+result replication.

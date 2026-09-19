@@ -153,7 +153,7 @@ def test_replication_is_idempotent_and_preserves_production_workflow():
     run = _seed_result_run(source)
     payload = GuestExperienceReplicationService(source).export_run(run.run_id)
 
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     assert "workflow_status" not in payload["issues"][0]
     first = GuestExperienceReplicationService(destination).import_payload(payload)
 

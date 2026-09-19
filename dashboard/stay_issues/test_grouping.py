@@ -61,6 +61,74 @@ def test_screenshot_reports_group_across_wording_categories_and_sources():
     assert group_issue_reports(list(reversed(reports))) == groups
 
 
+def test_identical_complaints_group_despite_unrelated_ai_categories():
+    reports = [
+        report(1, issue_category="plumbing", summary="Showerhead was missing at arrival."),
+        report(2, issue_category="shower_fixture", summary="Showerhead was missing at arrival.",
+               source_kind="review", reservation_id=201),
+    ]
+    groups = group_issue_reports(reports)
+    assert len(groups) == 1
+    assert report_count(groups[0]) == 1  # Same stay described in messages and a review.
+
+
+def test_saved_ai_identity_groups_paraphrases_across_categories_and_sources():
+    reports = [
+        report(1, summary="Water pooled around our ankles while washing.",
+               issue_category="plumbing", complaint_key="bathroom-shower-drain-blocked"),
+        report(2, summary="Shower drainage was obstructed.", source_kind="review",
+               issue_category="bathroom_maintenance", complaint_key="bathroom-shower-drain-blocked"),
+    ]
+    groups = group_issue_reports(reports)
+    assert len(groups) == 1
+    assert report_count(groups[0]) == 2
+    assert group_issue_reports(list(reversed(reports))) == groups
+
+
+def test_ai_identity_distinguishes_similar_titles_using_evidence():
+    reports = [
+        report(1, summary="Bathroom fixture was broken", details="The showerhead was damaged.",
+               complaint_key="bathroom-showerhead-broken"),
+        report(2, summary="Bathroom fixture was broken", details="The toilet seat was cracked.",
+               complaint_key="bathroom-toilet-seat-cracked"),
+    ]
+    assert len(group_issue_reports(reports)) == 2
+
+
+@pytest.mark.parametrize("overrides", [
+    {"listing_id": 102},
+    {"workflow_status": "resolved", "resolved_at": datetime(2026, 9, 2)},
+    {"linked_ticket_id": 12},
+])
+def test_ai_identity_never_crosses_property_resolution_or_ticket_boundaries(overrides):
+    reports = [report(1, complaint_key="primary-bathroom-floor-tiles-loose", linked_ticket_id=11),
+               report(2, complaint_key="primary-bathroom-floor-tiles-loose", **overrides)]
+    assert len(group_issue_reports(reports)) == 2
+
+
+def test_semantically_grouped_complaints_share_workflow_and_later_reports_stay_separate():
+    session = _session()
+    reports = [
+        report(1, summary="Water pooled around our ankles while washing.",
+               issue_category="plumbing", complaint_key="bathroom-shower-drain-blocked"),
+        report(2, summary="Shower drainage was obstructed.",
+               issue_category="shower_fixture", complaint_key="bathroom-shower-drain-blocked"),
+    ]
+    session.add_all(reports)
+    session.commit()
+    assert get_issue_context(2, session=session)["report_count"] == 2
+    change_issue_status(2, status="in_progress", user_id=7, session=session)
+    assert all(row.operational_status == "in_progress" for row in reports)
+    resolve_issue(2, comment="Drain cleared", user_id=7, session=session)
+    assert all(row.workflow_status == "resolved" for row in reports)
+    later = report(3, summary="Drain blocked again", complaint_key="bathroom-shower-drain-blocked")
+    session.add(later)
+    session.commit()
+    assert len(group_issue_reports([*reports, later])) == 2
+    assert later.workflow_status == "open"
+    session.close()
+
+
 @pytest.mark.parametrize("overrides", [
     {"listing_id": 102},
     {"summary": "Loose tiles on the kitchen floor"},
