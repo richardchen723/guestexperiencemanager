@@ -68,6 +68,13 @@ from brain.guest_experience_replication import (
     ProductionSshConfig,
 )
 from brain.scoring import is_confirmed_reservation_status
+from brain.guest_issue_identity import (
+    COMPLAINT_MATCHING_INSTRUCTIONS,
+    COMPLAINT_MATCHING_VERSION,
+    apply_complaint_assignments,
+    backfill_complaint_identities,
+    complaint_catalog,
+)
 from database.models import (
     Conversation,
     Listing,
@@ -160,9 +167,18 @@ class CodexGuestExperienceBatchService:
             exported_stays.append(prepared["payload"])
 
         exported_reviews = [prepared["payload"] for _, prepared in review_rows]
+        catalog = complaint_catalog(self.brain_session, sorted(
+            {int(reservation.listing_id) for reservation, _, _ in stay_rows}
+            | {int(review.listing_id) for review, _ in review_rows}
+        )) if exported_stays or exported_reviews else []
         details = {
             "execution_provider": CODEX_ANALYSIS_PROVIDER,
             "schema_version": BATCH_SCHEMA_VERSION,
+            "complaint_matching_version": COMPLAINT_MATCHING_VERSION,
+            "complaint_catalog_pending": [
+                {key: row[key] for key in ("source_kind", "source_issue_key", "input_hash")}
+                for row in catalog if not row["complaint_key"]
+            ],
             "exported_at": now.isoformat(),
             "stay_ids": [row["reservation_id"] for row in exported_stays],
             "review_ids": [row["review_id"] for row in exported_reviews],
@@ -203,7 +219,9 @@ class CodexGuestExperienceBatchService:
                 "stay_qualities": ["smooth", "recovered", "unresolved", "muted"],
                 "complaint_evidence": "Every stay issue must cite at least one guest message as complaint evidence.",
                 "review_evidence": "Every review issue must cite the review ID and exact public/private/rating source part.",
+                "complaint_matching": COMPLAINT_MATCHING_INSTRUCTIONS,
             },
+            "complaint_catalog": catalog,
             "stays": exported_stays,
             "reviews": exported_reviews,
             "local_results": {"muted_stays_analyzed": muted_count},
@@ -230,6 +248,22 @@ class CodexGuestExperienceBatchService:
             raise ValueError(f"Run {run_id} is not awaiting analysis (status={run.status})")
 
         details = dict(run.details or {})
+        # Validate identities before storing any analyses. Older in-flight batches
+        # retain their original contract; newly exported batches require matching.
+        if details.get("complaint_matching_version"):
+            for kind in ("stays", "reviews"):
+                for result in payload.get(kind) or []:
+                    for issue in result.get("issues") or []:
+                        if not issue.get("complaint_key"):
+                            raise ValueError("Every issue requires complaint_key; follow the batch's complaint_matching instructions")
+            expected = {
+                (row["source_kind"], row["source_issue_key"]): row["input_hash"]
+                for row in details.get("complaint_catalog_pending", [])
+            }
+            apply_complaint_assignments(
+                self.brain_session, payload.get("complaint_assignments", []), expected=expected,
+            )
+            details["complaint_assignments"] = payload.get("complaint_assignments", [])
         expected_stays = {int(value) for value in details.get("stay_ids") or []}
         expected_reviews = {int(value) for value in details.get("review_ids") or []}
         exported_at = normalize_utc(datetime.fromisoformat(details["exported_at"]))
@@ -652,6 +686,7 @@ class CodexGuestExperienceBatchService:
                 reservation_id=reservation.reservation_id,
                 source_date=reservation.departure_date,
                 issue_category=issue["issue_category"],
+                complaint_key=issue.get("complaint_key"),
                 summary=issue["summary"],
                 details=issue["details"],
                 suggested_improvement=issue["suggested_improvement"],
@@ -701,6 +736,7 @@ class CodexGuestExperienceBatchService:
                 review_id=review.review_id,
                 source_date=source_date,
                 issue_category=issue["issue_category"],
+                complaint_key=issue.get("complaint_key"),
                 summary=issue["summary"],
                 details=issue["details"],
                 suggested_improvement=issue["suggested_improvement"],
@@ -734,6 +770,12 @@ def main():
     import_parser.add_argument("--results", required=True)
     import_parser.add_argument("--batch")
     import_parser.add_argument("--cleanup", action="store_true")
+    complaint_export = subparsers.add_parser("export-complaints")
+    complaint_export.add_argument("--listing-id", type=int, action="append")
+    complaint_export.add_argument("--output", required=True)
+    complaint_import = subparsers.add_parser("import-complaints")
+    complaint_import.add_argument("--batch", required=True)
+    complaint_import.add_argument("--results", required=True)
     sync_import_parser = subparsers.add_parser("sync-import")
     sync_import_parser.add_argument("--input", default="-")
     sync_production_parser = subparsers.add_parser("sync-production")
@@ -784,6 +826,32 @@ def main():
     if args.action in {"export", "import"}:
         init_models(None)
     init_guest_experience_tables()
+    if args.action in {"export-complaints", "import-complaints"}:
+        session = get_brain_session()
+        try:
+            if args.action == "export-complaints":
+                listing_ids = args.listing_id or [row[0] for row in session.query(
+                    PropertyGuestIssue.listing_id
+                ).filter(PropertyGuestIssue.complaint_key.is_(None)).distinct().all()]
+                catalog = complaint_catalog(session, listing_ids)
+                _write_private_json(args.output, {
+                    "instructions": COMPLAINT_MATCHING_INSTRUCTIONS,
+                    "complaint_catalog": catalog,
+                    "result_shape": {"complaint_assignments": [{
+                        "source_kind": "stay or review", "source_issue_key": "copy from catalog",
+                        "input_hash": "copy from catalog", "complaint_key": "meaning-based-identity",
+                    }]},
+                })
+                print(json.dumps({"reports_exported": len(catalog), "output": args.output}))
+            else:
+                batch = json.loads(Path(args.batch).expanduser().read_text())
+                payload = json.loads(Path(args.results).expanduser().read_text())
+                print(json.dumps(backfill_complaint_identities(
+                    session, payload, batch["complaint_catalog"],
+                )))
+        finally:
+            session.close()
+        return
     if args.action in {"export", "import"}:
         service = CodexGuestExperienceBatchService()
         try:

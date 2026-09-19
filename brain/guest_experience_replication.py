@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import text
 
 from brain.guest_experience import analysis_window
+from brain.guest_issue_identity import apply_complaint_assignments, normalize_complaint_key
 from brain.models import (
     ComprehensiveStayAnalysis,
     GuestExperienceAnalysisRun,
@@ -24,7 +25,7 @@ from brain.models import (
     as_json_safe,
 )
 
-REPLICATION_SCHEMA_VERSION = 1
+REPLICATION_SCHEMA_VERSION = 2
 REPLICATION_SOURCE = "codex-local-hostaway-messages"
 SYNCABLE_RUN_STATUSES = {"completed", "partial"}
 
@@ -87,6 +88,7 @@ ISSUE_FIELDS = (
     "review_id",
     "source_date",
     "issue_category",
+    "complaint_key",
     "summary",
     "details",
     "suggested_improvement",
@@ -158,6 +160,7 @@ class GuestExperienceReplicationService:
             "stays": [_serialize_row(row, STAY_FIELDS) for row in stays],
             "reviews": [_serialize_row(row, REVIEW_FIELDS) for row in reviews],
             "issues": [_serialize_row(row, ISSUE_FIELDS) for row in issues],
+            "complaint_assignments": details.get("complaint_assignments", []),
         }
 
     def import_payload(self, payload: dict[str, Any]) -> dict[str, int | str]:
@@ -231,9 +234,15 @@ class GuestExperienceReplicationService:
                     PropertyGuestIssue.source_issue_key == source_issue_key,
                 ).first()
                 if existing:
+                    key = normalize_complaint_key(item.get("complaint_key"))
+                    if key and existing.complaint_key and existing.complaint_key != key:
+                        raise GuestExperienceReplicationError("Conflicting complaint identity on production")
+                    if key:
+                        existing.complaint_key = key
                     issues_existing += 1
                     continue
                 values = _deserialize_fields(item, ISSUE_FIELDS)
+                values["complaint_key"] = normalize_complaint_key(values.get("complaint_key"))
                 if source_kind == "stay":
                     reservation_id = int(item["reservation_id"])
                     analysis = stay_map.get(reservation_id)
@@ -252,6 +261,8 @@ class GuestExperienceReplicationService:
                     values["review_analysis_id"] = analysis.review_analysis_id
                 self.session.add(PropertyGuestIssue(**values))
                 issues_inserted += 1
+
+            apply_complaint_assignments(self.session, payload.get("complaint_assignments", []))
 
             replication_details = dict(remote_run.details or {})
             replication_details["production_replication"] = {
@@ -366,7 +377,9 @@ class GuestExperienceReplicationService:
 
     @staticmethod
     def _validate_payload(payload: dict[str, Any]):
-        if int(payload.get("schema_version") or 0) != REPLICATION_SCHEMA_VERSION:
+        # Continue accepting retries from older exporters. A v2 payload is
+        # rejected by old production code instead of silently losing identities.
+        if int(payload.get("schema_version") or 0) not in {1, REPLICATION_SCHEMA_VERSION}:
             raise GuestExperienceReplicationError(
                 f"Unsupported replication schema_version: {payload.get('schema_version')!r}"
             )

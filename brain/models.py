@@ -952,6 +952,7 @@ class PropertyGuestIssue(Base):
     review_id = Column(Integer, nullable=True, index=True)
     source_date = Column(Date, nullable=False, index=True)
     issue_category = Column(String, nullable=False, index=True)
+    complaint_key = Column(String(160), nullable=True)
     summary = Column(String, nullable=False)
     details = Column(Text, nullable=False)
     suggested_improvement = Column(Text)
@@ -1299,6 +1300,7 @@ def _migrate_guest_issue_lifecycle(conn):
     )
     columns = {row[0] for row in result.fetchall()}
     additions = (
+        ("complaint_key", "VARCHAR(160)"),
         ("workflow_status", "VARCHAR NOT NULL DEFAULT 'open'"),
         ("operational_status", "VARCHAR NOT NULL DEFAULT 'need_attention'"),
         ("priority", "VARCHAR NOT NULL DEFAULT 'Medium'"),

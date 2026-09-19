@@ -64,11 +64,6 @@ def _location(report) -> tuple[frozenset[str], frozenset[str]]:
     return rooms, frozenset(modifiers)
 
 
-def _category(report) -> str:
-    category = str(report.issue_category or "other").lower()
-    return "maintenance" if category.startswith("maintenance") else category
-
-
 def _lifecycle(report):
     if report.workflow_status != "resolved":
         return ("active",)
@@ -78,6 +73,15 @@ def _lifecycle(report):
 
 
 def _matches(left, right) -> bool:
+    # Codex compares the evidence once during analysis. Its saved complaint
+    # identity handles paraphrases independently of the display category.
+    left_key = getattr(left, "complaint_key", None)
+    right_key = getattr(right, "complaint_key", None)
+    if left_key and right_key:
+        return left_key == right_key
+
+    # Older reports retain conservative text matching until their identities
+    # have been backfilled. Category labels must never exclude candidates.
     left_rooms, left_locations = _location(left)
     right_rooms, right_locations = _location(right)
     if left_rooms and right_rooms and left_rooms != right_rooms:
@@ -97,7 +101,7 @@ def group_issue_reports(reports) -> list[list]:
     """Return deterministic groups; ambiguous reports keep their own card."""
     buckets = defaultdict(list)
     for report in reports:
-        buckets[(report.listing_id, _category(report), _lifecycle(report))].append(report)
+        buckets[(report.listing_id, _lifecycle(report))].append(report)
     result = []
     for bucket in buckets.values():
         groups = []
