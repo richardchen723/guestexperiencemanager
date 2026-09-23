@@ -870,7 +870,7 @@ class GuestExperienceAnalysisRun(Base):
 
 
 class ComprehensiveStayAnalysis(Base):
-    """Immutable, comprehensive analysis of one eligible completed stay."""
+    """Latest successful stay scan; source_metadata holds its monotonic version."""
 
     __tablename__ = "comprehensive_stay_analyses"
     __table_args__ = (
@@ -953,6 +953,8 @@ class PropertyGuestIssue(Base):
     source_date = Column(Date, nullable=False, index=True)
     issue_category = Column(String, nullable=False, index=True)
     complaint_key = Column(String(160), nullable=True)
+    dedupe_key = Column(String, nullable=True, unique=True)
+    analysis_updated_at = Column(DateTime, nullable=True)
     summary = Column(String, nullable=False)
     details = Column(Text, nullable=False)
     suggested_improvement = Column(Text)
@@ -1184,6 +1186,8 @@ def init_guest_experience_tables():
     engine = get_engine()
     with engine.begin() as conn:
         if os.getenv("DATABASE_URL"):
+            conn.execute(sqlalchemy.text("SET LOCAL lock_timeout = '5s'"))
+            conn.execute(sqlalchemy.text("SELECT pg_advisory_xact_lock(780411943)"))
             conn.execute(sqlalchemy.text(f"CREATE SCHEMA IF NOT EXISTS {BRAIN_SCHEMA}"))
         for table in (
             GuestExperienceAnalysisRun.__table__,
@@ -1301,6 +1305,8 @@ def _migrate_guest_issue_lifecycle(conn):
     columns = {row[0] for row in result.fetchall()}
     additions = (
         ("complaint_key", "VARCHAR(160)"),
+        ("dedupe_key", "VARCHAR"),
+        ("analysis_updated_at", "TIMESTAMP WITHOUT TIME ZONE"),
         ("workflow_status", "VARCHAR NOT NULL DEFAULT 'open'"),
         ("operational_status", "VARCHAR NOT NULL DEFAULT 'need_attention'"),
         ("priority", "VARCHAR NOT NULL DEFAULT 'Medium'"),
@@ -1321,6 +1327,11 @@ def _migrate_guest_issue_lifecycle(conn):
                     f"ADD COLUMN {column_name} {column_type}"
                 )
             )
+
+    conn.execute(sqlalchemy.text(
+        f"CREATE UNIQUE INDEX IF NOT EXISTS uq_guest_issue_dedupe_key "
+        f"ON {BRAIN_SCHEMA}.property_guest_issues (dedupe_key)"
+    ))
 
     conn.execute(
         sqlalchemy.text(

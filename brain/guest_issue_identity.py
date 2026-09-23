@@ -93,6 +93,10 @@ def apply_complaint_assignments(session, assignments, *, expected=None):
         if session.get_bind().dialect.name == "postgresql":
             query = query.with_for_update().populate_existing()
         row = query.first()
+        key = normalize_complaint_key(item.get("complaint_key"))
+        if row and key and row.complaint_key == key and expected is None:
+            # Production retry: a later scan may have added evidence to this issue.
+            continue
         if not row or complaint_input_hash(row) != item.get("input_hash"):
             raise ValueError("Complaint evidence changed or no longer exists; export it again")
         key = normalize_complaint_key(item.get("complaint_key"))
@@ -133,6 +137,15 @@ def backfill_complaint_identities(session, payload, catalog):
             if not run:
                 raise ValueError("Complaint analysis run no longer exists")
             details = dict(run.details or {})
+            if details.get("result_snapshot"):
+                from copy import deepcopy
+                snapshot = deepcopy(details["result_snapshot"])
+                keys = {row.source_issue_key: row.complaint_key for row in changed}
+                for issue in snapshot["issues"]:
+                    if issue["source_issue_key"] in keys:
+                        issue["complaint_key"] = keys[issue["source_issue_key"]]
+                snapshot["complaint_assignments"] = payload.get("complaint_assignments", [])
+                details["result_snapshot"] = snapshot
             details["production_sync"] = {"status": "pending", "reason": "complaint identity backfill"}
             run.details = details
         session.commit()

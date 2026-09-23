@@ -38,6 +38,9 @@ COMPREHENSIVE_STAY_PROMPT_VERSION = "guest-experience-stay-v1"
 GUEST_REVIEW_ISSUE_PROMPT_VERSION = "guest-experience-review-v1"
 ANALYSIS_LOOKBACK_MONTHS = 1
 ANALYSIS_DELAY = timedelta(hours=24)
+STAY_SCAN_LOOKBACK = timedelta(hours=72)
+REVIEW_SCAN_LOOKBACK = timedelta(hours=36)
+SCAN_TIMEZONE = ZoneInfo("America/New_York")
 DEFAULT_CHECKOUT_HOUR = 11
 GUEST_EXPERIENCE_LOCK_ID = 780_411_944
 STAY_QUALITIES = {"smooth", "recovered", "unresolved", "muted"}
@@ -131,10 +134,19 @@ def is_analysis_eligible(
     *,
     reference_time: datetime,
 ) -> bool:
-    """Require a checkout between one calendar month and 24 hours ago."""
-    window_start, window_end = analysis_window(reference_time)
+    """Include all of today's departures plus the preceding 72 elapsed hours."""
+    now = normalize_utc(reference_time)
+    today = now.replace(tzinfo=timezone.utc).astimezone(SCAN_TIMEZONE).date()
     checkout_at = scheduled_checkout_at_utc(reservation, listing)
-    return window_start <= checkout_at <= window_end
+    return reservation.departure_date == today or now - STAY_SCAN_LOOKBACK <= checkout_at <= now
+
+
+def dashboard_window(reference_time: datetime) -> tuple[datetime, datetime]:
+    """Retain a month of dashboard history, including all today's departures."""
+    now = normalize_utc(reference_time)
+    today = now.replace(tzinfo=timezone.utc).astimezone(SCAN_TIMEZONE).date()
+    # Checkout times for today's western properties can be later than the scan.
+    return calendar_months_before(now, 1), datetime.combine(today, time.max)
 
 
 def build_stay_input(
@@ -210,10 +222,12 @@ def build_stay_input(
         "payload": payload,
         "input_hash": stable_hash({
             "prompt_version": COMPREHENSIVE_STAY_PROMPT_VERSION,
-            **payload,
+            **{key: value for key, value in payload.items() if key != "analyzed_at"},
         }),
         "checkout_at": checkout_at,
-        "eligible_at": checkout_at + ANALYSIS_DELAY,
+        "eligible_at": normalize_utc(datetime.combine(
+            reservation.departure_date, time.min, tzinfo=SCAN_TIMEZONE
+        )),
         "message_count": len(message_payload),
         "guest_message_count": sum(row["direction"] == "guest" for row in message_payload),
         "message_ids": [row["message_id"] for row in message_payload],
@@ -244,6 +258,8 @@ def normalize_stay_result(
             role = str(raw_reference.get("role") or "context").strip().lower()
             if role not in {"complaint", "resolution", "context"}:
                 role = "context"
+            if role == "complaint" and source_id not in guest_message_ids:
+                role = "context"
             reference = {"source_type": "message", "source_id": source_id, "role": role}
             if reference not in references:
                 references.append(reference)
@@ -256,6 +272,7 @@ def normalize_stay_result(
         severity = str(raw_issue.get("severity") or "material").strip().lower()
         resolution_state = str(raw_issue.get("resolution_state") or "unclear").strip().lower()
         issues.append({
+            "existing_issue_key": raw_issue.get("existing_issue_key"),
             "issue_category": _clean_label(raw_issue.get("issue_category"), "other"),
             "complaint_key": normalize_complaint_key(raw_issue.get("complaint_key")),
             "summary": _clean_text(raw_issue.get("summary"), "Guest-reported issue", 240),
@@ -306,6 +323,7 @@ def build_review_input(review: Any) -> dict[str, Any]:
         "reservation_id": review.reservation_id,
         "listing_id": int(review.listing_id),
         "review_date": review.review_date.isoformat() if review.review_date else None,
+        "posted_at": getattr(review, "posted_at", None).isoformat() if getattr(review, "posted_at", None) else None,
         "channel": review.channel_name,
         "overall_rating": review.overall_rating,
         "publicReview": review.review_text,
@@ -350,6 +368,7 @@ def normalize_review_result(result: dict[str, Any], *, review_id: int) -> dict[s
         severity = str(raw_issue.get("severity") or "material").strip().lower()
         evidence_basis = str(raw_issue.get("evidence_basis") or "explicit_feedback").strip().lower()
         issues.append({
+            "existing_issue_key": raw_issue.get("existing_issue_key"),
             "issue_category": _clean_label(raw_issue.get("issue_category"), "other"),
             "complaint_key": normalize_complaint_key(raw_issue.get("complaint_key")),
             "summary": _clean_text(raw_issue.get("summary"), "Review issue", 240),

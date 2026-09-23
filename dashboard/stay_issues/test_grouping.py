@@ -296,3 +296,22 @@ def test_dashboard_counts_sorting_windows_history_and_rendering(monkeypatch):
     assert resolved["summary"]["recently_resolved_count"] == 1
     assert resolved["portfolios"][0]["units"][0]["issues"][0]["report_count"] == 2
     service.brain_session.close()
+
+
+def test_scan_history_includes_today_before_checkout_and_displays_eastern_time():
+    service = dashboard_fixture()
+    service.brain_session.add(ComprehensiveStayAnalysis(
+        listing_id=101, reservation_id=501, arrival_date=date(2026, 9, 7), departure_date=date(2026, 9, 9),
+        checkout_at=datetime(2026, 9, 9, 18), eligible_at=datetime(2026, 9, 9, 4),
+        stay_quality="smooth", summary="Smooth stay", detailed_summary="Smooth stay", issue_count=0,
+        message_count=1, guest_message_count=1, source_message_ids=[123], input_hash="test",
+        prompt_version="test", analyzed_at=datetime(2026, 9, 9, 12), source_metadata={"scan_version": 2},
+    ))
+    service.brain_session.commit()
+    dashboard = service.get_dashboard()
+    assert len(dashboard["scanned_stays"]) == 1
+    assert dashboard["scanned_stays"][0]["last_scanned"].hour == 8
+    html = render_dashboard(dashboard)
+    assert "Last scanned (Eastern)" in html
+    assert "8:00 AM EDT" in html
+    assert "Rescanned" in html

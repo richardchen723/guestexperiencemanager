@@ -269,6 +269,8 @@ class Review(Base):
     reviewer_name = Column(String)
     reviewer_picture = Column(String)
     review_date = Column(Date)
+    posted_at = Column(DateTime, nullable=True)
+    posted_at_source = Column(String, nullable=True)
     response_text = Column(Text)
     response_date = Column(Date)
     is_verified = Column(Integer, default=0)
@@ -608,6 +610,16 @@ def init_models(db_path: str):
         else:
             # For PostgreSQL, just raise the error
             raise e
+
+    # Keep the actual posting time; a date or updated_on cannot represent 36 hours.
+    with engine.begin() as conn:
+        if conn.dialect.name == 'postgresql':
+            conn.execute(sqlalchemy.text("SET LOCAL lock_timeout = '5s'"))
+        review_columns = {column['name'] for column in sqlalchemy.inspect(conn).get_columns('reviews')}
+        for name, sql_type in (('posted_at', 'TIMESTAMP'), ('posted_at_source', 'VARCHAR')):
+            if name not in review_columns:
+                conditional = 'IF NOT EXISTS ' if conn.dialect.name == 'postgresql' else ''
+                conn.execute(sqlalchemy.text(f'ALTER TABLE reviews ADD COLUMN {conditional}{name} {sql_type}'))
     
     # Create indexes for PostgreSQL (SQLite indexes are created in schema.py)
     if database_url:

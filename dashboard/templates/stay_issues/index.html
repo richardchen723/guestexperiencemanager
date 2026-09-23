@@ -3,7 +3,7 @@
 {% block title %}Guest Issues · Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/guest-issues.css', v='20260909-1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/guest-issues.css', v='20260923-1') }}">
 {% endblock %}
 
 {% block content %}
@@ -71,6 +71,21 @@
             </div>
         </div>
     </section>
+
+    {% if dashboard.scanned_stays %}
+    <details class="scan-history">
+        <summary>Scanned stays · {{ dashboard.scanned_stays|length }}</summary>
+        <div class="scan-history-table"><table>
+            <thead><tr><th>Stay</th><th>Rental unit</th><th>Checkout</th><th>Last scanned (Eastern)</th><th>Result</th></tr></thead>
+            <tbody>{% for stay in dashboard.scanned_stays %}<tr>
+                <td>#{{ stay.reservation_id }}</td><td>{{ stay.listing_name }}</td>
+                <td>{{ stay.departure_date.strftime('%b %-d, %Y') }}</td>
+                <td><time datetime="{{ stay.last_scanned.isoformat() }}">{{ stay.last_scanned.strftime('%b %-d, %Y %-I:%M %p %Z') }}</time>{% if stay.scan_version > 1 %} · Rescanned{% endif %}</td>
+                <td>{{ stay.quality|capitalize }}</td>
+            </tr>{% endfor %}</tbody>
+        </table></div>
+    </details>
+    {% endif %}
 
     <section class="issues-workspace">
         <div class="issues-workspace-heading">

@@ -39,18 +39,18 @@ _load_runtime_environment()
 from sqlalchemy import func, text
 
 from brain.guest_experience import (
-    ANALYSIS_DELAY,
-    ANALYSIS_LOOKBACK_MONTHS,
     COMPREHENSIVE_STAY_PROMPT_VERSION,
     GUEST_EXPERIENCE_LOCK_ID,
     GUEST_REVIEW_ISSUE_PROMPT_VERSION,
-    analysis_window,
     build_review_input,
     build_stay_input,
     is_analysis_eligible,
     normalize_review_result,
     normalize_stay_result,
     normalize_utc,
+    STAY_SCAN_LOOKBACK,
+    REVIEW_SCAN_LOOKBACK,
+    SCAN_TIMEZONE,
 )
 from brain.models import (
     ComprehensiveStayAnalysis,
@@ -86,6 +86,7 @@ from database.models import (
 )
 from sync.api_client import HostawayAPIClient
 from sync.sync_messages import message_id_for_payload, parse_timestamp_from_api
+from brain.guest_scan_state import RESCAN_INSTRUCTIONS, existing_issues, issue_context, merge_issue, scan_version
 
 CODEX_ANALYSIS_PROVIDER = "codex-subscription"
 BATCH_SCHEMA_VERSION = 1
@@ -101,6 +102,7 @@ class CodexGuestExperienceBatchService:
         self.main_session = main_session or get_main_session("")
         self._owns_brain_session = brain_session is None
         self._owns_main_session = main_session is None
+        self._touched_issue_keys = set()
 
     def close(self):
         if self._owns_brain_session:
@@ -119,7 +121,8 @@ class CodexGuestExperienceBatchService:
         now = normalize_utc(reference_time or _utcnow())
         max_stays = max(1, int(max_stays))
         max_reviews = max(1, int(max_reviews))
-        window_start, window_end = analysis_window(now)
+        window_start, window_end = now - STAY_SCAN_LOOKBACK, now
+        self._touched_issue_keys = set()
 
         self._lock()
         inflight_stays, inflight_reviews = self._expire_and_collect_inflight(now)
@@ -173,6 +176,7 @@ class CodexGuestExperienceBatchService:
         )) if exported_stays or exported_reviews else []
         details = {
             "execution_provider": CODEX_ANALYSIS_PROVIDER,
+            "scan_policy_version": 2,
             "schema_version": BATCH_SCHEMA_VERSION,
             "complaint_matching_version": COMPLAINT_MATCHING_VERSION,
             "complaint_catalog_pending": [
@@ -186,6 +190,10 @@ class CodexGuestExperienceBatchService:
                 str(reservation.reservation_id): prepared["input_hash"]
                 for reservation, _, prepared in stay_rows
                 if prepared["guest_message_count"] > 0
+            },
+            "previous_stay_hashes": {
+                str(reservation.reservation_id): prepared.get("previous_input_hash")
+                for reservation, _, prepared in stay_rows
             },
             "review_input_hashes": {
                 str(review.review_id): prepared["input_hash"]
@@ -201,8 +209,11 @@ class CodexGuestExperienceBatchService:
         run.stays_already_analyzed = stay_meta["already_analyzed"]
         run.reviews_already_analyzed = review_meta["already_analyzed"]
         run.details = as_json_safe(details)
+        run.details = dict(run.details) | {"touched_issue_keys": sorted(self._touched_issue_keys)}
         if run.status == "completed":
             run.completed_at = _utcnow()
+            if muted_count:
+                GuestExperienceReplicationService(self.brain_session).seal_run(run.run_id)
         self.brain_session.commit()
 
         return {
@@ -212,14 +223,18 @@ class CodexGuestExperienceBatchService:
             "window": {
                 "start_at": window_start.isoformat(),
                 "end_at": window_end.isoformat(),
-                "checkout_delay_hours": 24,
-                "lookback_calendar_months": ANALYSIS_LOOKBACK_MONTHS,
+                "checkout_delay_hours": 0,
+                "stay_lookback_hours": 72,
+                "include_departures_today": True,
+                "review_lookback_hours": 36,
+                "timezone": "America/New_York",
             },
             "instructions": {
                 "stay_qualities": ["smooth", "recovered", "unresolved", "muted"],
                 "complaint_evidence": "Every stay issue must cite at least one guest message as complaint evidence.",
                 "review_evidence": "Every review issue must cite the review ID and exact public/private/rating source part.",
                 "complaint_matching": COMPLAINT_MATCHING_INSTRUCTIONS,
+                "rescanning": RESCAN_INSTRUCTIONS,
             },
             "complaint_catalog": catalog,
             "stays": exported_stays,
@@ -232,6 +247,13 @@ class CodexGuestExperienceBatchService:
         }
 
     def import_results(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return self._import_results(payload)
+        except Exception:
+            self.brain_session.rollback()
+            raise
+
+    def _import_results(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Validate and import one Codex-produced batch result."""
         if int(payload.get("schema_version") or 0) != RESULT_SCHEMA_VERSION:
             raise ValueError(f"Unsupported result schema_version: {payload.get('schema_version')!r}")
@@ -239,6 +261,7 @@ class CodexGuestExperienceBatchService:
         now = _utcnow()
 
         self._lock()
+        self._touched_issue_keys = set()
         run = self.brain_session.query(GuestExperienceAnalysisRun).filter(
             GuestExperienceAnalysisRun.run_id == run_id
         ).first()
@@ -281,6 +304,8 @@ class CodexGuestExperienceBatchService:
             raise ValueError("Result contains a reservation that was not exported in this run")
         if set(review_results) - expected_reviews:
             raise ValueError("Result contains a review that was not exported in this run")
+        if set(stay_results) != expected_stays or set(review_results) != expected_reviews:
+            raise ValueError("Return every exported stay and review; incomplete batches are not marked scanned")
 
         reservations = {
             int(row.reservation_id): row
@@ -317,11 +342,7 @@ class CodexGuestExperienceBatchService:
             reservation = reservations.get(reservation_id)
             raw_result = stay_results.get(reservation_id)
             if not reservation or not raw_result:
-                errors += 1
-                continue
-            if self._stay_exists(reservation_id):
-                already_analyzed += 1
-                continue
+                raise ValueError("An exported reservation or result is missing")
             prepared = build_stay_input(
                 reservation,
                 listings.get(int(reservation.listing_id)),
@@ -330,13 +351,18 @@ class CodexGuestExperienceBatchService:
             )
             expected_hash = (details.get("stay_input_hashes") or {}).get(str(reservation_id))
             if expected_hash != prepared["input_hash"]:
-                errors += 1
-                continue
+                raise ValueError("Stay evidence changed since export; export a fresh batch")
+            previous = self.brain_session.query(ComprehensiveStayAnalysis).filter_by(reservation_id=reservation_id).first()
+            previous_hash = (details.get("previous_stay_hashes") or {}).get(str(reservation_id))
+            if (previous.input_hash if previous else None) != previous_hash:
+                raise ValueError("Stay was scanned by another batch; export a fresh batch")
             directions = {
                 message["message_id"]: message["direction"]
                 for message in prepared["payload"]["messages"]
             }
             normalized = normalize_stay_result(raw_result, valid_messages=directions)
+            if len(normalized["issues"]) != len(raw_result.get("issues") or []):
+                raise ValueError("Every stay issue must cite a valid guest complaint message")
             self._store_stay(
                 run_id,
                 reservation,
@@ -356,17 +382,17 @@ class CodexGuestExperienceBatchService:
             review = reviews.get(review_id)
             raw_result = review_results.get(review_id)
             if not review or not raw_result:
-                errors += 1
-                continue
+                raise ValueError("An exported review or result is missing")
             if self._review_exists(review_id):
                 already_analyzed += 1
                 continue
             prepared = build_review_input(review)
             expected_hash = (details.get("review_input_hashes") or {}).get(str(review_id))
             if expected_hash != prepared["input_hash"]:
-                errors += 1
-                continue
+                raise ValueError("Review evidence changed since export; export a fresh batch")
             normalized = normalize_review_result(raw_result, review_id=review_id)
+            if len(normalized["issues"]) != len(raw_result.get("issues") or []):
+                raise ValueError("Every review issue must cite valid review evidence")
             self._store_review(
                 run_id,
                 review,
@@ -383,6 +409,7 @@ class CodexGuestExperienceBatchService:
         run.reviews_analyzed = int(run.reviews_analyzed or 0) + analyzed_reviews
         run.error_count = errors
         details["imported_at"] = now.isoformat()
+        details["touched_issue_keys"] = sorted(self._touched_issue_keys | set(details.get("touched_issue_keys", [])))
         details["import"] = {
             "stays_analyzed": analyzed_stays,
             "reviews_analyzed": analyzed_reviews,
@@ -391,6 +418,8 @@ class CodexGuestExperienceBatchService:
         }
         run.details = as_json_safe(details)
         run.completed_at = now
+        self.brain_session.flush()
+        GuestExperienceReplicationService(self.brain_session).seal_run(run_id)
         self.brain_session.commit()
         return {
             "status": run.status,
@@ -425,71 +454,70 @@ class CodexGuestExperienceBatchService:
         self.brain_session.flush()
         return stay_ids, review_ids
 
+    def _retry_ids(self, kind):
+        identifiers = set()
+        for run in self.brain_session.query(GuestExperienceAnalysisRun).filter(
+            GuestExperienceAnalysisRun.status.in_(("expired", "partial"))
+        ).all():
+            if (run.details or {}).get("scan_policy_version") == 2:
+                identifiers.update(set((run.details or {}).get(kind, [])) - set((run.details or {}).get("retried_" + kind, [])))
+        return identifiers
+
+    def _finish_retry(self, kind, identifier):
+        for run in self.brain_session.query(GuestExperienceAnalysisRun).filter(
+            GuestExperienceAnalysisRun.status.in_(("expired", "partial"))
+        ).all():
+            details = dict(run.details or {})
+            if identifier in details.get(kind, []):
+                details["retried_" + kind] = sorted(set(details.get("retried_" + kind, [])) | {identifier})
+                run.details = details
+
     def _eligible_stays(self, now: datetime, *, excluded_ids: set[int], limit: int):
-        window_start, _ = analysis_window(now)
-        candidates = (
-            self.main_session.query(Reservation)
-            .filter(
-                Reservation.arrival_date.isnot(None),
-                Reservation.departure_date.isnot(None),
-                Reservation.departure_date >= window_start.date(),
-                Reservation.departure_date <= now.date(),
-            )
-            .order_by(Reservation.departure_date.asc(), Reservation.reservation_id.asc())
-            .all()
-        )
-        candidates = [row for row in candidates if is_confirmed_reservation_status(row.status)]
-        listing_ids = {int(row.listing_id) for row in candidates}
-        listings = {
-            int(row.listing_id): row
-            for row in self.main_session.query(Listing)
-            .filter(Listing.listing_id.in_(listing_ids or [-1]))
-            .all()
-        }
-        eligible = [
-            row for row in candidates
-            if is_analysis_eligible(row, listings.get(int(row.listing_id)), reference_time=now)
-        ]
-        eligible_ids = [int(row.reservation_id) for row in eligible]
-        existing_ids = {
-            int(row[0]) for row in self.brain_session.query(ComprehensiveStayAnalysis.reservation_id)
-            .filter(ComprehensiveStayAnalysis.reservation_id.in_(eligible_ids or [-1]))
-            .all()
-        }
-        pending = [
-            row for row in eligible
-            if int(row.reservation_id) not in existing_ids and int(row.reservation_id) not in excluded_ids
-        ][:limit]
-        self._hydrate_pending_messages(pending)
-        pending_ids = [int(row.reservation_id) for row in pending]
-        messages = (
-            self.main_session.query(MessageMetadata)
-            .filter(MessageMetadata.reservation_id.in_(pending_ids or [-1]))
-            .order_by(MessageMetadata.reservation_id, MessageMetadata.created_at, MessageMetadata.message_id)
-            .all()
-        )
-        grouped: dict[int, list[Any]] = defaultdict(list)
-        for message in messages:
-            grouped[int(message.reservation_id)].append(message)
-        rows = []
-        for reservation in pending:
-            listing = listings.get(int(reservation.listing_id))
-            rows.append((
-                reservation,
-                listing,
-                build_stay_input(
-                    reservation,
-                    listing,
-                    grouped.get(int(reservation.reservation_id), []),
-                    analyzed_at=now,
-                ),
-            ))
-        return rows, {
-            "eligible": len(eligible),
-            "already_analyzed": len(existing_ids),
-            "inflight": len(set(eligible_ids) & excluded_ids),
-            "exported_or_local": len(pending),
-            "backlog": max(len(eligible) - len(existing_ids) - len(set(eligible_ids) & excluded_ids) - len(pending), 0),
+        retry_ids = self._retry_ids("stay_ids")
+        today = now.replace(tzinfo=timezone.utc).astimezone(SCAN_TIMEZONE).date()
+        candidates = self.main_session.query(Reservation).filter(
+            Reservation.arrival_date.isnot(None), Reservation.departure_date.isnot(None),
+            ((Reservation.departure_date >= (now - STAY_SCAN_LOOKBACK).date() - timedelta(days=1))
+             & (Reservation.departure_date <= today)) | Reservation.reservation_id.in_(retry_ids or [-1]),
+        ).order_by(Reservation.departure_date, Reservation.reservation_id).all()
+        listings = {row.listing_id: row for row in self.main_session.query(Listing).filter(
+            Listing.listing_id.in_({row.listing_id for row in candidates} or [-1])
+        ).all()}
+        eligible = [row for row in candidates if is_confirmed_reservation_status(row.status)
+                    and str(getattr(listings.get(row.listing_id), "status", "")).lower() != "deleted"
+                    and (row.reservation_id in retry_ids or is_analysis_eligible(
+                        row, listings.get(row.listing_id), reference_time=now))]
+        # Refresh BEFORE comparing message IDs. New support replies matter too.
+        available = [row for row in eligible if row.reservation_id not in excluded_ids]
+        self._hydrate_pending_messages(available)
+        grouped = defaultdict(list)
+        for message in self.main_session.query(MessageMetadata).filter(
+            MessageMetadata.reservation_id.in_([row.reservation_id for row in available] or [-1])
+        ).all():
+            grouped[message.reservation_id].append(message)
+        previous = {row.reservation_id: row for row in self.brain_session.query(ComprehensiveStayAnalysis).filter(
+            ComprehensiveStayAnalysis.reservation_id.in_([row.reservation_id for row in available] or [-1])
+        ).all()}
+        pending, unchanged = [], 0
+        for reservation in available:
+            listing = listings.get(reservation.listing_id)
+            prepared = build_stay_input(reservation, listing, grouped[reservation.reservation_id], analyzed_at=now)
+            prior = previous.get(reservation.reservation_id)
+            new_ids = set(prepared["message_ids"]) - set(prior.source_message_ids or []) if prior else set(prepared["message_ids"])
+            if prior and not new_ids:
+                unchanged += 1
+                self._finish_retry("stay_ids", reservation.reservation_id)
+                continue
+            prepared["previous_input_hash"] = prior.input_hash if prior else None
+            prepared["payload"]["new_message_ids"] = sorted(new_ids)
+            prepared["payload"]["previous_scan_at"] = prior.analyzed_at.isoformat() if prior else None
+            prepared["payload"]["existing_issues"] = issue_context(existing_issues(
+                self.brain_session, reservation.listing_id, reservation.reservation_id))
+            pending.append((reservation, listing, prepared))
+        return pending[:limit], {
+            "eligible": len(eligible), "already_analyzed": unchanged,
+            "inflight": len(eligible) - len(available), "exported_or_local": min(limit, len(pending)),
+            "backlog": max(len(pending) - limit, 0),
         }
 
     def _hydrate_pending_messages(self, reservations: list[Reservation]):
@@ -498,10 +526,18 @@ class CodexGuestExperienceBatchService:
             return
         client = HostawayAPIClient()
         for reservation in reservations:
-            conversation_payloads = client.get_conversations(
-                reservation_id=int(reservation.reservation_id),
-                limit=500,
-            )
+            conversation_payloads = []
+            offset = 0
+            while True:
+                page = client.get_conversations_page(
+                    reservation_id=int(reservation.reservation_id), limit=100, offset=offset,
+                )
+                if page is None:
+                    raise RuntimeError(f"Conversation refresh failed for stay {reservation.reservation_id}")
+                conversation_payloads.extend(page)
+                if len(page) < 100:
+                    break
+                offset += 100
             for conversation_payload in conversation_payloads:
                 conversation_id = conversation_payload.get("id")
                 if conversation_id is None:
@@ -578,61 +614,28 @@ class CodexGuestExperienceBatchService:
         self.main_session.commit()
 
     def _eligible_reviews(self, now: datetime, *, excluded_ids: set[int], limit: int):
-        window_start, _ = analysis_window(now)
-        reviews = (
-            self.main_session.query(Review)
-            .filter(
-                func.lower(func.coalesce(Review.origin, "")) == "guest",
-                func.lower(func.coalesce(Review.status, "")).in_(("submitted", "published")),
-            )
-            .order_by(Review.review_date.asc().nulls_last(), Review.review_id.asc())
-            .all()
-        )
-        reservation_ids = {int(row.reservation_id) for row in reviews if row.reservation_id}
-        reservations = {
-            int(row.reservation_id): row
-            for row in self.main_session.query(Reservation)
-            .filter(Reservation.reservation_id.in_(reservation_ids or [-1]))
-            .all()
-        }
-        listing_ids = {int(row.listing_id) for row in reviews}
-        listings = {
-            int(row.listing_id): row
-            for row in self.main_session.query(Listing)
-            .filter(Listing.listing_id.in_(listing_ids or [-1]))
-            .all()
-        }
-
-        def in_window(review: Review) -> bool:
-            reservation = reservations.get(int(review.reservation_id)) if review.reservation_id else None
-            if reservation and reservation.departure_date:
-                return is_analysis_eligible(
-                    reservation,
-                    listings.get(int(review.listing_id)),
-                    reference_time=now,
-                )
-            return bool(
-                review.review_date
-                and window_start.date() <= review.review_date <= (now - ANALYSIS_DELAY).date()
-            )
-
-        eligible = [row for row in reviews if in_window(row)]
-        eligible_ids = [int(row.review_id) for row in eligible]
-        existing_ids = {
-            int(row[0]) for row in self.brain_session.query(GuestReviewIssueAnalysis.review_id)
-            .filter(GuestReviewIssueAnalysis.review_id.in_(eligible_ids or [-1]))
-            .all()
-        }
-        pending = [
-            row for row in eligible
-            if int(row.review_id) not in existing_ids and int(row.review_id) not in excluded_ids
-        ][:limit]
-        return [(review, build_review_input(review)) for review in pending], {
-            "eligible": len(eligible),
-            "already_analyzed": len(existing_ids),
-            "inflight": len(set(eligible_ids) & excluded_ids),
-            "exported": len(pending),
-            "backlog": max(len(eligible) - len(existing_ids) - len(set(eligible_ids) & excluded_ids) - len(pending), 0),
+        retry_ids = self._retry_ids("review_ids")
+        reviews = self.main_session.query(Review).filter(
+            func.lower(func.coalesce(Review.origin, "")) == "guest",
+            func.lower(func.coalesce(Review.status, "")).in_(("submitted", "published")),
+        ).order_by(Review.posted_at.asc().nulls_last(), Review.review_id).all()
+        eligible = [row for row in reviews if row.review_id in retry_ids or (
+            row.posted_at and now - REVIEW_SCAN_LOOKBACK <= normalize_utc(row.posted_at) <= now)]
+        existing_ids = {row[0] for row in self.brain_session.query(GuestReviewIssueAnalysis.review_id).filter(
+            GuestReviewIssueAnalysis.review_id.in_([row.review_id for row in eligible] or [-1])
+        ).all()}
+        pending = [row for row in eligible if row.review_id not in existing_ids and row.review_id not in excluded_ids]
+        rows = []
+        for review in pending[:limit]:
+            prepared = build_review_input(review)
+            prepared["payload"]["existing_issues"] = issue_context(existing_issues(
+                self.brain_session, review.listing_id, review.reservation_id, review.review_id))
+            rows.append((review, prepared))
+        return rows, {
+            "eligible": len(eligible), "already_analyzed": len(existing_ids),
+            "inflight": sum(row.review_id in excluded_ids for row in eligible),
+            "exported": len(rows), "backlog": max(len(pending) - limit, 0),
+            "unknown_posted_at": sum(row.posted_at is None for row in reviews),
         }
 
     def _stay_exists(self, reservation_id: int) -> bool:
@@ -646,104 +649,67 @@ class CodexGuestExperienceBatchService:
         ).first() is not None
 
     def _store_stay(self, run_id, reservation, prepared, result, *, model):
-        if self._stay_exists(int(reservation.reservation_id)):
-            return False
-        row = ComprehensiveStayAnalysis(
-            run_id=run_id,
-            listing_id=reservation.listing_id,
-            reservation_id=reservation.reservation_id,
-            arrival_date=reservation.arrival_date,
-            departure_date=reservation.departure_date,
-            checkout_at=prepared["checkout_at"],
-            eligible_at=prepared["eligible_at"],
-            stay_quality=result["stay_quality"],
-            summary=result["summary"],
-            detailed_summary=result["detailed_summary"],
-            issue_count=len(result["issues"]),
-            message_count=prepared["message_count"],
-            guest_message_count=prepared["guest_message_count"],
-            source_message_ids=as_json_safe(prepared["message_ids"]),
-            input_hash=prepared["input_hash"],
-            prompt_version=COMPREHENSIVE_STAY_PROMPT_VERSION,
-            model=model,
-            source_metadata=as_json_safe({
-                "analysis_provider": CODEX_ANALYSIS_PROVIDER,
-                "timezone_name": prepared["timezone_name"],
-                "timezone_source": prepared["timezone_source"],
-                "analysis_lookback_months": ANALYSIS_LOOKBACK_MONTHS,
-                "analysis_delay_hours": 24,
-            }),
-            analyzed_at=_utcnow(),
-        )
-        self.brain_session.add(row)
+        row = self.brain_session.query(ComprehensiveStayAnalysis).filter_by(
+            reservation_id=reservation.reservation_id).first()
+        previous_ids = set(row.source_message_ids or []) if row else None
+        version = scan_version(row) + 1
+        if row and row.run_id and row.run_id != run_id:
+            GuestExperienceReplicationService(self.brain_session).seal_run(row.run_id)
+        if not row:
+            row = ComprehensiveStayAnalysis(reservation_id=reservation.reservation_id)
+            self.brain_session.add(row)
+        for name, value in {
+            "run_id": run_id, "listing_id": reservation.listing_id,
+            "arrival_date": reservation.arrival_date, "departure_date": reservation.departure_date,
+            "checkout_at": prepared["checkout_at"], "eligible_at": prepared["eligible_at"],
+            "stay_quality": result["stay_quality"], "summary": result["summary"],
+            "detailed_summary": result["detailed_summary"], "issue_count": len(result["issues"]),
+            "message_count": prepared["message_count"], "guest_message_count": prepared["guest_message_count"],
+            "source_message_ids": prepared["message_ids"], "input_hash": prepared["input_hash"],
+            "prompt_version": COMPREHENSIVE_STAY_PROMPT_VERSION, "model": model, "analyzed_at": _utcnow(),
+            "source_metadata": {"analysis_provider": CODEX_ANALYSIS_PROVIDER, "scan_version": version,
+                                "timezone_name": prepared["timezone_name"], "timezone_source": prepared["timezone_source"],
+                                "stay_lookback_hours": 72, "analysis_delay_hours": 0},
+        }.items():
+            setattr(row, name, value)
         self.brain_session.flush()
-        for index, issue in enumerate(result["issues"]):
-            self.brain_session.add(PropertyGuestIssue(
-                source_kind="stay",
-                source_issue_key=f"stay:{reservation.reservation_id}:{index}",
-                stay_analysis_id=row.stay_analysis_id,
-                listing_id=reservation.listing_id,
-                reservation_id=reservation.reservation_id,
-                source_date=reservation.departure_date,
-                issue_category=issue["issue_category"],
-                complaint_key=issue.get("complaint_key"),
-                summary=issue["summary"],
-                details=issue["details"],
-                suggested_improvement=issue["suggested_improvement"],
-                severity=issue["severity"],
-                resolution_state=issue["resolution_state"],
-                source_references=as_json_safe(issue["source_references"]),
-            ))
+        for issue in result["issues"]:
+            merge_issue(self, run_id=run_id, source_kind="stay", listing_id=reservation.listing_id,
+                        reservation_id=reservation.reservation_id, review_id=None,
+                        analysis_id=row.stay_analysis_id, source_date=reservation.departure_date,
+                        issue=issue, previous_message_ids=previous_ids)
+        all_issues = self.brain_session.query(PropertyGuestIssue).filter_by(stay_analysis_id=row.stay_analysis_id).all()
+        row.issue_count = len(all_issues)
+        row.stay_quality = ("muted" if not row.guest_message_count else "smooth" if not all_issues else
+                            "unresolved" if any(issue.resolution_state != "resolved" for issue in all_issues) else "recovered")
+        self._finish_retry("stay_ids", reservation.reservation_id)
         return True
 
     def _store_review(self, run_id, review, prepared, result, reservations):
         if self._review_exists(int(review.review_id)):
             return False
         row = GuestReviewIssueAnalysis(
-            run_id=run_id,
-            review_id=review.review_id,
-            listing_id=review.listing_id,
-            reservation_id=review.reservation_id,
-            review_date=review.review_date,
-            summary=result["summary"],
-            issue_count=len(result["issues"]),
-            has_public_review=prepared["has_public_review"],
-            has_private_feedback=prepared["has_private_feedback"],
-            input_hash=prepared["input_hash"],
-            prompt_version=GUEST_REVIEW_ISSUE_PROMPT_VERSION,
-            model=CODEX_ANALYSIS_PROVIDER,
-            source_metadata=as_json_safe({
-                "analysis_provider": CODEX_ANALYSIS_PROVIDER,
-                "sub_rating_count": prepared["sub_rating_count"],
-                "overall_rating": review.overall_rating,
-                "analysis_lookback_months": ANALYSIS_LOOKBACK_MONTHS,
-            }),
-            analyzed_at=_utcnow(),
+            run_id=run_id, review_id=review.review_id, listing_id=review.listing_id,
+            reservation_id=review.reservation_id, review_date=review.review_date,
+            summary=result["summary"], issue_count=len(result["issues"]),
+            has_public_review=prepared["has_public_review"], has_private_feedback=prepared["has_private_feedback"],
+            input_hash=prepared["input_hash"], prompt_version=GUEST_REVIEW_ISSUE_PROMPT_VERSION,
+            model=CODEX_ANALYSIS_PROVIDER, source_metadata={
+                "analysis_provider": CODEX_ANALYSIS_PROVIDER, "sub_rating_count": prepared["sub_rating_count"],
+                "overall_rating": review.overall_rating, "review_lookback_hours": 36,
+                "posted_at": getattr(review, "posted_at", None).isoformat() if getattr(review, "posted_at", None) else None,
+            }, analyzed_at=_utcnow(),
         )
         self.brain_session.add(row)
         self.brain_session.flush()
-        reservation = reservations.get(int(review.reservation_id)) if review.reservation_id else None
-        source_date = review.review_date or (
-            reservation.departure_date if reservation and reservation.departure_date else date.today()
-        )
-        for index, issue in enumerate(result["issues"]):
-            self.brain_session.add(PropertyGuestIssue(
-                source_kind="review",
-                source_issue_key=f"review:{review.review_id}:{index}",
-                review_analysis_id=row.review_analysis_id,
-                listing_id=review.listing_id,
-                reservation_id=review.reservation_id,
-                review_id=review.review_id,
-                source_date=source_date,
-                issue_category=issue["issue_category"],
-                complaint_key=issue.get("complaint_key"),
-                summary=issue["summary"],
-                details=issue["details"],
-                suggested_improvement=issue["suggested_improvement"],
-                severity=issue["severity"],
-                resolution_state=None,
-                source_references=as_json_safe(issue["source_references"]),
-            ))
+        posted_at = getattr(review, "posted_at", None)
+        source_date = posted_at.replace(tzinfo=timezone.utc).astimezone(SCAN_TIMEZONE).date() if posted_at else (review.review_date or _utcnow().date())
+        for issue in result["issues"]:
+            merge_issue(self, run_id=run_id, source_kind="review", listing_id=review.listing_id,
+                        reservation_id=review.reservation_id, review_id=review.review_id,
+                        analysis_id=row.review_analysis_id, source_date=source_date, issue=issue)
+        row.issue_count = self.brain_session.query(PropertyGuestIssue).filter_by(review_analysis_id=row.review_analysis_id).count()
+        self._finish_retry("review_ids", review.review_id)
         return True
 
 
@@ -762,6 +728,7 @@ def _utcnow() -> datetime:
 def main():
     parser = argparse.ArgumentParser(description="Local Codex guest-experience batch bridge")
     subparsers = parser.add_subparsers(dest="action", required=True)
+    subparsers.add_parser("refresh-inputs", help="Refresh reservations and submitted reviews before the daily scan")
     export_parser = subparsers.add_parser("export")
     export_parser.add_argument("--max-stays", type=int, default=8)
     export_parser.add_argument("--max-reviews", type=int, default=16)
@@ -823,9 +790,20 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.action in {"export", "import"}:
+    if args.action in {"export", "import", "refresh-inputs"}:
         init_models(None)
     init_guest_experience_tables()
+    if args.action == "refresh-inputs":
+        from sync.sync_reservations import sync_reservations
+        from sync.sync_reviews import sync_reviews
+        results = {"reservations": sync_reservations(full_sync=False)}
+        # Fetch all review IDs: an old pending review may be submitted today.
+        results["reviews"] = sync_reviews(full_sync=True, guest_posted_since=_utcnow() - REVIEW_SCAN_LOOKBACK)
+        for kind, result in results.items():
+            if result.get("errors") or result.get("status") in {"failed", "error", "partial"}:
+                raise RuntimeError(f"{kind} refresh failed: {result}")
+        print(json.dumps(results, default=str))
+        return
     if args.action in {"export-complaints", "import-complaints"}:
         session = get_brain_session()
         try:

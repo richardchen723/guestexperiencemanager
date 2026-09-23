@@ -60,7 +60,8 @@ def test_stay_and_review_ingestion_persist_the_same_complaint_identity():
     }, result, {stay.reservation_id: stay})
     session.commit()
     rows = session.query(PropertyGuestIssue).all()
-    assert len(rows) == 2
+    assert len(rows) == 1
+    assert {ref["source_type"] for ref in rows[0].source_references} == {"message", "review"}
     assert {row.complaint_key for row in rows} == {key}
     assert len(group_issue_reports(rows)) == 1
 

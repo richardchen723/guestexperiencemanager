@@ -21,8 +21,8 @@ The local production sync command is:
   --identity-file /absolute/path/to/key.pem
 ```
 
-Use `--pending` instead of `--run-id` to retry all unsynced result batches
-inside the current one-month analysis window. A successful production import is
+Use `--pending` instead of `--run-id` to retry all unsynced result batches,
+including batches older than the scan window. A successful production import is
 recorded in the local analysis run. Failed or interrupted transfers remain
 pending and are safe to retry.
 
@@ -35,6 +35,12 @@ The SSH target and key can alternatively be configured with:
 - `GUEST_EXPERIENCE_PRODUCTION_PYTHON`
 - `GUEST_EXPERIENCE_PRODUCTION_ENV_FILE`
 - `GUEST_EXPERIENCE_PRODUCTION_TIMEOUT_SECONDS`
+
+Delivery snapshots are immutable per run. Stays carry a monotonic scan version;
+production accepts newer versions, ignores older versions, and rejects conflicting
+content at the same version. Issue updates carry their analysis timestamp and
+retain stable source keys. Database uniqueness prevents inserting the same stay's
+complaint twice. A message and review can attach to the same issue row.
 
 Only stored analysis rows and evidence identifiers are replicated. Raw guest
 messages, stay notes, and raw public/private review text are not part of the
@@ -63,10 +69,10 @@ count once.
 
 Deploy the additive `complaint_key` migration and importer on production before
 running the updated local exporter. Result replication now emits schema version
-2 so an older server refuses the payload instead of silently dropping grouping
-decisions. The updated server still accepts version 1 retries. Existing in-flight
-analysis batches can finish without new identity fields; newly exported batches
-require them.
+3 so an older server refuses the payload instead of silently dropping updates.
+The updated server still accepts completed version 1 and 2 delivery retries.
+Finish existing in-flight analysis batches before deploying selection or input
+schema changes; newly exported batches require the current identity fields.
 
 To classify existing reports without reanalyzing raw messages or changing issue
 statuses, export one property (omit `--listing-id` to include all properties with
@@ -89,7 +95,7 @@ Then import the decisions:
 
 The command returns `run_ids_to_sync`. Replicate **each** of those runs using
 `sync-production --run-id RUN_ID` with the SSH options above, including runs
-older than the current analysis window (which `--pending` does not select).
+older than the current analysis window.
 Only identity metadata is added to existing production issues; resolution notes,
 statuses, ticket links, and guest evidence remain intact. Remove the temporary
 packets after verification. New analysis batches also classify unassigned reports

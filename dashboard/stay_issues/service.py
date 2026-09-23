@@ -4,14 +4,14 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 
 import dashboard.config as config
-from brain.guest_experience import analysis_window, calendar_months_before
+from brain.guest_experience import dashboard_window, calendar_months_before, SCAN_TIMEZONE
 from brain.models import (
     ComprehensiveStayAnalysis,
     GuestExperienceAnalysisRun,
@@ -59,7 +59,7 @@ def resolve_dashboard_window(
     end_date: str | date | None = None,
 ) -> dict[str, Any]:
     """Resolve a UI reporting window inside the analyzer's retained range."""
-    available_start, available_end = analysis_window(reference_time)
+    available_start, available_end = dashboard_window(reference_time)
     key = window_key if window_key in WINDOW_PRESETS else "1m"
     notice = None
 
@@ -359,6 +359,15 @@ class GuestIssueDashboardService:
                 "priority_counts": selected_priority_counts,
             },
             "portfolios": formatted_portfolios,
+            "scanned_stays": [{
+                "reservation_id": row.reservation_id,
+                "listing_name": next((listing.internal_listing_name or listing.name for listing in listings
+                                      if listing.listing_id == row.listing_id), str(row.listing_id)),
+                "departure_date": row.departure_date,
+                "last_scanned": row.analyzed_at.replace(tzinfo=timezone.utc).astimezone(SCAN_TIMEZONE),
+                "quality": row.stay_quality,
+                "scan_version": (row.source_metadata or {}).get("scan_version", 1),
+            } for row in sorted(stay_analyses, key=lambda row: row.analyzed_at, reverse=True)],
             "latest_run": _format_run(latest_run),
         }
 
@@ -388,7 +397,9 @@ class GuestIssueDashboardService:
         reports = [self._format_issue(row, archive_cutoff=archive_cutoff) for row in sorted(
             selected_reports, key=lambda row: (row.source_date, row.issue_id), reverse=True,
         )]
-        sources = sorted({row["source_kind"] for row in reports})
+        sources = sorted({"review" if ref.get("source_type") == "review" else "stay"
+                          for row in selected_reports for ref in row.source_references or []}
+                         or {row["source_kind"] for row in reports})
         references = {ref["url"]: ref for row in reports for ref in row["references"]}
         formatted.update({
             "report_count": report_count(selected_reports),

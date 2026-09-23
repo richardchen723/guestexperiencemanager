@@ -333,7 +333,7 @@ def test_archive_view_is_separate_from_recently_resolved():
     assert not _issue_matches_view(archived, "resolved")
 
 
-def test_dashboard_window_presets_end_at_the_analysis_cutoff():
+def test_dashboard_window_includes_today_and_preserves_month_history():
     now = datetime(2026, 8, 22, 12, 0)
 
     one_month = resolve_dashboard_window(now, window_key="1m")
@@ -341,8 +341,8 @@ def test_dashboard_window_presets_end_at_the_analysis_cutoff():
     invalid_window = resolve_dashboard_window(now, window_key="3m")
 
     assert one_month["start"] == datetime(2026, 7, 22, 12, 0)
-    assert one_month["end"] == datetime(2026, 8, 21, 12, 0)
-    assert one_week["start"] == datetime(2026, 8, 14, 12, 0)
+    assert one_month["end"] == datetime(2026, 8, 22, 23, 59, 59, 999999)
+    assert one_week["start"] == datetime(2026, 8, 15, 23, 59, 59, 999999)
     assert one_week["end"] == one_month["end"]
     assert invalid_window["key"] == "1m"
     assert invalid_window["start"] == one_month["start"]
@@ -368,7 +368,7 @@ def test_custom_dashboard_window_is_inclusive_and_bounded_by_retained_data():
     assert selected["end"] == datetime(2026, 8, 10, 23, 59, 59, 999999)
     assert selected["notice"] is None
     assert bounded["start"] == datetime(2026, 7, 22, 12, 0)
-    assert bounded["end"] == datetime(2026, 8, 21, 12, 0)
+    assert bounded["end"] == datetime(2026, 8, 22, 23, 59, 59, 999999)
     assert bounded["notice"] == "Custom dates are limited to the analyzed one-month range."
 
 

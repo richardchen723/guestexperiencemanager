@@ -15,7 +15,6 @@ from typing import Any
 
 from sqlalchemy import text
 
-from brain.guest_experience import analysis_window
 from brain.guest_issue_identity import apply_complaint_assignments, normalize_complaint_key
 from brain.models import (
     ComprehensiveStayAnalysis,
@@ -25,7 +24,7 @@ from brain.models import (
     as_json_safe,
 )
 
-REPLICATION_SCHEMA_VERSION = 2
+REPLICATION_SCHEMA_VERSION = 3
 REPLICATION_SOURCE = "codex-local-hostaway-messages"
 SYNCABLE_RUN_STATUSES = {"completed", "partial"}
 
@@ -89,6 +88,8 @@ ISSUE_FIELDS = (
     "source_date",
     "issue_category",
     "complaint_key",
+    "dedupe_key",
+    "analysis_updated_at",
     "summary",
     "details",
     "suggested_improvement",
@@ -108,6 +109,7 @@ DATETIME_FIELDS = {
     "eligible_at",
     "analyzed_at",
     "created_at",
+    "analysis_updated_at",
 }
 
 
@@ -131,6 +133,9 @@ class GuestExperienceReplicationService:
             raise GuestExperienceReplicationError(
                 f"Analysis run {run_id} is not complete enough to sync (status={run.status})"
             )
+        snapshot = (run.details or {}).get("result_snapshot")
+        if snapshot:
+            return deepcopy(snapshot)
 
         stays = self.session.query(ComprehensiveStayAnalysis).filter(
             ComprehensiveStayAnalysis.run_id == run.run_id
@@ -143,6 +148,7 @@ class GuestExperienceReplicationService:
         issues = self.session.query(PropertyGuestIssue).filter(
             (PropertyGuestIssue.stay_analysis_id.in_(stay_ids or [-1]))
             | (PropertyGuestIssue.review_analysis_id.in_(review_ids or [-1]))
+            | (PropertyGuestIssue.source_issue_key.in_((run.details or {}).get("touched_issue_keys") or [""]))
         ).order_by(PropertyGuestIssue.source_kind, PropertyGuestIssue.source_issue_key).all()
         if not stays and not reviews:
             raise GuestExperienceReplicationError(f"Analysis run {run_id} contains no result rows")
@@ -150,6 +156,7 @@ class GuestExperienceReplicationService:
         run_payload = _serialize_row(run, RUN_FIELDS)
         details = deepcopy(run_payload.get("details") or {})
         details.pop("production_sync", None)
+        details.pop("result_snapshot", None)
         run_payload["details"] = details
         return {
             "schema_version": REPLICATION_SCHEMA_VERSION,
@@ -162,6 +169,16 @@ class GuestExperienceReplicationService:
             "issues": [_serialize_row(row, ISSUE_FIELDS) for row in issues],
             "complaint_assignments": details.get("complaint_assignments", []),
         }
+
+    def seal_run(self, run_id):
+        """Freeze result-only delivery before later scans update the latest rows."""
+        self.session.flush()
+        run = self.session.get(GuestExperienceAnalysisRun, run_id)
+        if not run or run.status not in SYNCABLE_RUN_STATUSES or (run.details or {}).get("result_snapshot"):
+            return
+        payload = self.export_run(run_id)
+        run.details = dict(run.details or {}) | {"result_snapshot": as_json_safe(payload)}
+        self.session.flush()
 
     def import_payload(self, payload: dict[str, Any]) -> dict[str, int | str]:
         self._validate_payload(payload)
@@ -184,9 +201,13 @@ class GuestExperienceReplicationService:
             )
             stay_map: dict[int, ComprehensiveStayAnalysis] = {}
             review_map: dict[int, GuestReviewIssueAnalysis] = {}
-            stays_inserted = stays_existing = 0
+            stays_inserted = stays_existing = stays_updated = 0
             reviews_inserted = reviews_existing = 0
-            issues_inserted = issues_existing = 0
+            issues_inserted = issues_existing = issues_updated = 0
+
+            # Catalog hashes describe pre-scan evidence. Apply these before any
+            # rescan updates that add references or change the issue narrative.
+            apply_complaint_assignments(self.session, payload.get("complaint_assignments", []))
 
             for item in payload["stays"]:
                 reservation_id = int(item["reservation_id"])
@@ -194,7 +215,16 @@ class GuestExperienceReplicationService:
                     ComprehensiveStayAnalysis.reservation_id == reservation_id
                 ).first()
                 if existing:
-                    self._require_matching_hash(existing.input_hash, item.get("input_hash"), "stay", reservation_id)
+                    from brain.guest_scan_state import scan_version
+                    incoming_version = int((item.get("source_metadata") or {}).get("scan_version", 1))
+                    if incoming_version > scan_version(existing):
+                        for field, value in _deserialize_fields(item, STAY_FIELDS).items():
+                            if field != "created_at":
+                                setattr(existing, field, value)
+                        existing.run_id = remote_run.run_id
+                        stays_updated += 1
+                    elif incoming_version == scan_version(existing):
+                        self._require_matching_hash(existing.input_hash, item.get("input_hash"), "stay", reservation_id)
                     stay_map[reservation_id] = existing
                     stays_existing += 1
                     continue
@@ -239,13 +269,26 @@ class GuestExperienceReplicationService:
                         raise GuestExperienceReplicationError("Conflicting complaint identity on production")
                     if key:
                         existing.complaint_key = key
+                    if item.get("dedupe_key"):
+                        existing.dedupe_key = existing.dedupe_key or item["dedupe_key"]
+                    incoming_at = _deserialize_fields(item, ISSUE_FIELDS).get("analysis_updated_at")
+                    if incoming_at and (not existing.analysis_updated_at or incoming_at > existing.analysis_updated_at):
+                        # Only model-owned fields travel; production workflow is authoritative.
+                        for field, value in _deserialize_fields(item, ISSUE_FIELDS).items():
+                            if field not in {"created_at", "source_kind", "source_issue_key", "dedupe_key"}:
+                                setattr(existing, field, value)
+                        issues_updated += 1
                     issues_existing += 1
+                    if item.get("review_id") in review_map:
+                        existing.review_analysis_id = review_map[item["review_id"]].review_analysis_id
+                    if item.get("reservation_id") in stay_map:
+                        existing.stay_analysis_id = stay_map[item["reservation_id"]].stay_analysis_id
                     continue
                 values = _deserialize_fields(item, ISSUE_FIELDS)
                 values["complaint_key"] = normalize_complaint_key(values.get("complaint_key"))
                 if source_kind == "stay":
                     reservation_id = int(item["reservation_id"])
-                    analysis = stay_map.get(reservation_id)
+                    analysis = stay_map.get(reservation_id) or self.session.query(ComprehensiveStayAnalysis).filter_by(reservation_id=reservation_id).first()
                     if not analysis:
                         raise GuestExperienceReplicationError(
                             f"Issue {source_issue_key} has no replicated stay analysis"
@@ -253,7 +296,7 @@ class GuestExperienceReplicationService:
                     values["stay_analysis_id"] = analysis.stay_analysis_id
                 else:
                     review_id = int(item["review_id"])
-                    analysis = review_map.get(review_id)
+                    analysis = review_map.get(review_id) or self.session.query(GuestReviewIssueAnalysis).filter_by(review_id=review_id).first()
                     if not analysis:
                         raise GuestExperienceReplicationError(
                             f"Issue {source_issue_key} has no replicated review analysis"
@@ -261,8 +304,6 @@ class GuestExperienceReplicationService:
                     values["review_analysis_id"] = analysis.review_analysis_id
                 self.session.add(PropertyGuestIssue(**values))
                 issues_inserted += 1
-
-            apply_complaint_assignments(self.session, payload.get("complaint_assignments", []))
 
             replication_details = dict(remote_run.details or {})
             replication_details["production_replication"] = {
@@ -280,31 +321,27 @@ class GuestExperienceReplicationService:
                 "run_created": int(run_created),
                 "stays_inserted": stays_inserted,
                 "stays_existing": stays_existing,
+                "stays_updated": stays_updated,
                 "reviews_inserted": reviews_inserted,
                 "reviews_existing": reviews_existing,
                 "issues_inserted": issues_inserted,
                 "issues_existing": issues_existing,
+                "issues_updated": issues_updated,
             }
         except Exception:
             self.session.rollback()
             raise
 
     def pending_run_ids(self, *, reference_time: datetime | None = None) -> list[int]:
-        now = reference_time or datetime.utcnow()
-        current_window_start, _ = analysis_window(now)
         runs = self.session.query(GuestExperienceAnalysisRun).filter(
             GuestExperienceAnalysisRun.status.in_(tuple(SYNCABLE_RUN_STATUSES)),
-            GuestExperienceAnalysisRun.window_end_at >= current_window_start,
         ).order_by(GuestExperienceAnalysisRun.started_at, GuestExperienceAnalysisRun.run_id).all()
         pending: list[int] = []
         for run in runs:
             details = run.details or {}
             if (details.get("production_sync") or {}).get("status") == "completed":
                 continue
-            expected_start, _ = analysis_window(run.started_at)
-            if abs((run.window_start_at - expected_start).total_seconds()) > 300:
-                continue
-            has_results = self.session.query(ComprehensiveStayAnalysis.stay_analysis_id).filter(
+            has_results = details.get("result_snapshot") or self.session.query(ComprehensiveStayAnalysis.stay_analysis_id).filter(
                 ComprehensiveStayAnalysis.run_id == run.run_id
             ).first() or self.session.query(GuestReviewIssueAnalysis.review_analysis_id).filter(
                 GuestReviewIssueAnalysis.run_id == run.run_id
@@ -377,9 +414,8 @@ class GuestExperienceReplicationService:
 
     @staticmethod
     def _validate_payload(payload: dict[str, Any]):
-        # Continue accepting retries from older exporters. A v2 payload is
-        # rejected by old production code instead of silently losing identities.
-        if int(payload.get("schema_version") or 0) not in {1, REPLICATION_SCHEMA_VERSION}:
+        # Older retries remain valid; old importers reject v3 rather than losing updates.
+        if int(payload.get("schema_version") or 0) not in {1, 2, REPLICATION_SCHEMA_VERSION}:
             raise GuestExperienceReplicationError(
                 f"Unsupported replication schema_version: {payload.get('schema_version')!r}"
             )

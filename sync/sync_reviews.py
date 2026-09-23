@@ -4,7 +4,7 @@
 import argparse
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import func
@@ -41,7 +41,7 @@ def parse_timestamp(value: Optional[str]) -> Optional[datetime]:
     cleaned = str(value).strip().replace('Z', '+00:00')
     try:
         parsed = datetime.fromisoformat(cleaned)
-        return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
     except (TypeError, ValueError):
         pass
     for timestamp_format in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
@@ -365,6 +365,18 @@ def _review_date(
     return reservation.departure_date if reservation else None
 
 
+def review_posted_timestamp(review_data: Dict) -> tuple[Optional[datetime], Optional[str]]:
+    """Only a source posting/submission timestamp establishes posting recency."""
+    for field in ('submittedAt', 'publishedAt', 'reviewDate', 'review_date', 'date'):
+        value = review_data.get(field)
+        # Date-only values are deliberately not promoted to midnight timestamps.
+        if value and len(str(value).strip()) > 10:
+            parsed = parse_timestamp(value)
+            if parsed:
+                return parsed, field
+    return None, None
+
+
 def _review_dict(review_data: Dict, lookups: Dict) -> Tuple[Optional[Dict], Optional[str]]:
     """Convert one actionable Hostaway payload to local review fields."""
     try:
@@ -413,6 +425,8 @@ def _review_dict(review_data: Dict, lookups: Dict) -> Tuple[Optional[Dict], Opti
             review_data.get('reviewerPicture') or review_data.get('reviewer_picture')
         ),
         'review_date': _review_date(review_data, reservation_id, lookups),
+        'posted_at': review_posted_timestamp(review_data)[0],
+        'posted_at_source': review_posted_timestamp(review_data)[1],
         'response_text': (
             review_data.get('revieweeResponse')
             or review_data.get('responseText')
@@ -480,6 +494,7 @@ def sync_reviews(
     listing_id: Optional[int] = None,
     progress_tracker: Optional[Any] = None,
     sync_run_id: Optional[int] = None,
+    guest_posted_since: Optional[datetime] = None,
 ) -> Dict:
     """Synchronize submitted reviews, including automatic host-review status."""
     started_at = datetime.utcnow()
@@ -525,6 +540,13 @@ def sync_reviews(
         progress.complete_phase()
 
         actionable_reviews = [review for review in all_reviews if should_sync_review_payload(review)]
+        unknown_posted_timestamps = 0
+        if guest_posted_since is not None:
+            guest_reviews = [review for review in actionable_reviews if normalize_review_origin(review) == 'Guest']
+            unknown_posted_timestamps = sum(review_posted_timestamp(review)[0] is None for review in guest_reviews)
+            actionable_reviews = [review for review in guest_reviews
+                                  if (posted_at := review_posted_timestamp(review)[0]) is not None
+                                  and guest_posted_since <= posted_at <= started_at]
         lookups = build_lookup_maps(session, actionable_reviews)
         review_ids = []
         for review in actionable_reviews:
@@ -564,6 +586,8 @@ def sync_reviews(
                     existing = existing_by_id.get(review_id)
                     if existing:
                         for field, value in values.items():
+                            if field in {'posted_at', 'posted_at_source'} and value is None:
+                                continue
                             if field == 'last_synced_at':
                                 setattr(existing, field, value)
                                 continue
@@ -670,6 +694,7 @@ def sync_reviews(
             'status': status,
             'records_fetched': len(all_reviews),
             'records_processed': len(actionable_reviews),
+            'unknown_posted_timestamps': unknown_posted_timestamps,
             'records_created': records_created,
             'records_updated': records_updated,
             'host_backfill_completed': bool(host_backfill_requested and not errors),
