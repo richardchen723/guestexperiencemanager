@@ -153,7 +153,7 @@ def test_replication_is_idempotent_and_preserves_production_workflow():
     run = _seed_result_run(source)
     payload = GuestExperienceReplicationService(source).export_run(run.run_id)
 
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert "workflow_status" not in payload["issues"][0]
     first = GuestExperienceReplicationService(destination).import_payload(payload)
 
@@ -193,7 +193,7 @@ def test_replication_rejects_an_existing_analysis_with_a_different_hash():
         GuestExperienceReplicationService(destination).import_payload(payload)
 
 
-def test_pending_runs_include_only_current_one_month_runs():
+def test_pending_deliveries_survive_the_scan_window():
     session = _session()
     current = _seed_result_run(session)
     _seed_result_run(session, old_window=True)
@@ -202,7 +202,7 @@ def test_pending_runs_include_only_current_one_month_runs():
         reference_time=datetime(2026, 8, 22, 12, 0)
     )
 
-    assert pending == [current.run_id]
+    assert pending == [current.run_id, current.run_id + 1]
 
 
 def test_ssh_client_streams_payload_over_stdin_not_command_arguments(tmp_path):

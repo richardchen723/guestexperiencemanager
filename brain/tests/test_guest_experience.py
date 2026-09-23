@@ -76,22 +76,14 @@ def message(message_id, created_at, incoming, body):
     )
 
 
-def test_eligibility_is_exactly_24_hours_after_property_local_checkout():
-    stay = reservation()
-    property_row = listing()
+def test_eligibility_includes_today_before_checkout_and_last_72_hours():
+    stay, property_row = reservation(), listing()
     checkout = scheduled_checkout_at_utc(stay, property_row)
-
     assert checkout == datetime(2026, 8, 21, 17, 0)
-    assert not is_analysis_eligible(
-        stay,
-        property_row,
-        reference_time=checkout + timedelta(hours=23, minutes=59),
-    )
-    assert is_analysis_eligible(
-        stay,
-        property_row,
-        reference_time=checkout + timedelta(hours=24),
-    )
+    assert is_analysis_eligible(stay, property_row, reference_time=checkout - timedelta(hours=1))
+    assert is_analysis_eligible(stay, property_row, reference_time=checkout + timedelta(hours=72))
+    assert not is_analysis_eligible(stay, property_row, reference_time=checkout + timedelta(hours=72, seconds=1))
+    assert not is_analysis_eligible(stay, property_row, reference_time=checkout - timedelta(days=1))
 
 
 def test_analysis_window_uses_one_calendar_month_not_unbounded_history():

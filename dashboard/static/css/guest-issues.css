@@ -438,3 +438,8 @@ details[open] > summary > .fold-chevron { transform: rotate(180deg); }
     .custom-window-form { grid-template-columns: 1fr 1fr; }
     .custom-window-form > button { grid-column: 1 / -1; }
 }
+.scan-history { margin: 18px 0; padding: 16px; border: 1px solid #dde5e0; border-radius: 12px; background: #fff; }
+.scan-history > summary { cursor: pointer; color: #176b50; font-weight: 700; }
+.scan-history-table { overflow-x: auto; margin-top: 12px; }
+.scan-history table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.scan-history th, .scan-history td { text-align: left; padding: 9px; border-bottom: 1px solid #edf1ee; white-space: nowrap; }
