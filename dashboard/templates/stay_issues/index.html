@@ -76,9 +76,9 @@
     <details class="scan-history">
         <summary>Scanned stays · {{ dashboard.scanned_stays|length }}</summary>
         <div class="scan-history-table"><table>
-            <thead><tr><th>Stay</th><th>Rental unit</th><th>Checkout</th><th>Last scanned (Eastern)</th><th>Result</th></tr></thead>
+            <thead><tr><th>Stay</th><th>Guest name</th><th>Rental unit</th><th>Checkout</th><th>Last scanned (Eastern)</th><th>Result</th></tr></thead>
             <tbody>{% for stay in dashboard.scanned_stays %}<tr>
-                <td>#{{ stay.reservation_id }}</td><td>{{ stay.listing_name }}</td>
+                <td>#{{ stay.reservation_id }}</td><td>{{ stay.guest_name }}</td><td>{{ stay.listing_name }}</td>
                 <td>{{ stay.departure_date.strftime('%b %-d, %Y') }}</td>
                 <td><time datetime="{{ stay.last_scanned.isoformat() }}">{{ stay.last_scanned.strftime('%b %-d, %Y %-I:%M %p %Z') }}</time>{% if stay.scan_version > 1 %} · Rescanned{% endif %}</td>
                 <td>{{ stay.quality|capitalize }}</td>

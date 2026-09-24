@@ -38,6 +38,7 @@ from database.models import (
     ListingPhoto,
     ListingTag,
     MessageMetadata,
+    Reservation,
     Review,
     get_session as get_main_session,
 )
@@ -181,6 +182,21 @@ class GuestIssueDashboardService:
             )
             .all()
         )
+        guest_names = {
+            reservation.reservation_id: (
+                (reservation.guest_name or "").strip()
+                or " ".join(part.strip() for part in (
+                    reservation.guest_first_name, reservation.guest_last_name,
+                ) if part and part.strip())
+                or "—"
+            )
+            for reservation in self.main_session.query(
+                Reservation.reservation_id, Reservation.guest_name,
+                Reservation.guest_first_name, Reservation.guest_last_name,
+            ).filter(Reservation.reservation_id.in_(
+                [row.reservation_id for row in stay_analyses]
+            )).all()
+        } if stay_analyses else {}
         review_analyses = (
             self.brain_session.query(GuestReviewIssueAnalysis)
             .filter(
@@ -361,6 +377,7 @@ class GuestIssueDashboardService:
             "portfolios": formatted_portfolios,
             "scanned_stays": [{
                 "reservation_id": row.reservation_id,
+                "guest_name": guest_names.get(row.reservation_id, "—"),
                 "listing_name": next((listing.internal_listing_name or listing.name for listing in listings
                                       if listing.listing_id == row.listing_id), str(row.listing_id)),
                 "departure_date": row.departure_date,
