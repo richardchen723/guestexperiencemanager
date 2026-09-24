@@ -10,7 +10,7 @@ from brain.models import (
     ComprehensiveStayAnalysis, GuestExperienceAnalysisRun, GuestReviewIssueAnalysis,
     PropertyGuestIssue, PropertyGuestIssueNote,
 )
-from database.models import Listing, ListingPhoto, ListingTag, Tag
+from database.models import Listing, ListingPhoto, ListingTag, Reservation, Tag
 from dashboard.stay_issues.grouping import group_issue_reports, report_count
 from dashboard.stay_issues.service import GuestIssueDashboardService
 from dashboard.stay_issues.test_workflow import _session
@@ -234,7 +234,7 @@ def test_group_keeps_highest_priority_and_priority_changes_update_every_report()
 
 def dashboard_fixture():
     session = _session()
-    for model in (Listing, ListingPhoto, ListingTag, Tag,
+    for model in (Listing, ListingPhoto, ListingTag, Reservation, Tag,
                   ComprehensiveStayAnalysis, GuestReviewIssueAnalysis, GuestExperienceAnalysisRun):
         model.__table__.create(session.bind)
     session.add(Listing(listing_id=101, name="Garden House", internal_listing_name="Garden House", status="active"))
