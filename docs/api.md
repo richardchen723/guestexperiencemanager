@@ -397,3 +397,342 @@ Admin activity APIs are prefixed with `/admin/api/activities`.
   - Query params: `start_date`, `end_date`, `user_id`, `activity_type`, `action`, `entity_type`, `entity_id`, `page`, `per_page`
 - `GET /admin/api/activities/reports/ticket-metrics`
   - Query params: `start_date`, `end_date`, `group_by`
+
+## Procurement
+
+**Contract updated: 2026-10-15.** Procurement runs on the main Cotton Candy
+host, with the UI at `/procurement/` and JSON endpoints under
+`/procurement/api`. Production base URL: `https://yourcottoncandy.com`.
+This section is published in both `/api-docs#procurement` and `/api-docs.md`.
+
+This Phase 1 API captures requests, records human purchasing decisions and
+retailer purchases, tracks shipments, verifies supplies at the property, and
+reports costs. It does not execute checkout, move money, send WhatsApp messages,
+import retailer emails, or poll carriers. Ethan supplies its own intake,
+notification, and polling integration.
+
+### Procurement authentication and write rules
+
+- Use one authentication header: `X-API-Key` or `Authorization: Bearer`.
+  Procurement currently requires the `Full API` (`*`) profile. A
+  `guest_issues:read` key cannot call these endpoints. Full access still cannot
+  approve purchases, correct final receipt costs, or edit the directory.
+- Browser users need approved accounts and the Procurement feature. Admins have
+  access; additional staff must be granted access in Team settings. Linked
+  housekeeper accounts see only assigned properties and cannot purchase, read
+  reports, download receipts, or see private shipping addresses.
+- Every POST/PATCH requires an `Idempotency-Key` header, at most 180 characters.
+  Persist a fresh UUID per logical action before sending. Retry transport errors
+  with the same key, method, path, actor, and exact JSON bytes. A successful
+  replay returns the original response; changed content using that key is 409.
+  Multipart replay compares form fields, filenames, and file hashes instead of
+  boundary bytes. Failed actions do not consume the key.
+- Request edits/actions use the latest integer request `version`. Order edits/
+  actions use the latest integer order `version`. Shipment edits/delivery use
+  the **parent order version**, not a shipment version. Missing/stale versions
+  return 409. Receipt uploads and admin directory saves are exceptions: they
+  use idempotency but do not require a version. Uploading a receipt increments
+  the order version.
+- On a version conflict, fetch the current record and review it. If still valid,
+  submit the updated operation with a new key. After an ambiguous timeout,
+  retry the original key first; do not blindly create a second operation.
+- Browser mutations additionally require `X-CSRF-Token` from the procurement
+  page's session. API-key calls do not require a browser cookie or CSRF token.
+- Successful JSON operations return HTTP 200 with the resource object directly,
+  or the collection wrapper described below. These endpoints do not use the
+  `/api/v1` success envelope, pagination, or Guest Issues rate-limit headers.
+  Errors use `{"error":"Human-readable message"}`. Handle 400 validation, 401
+  authentication, 403 permission, 404 missing record, 409 conflict, 413 oversized
+  upload, and 500 server failure. Do not parse human error text as a stable code.
+- Quantities are positive base units with at most three decimal places; send
+  decimal strings. Monetary inputs (`unit_price`, `tax`, `shipping`, `discount`,
+  `amount`, `actual_charged`) are nonnegative major-unit decimal strings with at
+  most two decimal places. Returned `*_cents` fields are integer minor units.
+  Supported currencies are USD, CAD, GBP, EUR, AUD, MYR; never combine currencies.
+- Datetimes must include an offset or Z; responses normalize to UTC with Z.
+  Purchase/refund dates use YYYY-MM-DD. Body limit is 1 MiB, with at most 100
+  objects per item/line/allocation array. Receipt files have a separate 10 MiB
+  limit and 11 MiB multipart request limit.
+
+### Procurement discovery and reads
+
+- `GET /procurement/api/bootstrap` returns `properties`, eligible purchasing
+  `users`, `staff`, active/inactive `locations`, `catalog`, `statuses`,
+  `priorities`, `currencies`, `can_approve`, `can_purchase`, `staff_id`, `user_id`.
+  `account_users` is populated only for human admins. Use existing IDs, active
+  records, and verified property assignments; never invent IDs or addresses.
+- `GET /procurement/api/requests` returns `{"requests":[...]}`, newest first.
+- `GET /procurement/api/requests/{id}` returns request detail, including
+  `messages`, the latest 200 `activity` records, and `possible_duplicates`.
+- `GET /procurement/api/orders` returns `{"orders":[...]}`, highest ID first.
+- `GET /procurement/api/orders/{id}` returns order detail, activity, and
+  `approved_snapshot`. Order reads require purchasing access.
+
+Request objects include `id`, display `code` (PR-0001), `version`, `title`,
+`listing_id`, property snapshot labels/tags/timezone, requester/owner IDs and
+names, priority, deadlines, `status`, `status_label`, `flags`, and `items`.
+Item objects include `id`, `catalog_id`, `name`, `category`, `unit`, `quantity`,
+`requested`, `reserved`, `ordered`, `delivered`, `confirmed`, `remaining`,
+`cancelled`, `cancellation_reason`, and `allocations`. Allocation objects expose
+`id`, `order_id`, `line_id`, vendor/state, active `quantity`, `confirmed`,
+`problem_quantity`, `reportable`, `confirmable`, `property_confirmable`, and
+confirmation history. `confirmable` is bounded by recorded delivery;
+`property_confirmable` is bounded by the outstanding purchased quantity.
+
+Order objects include `id`, display `code` (PO-0001), `version`,
+`purchase_revision`, `vendor`, `reference`, `currency`, destination snapshot,
+`state`, expense `responsibility`, totals, purchase/reconciliation dates,
+approval metadata, `lines`, `shipments`, and receipt `attachments` (IDs/names).
+Lines include their IDs, base quantity, `pack_size`, `unit_price_cents`,
+`landed_cents`, `unallocated`, `unshipped`, delivered quantity, allocations, and
+refunds. Use returned IDs and versions for subsequent actions.
+
+### Procurement intake and clarification
+
+`POST /procurement/api/requests` creates one property/shared-storage request
+with one or more items. Example IDs are illustrative; replace from bootstrap:
+
+```json
+{
+  "title": "Toilet paper restock",
+  "listing_id": 101,
+  "requester_staff_id": 1,
+  "owner_user_id": 7,
+  "priority": "normal",
+  "required_by": "2026-10-20T16:00:00-07:00",
+  "items": [{"catalog_id": 3, "quantity": "24"}],
+  "source": {
+    "channel": "whatsapp:provider:group-id",
+    "message_id": "provider-message-id",
+    "body": "Original message preserved verbatim"
+  }
+}
+```
+
+`title` and 1–100 items are required. Each item uses `catalog_id` or a custom
+`name` and `unit` (optional `category`, default supplies). A catalog item's
+canonical name/unit must match; no automatic unit conversion occurs. Quantity
+may be null/omitted when unknown. Use either `listing_id` or
+`storage_location_id`, or omit both while clarifying. Use `requester_staff_id`
+for an active assigned housekeeper, otherwise provide `requester_name`.
+`owner_user_id` may be null; API intake does not automatically assign Ethan as
+the purchasing owner. Capture incomplete requests immediately and clarify missing
+information. Never infer a quantity, address, or deadline without evidence.
+
+Priorities are `critical`, `high`, `normal`, `planned`. The default human review
+targets are 30 minutes, 4 hours, 24 hours, 72 hours respectively. Optional
+`response_due_at` overrides this target separately from `required_by`. These
+are staff response targets, not an Ethan response SLA or an on-call guarantee.
+
+A `source` includes `channel` (max 80), optional provider `message_id` (max 240),
+required original `body` when using an ID (max 20,000), and optional HTTP(S)
+`url`. The same source channel/message ID/destination replays an existing
+request with `source_replayed:true`; it does not apply changed intake details.
+One message can create separate requests for separate properties. Similar
+requests appear under `possible_duplicates`; review before linking a follow-up.
+
+`PATCH /procurement/api/requests/{id}` accepts current `version` plus any of
+`title`, `requester_name`, `listing_id`, `requester_staff_id`, `owner_user_id`,
+`priority`, `required_by`, `response_due_at`, `review:true`, `source`, `items`.
+A source appends a traceable message; duplicate source IDs on the request are
+ignored. Item rows with `id` update that item; rows without `id` append items.
+Rewrites require the item's full catalog/custom fields and quantity and are
+blocked after active reservation/purchasing. Property changes are blocked once
+allocations exist. Linked housekeepers can append sources, not edit staff fields.
+Do not use `review:true` for an automatic acknowledgment: this records review by
+the assigned human purchasing owner.
+
+```json
+{
+  "version": 2,
+  "source": {
+    "channel": "whatsapp:provider:group-id",
+    "message_id": "follow-up-message-id",
+    "body": "We need 24 rolls by Tuesday afternoon."
+  }
+}
+```
+
+Statuses are calculated: `new`, `in_progress`, `awaiting_confirmation`,
+`completed`, `cancelled`. Needs information, unassigned ownership, approval,
+late responses, and delivery problems are flags. There is no writable status or
+manual completion endpoint. Always use the returned status.
+
+### Procurement purchasing
+
+`POST /procurement/api/orders` creates a draft. `PATCH /procurement/api/orders/{id}` fully replaces a draft/approved purchase using
+current `version`, `change_reason`, and the complete order body. Every revision
+clears approval and replaces line/allocation IDs; fetch fresh request/order
+versions afterwards. Purchased orders cannot be rewritten.
+
+```json
+{
+  "vendor": "Retailer name",
+  "currency": "USD",
+  "location_id": 2,
+  "responsibility": "owner",
+  "tax": "1.40",
+  "shipping": "0.00",
+  "discount": "0.00",
+  "notes": "Verified destination and product",
+  "lines": [{
+    "catalog_id": 3,
+    "name": "Retailer's actual 24-roll product",
+    "quantity": "24",
+    "pack_size": "24",
+    "unit_price": "17.49",
+    "substitution_reason": "Retailer SKU label for the requested product",
+    "allocations": [{"item_id": 8, "quantity": "24"}]
+  }]
+}
+```
+
+`location_id` must identify an active verified destination. `responsibility`
+is `owner`, `company`, `included`, or `unassigned`. `quantity` is always base
+units; a 24-roll pack at $17.49 is quantity 24, pack_size 24, unit_price 17.49,
+not 24 packs. `pack_size` defaults to 1. Custom purchase lines require name/unit.
+Different product names/catalog products allocated to a request require
+`substitution_reason`. Purchase and request units must always match, even for
+substitutions.
+One line may split between requests; unallocated quantities remain shared stock.
+Reserved/ordered quantities cannot exceed outstanding need.
+
+Order actions use `POST /procurement/api/orders/{id}/{action}`:
+
+- `approve`: `{"version":3}`. Human admin browser session only. API keys receive 403.
+  Every purchase requires approval of its current purchase revision and address.
+- `place`: `{"version":4,"reference":"retailer-order-id","purchased_on":"2026-10-15"}`.
+  Records a purchase already made externally. Requires current human approval;
+  destination changes or inactive receiving staff block it. Never claim this
+  endpoint performs checkout. Purchase date cannot be in the future.
+- `cancel`: `{"version":3,"reason":"No longer needed"}`. Draft/approved only;
+  releases reservations. Purchased orders need explicit problems/returns/refunds.
+- `allocate`: `{"version":5,"line_id":4,"item_id":8,"quantity":"6"}`.
+  Allocates available shared stock from a purchased order to a requested item.
+- `refund`: `{"version":6,"line_id":4,"amount":"3.50","refunded_on":"2026-10-15","reason":"Actual refund received"}`.
+  Records money already refunded, not a refund request. Cumulative refunds cannot
+  exceed the line's landed cost; date must be from purchase through today.
+- `adjust-costs`: `{"version":7,"reason":"Final receipt differs","tax":"1.50","lines":[{"line_id":4,"unit_price":"17.99","pack_size":"24"}]}`.
+  Human admin only, purchased order with a receipt. Corrects prices/charges while
+  preserving original approval history. Clears prior reconciliation.
+- `reconcile`: `{"version":8,"actual_charged":"19.49"}`. Purchased order with
+  attached receipt; actual charge must equal current order total exactly.
+
+Order states are `draft`, `approved`, `ordered`, `cancelled`. `version` changes
+on operational writes; `purchase_revision` changes on purchase edits. A receipt
+upload changes version without invalidating the purchase approval. Reload both
+request and order after quantity-changing actions; both versions may change.
+
+### Procurement shipments
+
+- `POST /procurement/api/orders/{id}/shipments` creates a partial/full shipment:
+  `{"version":5,"carrier":"Carrier","tracking":"tracking-id","expected_at":"2026-10-18T18:00:00Z","lines":[{"line_id":4,"quantity":"12"}]}`.
+  Requires a purchased order and at least one line; cumulative active shipment
+  quantities cannot exceed purchased base units.
+- `PATCH /procurement/api/shipments/{shipment_id}` accepts parent order `version`
+  plus `carrier`, `tracking`, `expected_at`, or `cancelled_reason`. Cancellation
+  releases unshipped capacity and retains the history. Delivered/cancelled
+  shipments cannot be edited.
+- `POST /procurement/api/shipments/{shipment_id}/deliver` accepts parent order
+  `version` and optional timezone-aware `delivered_at` (defaults now, not future).
+  It records the entire shipment delivered; split shipments for partial delivery.
+  This never confirms usable supplies at a property or completes the request.
+
+### Procurement property confirmation and exceptions
+
+`POST /procurement/api/requests/{id}/confirm` records actual usable supplies at
+the property, confirmed by an active housekeeper assigned to that property:
+
+```json
+{
+  "version": 6,
+  "allocation_id": 9,
+  "quantity": "12",
+  "staff_id": 1,
+  "listing_id": 101,
+  "note": "Housekeeper confirms 12 usable rolls are at the property",
+  "evidence": {"reference": "whatsapp:provider:group-id:message-id"},
+  "confirm_delivery": true
+}
+```
+
+API/staff entries on behalf of a housekeeper require `evidence.reference`.
+The evidence must refer to actual housekeeper confirmation. A linked
+housekeeper login can confirm as itself without an external evidence reference.
+`listing_id` must be the original property, or the real receiving property for
+shared stock. Never use a carrier scan, retailer promise, or receipt at a
+housekeeper's home as proof that supplies are at the rental property.
+
+By default quantity is bounded by already recorded delivery. Set
+`confirm_delivery:true` only when the source explicitly confirms physical
+receipt despite missing/late carrier tracking; it remains bounded by purchased
+outstanding quantity. Partial confirmation leaves the remaining need open.
+Completion follows only when all noncancelled item quantities are confirmed.
+
+Additional `POST /procurement/api/requests/{id}/{action}` operations:
+
+- `return`: same fields as confirm, with positive quantity and note/evidence.
+  Removes previously confirmed usable goods from that property's quantity and
+  reopens the need. The quantity cannot exceed previous confirmations there.
+- `problem`: `{"version":7,"allocation_id":9,"quantity":"2","kind":"damaged","reason":"Two units unusable"}`.
+  Kinds: `lost`, `damaged`, `incorrect`, `retailer_cancelled`. Releases outstanding
+  quantity for replacements; already confirmed goods require a return instead.
+- `cancel-item`: `{"version":8,"item_id":8,"quantity":"2","reason":"Not needed"}`.
+  Purchasing staff only; only unpurchased/unreserved quantities may be cancelled.
+- `cancel`: `{"version":9,"reason":"Request withdrawn"}`. Purchasing staff
+  only; entire request must be unpurchased and unreserved.
+
+Returns/problems do not automatically refund money. Refunds do not establish
+physical return, replacement, or receipt. Operational completion and financial
+reconciliation remain separate.
+
+### Procurement receipts, reports, and directory
+
+- `POST /procurement/api/orders/{id}/receipts`: multipart `file`, with
+  Idempotency-Key. Accepts PDF/PNG/JPEG by file signature, up to 10 MiB. Returns
+  the updated order. No version field required; re-read before subsequent writes.
+- `GET /procurement/api/receipts/{attachment_id}`: authenticated attachment
+  download. Requires purchasing access; private/no-store, not a public URL.
+- `GET /procurement/api/report?month=YYYY-MM`: returns `month` and `currencies`.
+  Each currency group has per-property `allocated_cents`, `confirmed_cents`,
+  currency totals, and `unallocated_cents` for shared stock. Purchase costs use
+  purchased_on; refunds use refunded_on, including negative later-month amounts.
+  Confirmed cost uses property confirmations through month-end. Shipping, tax,
+  discounts, and rounding conserve the total. No currency conversion is applied.
+- `GET /procurement/api/report.csv?month=YYYY-MM`: authoritative UTF-8 CSV with
+  the same figures in major units; authenticated private download.
+- `POST /procurement/api/directory/{kind}`: human admins only; kinds `staff`,
+  `locations`, `catalog`. Optional `id` edits an existing record, otherwise
+  creates. Saves require Idempotency-Key but no version. `active` is boolean.
+  Staff: name, phone, optional user_id, listing_ids. Locations: label, kind
+  (housekeeper/property/storage), address, instructions, staff_id or listing_id.
+  Catalog: name, canonical unit, category, pack_description. Deactivate old
+  records to retain history. Linked logins still need Procurement feature access.
+
+### Procurement Ethan event and reminder contract
+
+- `GET /procurement/api/events?after=0` returns up to 200 request-linked events
+  in ascending event_id order: `{"events":[...],"next_cursor":123}`.
+  Cursor must be a nonnegative integer; gaps are normal. Empty results preserve
+  the supplied cursor. This is a polling feed, not a webhook or live listener.
+- Events include event_id, action, ticket_id, request_code, property, current
+  status, owner_user_id, requester_phone (active requester only), and
+  source_messages (channel/message_id references). Destination addresses and
+  original message bodies are not in the feed. Fetch request detail for context.
+- `status` reflects **current state at polling time**, not the historical state
+  when the event happened. Coalesce multiple events for one request and fetch
+  latest details before sending an update. Pure order/receipt/refund/directory
+  events without a request link do not appear; use order reads for finance.
+- Persist next_cursor only after downstream processing succeeds. Deduplicate
+  outbound actions by event_id and recipient. Drain full batches before waiting.
+  A 30–60 second initial poll interval with backoff on errors is reasonable;
+  this is guidance, not a server-side schedule.
+- `GET /procurement/api/attention` returns `{"requests":[...]}` for active
+  requests with flags or critical priority. Escalate missing human owners,
+  unanswered clarification, overdue staff reviews, and delivery risk to staff.
+  Compare with durable previous state; do not repeat unchanged reminders on each
+  poll. Suppress feedback loops from Ethan's own intake messages.
+- Learn the workflow and discover actual directory readiness before operating.
+  If staff/property mapping, verified addresses, human owner, or approval is
+  missing, ask the responsible human. Do not invent setup or bypass approval.
+  Learning this document alone does not install a worker or enable notifications.

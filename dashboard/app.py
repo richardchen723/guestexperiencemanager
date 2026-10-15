@@ -61,6 +61,8 @@ from dashboard.kpi.routes import register_kpi_routes
 from dashboard.booking_health.routes import register_booking_health_routes
 from dashboard.listing_audit.routes import register_listing_audit_routes
 from dashboard.stay_issues.routes import register_guest_issue_routes
+from dashboard.procurement.routes import register_procurement_routes
+from dashboard.procurement.models import init_procurement_database
 from dashboard.dashboard.routes import dashboard_bp
 from brain.models import init_guest_experience_tables, init_kpi_tables, init_listing_audit_tables
 from database.models import init_models
@@ -109,6 +111,7 @@ def create_app():
         init_kpi_tables()
         init_listing_audit_tables()
         init_guest_experience_tables()
+        init_procurement_database()
     
     # Register Google OAuth blueprint
     google_bp = create_google_blueprint(app)
@@ -128,6 +131,7 @@ def create_app():
     register_booking_health_routes(app)
     register_listing_audit_routes(app)
     register_guest_issue_routes(app)
+    register_procurement_routes(app)
     app.register_blueprint(dashboard_bp)
     
     # Health check endpoint for monitoring

@@ -51,6 +51,13 @@ FEATURES = OrderedDict((feature['key'], feature) for feature in (
         'endpoint': 'tickets.tickets_list',
     },
     {
+        'key': 'procurement',
+        'label': 'Procurement',
+        'description': 'Supply requests, purchase approvals, property confirmation, and costs.',
+        'default_access': False,
+        'endpoint': 'procurement.procurement_page',
+    },
+    {
         'key': 'reviews',
         'label': 'Reviews',
         'description': 'Review windows, guest risk, and review resolutions.',

@@ -31,6 +31,7 @@
     {% elif 'booking_health' in endpoint %}{% set workspace_name = 'Booking health' %}
     {% elif 'listing_audit' in endpoint %}{% set workspace_name = 'Listing health' %}
     {% elif 'kpi' in endpoint %}{% set workspace_name = 'KPI' %}
+    {% elif 'procurement' in endpoint %}{% set workspace_name = 'Procurement' %}
     {% elif 'tickets' in endpoint %}{% set workspace_name = 'Tickets' %}
     {% elif 'reviews' in endpoint %}{% set workspace_name = 'Reviews' %}
     {% elif 'knowledge' in endpoint %}{% set workspace_name = 'Knowledge base' %}
@@ -103,6 +104,12 @@
                     <a href="{{ url_for('tickets.tickets_list') }}" class="app-nav-link {% if 'tickets' in endpoint %}active{% endif %}" title="Tickets">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v4a2.5 2.5 0 0 0 0 5v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2.5 2.5 0 0 0 0-5V6a2 2 0 0 1 2-2Z"/><path d="M13 8h4M13 12h4M13 16h3M9 7v10"/></svg>
                         <span>Tickets</span>
+                    </a>
+                    {% endif %}
+                    {% if feature_access.procurement %}
+                    <a href="{{ url_for('procurement.procurement_page') }}" class="app-nav-link {% if 'procurement' in endpoint %}active{% endif %}" title="Procurement">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 7 9-4 9 4v10l-9 4-9-4V7Zm0 0 9 4 9-4M12 11v10M7 5l9 4"/></svg>
+                        <span>Procurement</span>
                     </a>
                     {% endif %}
                     {% if feature_access.reviews %}
