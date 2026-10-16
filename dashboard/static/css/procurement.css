@@ -1512,6 +1512,9 @@
 .pc-housekeeper-assigned details { margin-top:8px; }
 .pc-housekeeper-assigned summary { cursor:pointer; color:var(--pc-brand); font-size:12px; }
 .pc-housekeeper-delivery { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding-top:16px; margin-top:20px; border-top:1px solid var(--pc-line); color:var(--pc-muted); font-size:12px; }
+.pc-selected-properties { display:flex; flex-wrap:wrap; gap:6px; list-style:none; margin:0; padding:0; max-height:132px; overflow:auto; }
+.pc-selected-properties[hidden] { display:none; }
+.pc-selected-properties li { max-width:100%; padding:6px 9px; border:1px solid #dce4fb; border-radius:6px; background:#eff3ff; color:#2947a0; font-size:12px; line-height:1.5; overflow-wrap:anywhere; }
 .pc-assignment-filters { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:12px 0; }
 .pc-assignment-filters input,.pc-assignment-filters select { width:100%; min-width:0; border:1px solid #d8dfeb; border-radius:7px; padding:10px; background:white; font:inherit; font-size:13px; }
 .pc-assignment-actions { display:flex; gap:8px; margin-bottom:10px; }

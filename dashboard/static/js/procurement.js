@@ -485,7 +485,7 @@
     }
 
     function assignmentPicker(row) {
-        return `<div class="pc-form-section"><div class="pc-form-row-heading"><h3>Assigned properties</h3><span class="pc-muted" id="pcAssignmentCount"></span></div><div class="pc-assignment-filters"><input type="search" data-assignment-search placeholder="Search properties" aria-label="Search property assignments"><select data-assignment-tag aria-label="Filter assignment group">${opt('', 'All property groups')}${[...new Set(state.ref.properties.flatMap(p => p.tags))].sort().map(t => opt(t,t)).join('')}</select></div><div class="pc-assignment-actions">${button('assign-visible','Select shown')}${button('unassign-visible','Clear shown')}</div><div class="pc-form-assignments pc-housekeeper-assignments">${[...state.ref.properties].sort((a,b) => a.name.localeCompare(b.name)).map(p => `<label data-assignment-id="${p.id}"><input type="checkbox" name="listing_ids" value="${p.id}" ${row.listing_ids?.includes(p.id) ? 'checked' : ''}><span>${esc(p.name)}<small>${esc([p.city,...p.tags].filter(Boolean).join(' · '))}</small></span></label>`).join('')}</div><p id="pcAssignmentEmpty" class="pc-muted" hidden>No properties match this search.</p></div>`;
+        return `<div class="pc-form-section"><div class="pc-form-row-heading"><h3>Assigned properties</h3><span class="pc-muted" id="pcAssignmentCount" role="status"></span></div><ul class="pc-selected-properties" id="pcAssignmentSelected" aria-label="Selected properties" tabindex="0" hidden></ul><p id="pcAssignmentSelectedEmpty" class="pc-muted">No properties selected yet.</p><div class="pc-assignment-filters"><input type="search" data-assignment-search placeholder="Search properties" aria-label="Search property assignments"><select data-assignment-tag aria-label="Filter assignment group">${opt('', 'All property groups')}${[...new Set(state.ref.properties.flatMap(p => p.tags))].sort().map(t => opt(t,t)).join('')}</select></div><div class="pc-assignment-actions">${button('assign-visible','Select shown')}${button('unassign-visible','Clear shown')}</div><div class="pc-form-assignments pc-housekeeper-assignments">${[...state.ref.properties].sort((a,b) => a.name.localeCompare(b.name)).map(p => `<label data-assignment-id="${p.id}"><input type="checkbox" name="listing_ids" value="${p.id}" ${row.listing_ids?.includes(p.id) ? 'checked' : ''}><span>${esc(p.name)}<small>${esc([p.city,...p.tags].filter(Boolean).join(' · '))}</small></span></label>`).join('')}</div><p id="pcAssignmentEmpty" class="pc-muted" hidden>No properties match this search.</p></div>`;
     }
 
     function filterAssignments() {
@@ -498,7 +498,11 @@
             label.hidden = !!((tag && !p.tags.includes(tag)) || (term && ![p.name,p.city,...p.tags].join(' ').toLocaleLowerCase().includes(term)));
             if (!label.hidden) visible++;
         });
-        $('pcAssignmentCount').textContent = `${root.querySelectorAll('[name=listing_ids]:checked').length} selected · ${visible} shown`;
+        const selected = [...root.querySelectorAll('[name=listing_ids]:checked')].map(input => state.ref.properties.find(p => p.id === Number(input.value)));
+        $('pcAssignmentSelected').innerHTML = selected.map(p => `<li><span aria-hidden="true">✓</span> ${esc(p.name)}</li>`).join('');
+        $('pcAssignmentSelected').hidden = !selected.length;
+        $('pcAssignmentSelectedEmpty').hidden = selected.length > 0;
+        $('pcAssignmentCount').textContent = `${selected.length} selected · ${visible} shown`;
         $('pcAssignmentEmpty').hidden = visible > 0;
     }
 
