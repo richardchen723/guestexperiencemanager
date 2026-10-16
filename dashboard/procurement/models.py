@@ -54,6 +54,7 @@ class Ticket(Base):
     title = Column(String(240), nullable=False)
     listing_id = Column(Integer, index=True)
     property_snapshot = Column(JSON, nullable=False, default=dict)
+    property_snapshots = Column(JSON, nullable=False, default=list)
     storage_location_id = Column(Integer, ForeignKey("procurement.locations.id"))
     requester_staff_id = Column(Integer, ForeignKey("procurement.staff.id"))
     requester_name = Column(String(160), nullable=False)
@@ -73,6 +74,7 @@ class RequestItem(Base):
     __tablename__ = "request_items"
     id = Column(Integer, primary_key=True)
     ticket_id = Column(Integer, ForeignKey("procurement.requests.id"), nullable=False, index=True)
+    listing_id = Column(Integer, index=True)
     catalog_id = Column(Integer, ForeignKey("procurement.catalog.id"))
     name = Column(String(180), nullable=False)
     category = Column(String(60), nullable=False, default="supplies")
@@ -136,6 +138,7 @@ class OrderLine(Base):
     pack_size = Column(Numeric(12, 3), nullable=False, default=1)
     unit_price_cents = Column(BigInteger, nullable=False)
     substitution_reason = Column(Text)
+    destination = Column(JSON)
     order = relationship("PurchaseOrder", back_populates="lines")
     allocations = relationship("Allocation", back_populates="line", cascade="all, delete-orphan")
     refunds = relationship("Refund", back_populates="line")
@@ -241,6 +244,22 @@ def init_procurement_database(engine=None):
     Base.metadata.create_all(engine)
     from sqlalchemy import inspect
     schema = "procurement" if engine.dialect.name == "postgresql" else None
+    for table_name, name, sql_type in (("requests", "property_snapshots", "JSON NOT NULL DEFAULT '[]'"),
+                                        ("request_items", "listing_id", "INTEGER"),
+                                        ("order_lines", "destination", "JSON")):
+        columns = {c["name"] for c in inspect(engine).get_columns(table_name, schema=schema)}
+        if name not in columns:
+            table = f"procurement.{table_name}" if schema else table_name
+            with engine.begin() as connection:
+                connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}"))
+    # Old allocations retain their item IDs and all receipt/cost history. The
+    # parent property remains a fallback while older workers finish requests.
+    prefix = "procurement." if schema else ""
+    with engine.begin() as connection:
+        connection.execute(text(f"UPDATE {prefix}request_items SET listing_id = "
+                                f"(SELECT listing_id FROM {prefix}requests WHERE id = {prefix}request_items.ticket_id) "
+                                f"WHERE listing_id IS NULL AND EXISTS (SELECT 1 FROM {prefix}requests "
+                                f"WHERE id = {prefix}request_items.ticket_id AND listing_id IS NOT NULL)"))
     columns = {c["name"] for c in inspect(engine).get_columns("staff", schema=schema)}
     if "version" not in columns:
         table = "procurement.staff" if schema else "staff"

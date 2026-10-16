@@ -1,4 +1,4 @@
-# Cotton Candy procurement — Phase 1
+# Cotton Candy procurement
 
 The procurement workspace is at `/procurement/` in the existing Flask app. It
 uses existing Cotton Candy property IDs, tags, accounts, and feature access.
@@ -7,7 +7,8 @@ Existing operational tickets and bookkeeping records are not rewritten.
 
 ## Operating workflow
 
-1. Capture one request per property, with multiple items. Incomplete property,
+1. Capture one request for one or several explicitly selected properties, with
+   quantities per property and supply. Incomplete property,
    quantity, or deadline information stays visible under **Needs information**.
    Shared-storage requests are also supported; final receipt must still identify
    the real property receiving the supplies.
@@ -16,9 +17,16 @@ Existing operational tickets and bookkeeping records are not rewritten.
    high / normal / planned requests. These are elapsed-time defaults, not a
    promise of business-hour or on-call coverage. Staff can change the response
    deadline independently of the required-by deadline.
-3. Draft one or more purchases. A retailer order can cover multiple requests,
+3. Open **Purchases → To buy**, select outstanding needs across requests, and
+   adjust how much to buy now. Addresses default only when the roster resolves
+   to exactly one verified destination. Choose ambiguous/missing addresses
+   explicitly, or use **Deliver selected to** for deliberate central receiving.
+   Matching products/units consolidate per destination.
+   Draft one or more purchases. A retailer order can cover multiple requests,
    and each requested item can be fulfilled through multiple retailer orders.
-   Unallocated purchased quantity remains visible as shared stock.
+   Unallocated purchased quantity remains visible as shared stock at its receiving
+   location. Whole packs round separately per destination. Each purchase records
+   one actual retailer order; use separate purchases for separate order numbers.
 4. An administrator reviews products, quantities, substitutions, price, expense
    responsibility, allocations, and an address snapshot, then approves the
    current purchase revision. Initial policy is approval for **every purchase**;
@@ -28,6 +36,11 @@ Existing operational tickets and bookkeeping records are not rewritten.
 6. Record split shipments and delivered quantities. Tracking and ETA can be
    corrected; undelivered shipment records can be cancelled with a reason.
 7. The assigned housekeeper confirms usable supplies physically at the property.
+   **Confirm property receipts** supports explicitly selected supplies at several
+   assigned properties in one submission, including partial quantities. An invalid
+   row rolls back all rows. Property progress is independent; shared requests show
+   how many properties are ready. Housekeepers see only their assigned portions,
+   without sibling contacts, shared messages or finance.
    Staff or Ethan recording confirmation on someone's behalf must provide a
    source-message/evidence reference. A housekeeper using their own linked
    account can confirm directly. Physical receipt can be explicitly recorded
@@ -82,7 +95,7 @@ ordinary accounts.
 
 - Add housekeepers, property assignments, and optional linked login accounts.
   A linked ordinary account becomes a housekeeper account in this module: it
-  sees assigned properties and requests, and can add messages, report problems,
+  sees assigned properties and request portions, and can add messages, report problems,
   and confirm/return supplies as itself. It cannot purchase, access financial
   reports, read private delivery addresses, download receipts, or approve orders.
 - An approved account with Procurement access and no linked housekeeper profile
@@ -153,7 +166,10 @@ Create a request with `POST /procurement/api/requests`:
 
 Use actual IDs from `GET /procurement/api/bootstrap`. Leave unknown quantities
 or destinations unset; never invent them. Source-message replay is deduplicated
-per destination. One message concerning two properties can create two requests.
+per explicit property set/storage destination. One message concerning two
+properties can create one request with `listing_ids:[101,102]` and a `listing_id`
+on each item. Each selected property needs a positive/unknown item; omit quantities
+that are not needed. Legacy single-property payloads remain valid.
 Similar messages appear as possible duplicates; they are not silently merged.
 
 Use `PATCH /procurement/api/requests/<id>` with the current `version` to attach
@@ -173,6 +189,7 @@ Other API groups:
 | `PATCH /api/shipments/<id>` | Correct tracking/ETA or cancel an undelivered shipment |
 | `POST /api/shipments/<id>/deliver` | Record delivery; does not close a request |
 | `POST /api/requests/<id>/confirm` | Record housekeeper confirmation at the property |
+| `POST /api/requests/<id>/confirm-batch` | Atomically record selected property/item receipts |
 | `POST /api/requests/<id>/return` | Record supplies returned from the property |
 | `POST /api/requests/<id>/problem` | Release lost, damaged, incorrect, or cancelled quantities |
 | `POST /api/requests/<id>/cancel-item` | Cancel only unpurchased, unreserved quantities |
@@ -194,7 +211,8 @@ Stale writes return 409 instead of overwriting another person's work.
 
 For property confirmation, include `allocation_id`, `quantity`, `staff_id`,
 `listing_id`, `note`, and `evidence.reference` when acting on behalf of a
-housekeeper. Set `confirm_delivery: true` only when the source confirms actual
+housekeeper. A shared request allocation can only be confirmed at its item's
+property. Set `confirm_delivery: true` only when the source confirms actual
 physical receipt despite absent/late tracking. Without it, confirmation is
 limited to already recorded delivery quantities. Purchased quantities and
 housekeeper assignments are enforced in both cases.
@@ -219,12 +237,18 @@ existing database-initialization lock. It creates the schema, tables, additive
 columns, and indexes idempotently. PostgreSQL writes use a transaction-scoped
 procurement advisory lock to protect quantity aggregates and retry keys across
 workers. The schema is independent, so rolling back application code does not
-require deleting procurement history.
+require deleting procurement history. The multi-property extension adds request
+property snapshots, item property IDs, and per-line receiving snapshots. Migration
+backfills legacy item property IDs without replacing item/allocation/confirmation
+IDs. Existing requests and single-address orders retain compatible API shapes.
+Restart all workers together when enabling this version; older binaries do not
+understand newly created multi-property requests.
 
 Run business and access regressions:
 
 ```sh
-.venv/bin/python -m pytest dashboard/procurement/tests/test_workflow.py dashboard/auth/tests/test_features.py -q
+.venv/bin/python -m pytest dashboard/procurement/tests/test_workflow.py dashboard/procurement/tests/test_multi_property.py dashboard/auth/tests/test_features.py -q
+node --test dashboard/procurement/tests/test_planning.cjs
 ```
 
 For full real-app/PostgreSQL integration tests, create a disposable local DB:
@@ -233,7 +257,7 @@ For full real-app/PostgreSQL integration tests, create a disposable local DB:
 createdb codex_procurement_qa_integration
 DATABASE_URL=postgresql:///codex_procurement_qa_integration \
 PROCUREMENT_QA_DATABASE_URL=postgresql:///codex_procurement_qa_integration \
-  .venv/bin/python -m pytest dashboard/procurement/tests/test_api.py -q
+  .venv/bin/python -m pytest dashboard/procurement/tests/test_api.py dashboard/procurement/tests/test_multi_api.py -q
 ```
 
 The integration suite refuses a nonlocal DB or a name outside the
@@ -241,6 +265,13 @@ The integration suite refuses a nonlocal DB or a name outside the
 It covers authentication, feature access, CSRF, housekeeper isolation, API-key
 restrictions, replay protection, six simultaneous retries, competing buyers,
 atomic rollback, private receipts, event cursors, and the complete workflow.
+Shared-request regressions cover partial purchases across requests/retailers,
+independent property receipts, batch confirmation rollback, sibling access
+isolation, multiple addresses, cent conservation, competing buyers, and repeatable
+upgrade from the deployed schema while preserving history.
+Dependency-free JavaScript tests exercise the same grid editing, partial
+purchase grouping and pack rounding helpers loaded by the browser, including
+preserving the distinction between unknown and not-needed property quantities.
 
 The optional `dashboard.procurement.preview` entrypoint runs an isolated local
 sample-data preview at `127.0.0.1:5056`, with purchasing/housekeeper view switches.

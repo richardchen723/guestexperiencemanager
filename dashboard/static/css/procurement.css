@@ -1453,6 +1453,50 @@
 }
 
 /* A small operational roster, separate from login-account administration. */
+.pc-buy-toolbar { margin:14px 0; flex-wrap:wrap; }
+.pc-buy-row { display:grid; grid-template-columns:minmax(180px,1.5fr) minmax(120px,.6fr) minmax(180px,1fr); align-items:center; gap:18px; padding:18px 22px; border-bottom:1px solid var(--pc-line); }
+.pc-buy-row:last-child { border-bottom:0; }
+.pc-buy-item { display:flex; align-items:flex-start; gap:12px; min-width:0; cursor:pointer; }
+.pc-buy-item input { margin-top:4px; flex-shrink:0; }
+.pc-buy-item small { display:block; margin-top:5px; color:var(--pc-muted); }
+.pc-buy-row .pc-field { margin:0; min-width:0; }
+.pc-buy-footer { display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:space-between; margin-top:18px; color:var(--pc-muted); font-size:13px; }
+.pc-label-inline select { max-width:250px; min-width:0; padding:9px; border:1px solid var(--pc-line); border-radius:7px; background:white; font:inherit; }
+.pc-dialog:has(#pcRequestMatrix) { width:min(1100px,calc(100vw - 32px)); }
+.pc-request-product { border-bottom:1px solid var(--pc-line); padding:14px 0; }
+.pc-request-product .pc-field-grid { grid-template-columns:minmax(130px,1fr) minmax(150px,1.5fr) minmax(90px,.6fr) auto; align-items:end; }
+.pc-matrix-bulk { display:flex; flex-wrap:wrap; gap:10px; align-items:center; color:var(--pc-muted); font-size:12px; }
+.pc-matrix-bulk input { width:90px; padding:8px; border:1px solid var(--pc-line); border-radius:6px; margin-left:8px; font:inherit; }
+.pc-quantity-matrix th:first-child,.pc-quantity-matrix td:first-child { min-width:210px; }
+.pc-quantity-matrix td:not(:first-child),.pc-quantity-matrix th:not(:first-child) { min-width:135px; }
+.pc-quantity-matrix input { width:100%; max-width:140px; min-width:70px; border:1px solid var(--pc-line); border-radius:6px; padding:10px; font:inherit; }
+.pc-quantity-matrix input[readonly] { background:#f3f5f9; color:#667085; }
+.pc-property-progress { margin:22px 0; }
+.pc-property-progress-row { display:flex; gap:12px; justify-content:space-between; align-items:center; border-bottom:1px solid var(--pc-line); padding:12px 0; }
+.pc-property-progress-row small { display:block; margin-top:3px; color:var(--pc-muted); }
+.pc-receipt-property { padding:18px 0; border-bottom:1px solid var(--pc-line); margin-bottom:16px; }
+.pc-receipt-row { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(100px,1fr); align-items:center; gap:14px; padding:12px 0; }
+.pc-receipt-row > label:first-child { display:flex; align-items:start; gap:10px; }
+.pc-receipt-row small { display:block; color:var(--pc-muted); margin-top:4px; }
+.pc-receipt-row .pc-field { margin:0; }
+.pc-allocation-details summary { margin-bottom:12px; color:var(--pc-brand); font-size:13px; cursor:pointer; }
+@media(max-width:700px) {
+    .pc-buy-row { grid-template-columns:1fr 1fr; padding:16px; gap:12px; }
+    .pc-buy-item { grid-column:1/-1; }
+    .pc-request-product .pc-field-grid { grid-template-columns:1fr 1fr; }
+    .pc-quantity-matrix,.pc-quantity-matrix tbody { display:block; min-width:0; width:100%; }
+    .pc-quantity-matrix thead { display:none; }
+    .pc-quantity-matrix tr { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; padding:16px 0; border-bottom:1px solid var(--pc-line); }
+    .pc-quantity-matrix td,.pc-quantity-matrix td:first-child,.pc-quantity-matrix td:not(:first-child) { display:block; min-width:0; padding:0; border:0; }
+    .pc-quantity-matrix td:first-child { grid-column:1/-1; }
+    .pc-quantity-matrix td[data-label]::before { content:attr(data-label); display:block; color:var(--pc-muted); font-size:12px; margin-bottom:6px; }
+    .pc-quantity-matrix input { max-width:100%; min-width:0; }
+    .pc-property-progress-row { align-items:flex-start; flex-wrap:wrap; }
+}
+@media(max-width:420px) {
+    .pc-request-product .pc-field-grid,.pc-buy-row,.pc-receipt-row { grid-template-columns:1fr; }
+    .pc-label-inline select { max-width:100%; }
+}
 .pc-housekeeper-grid {
     display:grid;
     grid-template-columns:repeat(auto-fit,minmax(min(100%,350px),1fr));
