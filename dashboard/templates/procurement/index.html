@@ -2,7 +2,7 @@
 {% block title %}Procurement · Cotton Candy{% endblock %}
 {% block extra_head %}
 <meta name="procurement-csrf" content="{{ procurement_csrf }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/procurement.css', v='6') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/procurement.css', v='7') }}">
 {% endblock %}
 {% block content %}
 <section class="pc" id="procurementApp" aria-label="Procurement workspace">
@@ -23,8 +23,19 @@
         <button type="button" data-view="directory" data-purchaser hidden>Delivery & catalog</button>
     </nav>
     <section id="pcRequests" class="pc-view">
-        <div class="pc-filter-bar"><div class="pc-search"><span aria-hidden="true">⌕</span><input id="pcSearch" type="search" placeholder="Search requests, properties, or supplies" aria-label="Search requests"></div><select id="pcProperty" aria-label="Filter by property"><option value="">All properties</option></select><select id="pcTag" aria-label="Filter by tag"><option value="">All tags</option></select><select id="pcPriority" aria-label="Filter by priority"><option value="">All priorities</option><option value="critical">Critical</option><option value="high">High</option><option value="normal">Normal</option><option value="planned">Planned</option></select><label class="pc-checkbox" data-purchaser hidden><input type="checkbox" id="pcMine"> Assigned to me</label></div>
-        <div class="pc-chips" id="pcStatusFilters" aria-label="Filter request status"><button type="button" class="active" data-status="active" aria-pressed="true">Open requests</button><button type="button" data-status="attention" aria-pressed="false">Needs attention</button><button type="button" data-status="awaiting_confirmation" aria-pressed="false">Confirm at property</button><button type="button" data-status="completed" aria-pressed="false">Completed</button><button type="button" data-status="all" aria-pressed="false">All requests</button></div>
+        <div class="pc-request-filters" role="region" aria-label="Request filters">
+            <div class="pc-request-filter-fields">
+                <div class="pc-filter-field pc-request-search">
+                    <label for="pcSearch">Search</label>
+                    <div class="pc-search"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input id="pcSearch" type="search" placeholder="Requests, properties, or supplies" aria-label="Search requests"></div>
+                </div>
+                <div class="pc-filter-field"><label for="pcProperty">Property</label><select id="pcProperty" aria-label="Filter by property"><option value="">All</option></select></div>
+                <div class="pc-filter-field"><label for="pcTag">Tag</label><select id="pcTag" aria-label="Filter by tag"><option value="">All</option></select></div>
+                <div class="pc-filter-field"><label for="pcPriority">Priority</label><select id="pcPriority" aria-label="Filter by priority"><option value="">All</option><option value="critical">Critical</option><option value="high">High</option><option value="normal">Normal</option><option value="planned">Planned</option></select></div>
+                <label class="pc-checkbox pc-request-mine" data-purchaser hidden><input type="checkbox" id="pcMine"> Assigned to me</label>
+            </div>
+            <div class="pc-chips" id="pcStatusFilters" role="group" aria-label="Filter request status"><button type="button" class="active" data-status="active" aria-pressed="true">Open requests</button><button type="button" data-status="attention" aria-pressed="false">Needs attention</button><button type="button" data-status="awaiting_confirmation" aria-pressed="false">Confirm at property</button><button type="button" data-status="completed" aria-pressed="false">Completed</button><button type="button" data-status="all" aria-pressed="false">All requests</button></div>
+        </div>
         <div class="pc-panel"><div class="pc-panel-heading"><h2 id="pcQueueTitle">Request queue</h2><span class="pc-muted" id="pcQueueCount"></span></div><div id="pcRequestList" aria-live="polite"><div class="pc-empty">Loading requests…</div></div></div>
         <p class="pc-footnote">A request closes only after the housekeeper confirms supplies at the property. Delivery tracking alone never completes a request.</p>
     </section>
@@ -52,4 +63,4 @@
 <dialog class="pc-dialog pc-detail-dialog" id="pcDetailDialog" aria-labelledby="pcDetailTitle"><header class="pc-dialog-heading"><div><span class="pc-eyebrow" id="pcDetailCode"></span><h2 id="pcDetailTitle">Request details</h2></div><button type="button" class="pc-icon-button" data-close="pcDetailDialog" aria-label="Close details">×</button></header><div id="pcDetailContent" class="pc-dialog-body"></div></dialog>
 <dialog class="pc-dialog" id="pcFormDialog" aria-labelledby="pcFormTitle"><form id="pcForm" data-mobile-enhancements="off"><header class="pc-dialog-heading"><div><p class="pc-eyebrow" id="pcFormEyebrow">PROCUREMENT</p><h2 id="pcFormTitle"></h2></div><button type="button" class="pc-icon-button" data-close="pcFormDialog" aria-label="Close form">×</button></header><div class="pc-dialog-body"><div id="pcFormError" class="pc-alert pc-danger" role="alert" hidden></div><div id="pcFormFields"></div></div><footer class="pc-dialog-footer"><button type="button" class="pc-button pc-secondary" data-close="pcFormDialog">Cancel</button><button type="submit" class="pc-button pc-primary" id="pcFormSubmit">Save</button></footer></form></dialog>
 {% endblock %}
-{% block extra_scripts %}<script src="{{ url_for('static', filename='js/procurement-planning.js', v='1') }}" defer></script><script src="{{ url_for('static', filename='js/procurement.js', v='6') }}" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static', filename='js/procurement-planning.js', v='1') }}" defer></script><script src="{{ url_for('static', filename='js/procurement.js', v='7') }}" defer></script>{% endblock %}
