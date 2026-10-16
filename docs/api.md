@@ -479,7 +479,14 @@ notification, and polling integration.
 Request objects include `id`, display `code` (PR-0001), `version`, `title`,
 `listing_id` (only for a single property), `listing_ids`, `properties`, property
 snapshot labels/tags/timezone, requester/owner IDs and
-names, priority, deadlines, `status`, `status_label`, `flags`, and `items`.
+names, priority, deadlines, `status`, `status_label`, `flags`, `missing_information`, and `items`.
+`missing_information` explains the Needs information flag as a list of objects
+with `field` (`property`, `items`, `required_by`, or `quantity`) and a readable
+`message`. Quantity entries include `item_id` and `listing_id`, and identify the
+supply, unit, and property. The list updates after clarification, is empty for
+completed/cancelled requests, and follows the same housekeeper property scope as
+items. It is also present in list and attention responses, so integrations can
+ask for specific missing details instead of repeating the generic flag.
 `properties` contains explicit property snapshots, current assigned active
 housekeepers (IDs/names), required-by dates, and derived per-property status and
 `ready`. `ready_properties` and `property_count` describe property progress.

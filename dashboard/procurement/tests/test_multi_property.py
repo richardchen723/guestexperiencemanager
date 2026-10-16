@@ -186,6 +186,19 @@ def test_unknown_quantities_do_not_become_purchasable_or_complete(service):
         service.save_order(order_data(lines=[{'name':'Toilet paper','unit':'rolls','quantity':'2','unit_price':'1','allocations':[{'item_id':ticket.items[1].id,'quantity':'2'}]}]))
 
 
+def test_missing_quantity_identifies_its_property_and_housekeepers_only_see_their_portion(service):
+    from dashboard.procurement.service import ProcurementService
+    ticket = multi(service, items=[{'listing_id':101,'name':'Toilet paper','unit':'rolls'},
+                                   {'listing_id':102,'name':'Paper towels','unit':'rolls','quantity':'6'}])
+    value = service.ticket_dict(ticket)
+    assert value['missing_information'] == [{'field':'quantity','item_id':ticket.items[0].id,'listing_id':101,
+        'message':'Enter the quantity for Toilet paper (rolls) at Searenity Haven.'}]
+    cleaner = ProcurementService(service.session, actor='Cleaner', staff_scope=service.session.get(Staff,3), properties=service.properties)
+    scoped = cleaner.ticket_dict(ticket)
+    assert scoped['listing_ids'] == [102] and scoped['missing_information'] == []
+    assert 'Needs information' not in scoped['flags']
+
+
 def multiple_delivery_order(service):
     ticket = multi(service)
     service.session.add(Location(id=3,label='Other receiving address',kind='housekeeper',address='Other QA address',staff_id=3,active=True))

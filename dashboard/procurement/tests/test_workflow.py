@@ -179,8 +179,36 @@ def test_missing_property_quantity_and_date_are_visible_and_cannot_be_purchased(
     ticket = new_ticket(service, listing_id=None, required_by=None, items=[{"name": "Paper towels", "unit": "rolls"}])
     assert "Needs information" in ticket_flags(ticket)
     assert ticket_status(ticket) == "new"
+    missing = service.ticket_dict(ticket)["missing_information"]
+    assert [entry["field"] for entry in missing] == ["property", "required_by", "quantity"]
+    assert missing[2] == {"field": "quantity", "item_id": ticket.items[0].id, "listing_id": None,
+                          "message": "Enter the quantity for Paper towels (rolls)."}
     with pytest.raises(WorkflowError, match="destination and quantity"):
         service.save_order(order_data(ticket))
+
+
+def test_missing_information_clears_after_clarification_and_keeps_other_flags(service):
+    ticket = new_ticket(service, required_by=None, owner_user_id=None)
+    value = service.ticket_dict(ticket)
+    assert value["missing_information"] == [{"field": "required_by", "message": "Set the needed-by date and time."}]
+    assert {"Needs information", "Unassigned"} <= set(value["flags"])
+    service.update_ticket(ticket.id, {"version": ticket.version, "required_by": "2027-01-02T10:00:00-08:00"})
+    value = service.ticket_dict(ticket)
+    assert value["missing_information"] == [] and "Needs information" not in value["flags"]
+    assert "Unassigned" in value["flags"]
+
+
+def test_shared_storage_and_closed_requests_do_not_report_unneeded_information(service):
+    ticket = new_ticket(service, listing_id=None, storage_location_id=2, required_by=None)
+    assert [entry["field"] for entry in service.ticket_dict(ticket)["missing_information"]] == ["required_by"]
+    service.cancel_ticket(ticket.id, {"version": ticket.version, "reason": "No longer needed"})
+    assert service.ticket_dict(ticket)["missing_information"] == []
+    complete = new_ticket(service, required_by=None)
+    order = purchase(service, complete)
+    deliver(service, order)
+    confirm(service, complete)
+    assert service.ticket_dict(complete)["status"] == "completed"
+    assert service.ticket_dict(complete)["missing_information"] == []
 
 
 def test_source_replay_returns_original_but_similar_messages_are_not_silently_merged(service):
