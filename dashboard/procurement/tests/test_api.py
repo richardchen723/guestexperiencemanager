@@ -73,6 +73,9 @@ def qa(qa_app):
     db.add(Staff(id=2, name="QA cleaner", user_id=qa_app.qa_users["cleaner"], listing_ids=[102], active=True))
     db.flush()
     db.add(Location(id=1, label="Maria storage", kind="housekeeper", address="QA private shipping address", staff_id=1, active=True))
+    db.flush()
+    for table in ("staff", "locations"):
+        db.execute(text(f"SELECT setval(pg_get_serial_sequence('procurement.{table}', 'id'), (SELECT max(id) FROM procurement.{table}))"))
     db.commit()
     db.close()
     return qa_app
@@ -266,7 +269,8 @@ def test_editing_housekeeper_preserves_linked_account_without_making_it_a_purcha
     bootstrap = client.get("/procurement/api/bootstrap").json
     assert qa.qa_users["cleaner"] in [u["id"] for u in bootstrap["account_users"]]
     assert qa.qa_users["cleaner"] not in [u["id"] for u in bootstrap["users"]]
-    response = post(client,"directory/staff",{"id":2,"name":"QA cleaner updated","user_id":qa.qa_users["cleaner"],"listing_ids":[102],"active":True})
+    version = next(s["version"] for s in bootstrap["staff"] if s["id"] == 2)
+    response = post(client,"directory/staff",{"id":2,"version":version,"name":"QA cleaner updated","user_id":qa.qa_users["cleaner"],"listing_ids":[102],"active":True})
     assert response.status_code == 200, response.json
     staff = next(s for s in client.get("/procurement/api/bootstrap").json["staff"] if s["id"] == 2)
     assert staff["user_id"] == qa.qa_users["cleaner"]
@@ -325,3 +329,46 @@ def test_procurement_contract_is_published_in_html_and_agent_markdown(qa_app):
     assert b'id="procurement"' in html.data
     assert b'href="#procurement"' in html.data
     assert b"confirm_delivery" in html.data
+
+
+def test_roster_edits_preserve_login_validate_properties_and_reject_lost_updates(qa):
+    client = client_for(qa)
+    staff = next(s for s in client.get('/procurement/api/bootstrap').json['staff'] if s['id'] == 2)
+    data = {'id':2,'version':staff['version'],'name':'Updated cleaner','phone':'+12025550111','listing_ids':[101,102,101],'active':True}
+    first = post(client,'directory/staff',data)
+    assert first.status_code == 200, first.json
+    assert post(client,'directory/staff',{**data,'name':'Stale overwrite'}).status_code == 409
+    saved = next(s for s in client.get('/procurement/api/bootstrap').json['staff'] if s['id'] == 2)
+    assert saved['user_id'] == qa.qa_users['cleaner']
+    assert saved['listing_ids'] == [101,102]
+    assert saved['name'] == 'Updated cleaner'
+    assert client_for(qa,'cleaner').get('/procurement/api/bootstrap').json['properties'][0]['id'] == 101
+    assert post(client,'directory/staff',{**data,'version':saved['version'],'listing_ids':[999999]}).status_code == 400
+    assert post(client,'directory/staff',{**data,'version':saved['version'],'listing_ids':[True]}).status_code == 400
+    assert post(client,'directory/staff',{**data,'version':saved['version'],'active':False}).status_code == 200
+    assert client_for(qa,'cleaner').get('/procurement/api/bootstrap').status_code == 403
+
+
+def test_roster_changes_are_admin_only_and_case_insensitive_duplicates_are_blocked(qa):
+    client = client_for(qa)
+    data = {'name':'New QA housekeeper','listing_ids':[101]}
+    assert post(client_for(qa,'manager'),'directory/staff',data).status_code == 403
+    assert post(client_for(qa,'cleaner'),'directory/staff',data).status_code == 403
+    assert post(client,'directory/staff',data).status_code == 200
+    assert post(client,'directory/staff',{**data,'name':'new qa HOUSEKEEPER'}).status_code == 409
+    assert post(client,'directory/staff',{'id':1,'name':'Missing version','listing_ids':[]}).status_code == 409
+
+
+def test_housekeeper_delivery_address_is_used_for_purchasing_and_reapproval(qa):
+    client = client_for(qa)
+    staff = post(client,'directory/staff',{'name':'New receiver','listing_ids':[101]}).json
+    address = post(client,'directory/locations',{'label':'Receiver deliveries','kind':'housekeeper','staff_id':staff['id'],'address':'QA verified original address'}).json
+    ticket = create(client,qa,requester_staff_id=staff['id'])
+    data = order_data()
+    data['location_id'] = address['id']
+    data['lines'][0]['allocations'] = [{'item_id':ticket['items'][0]['id'],'quantity':'4'}]
+    order = post(client,'orders',data).json
+    order = post(client,f"orders/{order['id']}/approve",{'version':order['version']}).json
+    assert post(client,'directory/locations',{'id':address['id'],'label':'Receiver deliveries','kind':'housekeeper','staff_id':staff['id'],'address':'QA updated verified address'}).status_code == 200
+    result = post(client,f"orders/{order['id']}/place",{'version':order['version'],'reference':'QA-address-change','purchased_on':date.today().isoformat()})
+    assert result.status_code == 400 and 'address changed' in result.json['error']

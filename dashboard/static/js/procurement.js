@@ -26,7 +26,7 @@
     const empty = (title, copy, action = '') => `<div class="pc-empty"><div class="pc-empty-symbol" aria-hidden="true">▧</div><h3>${esc(title)}</h3><p>${esc(copy)}</p>${action}</div>`;
     const activeStaff = propertyId => state.ref.staff.filter(s => s.active && (!propertyId || s.listing_ids.includes(Number(propertyId))));
     const activeLocations = () => state.ref.locations.filter(l => l.active && (!l.staff_id || state.ref.staff.some(s => s.id === l.staff_id && s.active)));
-    let formCallback = null, formKey = null, formSignature = null, busy = false, noticeTimer;
+    let formCallback = null, formKey = null, formSignature = null, busy = false, noticeTimer, formReload = null;
 
     async function api(path, method = 'GET', body = null, requestKey = null) {
         const headers = { Accept: 'application/json' };
@@ -60,7 +60,10 @@
         const previousProperty = $('pcProperty').value, previousTag = $('pcTag').value;
         $('pcProperty').innerHTML = options(ref.properties, previousProperty, 'All properties');
         $('pcTag').innerHTML = opt('', 'All tags') + [...new Set(ref.properties.flatMap(p => p.tags))].sort().map(t => opt(t, t, t === previousTag)).join('');
+        const previousHousekeeperProperty = $('pcHousekeeperProperty').value;
+        $('pcHousekeeperProperty').innerHTML = options(ref.properties, previousHousekeeperProperty, 'All properties');
         render();
+        switchView(state.view);
     }
 
     function render() {
@@ -80,7 +83,7 @@
         $('pcOpenCount').textContent = open.length;
         $('pcSetup').hidden = !state.ref.can_purchase || activeLocations().length > 0;
         $('pcSetup').innerHTML = `Add a verified delivery destination before drafting your first purchase. ${state.ref.can_approve ? button('directory-edit','Add delivery destination','data-kind="locations"') : 'Ask an administrator to set up destinations in the procurement directory.'}`;
-        renderRequests(); renderOrders(); renderDirectory();
+        renderRequests(); renderOrders(); renderHousekeepers(); renderDirectory();
     }
 
     function renderRequests() {
@@ -172,6 +175,7 @@
         if (busy) return;
         $('pcFormTitle').textContent = title; $('pcFormFields').innerHTML = html;
         $('pcFormError').hidden = true; $('pcFormSubmit').textContent = submit;
+        formReload = null;
         formCallback = callback; formKey = crypto.randomUUID(); formSignature = null;
         $('pcFormDialog').showModal();
         $('pcFormDialog').scrollTop = 0;
@@ -293,10 +297,56 @@
         else if (action === 'cancel-request') simple('Cancel request', field('Cancellation reason', note('reason')), `requests/${o.id}/cancel`, f => ({version:o.version,...f}), 'Request cancelled with a recorded reason.', 'Cancel request');
     }
 
+    function renderHousekeepers() {
+        if (!state.ref.can_purchase) return;
+        $('pcAddHousekeeper').hidden = !state.ref.can_approve;
+        const term = $('pcHousekeeperSearch').value.trim().toLocaleLowerCase();
+        const property = $('pcHousekeeperProperty').value, status = $('pcHousekeeperStatus').value;
+        const rows = state.ref.staff.filter(s => {
+            if (status !== 'all' && s.active !== (status === 'active')) return false;
+            if (property && !s.listing_ids.includes(Number(property))) return false;
+            return !term || [s.name, s.phone, ...s.listing_ids.map(id => state.ref.properties.find(p => p.id === id)?.name || '')].join(' ').toLocaleLowerCase().includes(term);
+        });
+        $('pcHousekeeperSummary').textContent = `${rows.length} housekeeper${rows.length === 1 ? '' : 's'}${state.ref.can_approve ? ' · Edit a person to update their property assignments.' : ' · An administrator can update this roster.'}`;
+        $('pcHousekeeperList').innerHTML = rows.length ? rows.map(s => {
+            const properties = s.listing_ids.map(id => state.ref.properties.find(p => p.id === id)).filter(Boolean).sort((a,b) => a.name.localeCompare(b.name));
+            const destinations = state.ref.locations.filter(l => l.staff_id === s.id && l.kind === 'housekeeper' && l.active);
+            const chips = properties.map(p => `<span class="pc-tag">${esc(p.name)}</span>`);
+            return `<article class="pc-panel pc-housekeeper-card"><div class="pc-housekeeper-heading"><div><h3>${esc(s.name)}</h3><small class="pc-muted">${s.active ? 'Active' : 'Inactive'}</small></div>${state.ref.can_approve ? button('directory-edit','Edit',`data-kind="staff" data-id="${s.id}" aria-label="Edit ${esc(s.name)}"`) : ''}</div><p class="pc-housekeeper-contact">${esc(s.phone || 'WhatsApp number not added')}</p><div class="pc-housekeeper-assigned"><strong>${properties.length} assigned propert${properties.length === 1 ? 'y' : 'ies'}</strong><div>${chips.slice(0,4).join('') || '<span class="pc-muted">No properties assigned yet.</span>'}</div>${chips.length > 4 ? `<details><summary>Show ${chips.length - 4} more</summary><div>${chips.slice(4).join('')}</div></details>` : ''}</div><div class="pc-housekeeper-delivery"><span>${destinations.length ? `${destinations.length} delivery address${destinations.length === 1 ? '' : 'es'} saved` : 'Delivery address not added'}</span>${state.ref.can_approve ? destinations.length > 1 ? '<button type="button" class="pc-text-button" data-view="directory">Manage addresses</button>' : button('housekeeper-address',destinations.length ? 'Edit address' : 'Add address',`data-id="${s.id}"`, 'pc-text-button') : ''}</div></article>`;
+        }).join('') : empty('No housekeepers found', state.ref.staff.length ? 'Try a different name, property, or status.' : 'Add your housekeepers and choose the properties they look after.', state.ref.can_approve ? button('directory-edit','Add housekeeper','data-kind="staff"','pc-primary') : '');
+    }
+
+    function assignmentPicker(row) {
+        return `<div class="pc-form-section"><div class="pc-form-row-heading"><h3>Assigned properties</h3><span class="pc-muted" id="pcAssignmentCount"></span></div><div class="pc-assignment-filters"><input type="search" data-assignment-search placeholder="Search properties" aria-label="Search property assignments"><select data-assignment-tag aria-label="Filter assignment group">${opt('', 'All property groups')}${[...new Set(state.ref.properties.flatMap(p => p.tags))].sort().map(t => opt(t,t)).join('')}</select></div><div class="pc-assignment-actions">${button('assign-visible','Select shown')}${button('unassign-visible','Clear shown')}</div><div class="pc-form-assignments pc-housekeeper-assignments">${[...state.ref.properties].sort((a,b) => a.name.localeCompare(b.name)).map(p => `<label data-assignment-id="${p.id}"><input type="checkbox" name="listing_ids" value="${p.id}" ${row.listing_ids?.includes(p.id) ? 'checked' : ''}><span>${esc(p.name)}<small>${esc([p.city,...p.tags].filter(Boolean).join(' · '))}</small></span></label>`).join('')}</div><p id="pcAssignmentEmpty" class="pc-muted" hidden>No properties match this search.</p></div>`;
+    }
+
+    function filterAssignments() {
+        const root = $('pcForm'), search = root.querySelector('[data-assignment-search]');
+        if (!search) return;
+        const term = search.value.trim().toLocaleLowerCase(), tag = root.querySelector('[data-assignment-tag]').value;
+        let visible = 0;
+        root.querySelectorAll('[data-assignment-id]').forEach(label => {
+            const p = state.ref.properties.find(p => p.id === Number(label.dataset.assignmentId));
+            label.hidden = !!((tag && !p.tags.includes(tag)) || (term && ![p.name,p.city,...p.tags].join(' ').toLocaleLowerCase().includes(term)));
+            if (!label.hidden) visible++;
+        });
+        $('pcAssignmentCount').textContent = `${root.querySelectorAll('[name=listing_ids]:checked').length} selected · ${visible} shown`;
+        $('pcAssignmentEmpty').hidden = visible > 0;
+    }
+
+    function housekeeperAddressForm(id) {
+        const staff = state.ref.staff.find(s => s.id === id);
+        const locations = state.ref.locations.filter(l => l.staff_id === id && l.kind === 'housekeeper' && l.active);
+        const location = locations[0] || {};
+        openForm(`Delivery address · ${staff.name}`, `<p class="pc-form-intro">Use the verified address where this housekeeper receives supplies.</p>${field('Delivery label',input('label', location.label || `${staff.name} · supply deliveries`,'required maxlength="160"'))}${field('Full delivery address',`<textarea name="address" rows="4" required maxlength="2000">${esc(location.address || '')}</textarea>`,'Recipient, street, unit, city, state, postal code, and country.')}${field('Delivery instructions (optional)',`<textarea name="instructions" rows="2" maxlength="2000">${esc(location.instructions || '')}</textarea>`)}`, async form => {
+            await mutate('directory/locations','POST',{...Object.fromEntries(new FormData(form)),...(location.id ? {id:location.id} : {}),kind:'housekeeper',staff_id:id,active:true});
+            return {message:`Delivery address saved for ${staff.name}.`};
+        },'Save address');
+    }
+
     function renderDirectory() {
         if (!state.ref.can_purchase) return;
         const sections = [
-            ['staff','Housekeepers',state.ref.staff,['Name','Assigned properties','Account / status'],s => `<td><strong>${esc(s.name)}</strong><small>${esc(s.phone)}</small></td><td>${s.listing_ids.map(id => esc(state.ref.properties.find(p => p.id === id)?.name || id)).join(', ') || 'No assignments'}</td><td>${esc(state.ref.account_users.find(u => u.id === s.user_id)?.name || (s.user_id ? 'Linked Cotton Candy account' : 'WhatsApp / no login'))}<small>${s.active ? 'Active' : 'Inactive'}</small></td>`],
             ['locations','Delivery destinations',state.ref.locations,['Location','Address','Status'],l => `<td><strong>${esc(l.label)}</strong><small>${esc(l.kind)}</small></td><td><span class="pc-address">${esc(l.address)}</span><small>${esc(l.instructions)}</small></td><td>${l.active ? 'Active' : 'Inactive'}</td>`],
             ['catalog','Supply catalog',state.ref.catalog,['Product','Standard unit','Status'],c => `<td><strong>${esc(c.name)}</strong><small>${esc(c.category)}</small></td><td>${esc(c.unit)}<small>${esc(c.pack_description)}</small></td><td>${c.active ? 'Active' : 'Inactive'}</td>`]
         ];
@@ -306,18 +356,19 @@
     function directoryForm(kind, id) {
         const row = state.ref[kind].find(x => x.id === id) || {}, editing = !!row.id;
         let html;
-        if (kind === 'staff') html = `<div class="pc-field-grid">${field('Housekeeper name',input('name',row.name,'required maxlength="160"'))}${field('WhatsApp number',input('phone',row.phone,'maxlength="80" placeholder="+1…"'))}${field('Cotton Candy account (optional)',select('user_id',options(state.ref.account_users,row.user_id,'No login / WhatsApp only')),'Linked housekeeper accounts are restricted to assigned properties. Grant Procurement access in Team access.','pc-span-2')}</div><div class="pc-form-section"><h3>Assigned properties</h3><div class="pc-form-assignments">${state.ref.properties.map(p => `<label><input type="checkbox" name="listing_ids" value="${p.id}" ${row.listing_ids?.includes(p.id) ? 'checked' : ''}>${esc(p.name)}</label>`).join('')}</div></div>`;
+        if (kind === 'staff') html = `<p class="pc-form-intro">Choose the properties this person looks after. Contact details can be added later.</p><div class="pc-field-grid">${field('Housekeeper name',input('name',row.name,'required maxlength="160"'))}${field('WhatsApp number (optional)',input('phone',row.phone,'type="tel" maxlength="80" placeholder="+1…"'))}</div>${assignmentPicker(row)}<details class="pc-form-section"><summary>Optional login account</summary>${field('Cotton Candy account',select('user_id',options(state.ref.account_users,row.user_id,'No login / WhatsApp only') + (row.user_id && !state.ref.account_users.some(u => u.id === row.user_id) ? opt(row.user_id,'Previously linked account',true) : '')),'Linking an account does not grant Procurement access. Manage login permissions in Team access.')}</details>`;
         else if (kind === 'locations') html = `<div class="pc-field-grid">${field('Location label',input('label',row.label,'required maxlength="160" placeholder="e.g. Maria’s supply storage"'))}${field('Destination type',select('kind',['housekeeper','property','storage'].map(k => opt(k,{housekeeper:'Housekeeper address',property:'Rental property',storage:'Shared storage'}[k],k === (row.kind || 'housekeeper'))).join('')))}${field('Receiving housekeeper',select('staff_id',options(state.ref.staff.filter(s => s.active || s.id === row.staff_id),row.staff_id,'No housekeeper')))}${field('Property',select('listing_id',options(state.ref.properties,row.listing_id,'No property')))}${field('Full delivery address',`<textarea name="address" rows="4" required maxlength="2000">${esc(row.address || '')}</textarea>`,'Verify the recipient, street, unit, city, state, postal code, and country.','pc-span-2')}${field('Delivery instructions',`<textarea name="instructions" rows="2" maxlength="2000">${esc(row.instructions || '')}</textarea>`,'','pc-span-2')}</div>`;
         else html = `<div class="pc-field-grid">${field('Product name',input('name',row.name,'required maxlength="180" placeholder="e.g. Toilet paper"'))}${field('Category',input('category',row.category || 'supplies','required maxlength="60"'))}${field('Standard unit',input('unit',row.unit,'required maxlength="40" placeholder="rolls, bags, bottles…"'))}${field('Preferred pack / specification',input('pack_description',row.pack_description,'maxlength="160" placeholder="e.g. 24 rolls per pack, 2-ply"'))}</div><p class="pc-form-intro" style="margin-top:18px">Use the same unit for requests and purchases. Pack sizes describe the product; they do not silently change quantities.</p>`;
         html += `<label class="pc-checkbox" style="margin-top:20px"><input type="checkbox" name="active" ${row.active !== false ? 'checked' : ''}> Active</label>`;
         openForm(`${editing ? 'Edit' : 'Add'} ${kind === 'staff' ? 'housekeeper' : kind === 'locations' ? 'delivery destination' : 'supply product'}`, html, async form => {
             const data = new FormData(form), body = Object.fromEntries(data);
-            if (editing) body.id = row.id;
+            if (editing) { body.id = row.id; if (kind === 'staff') body.version = row.version; }
             body.active = data.has('active');
             if (kind === 'staff') body.listing_ids = data.getAll('listing_ids').map(Number);
             await mutate(`directory/${kind}`,'POST',body);
-            return {message:'Directory updated.'};
+            return {message:kind === 'staff' ? 'Housekeeper and property assignments saved.' : 'Directory updated.'};
         });
+        if (kind === 'staff') { filterAssignments(); formReload = async () => { $('pcFormDialog').close(); await load(); directoryForm('staff',id); }; }
     }
 
     async function loadReport() {
@@ -336,6 +387,16 @@
         document.body.appendChild(link); link.click(); link.remove();
     }
 
+    function switchView(view) {
+        const allowed = state.ref.can_purchase ? ['requests','orders','spending','housekeepers','directory'] : ['requests'];
+        state.view = allowed.includes(view) ? view : 'requests';
+        $('pcStats').hidden = state.view === 'housekeepers';
+        $('pcSetup').hidden = state.view === 'housekeepers' || !state.ref.can_purchase || activeLocations().length > 0;
+        document.querySelector('.pc-heading .pc-actions').hidden = state.view === 'housekeepers';
+        for (const name of ['requests','orders','spending','housekeepers','directory']) $(`pc${name[0].toUpperCase()+name.slice(1)}`).hidden = name !== state.view;
+        document.querySelectorAll('.pc-tabs [data-view]').forEach(el => { el.classList.toggle('active',el.dataset.view === state.view); if (el.dataset.view === state.view) el.setAttribute('aria-current','page'); else el.removeAttribute('aria-current'); });
+    }
+
     $('pcForm').addEventListener('submit', async event => {
         event.preventDefault(); if (busy) return;
         busy = true; const submit = $('pcFormSubmit'), caption = submit.textContent;
@@ -349,7 +410,7 @@
             else if (state.detail && $('pcDetailDialog').open) await detail(state.detail.kind,state.detail.data.id);
             if (state.view === 'spending') await loadReport();
         } catch (error) {
-            if ($('pcFormDialog').open) { $('pcFormError').innerHTML = esc(error.message) + (error.status === 409 && state.detail ? `<div style="margin-top:8px">${button('reload-detail','Reload latest record')}</div>` : ''); $('pcFormError').hidden = false; $('pcFormError').scrollIntoView({block:'nearest'}); }
+            if ($('pcFormDialog').open) { $('pcFormError').innerHTML = esc(error.message) + (error.status === 409 && formReload ? `<div style="margin-top:8px">${button('reload-profile','Reload latest profile')}</div>` : error.status === 409 && state.detail ? `<div style="margin-top:8px">${button('reload-detail','Reload latest record')}</div>` : ''); $('pcFormError').hidden = false; $('pcFormError').scrollIntoView({block:'nearest'}); }
             else showError(error.message);
         } finally { busy = false; submit.disabled = false; submit.textContent = caption; }
     });
@@ -360,9 +421,8 @@
         const remove = event.target.closest('[data-remove-row]'); if (remove && !busy) { remove.closest('[data-allocation-row], [data-order-row], [data-request-row]').remove(); previewOrder(); return; }
         const tab = event.target.closest('[data-view]');
         if (tab) {
-            state.view = tab.dataset.view;
-            for (const name of ['requests','orders','spending','directory']) $(`pc${name[0].toUpperCase()+name.slice(1)}`).hidden = name !== state.view;
-            document.querySelectorAll('[data-view]').forEach(el => { el.classList.toggle('active',el === tab); if (el === tab) el.setAttribute('aria-current','page'); else el.removeAttribute('aria-current'); });
+            switchView(tab.dataset.view);
+            history.replaceState(null,'',`#${state.view}`);
             if (state.view === 'spending') try { await loadReport(); } catch (error) { showError(error.message); }
             return;
         }
@@ -370,7 +430,10 @@
         const el = event.target.closest('[data-action]'); if (!el || busy || !state.ref) return;
         const action = el.dataset.action, id = Number(el.dataset.id);
         try {
-            if (action === 'reload-detail') { $('pcFormDialog').close(); await load(); await detail(state.detail.kind,state.detail.data.id); }
+            if (action === 'reload-profile' && formReload) await formReload();
+            else if (action === 'assign-visible' || action === 'unassign-visible') { $('pcForm').querySelectorAll('[data-assignment-id]').forEach(label => { if (!label.hidden) label.querySelector('input').checked = action === 'assign-visible'; }); filterAssignments(); }
+            else if (action === 'housekeeper-address') housekeeperAddressForm(id);
+            else if (action === 'reload-detail') { $('pcFormDialog').close(); await load(); await detail(state.detail.kind,state.detail.data.id); }
             else if (action === 'request-detail' || action === 'order-detail') await detail(action.startsWith('request') ? 'request' : 'order',id);
             else if (action === 'new-request') requestForm();
             else if (action === 'edit-request') requestForm(state.detail.data);
@@ -387,8 +450,9 @@
             else actionForm(action,id);
         } catch (error) { if ($('pcDetailDialog').open) notify(error.message); else showError(error.message); }
     });
-    $('pcForm').addEventListener('input', () => previewOrder());
+    $('pcForm').addEventListener('input', event => { if (event.target.matches('[data-assignment-search]')) filterAssignments(); else previewOrder(); });
     $('pcForm').addEventListener('change', event => {
+        if (event.target.matches('[data-assignment-tag],[name=listing_ids]')) { filterAssignments(); return; }
         if (event.target.matches('[data-catalog-select]')) {
             const product = state.ref.catalog.find(c => c.id === Number(event.target.value)), row = event.target.closest('[data-request-row]');
             if (product) for (const name of ['name','unit','category']) row.querySelector(`[name=${name}]`).value = product[name];
@@ -414,6 +478,8 @@
         previewOrder();
     });
     for (const id of ['pcSearch','pcProperty','pcTag','pcPriority','pcMine']) $(id).addEventListener(id === 'pcSearch' ? 'input' : 'change',renderRequests);
+    for (const id of ['pcHousekeeperSearch','pcHousekeeperProperty','pcHousekeeperStatus']) $(id).addEventListener(id === 'pcHousekeeperSearch' ? 'input' : 'change',renderHousekeepers);
+    state.view = location.hash.slice(1) || 'requests';
     $('pcReportMonth').value = today().slice(0,7);
     $('pcReportMonth').addEventListener('change',async () => { try { await loadReport(); } catch (error) { showError(error.message); } });
     setInterval(() => { if (!document.hidden && !busy && !$('pcFormDialog').open && !$('pcDetailDialog').open) load().catch(() => {}); }, 60000);

@@ -258,6 +258,46 @@ class ProcurementService:
         if self.staff_scope is not None:
             raise WorkflowError("Purchasing access is required for this action.", 403)
 
+    def save_staff(self, data):
+        """Maintain operational people without creating or granting login access."""
+        if not self.can_approve:
+            raise WorkflowError("An administrator manages housekeepers.", 403)
+        staff = get(self.session, Staff, data["id"]) if data.get("id") else Staff()
+        if staff.id:
+            check_version(staff, data)
+        name = required(data.get("name"), "Housekeeper name", 160)
+        if any(other.id != staff.id and other.name.casefold() == name.casefold()
+               for other in self.session.scalars(select(Staff))):
+            raise WorkflowError("A housekeeper with this name already exists. Edit the existing person instead.", 409)
+        ids = data.get("listing_ids", [])
+        if not isinstance(ids, list) or len(ids) > 1000 or any(
+            isinstance(i, bool) or not str(i).isdigit() or int(i) < 1 for i in ids
+        ):
+            raise WorkflowError("Property assignments must be a list of valid property IDs.")
+        listing_ids = list(dict.fromkeys(self.property(i)["id"] for i in ids))
+        phone = data.get("phone") or ""
+        if not isinstance(phone, str) or len(phone.strip()) > 80:
+            raise WorkflowError("WhatsApp number must be 80 characters or fewer.")
+        if "active" in data and not isinstance(data["active"], bool):
+            raise WorkflowError("Active must be true or false.")
+        before = {"name": staff.name, "phone": staff.phone, "listing_ids": staff.listing_ids,
+                  "active": staff.active, "user_id": staff.user_id} if staff.id else None
+        if "user_id" in data:
+            account_id = int(data["user_id"]) if data["user_id"] else None
+            if account_id is not None and account_id != staff.user_id and account_id not in self.account_users:
+                raise WorkflowError("Choose an active, approved Cotton Candy account.")
+            staff.user_id = account_id
+        staff.name, staff.phone, staff.listing_ids = name, phone.strip(), listing_ids
+        staff.active = data.get("active", staff.active if staff.id else True)
+        if staff.id:
+            staff.version += 1
+        self.session.add(staff)
+        self.session.flush()
+        self.audit("directory_updated", {"kind": "staff", "id": staff.id, "before": before,
+                   "values": {"name": staff.name, "phone": staff.phone, "listing_ids": staff.listing_ids,
+                              "active": staff.active, "user_id": staff.user_id, "version": staff.version}})
+        return staff
+
     def owner(self, user_id):
         if user_id in (None, ""):
             return None

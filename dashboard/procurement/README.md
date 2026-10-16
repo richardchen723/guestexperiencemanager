@@ -45,6 +45,35 @@ Confirmation**, **Completed**, and **Cancelled**. Needs information, approval,
 unassigned ownership, overdue responses, delivery risk, and fulfillment problems
 are flags. Staff cannot arbitrarily set a request to Completed.
 
+## Housekeepers and property assignments
+
+Open **Procurement → Housekeepers**, or `/procurement/#housekeepers`. Add/edit
+names, optional WhatsApp numbers, active status, and property assignments. Search
+by person/property, filter the roster by property, and filter the assignment
+picker by property group. Select/Clear shown only affects visible matches;
+assignments outside the current filter are preserved. Contact details can be
+added later. Use **Add address / Edit address** for the housekeeper's verified
+receiving address. Other destinations and supplies are under **Delivery & catalog**.
+
+Admins maintain the roster; purchasing staff can view it. Linking an existing
+account is optional and does not grant login/feature access. Deactivation keeps
+history while removing the person from new requests/receiving choices. Existing
+orders retain their address snapshots and changed addresses require reapproval.
+Staff edits use bootstrap's `version` to reject lost updates from concurrent
+editors. Human account permissions remain in Team access.
+
+For an explicitly supplied initial roster, use the generic importer with a
+private JSON list of `{name, properties: [exact names], property_tags: [tags]}`.
+`listing_ids`, `phone`, and `active` are optional. It resolves real properties,
+rejects unknown/ambiguous names, previews by default, skips existing people,
+and applies each import key once. It never overwrites later manual edits.
+Keep roster/contact files outside the source repository.
+
+```sh
+python -m dashboard.procurement.import_roster --file /private/roster.json --key initial-roster
+python -m dashboard.procurement.import_roster --file /private/roster.json --key initial-roster --apply
+```
+
 ## Directory and access
 
 Administrators already have access. Grant **Procurement** through the existing
@@ -159,7 +188,8 @@ Other API groups:
 
 All paths in the table have the `/procurement` prefix. Request and order writes
 require the current `version` (shipment writes use the parent order's version).
-Receipt uploads and directory saves require idempotency but no version.
+Receipt uploads and location/catalog saves require idempotency but no version.
+Housekeeper edits require the current staff version returned by bootstrap.
 Stale writes return 409 instead of overwriting another person's work.
 
 For property confirmation, include `allocation_id`, `quantity`, `staff_id`,

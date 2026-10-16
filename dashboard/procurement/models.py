@@ -17,6 +17,7 @@ Base = declarative_base(metadata=MetaData(schema="procurement"))
 class Staff(Base):
     __tablename__ = "staff"
     id = Column(Integer, primary_key=True)
+    version = Column(Integer, nullable=False, default=1)
     name = Column(String(160), nullable=False)
     phone = Column(String(80))
     user_id = Column(Integer, unique=True)
@@ -240,6 +241,11 @@ def init_procurement_database(engine=None):
     Base.metadata.create_all(engine)
     from sqlalchemy import inspect
     schema = "procurement" if engine.dialect.name == "postgresql" else None
+    columns = {c["name"] for c in inspect(engine).get_columns("staff", schema=schema)}
+    if "version" not in columns:
+        table = "procurement.staff" if schema else "staff"
+        with engine.begin() as connection:
+            connection.execute(text(f"ALTER TABLE {table} ADD COLUMN version INTEGER NOT NULL DEFAULT 1"))
     columns = {c["name"] for c in inspect(engine).get_columns("orders", schema=schema)}
     if "purchase_revision" not in columns:
         table = "procurement.orders" if schema else "orders"

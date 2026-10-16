@@ -338,6 +338,8 @@ function setupMobileForms() {
     if (window.innerWidth < 768) {
         // Find all forms
         document.querySelectorAll('form').forEach(form => {
+            // Dynamic dialogs manage their own layout, validation, and submit.
+            if (form.dataset.mobileEnhancements === 'off') return;
             // Check if form should use stepper (has many fields)
             const fieldCount = form.querySelectorAll('.form-group, .form-row, input, select, textarea').length;
             

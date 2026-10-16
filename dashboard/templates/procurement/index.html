@@ -2,7 +2,7 @@
 {% block title %}Procurement · Cotton Candy{% endblock %}
 {% block extra_head %}
 <meta name="procurement-csrf" content="{{ procurement_csrf }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/procurement.css', v='1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/procurement.css', v='2') }}">
 {% endblock %}
 {% block content %}
 <section class="pc" id="procurementApp" aria-label="Procurement workspace">
@@ -19,7 +19,8 @@
         <button type="button" data-view="requests" class="active" aria-current="page">Requests <span id="pcOpenCount"></span></button>
         <button type="button" data-view="orders" data-purchaser hidden>Purchases</button>
         <button type="button" data-view="spending" data-purchaser hidden>Property spending</button>
-        <button type="button" data-view="directory" data-purchaser hidden>Directory</button>
+        <button type="button" data-view="housekeepers" data-purchaser hidden>Housekeepers</button>
+        <button type="button" data-view="directory" data-purchaser hidden>Delivery & catalog</button>
     </nav>
     <section id="pcRequests" class="pc-view">
         <div class="pc-filter-bar"><div class="pc-search"><span aria-hidden="true">⌕</span><input id="pcSearch" type="search" placeholder="Search requests, properties, or supplies" aria-label="Search requests"></div><select id="pcProperty" aria-label="Filter by property"><option value="">All properties</option></select><select id="pcTag" aria-label="Filter by tag"><option value="">All tags</option></select><select id="pcPriority" aria-label="Filter by priority"><option value="">All priorities</option><option value="critical">Critical</option><option value="high">High</option><option value="normal">Normal</option><option value="planned">Planned</option></select><label class="pc-checkbox" data-purchaser hidden><input type="checkbox" id="pcMine"> Assigned to me</label></div>
@@ -29,11 +30,16 @@
     </section>
     <section id="pcOrders" class="pc-view" hidden><div class="pc-section-heading"><div><h2>Purchase orders</h2><p class="pc-muted">Review, approve, and track every purchase in one place.</p></div><button type="button" class="pc-button pc-primary" data-action="new-order">Draft purchase</button></div><div class="pc-panel" id="pcOrderList"></div></section>
     <section id="pcSpending" class="pc-view" hidden><div class="pc-section-heading"><div><h2>Property spending</h2><p class="pc-muted">Full purchase costs, property allocations, and confirmed supplies.</p></div><div class="pc-actions"><label class="pc-label-inline">Month <input id="pcReportMonth" type="month" aria-label="Reporting month"></label><button type="button" class="pc-button pc-secondary" data-action="export-report">Export CSV</button></div></div><div id="pcReport"></div></section>
-    <section id="pcDirectory" class="pc-view" hidden><div class="pc-section-heading"><div><h2>Procurement directory</h2><p class="pc-muted">Housekeeper assignments, verified delivery destinations, and standard supplies.</p></div></div><div id="pcDirectoryContent"></div></section>
+    <section id="pcHousekeepers" class="pc-view" hidden>
+        <div class="pc-section-heading"><div><h2>Housekeepers</h2><p class="pc-muted">Keep your people, properties, and delivery details up to date.</p></div><button type="button" class="pc-button pc-primary" data-action="directory-edit" data-kind="staff" id="pcAddHousekeeper" hidden>＋ Add housekeeper</button></div>
+        <div class="pc-filter-bar"><div class="pc-search"><span aria-hidden="true">⌕</span><input id="pcHousekeeperSearch" type="search" placeholder="Search a person or property" aria-label="Search housekeepers"></div><select id="pcHousekeeperProperty" aria-label="Housekeeper property filter"><option value="">All properties</option></select><select id="pcHousekeeperStatus" aria-label="Housekeeper status"><option value="active">Active housekeepers</option><option value="all">All housekeepers</option><option value="inactive">Inactive housekeepers</option></select></div>
+        <p class="pc-muted" id="pcHousekeeperSummary" role="status"></p><div id="pcHousekeeperList" class="pc-housekeeper-grid"></div>
+    </section>
+    <section id="pcDirectory" class="pc-view" hidden><div class="pc-section-heading"><div><h2>Delivery & catalog</h2><p class="pc-muted">Verified delivery destinations and standard supplies. Manage people in Housekeepers.</p></div></div><div id="pcDirectoryContent"></div></section>
 </section>
 {% endblock %}
 {% block modals %}
 <dialog class="pc-dialog pc-detail-dialog" id="pcDetailDialog" aria-labelledby="pcDetailTitle"><header class="pc-dialog-heading"><div><span class="pc-eyebrow" id="pcDetailCode"></span><h2 id="pcDetailTitle">Request details</h2></div><button type="button" class="pc-icon-button" data-close="pcDetailDialog" aria-label="Close details">×</button></header><div id="pcDetailContent" class="pc-dialog-body"></div></dialog>
-<dialog class="pc-dialog" id="pcFormDialog" aria-labelledby="pcFormTitle"><form id="pcForm"><header class="pc-dialog-heading"><div><p class="pc-eyebrow" id="pcFormEyebrow">PROCUREMENT</p><h2 id="pcFormTitle"></h2></div><button type="button" class="pc-icon-button" data-close="pcFormDialog" aria-label="Close form">×</button></header><div class="pc-dialog-body"><div id="pcFormError" class="pc-alert pc-danger" role="alert" hidden></div><div id="pcFormFields"></div></div><footer class="pc-dialog-footer"><button type="button" class="pc-button pc-secondary" data-close="pcFormDialog">Cancel</button><button type="submit" class="pc-button pc-primary" id="pcFormSubmit">Save</button></footer></form></dialog>
+<dialog class="pc-dialog" id="pcFormDialog" aria-labelledby="pcFormTitle"><form id="pcForm" data-mobile-enhancements="off"><header class="pc-dialog-heading"><div><p class="pc-eyebrow" id="pcFormEyebrow">PROCUREMENT</p><h2 id="pcFormTitle"></h2></div><button type="button" class="pc-icon-button" data-close="pcFormDialog" aria-label="Close form">×</button></header><div class="pc-dialog-body"><div id="pcFormError" class="pc-alert pc-danger" role="alert" hidden></div><div id="pcFormFields"></div></div><footer class="pc-dialog-footer"><button type="button" class="pc-button pc-secondary" data-close="pcFormDialog">Cancel</button><button type="submit" class="pc-button pc-primary" id="pcFormSubmit">Save</button></footer></form></dialog>
 {% endblock %}
-{% block extra_scripts %}<script src="{{ url_for('static', filename='js/procurement.js', v='1') }}" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static', filename='js/procurement.js', v='2') }}" defer></script>{% endblock %}
