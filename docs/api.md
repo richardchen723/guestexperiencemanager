@@ -460,9 +460,13 @@ notification, and polling integration.
 
 ### Procurement discovery and reads
 
-- `GET /procurement/api/bootstrap` returns `properties`, eligible purchasing
+- `GET /procurement/api/bootstrap` returns `properties`, assignable owner
   `users`, `staff`, active/inactive `locations`, `catalog`, `statuses`,
   `priorities`, `currencies`, `can_approve`, `can_purchase`, `staff_id`, `user_id`.
+  `users` lists all approved, nonremoved human accounts alphabetically, including
+  accounts without Procurement access and linked housekeepers. Assignment records
+  responsibility and does not grant permissions. Pending/removed accounts and the
+  API service account are excluded. Housekeeper-scoped logins receive no user list.
   `account_users` is populated only for human admins. Use existing IDs, active
   records, and verified property assignments; never invent IDs or addresses.
 - `GET /procurement/api/requests` returns `{"requests":[...]}`, newest first.
@@ -552,9 +556,10 @@ multi-property `listing_ids` together with legacy `listing_id`. Shared storage
 (`storage_location_id`) is exclusive with property selection; omit destinations
 while clarifying unknown properties. Use `requester_staff_id` for an active
 housekeeper assigned to every selected property, otherwise provide `requester_name`.
-`owner_user_id` may be null; API intake does not automatically assign Ethan as
-the purchasing owner. Capture incomplete requests immediately and clarify missing
-information. Never infer a quantity, address, or deadline without evidence.
+`owner_user_id` may be null or an ID from bootstrap's `users`, independent of that
+account's Procurement permissions. API and housekeeper intake do not automatically
+assign themselves as the owner. Capture incomplete requests immediately and
+clarify missing information. Never infer a quantity, address, or deadline without evidence.
 
 Priorities are `critical`, `high`, `normal`, `planned`. The default human review
 targets are 30 minutes, 4 hours, 24 hours, 72 hours respectively. Optional

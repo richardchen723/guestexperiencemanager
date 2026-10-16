@@ -12,7 +12,11 @@ Existing operational tickets and bookkeeping records are not rewritten.
    quantity, or deadline information stays visible under **Needs information**.
    Shared-storage requests are also supported; final receipt must still identify
    the real property receiving the supplies.
-2. Assign a named purchasing staff owner and review the request. Default human
+2. Assign a named staff owner from all approved user accounts and review the
+   request. Accounts without Procurement access and linked housekeepers are
+   available; assigning ownership does not change their Team access or purchasing
+   permissions. Pending/removed accounts and the API service account are excluded.
+   Default human
    review targets are 30 minutes / 4 hours / 24 hours / 72 hours for critical /
    high / normal / planned requests. These are elapsed-time defaults, not a
    promise of business-hour or on-call coverage. Staff can change the response

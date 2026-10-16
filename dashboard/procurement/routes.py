@@ -67,12 +67,11 @@ def service_for(db, *, user=None, references=None):
     api = bool(getattr(g, "api_key", None))
     administrator = user.is_admin() and not api
     staff = db.scalar(select(Staff).where(Staff.user_id == user.user_id)) if not administrator and not api else None
-    housekeeper_accounts = set(db.scalars(select(Staff.user_id).where(Staff.user_id.is_not(None))))
-    users = {key: value for key, value in users.items() if value["procurement_access"] and (key not in housekeeper_accounts or value["role"] in ("admin", "owner"))}
+    # Request ownership records responsibility; Team access controls permissions.
     if staff and not staff.active:
         raise WorkflowError("Your housekeeper profile is inactive. Contact your manager.", 403)
     return ProcurementService(db, actor=f"{user.name or user.email} (API)" if api else user.name or user.email,
-                              user_id=user.user_id if user.user_id in users else None,
+                              user_id=user.user_id if staff is None and user.user_id in users else None,
                               can_approve=administrator, properties=properties, users=users, staff_scope=staff, api=api, account_users=account_users)
 
 
@@ -179,7 +178,7 @@ def bootstrap(service):
     locations = list(db.scalars(select(Location).order_by(Location.label))) if service.staff_scope is None else []
     return {
         "properties": [p for p in service.properties.values() if service.staff_scope is None or p["id"] in service.staff_scope.listing_ids],
-        "users": list(service.users.values()) if service.staff_scope is None else [],
+        "users": sorted(service.users.values(), key=lambda user: user["name"].casefold()) if service.staff_scope is None else [],
         "account_users": list(service.account_users.values()) if service.can_approve else [],
         "staff": [{"id": s.id, "version": s.version, "name": s.name, "phone": s.phone if service.staff_scope is None else None,
                    "user_id": s.user_id, "listing_ids": s.listing_ids, "active": s.active} for s in staff
