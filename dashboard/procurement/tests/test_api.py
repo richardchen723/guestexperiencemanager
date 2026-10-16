@@ -264,17 +264,81 @@ def test_integration_event_cursor_and_attention_queue_are_scoped_to_purchasers(q
     assert client_for(qa,"cleaner").get("/procurement/api/events").status_code == 403
 
 
-def test_editing_housekeeper_preserves_linked_account_without_making_it_a_purchasing_owner(qa):
+def test_editing_housekeeper_preserves_linked_account_without_granting_purchasing_access(qa):
     client = client_for(qa)
     bootstrap = client.get("/procurement/api/bootstrap").json
     assert qa.qa_users["cleaner"] in [u["id"] for u in bootstrap["account_users"]]
-    assert qa.qa_users["cleaner"] not in [u["id"] for u in bootstrap["users"]]
+    assert qa.qa_users["cleaner"] in [u["id"] for u in bootstrap["users"]]
     version = next(s["version"] for s in bootstrap["staff"] if s["id"] == 2)
     response = post(client,"directory/staff",{"id":2,"version":version,"name":"QA cleaner updated","user_id":qa.qa_users["cleaner"],"listing_ids":[102],"active":True})
     assert response.status_code == 200, response.json
     staff = next(s for s in client.get("/procurement/api/bootstrap").json["staff"] if s["id"] == 2)
     assert staff["user_id"] == qa.qa_users["cleaner"]
     assert client_for(qa,"cleaner").get("/procurement/api/bootstrap").json["can_purchase"] is False
+
+
+@pytest.mark.parametrize("role", ["admin", "manager"])
+def test_all_active_accounts_can_own_requests_without_granting_access(qa, role):
+    client = client_for(qa, role)
+    bootstrap = client.get("/procurement/api/bootstrap").json
+    owners = bootstrap["users"]
+    assert {qa.qa_users["denied"], qa.qa_users["cleaner"]} <= {u["id"] for u in owners}
+    assert [u["name"] for u in owners] == sorted((u["name"] for u in owners), key=str.casefold)
+    response = post(client, "requests", request_data(owner_user_id=qa.qa_users["denied"]))
+    assert response.status_code == 200, response.json
+    ticket = response.json
+    assert ticket["owner_user_id"] == qa.qa_users["denied"]
+    assert ticket["owner_name"] == "QA denied" and "Unassigned" not in ticket["flags"]
+    assert client_for(qa, "denied").get("/procurement/api/bootstrap").status_code == 403
+    response = post(client, f'requests/{ticket["id"]}',
+                    {"version": ticket["version"], "owner_user_id": qa.qa_users["cleaner"]}, method="PATCH")
+    assert response.status_code == 200, response.json
+    ticket = response.json
+    assert ticket["owner_user_id"] == qa.qa_users["cleaner"]
+    saved = client.get(f'/procurement/api/requests/{ticket["id"]}').json
+    assert saved["owner_name"] == "QA cleaner" and "Unassigned" not in saved["flags"]
+    cleaner = client_for(qa, "cleaner")
+    scoped = cleaner.get("/procurement/api/bootstrap").json
+    assert scoped["can_purchase"] is False and scoped["users"] == scoped["account_users"] == []
+    assert cleaner.get("/procurement/api/orders").status_code == 403
+    assert cleaner.get(f'/procurement/api/requests/{ticket["id"]}').status_code == 403
+    assigned = post(client, "requests", request_data(listing_id=102, owner_user_id=qa.qa_users["cleaner"])).json
+    assert cleaner.get(f'/procurement/api/requests/{assigned["id"]}').status_code == 200
+    assert post(cleaner, f'requests/{assigned["id"]}',
+                {"version": assigned["version"], "owner_user_id": qa.qa_users["admin"]}, method="PATCH").status_code == 403
+
+
+def test_pending_removed_and_service_accounts_cannot_be_assigned_as_owners(qa):
+    from datetime import datetime
+    from dashboard import config
+    from dashboard.auth.models import User, get_session
+    with get_session() as db:
+        pending = User(email=f"pending-{uuid4()}@example.invalid", name="Pending QA account", role="user", is_approved=False)
+        removed = User(email=f"removed-{uuid4()}@example.invalid", name="Removed QA account", role="user", is_approved=True, deleted_at=datetime.utcnow())
+        service = db.scalar(select(User).where(User.email == config.API_SERVICE_EMAIL))
+        if service is None:
+            service = User(email=config.API_SERVICE_EMAIL, name="API service", role="user", is_approved=True)
+            db.add(service)
+        db.add_all([pending, removed])
+        db.commit()
+        excluded = {pending.user_id, removed.user_id, service.user_id}
+    client = client_for(qa)
+    assert excluded.isdisjoint(u["id"] for u in client.get("/procurement/api/bootstrap").json["users"])
+    ticket = create(client, qa)
+    for user_id in excluded | {999999999}:
+        response = post(client, f'requests/{ticket["id"]}',
+                        {"version": ticket["version"], "owner_user_id": user_id}, method="PATCH")
+        assert response.status_code == 400, response.json
+    assert client.get(f'/procurement/api/requests/{ticket["id"]}').json["owner_user_id"] == qa.qa_users["admin"]
+
+
+def test_housekeeper_intake_without_explicit_owner_stays_unassigned(qa):
+    data = request_data(listing_id=102)
+    data.pop("owner_user_id")
+    response = post(client_for(qa, "cleaner"), "requests", data)
+    assert response.status_code == 200, response.json
+    saved = client_for(qa).get(f'/procurement/api/requests/{response.json["id"]}').json
+    assert saved["owner_user_id"] is None and "Unassigned" in saved["flags"]
 
 
 def test_report_csv_download_uses_authoritative_totals_and_protects_property_labels(qa):
