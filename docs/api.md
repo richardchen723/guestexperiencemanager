@@ -425,6 +425,8 @@ notification, and polling integration.
   Persist a fresh UUID per logical action before sending. Retry transport errors
   with the same key, method, path, actor, and exact JSON bytes. A successful
   replay returns the original response; changed content using that key is 409.
+  Linked housekeeper replays return the current, assignment-scoped request so
+  changed property assignments cannot expose previously accessible information.
   Multipart replay compares form fields, filenames, and file hashes instead of
   boundary bytes. Failed actions do not consume the key.
 - Request edits/actions use the latest integer request `version`. Order edits/
@@ -451,8 +453,9 @@ notification, and polling integration.
   most two decimal places. Returned `*_cents` fields are integer minor units.
   Supported currencies are USD, CAD, GBP, EUR, AUD, MYR; never combine currencies.
 - Datetimes must include an offset or Z; responses normalize to UTC with Z.
-  Purchase/refund dates use YYYY-MM-DD. Body limit is 1 MiB, with at most 100
-  objects per item/line/allocation array. Receipt files have a separate 10 MiB
+  Purchase/refund dates use YYYY-MM-DD. Body limit is 1 MiB, with at most 500
+  request items, 100 selected properties, and 100 objects per purchase-line,
+  allocation, shipment-line, or confirmation array. Receipt files have a separate 10 MiB
   limit and 11 MiB multipart request limit.
 
 ### Procurement discovery and reads
@@ -470,11 +473,18 @@ notification, and polling integration.
   `approved_snapshot`. Order reads require purchasing access.
 
 Request objects include `id`, display `code` (PR-0001), `version`, `title`,
-`listing_id`, property snapshot labels/tags/timezone, requester/owner IDs and
+`listing_id` (only for a single property), `listing_ids`, `properties`, property
+snapshot labels/tags/timezone, requester/owner IDs and
 names, priority, deadlines, `status`, `status_label`, `flags`, and `items`.
-Item objects include `id`, `catalog_id`, `name`, `category`, `unit`, `quantity`,
+`properties` contains explicit property snapshots, current assigned active
+housekeepers (IDs/names), required-by dates, and derived per-property status and
+`ready`. `ready_properties` and `property_count` describe property progress.
+Housekeepers receive only their assigned property rows/items and scoped status;
+shared messages, private audit history, sibling contacts, and finances are hidden.
+Item objects include `id`, `listing_id`, `property`, `catalog_id`, `name`, `category`, `unit`, `quantity`,
 `requested`, `reserved`, `ordered`, `delivered`, `confirmed`, `remaining`,
-`cancelled`, `cancellation_reason`, and `allocations`. Allocation objects expose
+`to_order`, `cancelled`, `cancellation_reason`, and `allocations`. `to_order`
+excludes all active draft/approved/placed reservations. Allocation objects expose
 `id`, `order_id`, `line_id`, vendor/state, active `quantity`, `confirmed`,
 `problem_quantity`, `reportable`, `confirmable`, `property_confirmable`, and
 confirmation history. `confirmable` is bounded by recorded delivery;
@@ -482,15 +492,20 @@ confirmation history. `confirmable` is bounded by recorded delivery;
 
 Order objects include `id`, display `code` (PO-0001), `version`,
 `purchase_revision`, `vendor`, `reference`, `currency`, destination snapshot,
+`destinations` (all receiving-address snapshots),
 `state`, expense `responsibility`, totals, purchase/reconciliation dates,
 approval metadata, `lines`, `shipments`, and receipt `attachments` (IDs/names).
-Lines include their IDs, base quantity, `pack_size`, `unit_price_cents`,
+Lines include their IDs, `destination`, base quantity, `pack_size`, `unit_price_cents`,
 `landed_cents`, `unallocated`, `unshipped`, delivered quantity, allocations, and
-refunds. Use returned IDs and versions for subsequent actions.
+refunds. Purchase allocations include `listing_id`, property name, request/item
+IDs, quantity, and `allocated_cents`. For multiple destinations the legacy
+order-level `destination` is a summary with `kind:"multiple"`; use line snapshots
+and `destinations` for addresses. Shipments include their receiving `destination`.
+Use returned IDs and versions for subsequent actions.
 
 ### Procurement intake and clarification
 
-`POST /procurement/api/requests` creates one property/shared-storage request
+`POST /procurement/api/requests` creates a property, multi-property, or shared-storage request
 with one or more items. Example IDs are illustrative; replace from bootstrap:
 
 ```json
@@ -510,12 +525,33 @@ with one or more items. Example IDs are illustrative; replace from bootstrap:
 }
 ```
 
-`title` and 1–100 items are required. Each item uses `catalog_id` or a custom
+`title` and 1–500 property/item quantities are required. Each item uses `catalog_id` or a custom
 `name` and `unit` (optional `category`, default supplies). A catalog item's
 canonical name/unit must match; no automatic unit conversion occurs. Quantity
-may be null/omitted when unknown. Use either `listing_id` or
-`storage_location_id`, or omit both while clarifying. Use `requester_staff_id`
-for an active assigned housekeeper, otherwise provide `requester_name`.
+may be null/omitted when unknown. The legacy `listing_id` shape remains supported.
+For multiple properties, send `listing_ids` and each item's `listing_id`:
+
+```json
+{
+  "title": "Shared paper restock",
+  "listing_ids": [101, 102],
+  "requester_name": "Operations staff",
+  "owner_user_id": 7,
+  "required_by": "2026-10-20T16:00:00-07:00",
+  "items": [
+    {"listing_id": 101, "catalog_id": 3, "quantity": "12"},
+    {"listing_id": 102, "catalog_id": 3, "quantity": "6"}
+  ]
+}
+```
+
+Selected properties are explicit members; later tag/roster changes never expand
+the request. Every selected property needs at least one positive or unknown item.
+An item's property must be selected; omit zero/not-needed rows. Do not send a
+multi-property `listing_ids` together with legacy `listing_id`. Shared storage
+(`storage_location_id`) is exclusive with property selection; omit destinations
+while clarifying unknown properties. Use `requester_staff_id` for an active
+housekeeper assigned to every selected property, otherwise provide `requester_name`.
 `owner_user_id` may be null; API intake does not automatically assign Ethan as
 the purchasing owner. Capture incomplete requests immediately and clarify missing
 information. Never infer a quantity, address, or deadline without evidence.
@@ -527,19 +563,28 @@ are staff response targets, not an Ethan response SLA or an on-call guarantee.
 
 A `source` includes `channel` (max 80), optional provider `message_id` (max 240),
 required original `body` when using an ID (max 20,000), and optional HTTP(S)
-`url`. The same source channel/message ID/destination replays an existing
+`url`. The same source channel/message ID/selected property set (regardless of
+selection order)/storage destination replays an existing
 request with `source_replayed:true`; it does not apply changed intake details.
-One message can create separate requests for separate properties. Similar
+One message can create one request covering its explicitly named properties. Similar
 requests appear under `possible_duplicates`; review before linking a follow-up.
 
 `PATCH /procurement/api/requests/{id}` accepts current `version` plus any of
-`title`, `requester_name`, `listing_id`, `requester_staff_id`, `owner_user_id`,
+`title`, `requester_name`, `listing_id` or `listing_ids`, `requester_staff_id`, `owner_user_id`,
 `priority`, `required_by`, `response_due_at`, `review:true`, `source`, `items`.
 A source appends a traceable message; duplicate source IDs on the request are
 ignored. Item rows with `id` update that item; rows without `id` append items.
 Rewrites require the item's full catalog/custom fields and quantity and are
-blocked after active reservation/purchasing. Property changes are blocked once
-allocations exist. Linked housekeepers can append sources, not edit staff fields.
+blocked after active reservation/purchasing. Include `listing_id` on new/rewritten
+items in shared requests. Send only changed unreserved items; unchanged purchased
+items remain intact when omitted. `{ "id":8, "remove":true }` removes a never-
+purchased, never-cancelled item. Property removal requires removing its eligible
+items in the same transaction. Properties with allocation history cannot be
+removed or reassigned; additional properties/items can be added. Linked
+housekeepers can append sources, not edit staff fields.
+The original requester is historical: later roster changes do not force it to
+change. Selecting a different requester requires an active housekeeper assigned
+to every currently selected property.
 Do not use `review:true` for an automatic acknowledgment: this records review by
 the assigned human purchasing owner.
 
@@ -588,15 +633,25 @@ versions afterwards. Purchased orders cannot be rewritten.
 }
 ```
 
-`location_id` must identify an active verified destination. `responsibility`
+`location_id` must identify an active verified destination. It can be supplied
+on the order as a default, or separately on every purchase line. One actual
+retailer order may cover multiple requests, properties, and delivery addresses;
+use separate lines for separate addresses and separate purchases when the
+retailer issues separate order numbers. `responsibility`
 is `owner`, `company`, `included`, or `unassigned`. `quantity` is always base
 units; a 24-roll pack at $17.49 is quantity 24, pack_size 24, unit_price 17.49,
-not 24 packs. `pack_size` defaults to 1. Custom purchase lines require name/unit.
+not 24 packs. `pack_size` defaults to 1. When greater than 1, purchase quantity
+must be a whole multiple of pack size at that delivery address. Round up and keep
+extras as unallocated shared stock at the receiving location. Custom purchase lines require name/unit.
 Different product names/catalog products allocated to a request require
 `substitution_reason`. Purchase and request units must always match, even for
 substitutions.
 One line may split between requests; unallocated quantities remain shared stock.
 Reserved/ordered quantities cannot exceed outstanding need.
+An item's need can be split over multiple purchases. Selecting only part of its
+`to_order` quantity leaves the rest available. Concurrent buyers are serialized
+and the server rejects over-reservation atomically. Consolidate only matching
+catalog/product specification and base units; product substitutions remain explicit.
 
 Order actions use `POST /procurement/api/orders/{id}/{action}`:
 
@@ -629,7 +684,8 @@ request and order after quantity-changing actions; both versions may change.
 - `POST /procurement/api/orders/{id}/shipments` creates a partial/full shipment:
   `{"version":5,"carrier":"Carrier","tracking":"tracking-id","expected_at":"2026-10-18T18:00:00Z","lines":[{"line_id":4,"quantity":"12"}]}`.
   Requires a purchased order and at least one line; cumulative active shipment
-  quantities cannot exceed purchased base units.
+  quantities cannot exceed purchased base units. All lines in a shipment must
+  share one delivery destination; separate shipments for different addresses.
 - `PATCH /procurement/api/shipments/{shipment_id}` accepts parent order `version`
   plus `carrier`, `tracking`, `expected_at`, or `cancelled_reason`. Cancellation
   releases unshipped capacity and retains the history. Delivered/cancelled
@@ -660,7 +716,7 @@ the property, confirmed by an active housekeeper assigned to that property:
 API/staff entries on behalf of a housekeeper require `evidence.reference`.
 The evidence must refer to actual housekeeper confirmation. A linked
 housekeeper login can confirm as itself without an external evidence reference.
-`listing_id` must be the original property, or the real receiving property for
+`listing_id` must be the request item's original property, or the real receiving property for
 shared stock. Never use a carrier scan, retailer promise, or receipt at a
 housekeeper's home as proof that supplies are at the rental property.
 
@@ -669,6 +725,30 @@ By default quantity is bounded by already recorded delivery. Set
 receipt despite missing/late carrier tracking; it remains bounded by purchased
 outstanding quantity. Partial confirmation leaves the remaining need open.
 Completion follows only when all noncancelled item quantities are confirmed.
+Each property's progress is independent, even when siblings share a purchase.
+
+`POST /procurement/api/requests/{id}/confirm-batch` records explicitly selected
+receipts in one atomic transaction. It accepts the current request `version`,
+common `note`, `evidence`, `confirm_delivery`, and 1–100 `confirmations` rows:
+
+```json
+{
+  "version": 9,
+  "note": "Housekeepers checked the property closets",
+  "evidence": {"reference": "whatsapp:original-confirmation"},
+  "confirm_delivery": true,
+  "confirmations": [
+    {"allocation_id": 9, "listing_id": 101, "staff_id": 1, "quantity": "6"},
+    {"allocation_id": 10, "listing_id": 102, "staff_id": 2, "quantity": "3"}
+  ]
+}
+```
+
+All single-confirmation rules apply to every row. Select each allocation once;
+use partial quantities and omit unconfirmed supplies. Any invalid/unassigned row
+rolls back all rows. Retry with the same Idempotency-Key after a transport failure;
+never create separate retry keys for each row. Housekeeper logins can confirm
+only their own assigned property items as themselves.
 
 Additional `POST /procurement/api/requests/{id}/{action}` operations:
 
@@ -730,10 +810,13 @@ once-only, auditable server operations; later manual changes are preserved.
   in ascending event_id order: `{"events":[...],"next_cursor":123}`.
   Cursor must be a nonnegative integer; gaps are normal. Empty results preserve
   the supplied cursor. This is a polling feed, not a webhook or live listener.
-- Events include event_id, action, ticket_id, request_code, property, current
+- Events include event_id, action, ticket_id, request_code, property, `listing_ids`,
+  `properties` (explicit property snapshots), `affected_listing_ids`, current
   status, owner_user_id, requester_phone (active requester only), and
   source_messages (channel/message_id references). Destination addresses and
   original message bodies are not in the feed. Fetch request detail for context.
+  Use `affected_listing_ids` to route property-specific shipment, receipt, and
+  problem updates; the full request member list can include unaffected siblings.
 - `status` reflects **current state at polling time**, not the historical state
   when the event happened. Coalesce multiple events for one request and fetch
   latest details before sending an update. Pure order/receipt/refund/directory

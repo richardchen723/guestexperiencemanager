@@ -181,11 +181,43 @@ def item_progress(item):
             "remaining": max(ZERO, needed - confirmed), "to_order": max(ZERO, needed - reserved)}
 
 
-def ticket_status(ticket):
+def ticket_properties(ticket):
+    """Explicit members; legacy single-property requests keep their snapshot."""
+    return [{**(ticket.property_snapshot or {}), "id": ticket.listing_id}] if ticket.listing_id else (ticket.property_snapshots or [])
+
+
+def item_listing_id(item):
+    return item.listing_id or item.ticket.listing_id
+
+
+def item_property(item):
+    return next((p for p in ticket_properties(item.ticket) if p["id"] == item_listing_id(item)), {})
+
+
+def line_destination(line):
+    return line.destination or line.order.destination
+
+
+def order_destinations(order):
+    destinations = {}
+    for line in order.lines:
+        destination = line_destination(line)
+        if destination:
+            destinations[destination["id"]] = destination
+    return list(destinations.values())
+
+
+def shipment_allocations(shipment):
+    ids = {line.line_id for line in shipment.lines}
+    return [a for line in shipment.order.lines if line.id in ids for a in line.allocations]
+
+
+def ticket_status(ticket, items=None):
     if ticket.cancelled_reason:
         return "cancelled"
-    progress = [item_progress(i) for i in ticket.items]
-    complete_information = bool(ticket.listing_id or ticket.storage_location_id) and bool(progress) and all(p["requested"] is not None for p in progress)
+    items = ticket.items if items is None else items
+    progress = [item_progress(i) for i in items]
+    complete_information = bool(items) and all(item_listing_id(i) or ticket.storage_location_id for i in items) and all(p["requested"] is not None for p in progress)
     if complete_information and all(p["remaining"] == 0 for p in progress):
         return "completed"
     if complete_information and all(p["delivered"] + p["cancelled"] >= p["requested"] for p in progress):
@@ -195,12 +227,13 @@ def ticket_status(ticket):
     return "new"
 
 
-def ticket_flags(ticket, now=None):
+def ticket_flags(ticket, now=None, items=None):
     now = now or datetime.utcnow()
-    if ticket_status(ticket) in ("completed", "cancelled"):
+    items = ticket.items if items is None else items
+    if ticket_status(ticket, items) in ("completed", "cancelled"):
         return []
     flags = []
-    if not (ticket.listing_id or ticket.storage_location_id) or not ticket.required_by or any(i.quantity is None for i in ticket.items):
+    if not items or not all(item_listing_id(i) or ticket.storage_location_id for i in items) or not ticket.required_by or any(i.quantity is None for i in items):
         flags.append("Needs information")
     if not ticket.owner_user_id:
         flags.append("Unassigned")
@@ -208,14 +241,16 @@ def ticket_flags(ticket, now=None):
         flags.append("Overdue")
     if not ticket.reviewed_at and ticket.response_due_at and ticket.response_due_at < now:
         flags.append("Staff response overdue")
-    orders = {a.line.order for i in ticket.items for a in i.allocations if a.line.order.state != "cancelled"}
+    orders = {a.line.order for i in items for a in i.allocations if a.line.order.state != "cancelled"}
+    line_ids = {a.line_id for i in items for a in i.allocations if a.line.order.state != "cancelled"}
+    shipments = [s for o in orders for s in o.shipments if any(line.line_id in line_ids for line in s.lines)]
     if any(o.state == "draft" for o in orders):
         flags.append("Awaiting approval")
-    if any(s.expected_at and ticket.required_by and s.expected_at > ticket.required_by and not s.delivered_at and not s.cancelled_reason for o in orders for s in o.shipments):
+    if any(s.expected_at and ticket.required_by and s.expected_at > ticket.required_by and not s.delivered_at and not s.cancelled_reason for s in shipments):
         flags.append("Delivery at risk")
-    if any(s.expected_at and s.expected_at < now and not s.delivered_at and not s.cancelled_reason for o in orders for s in o.shipments):
+    if any(s.expected_at and s.expected_at < now and not s.delivered_at and not s.cancelled_reason for s in shipments):
         flags.append("Delivery delayed")
-    if any((a.problem_quantity or ZERO) > 0 for i in ticket.items if item_progress(i)["remaining"] > 0 for a in i.allocations):
+    if any((a.problem_quantity or ZERO) > 0 for i in items if item_progress(i)["remaining"] > 0 for a in i.allocations):
         flags.append("Fulfillment issue")
     return flags
 
@@ -250,9 +285,40 @@ class ProcurementService:
 
     def ticket(self, ticket_id):
         ticket = get(self.session, Ticket, ticket_id)
-        if self.staff_scope is not None and ticket.listing_id not in self.staff_scope.listing_ids:
+        if self.staff_scope is not None and not set(p["id"] for p in ticket_properties(ticket)) & set(self.staff_scope.listing_ids):
             raise WorkflowError("This request is outside your property assignments.", 403)
         return ticket
+
+    def item_access(self, item):
+        if self.staff_scope is not None and item_listing_id(item) not in self.staff_scope.listing_ids:
+            raise WorkflowError("This item is outside your property assignments.", 403)
+
+    def request_properties(self, data):
+        ids = data.get("listing_ids", [data["listing_id"]] if data.get("listing_id") else [])
+        if not isinstance(ids, list) or len(ids) > 100 or any(isinstance(i, bool) or not str(i).isdigit() or int(i) < 1 for i in ids):
+            raise WorkflowError("Choose up to 100 valid properties.")
+        if len(set(map(int, ids))) != len(ids):
+            raise WorkflowError("Select each property only once.")
+        if data.get("listing_id") and list(map(int, ids)) != [int(data["listing_id"])]:
+            raise WorkflowError("Use listing_ids for a multi-property request; omit listing_id.")
+        return [self.property(i) for i in ids]
+
+    def request_item_property(self, row, properties):
+        ids = [p["id"] for p in properties]
+        listing_id = row.get("listing_id")
+        if listing_id in (None, ""):
+            if len(ids) > 1:
+                raise WorkflowError("Choose the property for each requested item.")
+            return ids[0] if ids else None
+        prop = self.property(listing_id)
+        if prop["id"] not in ids:
+            raise WorkflowError("Every item must belong to a selected request property.")
+        return prop["id"]
+
+    def validate_request_members(self, ticket):
+        ids = {p["id"] for p in ticket_properties(ticket)}
+        if ids != {item_listing_id(i) for i in ticket.items} - {None}:
+            raise WorkflowError("Each selected property needs at least one item; remove unused properties or add their quantities.")
 
     def purchaser(self):
         if self.staff_scope is not None:
@@ -323,6 +389,7 @@ class ProcurementService:
                 "category": catalog.category if catalog else required(data.get("category", "supplies"), "Category", 60)}
 
     def create_ticket(self, data):
+        properties = self.request_properties(data)
         source = data.get("source") or {}
         if not isinstance(source, dict):
             raise WorkflowError("Source must be an object.")
@@ -333,29 +400,29 @@ class ProcurementService:
                 SourceMessage.source == source.get("channel", "whatsapp"), SourceMessage.message_id == str(source["message_id"])
             )).all()
             for message in existing:
-                if message.ticket.listing_id == (int(data["listing_id"]) if data.get("listing_id") else None) and message.ticket.storage_location_id == (int(data["storage_location_id"]) if data.get("storage_location_id") else None):
+                if {p["id"] for p in ticket_properties(message.ticket)} == {p["id"] for p in properties} and message.ticket.storage_location_id == (int(data["storage_location_id"]) if data.get("storage_location_id") else None):
                     return self.ticket(message.ticket_id), True
-        prop = self.property(data["listing_id"]) if data.get("listing_id") else None
+        prop = properties[0] if len(properties) == 1 else None
         location = get(self.session, Location, data["storage_location_id"]) if data.get("storage_location_id") else None
-        if prop and location:
+        if properties and location:
             raise WorkflowError("Choose a property or shared storage, not both.")
         if location and (not location.active or location.kind != "storage"):
             raise WorkflowError("Choose an active shared storage location.")
-        if self.staff_scope is not None and not prop:
+        if self.staff_scope is not None and not properties:
             raise WorkflowError("Choose one of your assigned properties.", 403)
         staff_id = self.staff_scope.id if self.staff_scope is not None else data.get("requester_staff_id")
         staff = get(self.session, Staff, staff_id) if staff_id else None
-        if staff and (not staff.active or (prop and prop["id"] not in staff.listing_ids)):
-            raise WorkflowError("The requester must be active and assigned to this property.")
+        if staff and (not staff.active or any(p["id"] not in staff.listing_ids for p in properties)):
+            raise WorkflowError("The requester must be active and assigned to every selected property. Staff can use a requester name for requests spanning housekeepers.")
         priority = data.get("priority", "normal")
         if priority not in PRIORITIES:
             raise WorkflowError("Choose a valid priority.")
         items = data.get("items")
-        if not isinstance(items, list) or not 1 <= len(items) <= 100:
-            raise WorkflowError("Add between 1 and 100 requested items.")
+        if not isinstance(items, list) or not 1 <= len(items) <= 500:
+            raise WorkflowError("Add between 1 and 500 property/item quantities.")
         response_hours = {"critical": .5, "high": 4, "normal": 24, "planned": 72}[priority]
         ticket = Ticket(title=required(data.get("title"), "Request title"), listing_id=prop["id"] if prop else None,
-                        property_snapshot=prop or {}, storage_location_id=location.id if location else None,
+                        property_snapshot=prop or {}, property_snapshots=properties, storage_location_id=location.id if location else None,
                         requester_staff_id=staff.id if staff else None,
                         requester_name=staff.name if staff else required(data.get("requester_name"), "Requester", 160),
                         owner_user_id=self.owner(data.get("owner_user_id", self.user_id)), priority=priority,
@@ -364,7 +431,8 @@ class ProcurementService:
                         created_by=self.actor)
         self.session.add(ticket)
         for item in items:
-            ticket.items.append(RequestItem(**self.catalog_fields(item), quantity=quantity(item.get("quantity"), optional=True)))
+            ticket.items.append(RequestItem(**self.catalog_fields(item), listing_id=self.request_item_property(item, properties), quantity=quantity(item.get("quantity"), optional=True)))
+        self.validate_request_members(ticket)
         self.session.flush()
         if source.get("body"):
             self._message(ticket, source)
@@ -384,7 +452,7 @@ class ProcurementService:
     def update_ticket(self, ticket_id, data):
         ticket = self.ticket(ticket_id)
         check_version(ticket, data)
-        if set(data) - {"version", "source", "title", "requester_name", "owner_user_id", "priority", "required_by", "response_due_at", "listing_id", "requester_staff_id", "review", "items"}:
+        if set(data) - {"version", "source", "title", "requester_name", "owner_user_id", "priority", "required_by", "response_due_at", "listing_id", "listing_ids", "requester_staff_id", "review", "items"}:
             raise WorkflowError("Request status is calculated from fulfillment. Use the supported request fields and actions.")
         if ticket.cancelled_reason:
             raise WorkflowError("Cancelled requests cannot be edited.")
@@ -407,16 +475,27 @@ class ProcurementService:
         for name in ("required_by", "response_due_at"):
             if name in data:
                 setattr(ticket, name, timestamp(data[name]))
-        if "listing_id" in data:
-            if any(i.allocations for i in ticket.items):
+        properties = ticket_properties(ticket)
+        if "listing_id" in data or "listing_ids" in data:
+            new_properties = self.request_properties(data)
+            removed = {p["id"] for p in properties} - {p["id"] for p in new_properties}
+            if any(i.allocations and item_listing_id(i) in removed for i in ticket.items):
                 raise WorkflowError("The destination property cannot change after purchasing has started.")
-            prop = self.property(data["listing_id"])
-            ticket.listing_id, ticket.property_snapshot, ticket.storage_location_id = prop["id"], prop, None
+            if len(properties) <= 1 and len(new_properties) == 1:
+                for item in ticket.items:
+                    if not item.allocations:
+                        item.listing_id = new_properties[0]["id"]
+            properties = new_properties
+            prop = properties[0] if len(properties) == 1 else None
+            ticket.listing_id, ticket.property_snapshot = (prop["id"], prop) if prop else (None, {})
+            ticket.property_snapshots, ticket.storage_location_id = properties, None
         if "requester_staff_id" in data:
-            staff = get(self.session, Staff, data["requester_staff_id"])
-            if not staff.active or (ticket.listing_id and ticket.listing_id not in staff.listing_ids):
-                raise WorkflowError("Choose an active housekeeper assigned to this property.")
-            ticket.requester_staff_id, ticket.requester_name = staff.id, staff.name
+            staff = get(self.session, Staff, data["requester_staff_id"]) if data["requester_staff_id"] else None
+            if staff and staff.id != ticket.requester_staff_id and (not staff.active or any(p["id"] not in staff.listing_ids for p in properties)):
+                raise WorkflowError("Choose an active housekeeper assigned to every selected property.")
+            ticket.requester_staff_id = staff.id if staff else None
+            if staff:
+                ticket.requester_name = staff.name
         if data.get("review"):
             if not ticket.owner_user_id:
                 raise WorkflowError("Assign a staff owner before reviewing this request.")
@@ -428,14 +507,24 @@ class ProcurementService:
                     raise WorkflowError("Item does not belong to this request.")
                 if any(a.line.order.state != "cancelled" for a in item.allocations):
                     raise WorkflowError("Ordered or reserved items cannot be rewritten. Cancel an unpurchased order or add a new item.")
+                if row.get("remove") is True:
+                    if item.allocations or item.cancelled_quantity:
+                        raise WorkflowError("Items with purchasing or cancellation history cannot be removed.")
+                    ticket.items.remove(item)
+                    self.session.delete(item)
+                    continue
                 fields = self.catalog_fields(row)
                 for key, value in fields.items():
                     setattr(item, key, value)
                 item.quantity = quantity(row.get("quantity"), optional=True)
+                item.listing_id = self.request_item_property(row, properties)
                 if item.cancelled_quantity and (item.quantity is None or item.quantity < item.cancelled_quantity):
                     raise WorkflowError("Requested quantity cannot be below the cancelled quantity.")
             else:
-                ticket.items.append(RequestItem(**self.catalog_fields(row), quantity=quantity(row.get("quantity"), optional=True)))
+                ticket.items.append(RequestItem(**self.catalog_fields(row), listing_id=self.request_item_property(row, properties), quantity=quantity(row.get("quantity"), optional=True)))
+        if not ticket.items or len(ticket.items) > 500:
+            raise WorkflowError("Keep between 1 and 500 property/item quantities on a request.")
+        self.validate_request_members(ticket)
         self.touch(ticket)
         self.session.flush()
         self.audit("request_updated", {"before": before, "after": self.ticket_dict(ticket)}, ticket=ticket)
@@ -482,7 +571,7 @@ class ProcurementService:
     def _allocate(self, line, data):
         item = get(self.session, RequestItem, data.get("item_id"))
         ticket = self.ticket(item.ticket_id)
-        if ticket.cancelled_reason or not (ticket.listing_id or ticket.storage_location_id) or item.quantity is None:
+        if ticket.cancelled_reason or not (item_listing_id(item) or ticket.storage_location_id) or item.quantity is None:
             raise WorkflowError("Resolve the request destination and quantity before allocating a purchase.")
         if item.unit.casefold() != line.unit.casefold():
             raise WorkflowError("Purchase and request units must match. Convert pack sizes to the requested unit.")
@@ -526,7 +615,8 @@ class ProcurementService:
         order.currency = data.get("currency", "USD")
         if order.currency not in CURRENCIES:
             raise WorkflowError("Choose a supported currency.")
-        order.destination = self._destination(data.get("location_id"))
+        default_destination = self._destination(data["location_id"]) if data.get("location_id") else None
+        order.destination = default_destination or {}
         order.tax_cents = cents(data.get("tax"), "Tax")
         order.shipping_cents = cents(data.get("shipping"), "Shipping")
         order.discount_cents = cents(data.get("discount"), "Discount")
@@ -544,11 +634,19 @@ class ProcurementService:
             fields = self.catalog_fields(row, purchase=True)
             fields.pop("category")
             line = OrderLine(**fields, quantity=quantity(row.get("quantity")), pack_size=quantity(row.get("pack_size", 1)), unit_price_cents=cents(row.get("unit_price"), "Pack price"),
-                             substitution_reason=str(row.get("substitution_reason") or "").strip()[:2000] or None)
+                             substitution_reason=str(row.get("substitution_reason") or "").strip()[:2000] or None,
+                             destination=self._destination(row["location_id"]) if row.get("location_id") else default_destination)
+            if not line.destination:
+                raise WorkflowError("Choose a verified delivery destination for every purchase line.")
+            if line.pack_size > 1 and line.quantity % line.pack_size:
+                raise WorkflowError("Purchase whole packs for each delivery destination. Round up the purchased quantity and leave extras as shared stock.")
             order.lines.append(line)
             self.session.flush()
             for allocation in row.get("allocations", []):
                 self._allocate(line, allocation)
+        destinations = order_destinations(order)
+        order.destination = destinations[0] if len(destinations) == 1 else {
+            "id": None, "label": f"{len(destinations)} delivery destinations", "kind": "multiple", "address": ""}
         if order.discount_cents > order_totals(order)["subtotal_cents"]:
             raise WorkflowError("Discount cannot exceed the product subtotal.")
         self.audit("order_revised" if order_id else "order_created", {"snapshot": self.order_dict(order), "reason": data.get("change_reason")}, order=order)
@@ -569,7 +667,7 @@ class ProcurementService:
         elif action == "place":
             if order.state != "approved" or not order.approval or order.approval["version"] != order.purchase_revision:
                 raise WorkflowError("Approve the current order version before recording the purchase.")
-            if self._destination(order.destination["id"]) != order.destination:
+            if any(self._destination(destination["id"]) != destination for destination in order_destinations(order)):
                 raise WorkflowError("The delivery address changed after approval. Revise the order and obtain approval again.")
             order.reference = required(data.get("reference"), "Retailer order number", 180)
             order.purchased_on = calendar_date(data.get("purchased_on"), "Purchase date")
@@ -619,7 +717,8 @@ class ProcurementService:
         order.version += 1
         for ticket in {a.item.ticket for line in order.lines for a in line.allocations}:
             self.touch(ticket)
-            self.audit(f"order_{action}", {"order_id": order.id, "reference": order.reference}, ticket=ticket, order=order)
+            self.audit(f"order_{action}", {"order_id": order.id, "reference": order.reference,
+                       "listing_ids": sorted({item_listing_id(a.item) for line in order.lines for a in line.allocations if a.item.ticket_id == ticket.id and item_listing_id(a.item)})}, ticket=ticket, order=order)
         self.audit(f"purchase_{action}", {"reason": data.get("reason"), "version": order.version,
                                          **({"approval": order.approval} if action == "approve" else {})}, order=order)
         return order
@@ -651,11 +750,15 @@ class ProcurementService:
                             expected_at=timestamp(data.get("expected_at")))
         self.session.add(shipment)
         seen = set()
+        destinations = set()
         for row in rows:
             line = get(self.session, OrderLine, row.get("line_id"))
             if line.order_id != order.id or line.id in seen:
                 raise WorkflowError("Each purchase line can appear only once per shipment.")
             seen.add(line.id)
+            destinations.add(line_destination(line)["id"])
+            if len(destinations) > 1:
+                raise WorkflowError("A shipment can have only one delivery destination. Record separate shipments for separate addresses.")
             amount = quantity(row.get("quantity"))
             shipped = sum((sl.quantity for s in order.shipments if not s.cancelled_reason for sl in s.lines if sl.line_id == line.id), ZERO)
             if shipped + amount > line.quantity:
@@ -664,9 +767,11 @@ class ProcurementService:
         order.version += 1
         self.session.flush()
         self.audit("shipment_created", {"shipment_id": shipment.id, "tracking": shipment.tracking}, order=order)
-        for ticket in {a.item.ticket for line in order.lines for a in line.allocations}:
+        affected = shipment_allocations(shipment)
+        for ticket in {a.item.ticket for a in affected}:
             self.touch(ticket)
-            self.audit("shipment_created", {"shipment_id": shipment.id, "tracking": shipment.tracking}, ticket=ticket, order=order)
+            self.audit("shipment_created", {"shipment_id": shipment.id, "tracking": shipment.tracking,
+                       "listing_ids": sorted({item_listing_id(a.item) for a in affected if a.item.ticket_id == ticket.id and item_listing_id(a.item)})}, ticket=ticket, order=order)
         return order
 
     def deliver_shipment(self, shipment_id, data):
@@ -683,9 +788,11 @@ class ProcurementService:
             raise WorkflowError("Delivery cannot be recorded in the future.")
         order.version += 1
         self.audit("shipment_delivered", {"shipment_id": shipment.id, "awaiting_housekeeper": True}, order=order)
-        for ticket in {a.item.ticket for line in order.lines for a in line.allocations}:
+        affected = shipment_allocations(shipment)
+        for ticket in {a.item.ticket for a in affected}:
             self.touch(ticket)
-            self.audit("delivery_reported", {"shipment_id": shipment.id, "awaiting_housekeeper": True}, ticket=ticket, order=order)
+            self.audit("delivery_reported", {"shipment_id": shipment.id, "awaiting_housekeeper": True,
+                       "listing_ids": sorted({item_listing_id(a.item) for a in affected if a.item.ticket_id == ticket.id and item_listing_id(a.item)})}, ticket=ticket, order=order)
         return order
 
     def update_shipment(self, shipment_id, data):
@@ -710,9 +817,10 @@ class ProcurementService:
         detail = {"shipment_id": shipment.id, "before": before, "carrier": shipment.carrier,
                   "tracking": shipment.tracking, "expected_at": iso(shipment.expected_at), "reason": shipment.cancelled_reason}
         self.audit(action, detail, order=order)
-        for ticket in {a.item.ticket for line in order.lines for a in line.allocations}:
+        affected = shipment_allocations(shipment)
+        for ticket in {a.item.ticket for a in affected}:
             self.touch(ticket)
-            self.audit(action, detail, ticket=ticket, order=order)
+            self.audit(action, {**detail, "listing_ids": sorted({item_listing_id(a.item) for a in affected if a.item.ticket_id == ticket.id and item_listing_id(a.item)})}, ticket=ticket, order=order)
         return order
 
     def confirm(self, ticket_id, data, *, returning=False):
@@ -723,9 +831,11 @@ class ProcurementService:
         allocation = get(self.session, Allocation, data.get("allocation_id"))
         if allocation.item.ticket_id != ticket.id or allocation.line.order.state != "ordered":
             raise WorkflowError("Choose a purchased allocation from this request.")
+        self.item_access(allocation.item)
         staff = get(self.session, Staff, data.get("staff_id"))
-        prop = self.property(data.get("listing_id") or ticket.listing_id)
-        if ticket.listing_id and prop["id"] != ticket.listing_id:
+        original_listing_id = item_listing_id(allocation.item)
+        prop = self.property(data.get("listing_id") or original_listing_id)
+        if original_listing_id and prop["id"] != original_listing_id:
             raise WorkflowError("Confirm supplies at the property's original destination.")
         if not staff.active or prop["id"] not in staff.listing_ids:
             raise WorkflowError("Confirmation must come from an active housekeeper assigned to this property.")
@@ -760,12 +870,33 @@ class ProcurementService:
         }, ticket=ticket, order=allocation.line.order)
         return ticket
 
+    def confirm_batch(self, ticket_id, data):
+        """One atomic, idempotent submission for explicitly selected receipts."""
+        ticket = self.ticket(ticket_id)
+        check_version(ticket, data)
+        rows = data.get("confirmations")
+        if not isinstance(rows, list) or not 1 <= len(rows) <= 100:
+            raise WorkflowError("Select between 1 and 100 quantities to confirm.")
+        seen = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                raise WorkflowError("Each receipt must be an object.")
+            allocation_id = get(self.session, Allocation, row.get("allocation_id")).id
+            if allocation_id in seen:
+                raise WorkflowError("Select each purchased allocation only once.")
+            seen.add(allocation_id)
+            self.confirm(ticket.id, {**row, "version": ticket.version,
+                         "note": data.get("note"), "evidence": data.get("evidence") or {},
+                         "confirm_delivery": data.get("confirm_delivery") is True})
+        return ticket
+
     def fulfillment_issue(self, ticket_id, data):
         ticket = self.ticket(ticket_id)
         check_version(ticket, data)
         allocation = get(self.session, Allocation, data.get("allocation_id"))
         if allocation.item.ticket_id != ticket.id or allocation.line.order.state != "ordered":
             raise WorkflowError("Choose a purchased allocation from this request.")
+        self.item_access(allocation.item)
         amount = quantity(data.get("quantity"))
         if amount > active_quantity(allocation) - confirmed_quantity(allocation):
             raise WorkflowError("Report only outstanding quantities. Supplies already confirmed at the property require a return.")
@@ -779,6 +910,7 @@ class ProcurementService:
         self.touch(ticket)
         allocation.line.order.version += 1
         self.audit("fulfillment_issue", {"allocation_id": allocation.id, "quantity": str(amount), "kind": kind,
+                                         "listing_id": item_listing_id(allocation.item),
                                          "reason": reason, "replacement_need_reopened": True}, ticket=ticket, order=allocation.line.order)
         return ticket
 
@@ -803,11 +935,24 @@ class ProcurementService:
         return order
 
     def ticket_dict(self, ticket, detail=False):
-        status = ticket_status(ticket)
+        visible_items = [i for i in ticket.items if self.staff_scope is None or item_listing_id(i) in self.staff_scope.listing_ids]
+        properties = [p for p in ticket_properties(ticket) if self.staff_scope is None or p["id"] in self.staff_scope.listing_ids]
+        status = ticket_status(ticket, visible_items)
+        if not hasattr(self, "_directory_staff"):
+            self._directory_staff = list(self.session.scalars(select(Staff).where(Staff.active.is_(True))))
+        property_rows = []
+        for prop in properties:
+            rows = [i for i in visible_items if item_listing_id(i) == prop["id"]]
+            property_status = ticket_status(ticket, rows)
+            property_rows.append({**prop, "status": property_status, "status_label": STATUS_LABELS[property_status],
+                                  "ready": property_status == "completed", "required_by": iso(ticket.required_by),
+                                  "housekeepers": [{"id": s.id, "name": s.name} for s in self._directory_staff
+                                                   if prop["id"] in s.listing_ids and (self.staff_scope is None or s.id == self.staff_scope.id)]})
         items = []
-        for item in ticket.items:
+        for item in visible_items:
             progress = {k: float(v) if v is not None else None for k, v in item_progress(item).items()}
-            items.append({"id": item.id, "catalog_id": item.catalog_id, "name": item.name, "category": item.category,
+            items.append({"id": item.id, "listing_id": item_listing_id(item), "property": item_property(item).get("name"),
+                          "catalog_id": item.catalog_id, "name": item.name, "category": item.category,
                           "unit": item.unit, "quantity": float(item.quantity) if item.quantity is not None else None,
                           "cancellation_reason": item.cancellation_reason, **progress,
                           "allocations": [{"id": a.id, "order_id": a.line.order_id, "line_id": a.line_id,
@@ -821,23 +966,32 @@ class ProcurementService:
                                                               "housekeeper": c.evidence.get("housekeeper"), "note": c.note, "at": iso(c.created_at)} for c in a.confirmations]}
                                           for a in item.allocations if a.line.order.state != "cancelled"]})
         result = {"id": ticket.id, "code": f"PR-{ticket.id:04d}", "version": ticket.version, "title": ticket.title,
-                  "listing_id": ticket.listing_id, "property": ticket.property_snapshot.get("name") or (f"Shared storage #{ticket.storage_location_id}" if ticket.storage_location_id else "Property needed"),
-                  "city": ticket.property_snapshot.get("city"), "timezone": ticket.property_snapshot.get("timezone", "UTC"),
-                  "tags": ticket.property_snapshot.get("tags", []), "requester_name": ticket.requester_name,
-                  "requester_staff_id": ticket.requester_staff_id, "owner_user_id": ticket.owner_user_id,
+                  "listing_id": properties[0]["id"] if len(properties) == 1 else None,
+                  "listing_ids": [p["id"] for p in properties], "properties": property_rows,
+                  "property": ", ".join(p.get("name", str(p["id"])) for p in properties[:3]) + (f" + {len(properties)-3} more" if len(properties) > 3 else "") if properties else (f"Shared storage #{ticket.storage_location_id}" if ticket.storage_location_id else "Property needed"),
+                  "storage_location_id": ticket.storage_location_id,
+                  "city": properties[0].get("city") if len(properties) == 1 else None,
+                  "timezone": properties[0].get("timezone", "UTC") if properties and len({p.get("timezone", "UTC") for p in properties}) == 1 else "UTC",
+                  "tags": sorted({tag for p in properties for tag in p.get("tags", [])}),
+                  "requester_name": "Shared request" if self.staff_scope and ticket.requester_staff_id != self.staff_scope.id else ticket.requester_name,
+                  "requester_staff_id": None if self.staff_scope and ticket.requester_staff_id != self.staff_scope.id else ticket.requester_staff_id, "owner_user_id": ticket.owner_user_id,
                   "owner_name": self.users.get(ticket.owner_user_id, {}).get("name", "Unassigned"),
                   "priority": ticket.priority, "required_by": iso(ticket.required_by), "response_due_at": iso(ticket.response_due_at),
                   "reviewed_at": iso(ticket.reviewed_at), "created_at": iso(ticket.created_at),
-                  "status": status, "status_label": STATUS_LABELS[status], "flags": ticket_flags(ticket), "items": items,
+                  "status": status, "status_label": STATUS_LABELS[status], "flags": ticket_flags(ticket, items=visible_items), "items": items,
+                  "ready_properties": sum(p["ready"] for p in property_rows), "property_count": len(property_rows),
                   "cancelled_reason": ticket.cancelled_reason,
                   "fulfilled_items": sum(1 for i in items if i["requested"] is not None and i["remaining"] == 0)}
         if ticket.owner_user_id not in self.users and status not in ("completed", "cancelled") and "Unassigned" not in result["flags"]:
             result["flags"].append("Unassigned")
         if detail:
-            result["messages"] = [{"source": m.source, "message_id": m.message_id, "body": m.body, "url": m.source_url, "at": iso(m.created_at)} for m in ticket.messages]
-            result["activity"] = self.activity(ticket_id=ticket.id)
-            result["possible_duplicates"] = [{"id": t.id, "code": f"PR-{t.id:04d}", "title": t.title} for t in self.session.scalars(select(Ticket).where(Ticket.listing_id == ticket.listing_id, Ticket.id != ticket.id)).all()
-                                              if ticket.listing_id and ticket_status(t) not in ("completed", "cancelled") and {i.name.casefold() for i in t.items} & {i.name.casefold() for i in ticket.items}]
+            result["messages"] = [{"source": m.source, "message_id": m.message_id, "body": m.body, "url": m.source_url, "at": iso(m.created_at)} for m in ticket.messages] if self.staff_scope is None else []
+            result["messages_private"] = self.staff_scope is not None
+            events = self.activity(ticket_id=ticket.id)
+            result["activity"] = events if self.staff_scope is None else [e for e in events if e["action"] in ("property_confirmed", "property_return") and e["detail"].get("listing_id") in self.staff_scope.listing_ids]
+            ids = [p["id"] for p in properties]
+            result["possible_duplicates"] = [] if self.staff_scope is not None else [{"id": t.id, "code": f"PR-{t.id:04d}", "title": t.title} for t in self.session.scalars(select(Ticket).where(or_(Ticket.listing_id.in_(ids), Ticket.items.any(RequestItem.listing_id.in_(ids))), Ticket.id != ticket.id)).all()
+                                              if ticket_status(t) not in ("completed", "cancelled") and {(item_listing_id(i), i.name.casefold()) for i in t.items} & {(item_listing_id(i), i.name.casefold()) for i in ticket.items}]
         return result
 
     def activity(self, *, ticket_id=None, order_id=None):
@@ -849,8 +1003,13 @@ class ProcurementService:
 
     def order_dict(self, order, detail=False):
         totals = order_totals(order)
+        allocation_costs = {}
+        for line in order.lines:
+            shares = split_cents(totals["line_totals"][line.id], [a.quantity for a in line.allocations] + [line.quantity - sum((a.quantity for a in line.allocations), ZERO)])
+            allocation_costs.update({a.id: value for a, value in zip(line.allocations, shares)})
         result = {"id": order.id, "code": f"PO-{order.id:04d}", "version": order.version, "purchase_revision": order.purchase_revision, "vendor": order.vendor,
                   "reference": order.reference, "currency": order.currency, "destination": order.destination if self.staff_scope is None else {"label": order.destination["label"]},
+                  "destinations": order_destinations(order) if self.staff_scope is None else [],
                   "state": order.state or "draft", "tax_cents": order.tax_cents or 0, "shipping_cents": order.shipping_cents or 0,
                   "discount_cents": order.discount_cents or 0, "responsibility": order.responsibility, "notes": order.notes,
                   "subtotal_cents": totals["subtotal_cents"], "total_cents": totals["total_cents"],
@@ -860,16 +1019,19 @@ class ProcurementService:
                   "reconciled_at": iso(order.reconciled_at), "actual_charged_cents": order.actual_charged_cents,
                   "lines": [{"id": line.id, "catalog_id": line.catalog_id, "name": line.name, "unit": line.unit,
                              "quantity": float(line.quantity), "pack_size": float(line.pack_size or 1), "unit_price_cents": line.unit_price_cents,
+                             "destination": line_destination(line) if self.staff_scope is None else None,
                              "landed_cents": totals["line_totals"][line.id], "substitution_reason": line.substitution_reason,
                              "unallocated": float(line.quantity - sum((a.quantity for a in line.allocations), ZERO)),
                              "unshipped": float(line.quantity - sum((sl.quantity for s in order.shipments if not s.cancelled_reason for sl in s.lines if sl.line_id == line.id), ZERO)),
                              "delivered": float(delivered_quantity(line)),
                              "allocations": [{"id": a.id, "item_id": a.item_id, "ticket_id": a.item.ticket_id,
-                                              "request": f"PR-{a.item.ticket_id:04d}", "property": a.item.ticket.property_snapshot.get("name", "Shared storage"),
-                                              "quantity": float(a.quantity)} for a in line.allocations],
+                                              "request": f"PR-{a.item.ticket_id:04d}", "listing_id": item_listing_id(a.item),
+                                              "property": item_property(a.item).get("name", "Shared storage"),
+                                              "allocated_cents": allocation_costs[a.id], "quantity": float(a.quantity)} for a in line.allocations],
                              "refunds": [{"amount_cents": r.amount_cents, "reason": r.reason, "date": r.refunded_on.isoformat()} for r in line.refunds]}
                             for line in order.lines],
                   "shipments": [{"id": s.id, "carrier": s.carrier, "tracking": s.tracking, "expected_at": iso(s.expected_at), "delivered_at": iso(s.delivered_at), "cancelled_reason": s.cancelled_reason,
+                                 "destination": next((line_destination(line) for line in order.lines if any(sl.line_id == line.id for sl in s.lines)), order.destination),
                                  "lines": [{"line_id": sl.line_id, "quantity": float(sl.quantity)} for sl in s.lines]} for s in order.shipments],
                   "attachments": [{"id": a.id, "name": a.name} for a in order.attachments]}
         if detail:
@@ -907,9 +1069,9 @@ class ProcurementService:
                 group["unallocated_cents"] += shares[-1]
                 for allocation, share in zip(line.allocations, shares):
                     ticket = allocation.item.ticket
-                    if ticket.listing_id:
-                        row = group["properties"][ticket.listing_id]
-                        row["name"] = ticket.property_snapshot.get("name", "Property")
+                    if item_listing_id(allocation.item):
+                        row = group["properties"][item_listing_id(allocation.item)]
+                        row["name"] = item_property(allocation.item).get("name", "Property")
                         row["allocated_cents"] += share
                         row["categories"][allocation.item.category] += share
                         confirmed = sum((c.quantity for c in allocation.confirmations if c.created_at.date() < end), ZERO)

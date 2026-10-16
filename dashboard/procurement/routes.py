@@ -10,7 +10,7 @@ from datetime import datetime
 from functools import wraps
 
 from flask import Blueprint, Response, g, jsonify, render_template, request, send_file, session as browser_session
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.exc import IntegrityError
 from werkzeug.utils import secure_filename
 
@@ -21,8 +21,8 @@ from dashboard.auth.session import get_current_user
 from database.models import Listing, get_session as get_main_session
 import dashboard.config as config
 
-from .models import Attachment, AuditEvent, CatalogItem, Command, Location, PurchaseOrder, Staff, Ticket, get_session, init_procurement_database
-from .service import CURRENCIES, PRIORITIES, STATUS_LABELS, ProcurementService, WorkflowError, get, required, ticket_status, request_query, order_query
+from .models import Attachment, AuditEvent, CatalogItem, Command, Location, PurchaseOrder, RequestItem, Staff, Ticket, get_session, init_procurement_database
+from .service import CURRENCIES, PRIORITIES, STATUS_LABELS, ProcurementService, WorkflowError, get, required, ticket_properties, ticket_status, request_query, order_query
 
 logger = logging.getLogger(__name__)
 procurement_bp = Blueprint("procurement", __name__, url_prefix="/procurement")
@@ -111,7 +111,9 @@ def endpoint(*, mutation=False):
                         if "/requests" not in request.path:
                             service.purchaser()
                         elif previous.result.get("id"):
-                            service.ticket(previous.result["id"])
+                            ticket = service.ticket(previous.result["id"])
+                            if service.staff_scope is not None:
+                                return jsonify(service.ticket_dict(ticket, detail=True))
                         if any(part in request.path for part in ("/approve", "/adjust-costs", "/directory/")) and not service.can_approve:
                             raise WorkflowError("Administrator access is required for this action.", 403)
                         return jsonify(previous.result)
@@ -147,9 +149,10 @@ def payload():
         raise WorkflowError("Send a JSON object with this request.")
     def validate(obj):
         for key, item in obj.items():
-            if key in ("items", "lines", "allocations"):
-                if not isinstance(item, list) or len(item) > 100 or not all(isinstance(row, dict) for row in item):
-                    raise WorkflowError(f"{key.capitalize()} must be a list of at most 100 objects.")
+            if key in ("items", "lines", "allocations", "confirmations"):
+                limit = 500 if key == "items" else 100
+                if not isinstance(item, list) or len(item) > limit or not all(isinstance(row, dict) for row in item):
+                    raise WorkflowError(f"{key.capitalize()} must be a list of at most {limit} objects.")
                 for row in item:
                     validate(row)
             elif key.endswith("_id") and item not in (None, ""):
@@ -197,7 +200,7 @@ def bootstrap(service):
 def list_requests(service):
     query = request_query().order_by(Ticket.created_at.desc())
     if service.staff_scope is not None:
-        query = query.where(Ticket.listing_id.in_(service.staff_scope.listing_ids))
+        query = query.where(or_(Ticket.listing_id.in_(service.staff_scope.listing_ids), Ticket.items.any(RequestItem.listing_id.in_(service.staff_scope.listing_ids))))
     return {"requests": [service.ticket_dict(t) for t in service.session.scalars(query)]}
 
 
@@ -229,6 +232,8 @@ def request_action(service, ticket_id, action):
         ticket = service.cancel_ticket(ticket_id, payload())
     elif action in ("confirm", "return"):
         ticket = service.confirm(ticket_id, payload(), returning=action == "return")
+    elif action == "confirm-batch":
+        ticket = service.confirm_batch(ticket_id, payload())
     elif action == "problem":
         ticket = service.fulfillment_issue(ticket_id, payload())
     else:
@@ -337,6 +342,8 @@ def integration_events(service):
         staff = service.session.get(Staff, ticket.requester_staff_id) if ticket.requester_staff_id else None
         result.append({"event_id": event.id, "action": event.action, "ticket_id": ticket.id,
                        "request_code": f"PR-{ticket.id:04d}", "property": ticket.property_snapshot.get("name"),
+                       "properties": ticket_properties(ticket), "listing_ids": [p["id"] for p in ticket_properties(ticket)],
+                       "affected_listing_ids": event.detail.get("listing_ids", [event.detail["listing_id"]] if event.detail.get("listing_id") else [p["id"] for p in ticket_properties(ticket)]),
                        "status": ticket_status(ticket), "owner_user_id": ticket.owner_user_id,
                        "requester_phone": staff.phone if staff and staff.active else None,
                        "source_messages": [{"channel": m.source, "message_id": m.message_id} for m in ticket.messages if m.message_id]})
