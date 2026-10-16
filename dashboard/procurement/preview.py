@@ -37,6 +37,7 @@ def main():
             connection.execute(CreateSchema(schema, if_not_exists=True))
     app = create_app()
     app.config["SECRET_KEY"] = secrets.token_hex(32)
+    app.config["SESSION_COOKIE_NAME"] = f"procurement_qa_{args.port}"
     app.config["PROCUREMENT_QA_PREVIEW"] = True
     if args.reset:
         with engine.begin() as connection:

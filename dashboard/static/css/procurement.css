@@ -175,6 +175,7 @@
 }
 
 .pc-tabs button {
+    flex:0 0 auto;
     padding:0 0 15px;
     color:#7c8697;
     border:0;
@@ -1449,4 +1450,35 @@
     .pc-order-row .pc-field-grid {
         grid-template-columns: 1fr 1fr;
     }
+}
+
+/* A small operational roster, separate from login-account administration. */
+.pc-housekeeper-grid {
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(min(100%,350px),1fr));
+    gap:18px;
+    margin-top:16px;
+}
+.pc-housekeeper-card { padding:22px; min-width:0; }
+.pc-housekeeper-heading { display:flex; align-items:start; justify-content:space-between; gap:12px; }
+.pc-housekeeper-contact { margin-top:14px !important; color:var(--pc-muted); font-size:13px; overflow-wrap:anywhere; }
+.pc-housekeeper-assigned { margin-top:20px; font-size:13px; }
+.pc-housekeeper-assigned > strong { display:block; margin-bottom:9px; font-weight:600; }
+.pc-housekeeper-assigned .pc-tag { display:inline-block; margin:3px 4px 3px 0; max-width:100%; white-space:normal; overflow-wrap:anywhere; }
+.pc-housekeeper-assigned details { margin-top:8px; }
+.pc-housekeeper-assigned summary { cursor:pointer; color:var(--pc-brand); font-size:12px; }
+.pc-housekeeper-delivery { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding-top:16px; margin-top:20px; border-top:1px solid var(--pc-line); color:var(--pc-muted); font-size:12px; }
+.pc-assignment-filters { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:12px 0; }
+.pc-assignment-filters input,.pc-assignment-filters select { width:100%; min-width:0; border:1px solid #d8dfeb; border-radius:7px; padding:10px; background:white; font:inherit; font-size:13px; }
+.pc-assignment-actions { display:flex; gap:8px; margin-bottom:10px; }
+.pc-housekeeper-assignments { max-height:280px; }
+.pc-housekeeper-assignments label { padding:9px 6px; align-items:start; }
+.pc-housekeeper-assignments input { margin-top:2px; flex-shrink:0; }
+.pc-housekeeper-assignments span { min-width:0; overflow-wrap:anywhere; }
+.pc-housekeeper-assignments small { display:block; margin-top:3px; color:#687386; font-size:11px; }
+.pc-housekeeper-assignments label[hidden] { display:none; }
+.pc-housekeeper-grid > .pc-empty { grid-column:1/-1; }
+@media (max-width:600px) {
+    .pc-assignment-filters { grid-template-columns:1fr; }
+    .pc-housekeeper-card { padding:18px; }
 }

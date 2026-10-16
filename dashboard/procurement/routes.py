@@ -178,7 +178,7 @@ def bootstrap(service):
         "properties": [p for p in service.properties.values() if service.staff_scope is None or p["id"] in service.staff_scope.listing_ids],
         "users": list(service.users.values()) if service.staff_scope is None else [],
         "account_users": list(service.account_users.values()) if service.can_approve else [],
-        "staff": [{"id": s.id, "name": s.name, "phone": s.phone if service.staff_scope is None else None,
+        "staff": [{"id": s.id, "version": s.version, "name": s.name, "phone": s.phone if service.staff_scope is None else None,
                    "user_id": s.user_id, "listing_ids": s.listing_ids, "active": s.active} for s in staff
                   if service.staff_scope is None or s.id == service.staff_scope.id],
         "locations": [{"id": l.id, "label": l.label, "kind": l.kind, "address": l.address, "instructions": l.instructions,
@@ -359,17 +359,8 @@ def directory(service, kind):
     data = payload()
     db = service.session
     if kind == "staff":
-        obj = get(db, Staff, data["id"]) if data.get("id") else Staff()
-        obj.name = required(data.get("name"), "Housekeeper name", 160)
-        obj.phone = str(data.get("phone") or "")[:80]
-        account_id = int(data["user_id"]) if data.get("user_id") else None
-        if account_id is not None and account_id not in service.account_users:
-            raise WorkflowError("Choose an active, approved Cotton Candy account.")
-        obj.user_id = account_id
-        ids = data.get("listing_ids", [])
-        if not isinstance(ids, list):
-            raise WorkflowError("Property assignments must be a list.")
-        obj.listing_ids = list(dict.fromkeys(service.property(i)["id"] for i in ids))
+        obj = service.save_staff(data)
+        return {"id": obj.id, "version": obj.version, "saved": True}
     elif kind == "locations":
         obj = get(db, Location, data["id"]) if data.get("id") else Location()
         obj.label = required(data.get("label"), "Location label", 160)

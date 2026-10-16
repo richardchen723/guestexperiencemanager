@@ -400,7 +400,7 @@ Admin activity APIs are prefixed with `/admin/api/activities`.
 
 ## Procurement
 
-**Contract updated: 2026-10-15.** Procurement runs on the main Cotton Candy
+**Contract updated: 2026-10-16.** Procurement runs on the main Cotton Candy
 host, with the UI at `/procurement/` and JSON endpoints under
 `/procurement/api`. Production base URL: `https://yourcottoncandy.com`.
 This section is published in both `/api-docs#procurement` and `/api-docs.md`.
@@ -430,9 +430,10 @@ notification, and polling integration.
 - Request edits/actions use the latest integer request `version`. Order edits/
   actions use the latest integer order `version`. Shipment edits/delivery use
   the **parent order version**, not a shipment version. Missing/stale versions
-  return 409. Receipt uploads and admin directory saves are exceptions: they
-  use idempotency but do not require a version. Uploading a receipt increments
-  the order version.
+  return 409. Receipt uploads and admin location/catalog saves are exceptions: they
+  use idempotency but do not require a version. Housekeeper edits require the
+  current staff `version` returned by bootstrap; new staff do not need a version.
+  Uploading a receipt increments the order version.
 - On a version conflict, fetch the current record and review it. If still valid,
   submit the updated operation with a new key. After an ambiguous timeout,
   retry the original key first; do not blindly create a second operation.
@@ -703,11 +704,25 @@ reconciliation remain separate.
   the same figures in major units; authenticated private download.
 - `POST /procurement/api/directory/{kind}`: human admins only; kinds `staff`,
   `locations`, `catalog`. Optional `id` edits an existing record, otherwise
-  creates. Saves require Idempotency-Key but no version. `active` is boolean.
+  creates. All saves require Idempotency-Key. Existing staff edits also require
+  the latest integer staff `version` from bootstrap; stale/missing versions
+  return 409. Location/catalog saves do not require a version. `active` is boolean.
   Staff: name, phone, optional user_id, listing_ids. Locations: label, kind
   (housekeeper/property/storage), address, instructions, staff_id or listing_id.
-  Catalog: name, canonical unit, category, pack_description. Deactivate old
+  Catalog: name, canonical unit, category, pack_description. Staff names are
+  checked for case-insensitive duplicates. Omitting user_id on a staff edit
+  preserves the linked account; explicit null unlinks it. Changing a roster
+  never creates an account or grants feature access. Deactivate old
   records to retain history. Linked logins still need Procurement feature access.
+
+### Housekeeper management
+
+The Housekeepers tab at `/procurement/#housekeepers` provides the operational
+roster: name, optional WhatsApp number, active/inactive state, searchable
+property assignments, and a shortcut to verified delivery addresses. Property
+group selection resolves to explicit listing IDs at save time; future group
+changes do not silently change housekeeper access. Initial roster imports are
+once-only, auditable server operations; later manual changes are preserved.
 
 ### Procurement Ethan event and reminder contract
 
