@@ -268,15 +268,14 @@
     }
     function renderRequestProducts() {
         const draft = state.requestDraft;
-        $('pcRequestProducts').innerHTML = draft.columns.map(c => {
+        $('pcRequestProducts').innerHTML = draft.columns.map((c, index) => {
             const locked = Object.values(c.values).some(v => v.locked);
             const attr = name => `data-column="${c.key}" data-column-field="${name}"`;
-            return `<div class="pc-request-product" data-product-column="${c.key}"><div class="pc-field-grid">
+            return `<div class="pc-request-product" data-product-column="${c.key}"><div class="pc-request-product-heading"><h4>Supply ${index + 1}</h4>${!locked ? button('remove-product','Remove',`data-id="${c.key}" aria-label="Remove supply ${index + 1}"`,'pc-destructive') : '<span class="pc-history-note">History retained</span>'}</div><div class="pc-field-grid">
                 ${field('Standard product', `<select ${attr('catalog_id')} ${locked ? 'disabled' : ''}>${options(state.ref.catalog.filter(c => c.active || c.id === Number(c.catalog_id)),c.catalog_id,'Custom supply')}</select>`)}
                 ${field('Supply', `<input value="${esc(c.name)}" ${attr('name')} required maxlength="180" ${locked || c.catalog_id ? 'readonly' : ''}>`)}
                 ${field('Unit', `<input value="${esc(c.unit)}" ${attr('unit')} required maxlength="40" ${locked || c.catalog_id ? 'readonly' : ''}>`)}
-                ${!locked ? button('remove-product','Remove',`data-id="${c.key}"`,'pc-destructive') : '<span class="pc-muted">History retained</span>'}
-                </div><div class="pc-matrix-bulk"><label>Quantity for all selected properties <input type="number" min="0" step="0.001" placeholder="Unknown" data-bulk-column="${c.key}" aria-label="${esc(c.name || 'Supply')} quantity for all properties"></label>${button('apply-product-quantity','Apply to all',`data-id="${c.key}"`)}</div></div>`;
+                </div><div class="pc-matrix-bulk"><div class="pc-bulk-copy"><label for="pcBulkQuantity${c.key}">Same quantity for each property</label><p>Optional. Adjust individual quantities below.</p></div><input id="pcBulkQuantity${c.key}" type="number" inputmode="decimal" min="0" step="0.001" placeholder="e.g. 12" data-bulk-column="${c.key}" aria-label="${esc(c.name || `Supply ${index + 1}`)} quantity for all properties">${button('apply-product-quantity','Apply to all',`data-id="${c.key}"`)}</div></div>`;
         }).join('');
     }
     function renderRequestMatrix() {
