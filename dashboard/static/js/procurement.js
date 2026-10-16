@@ -59,8 +59,8 @@
         state.ref = ref; state.requests = requests.requests; state.orders = orders.orders;
         document.querySelectorAll('[data-purchaser]').forEach(el => { el.hidden = !ref.can_purchase; });
         const previousProperty = $('pcProperty').value, previousTag = $('pcTag').value;
-        $('pcProperty').innerHTML = options(ref.properties, previousProperty, 'All properties');
-        $('pcTag').innerHTML = opt('', 'All tags') + [...new Set(ref.properties.flatMap(p => p.tags))].sort().map(t => opt(t, t, t === previousTag)).join('');
+        $('pcProperty').innerHTML = options(ref.properties, previousProperty, 'All');
+        $('pcTag').innerHTML = opt('', 'All') + [...new Set(ref.properties.flatMap(p => p.tags))].sort().map(t => opt(t, t, t === previousTag)).join('');
         const previousHousekeeperProperty = $('pcHousekeeperProperty').value;
         $('pcHousekeeperProperty').innerHTML = options(ref.properties, previousHousekeeperProperty, 'All properties');
         $('pcBuyProperty').innerHTML = options(ref.properties, $('pcBuyProperty').value, 'All properties');
