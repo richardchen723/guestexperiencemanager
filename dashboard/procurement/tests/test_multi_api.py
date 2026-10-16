@@ -53,6 +53,23 @@ def test_shared_request_housekeeper_can_read_own_portion_and_cannot_mutate_other
     assert response.status_code == 403
 
 
+def test_missing_information_is_scoped_to_assigned_property_items(qa):
+    admin = client_for(qa)
+    ticket = create(admin,qa,listing_id=None,listing_ids=[101,102],requester_staff_id=None,requester_name='Staff',required_by=None,
+        items=[{'listing_id':101,'name':'Private sibling supply','unit':'packs'},
+               {'listing_id':102,'name':'Own paper towels','unit':'rolls'}])
+    assert [entry['field'] for entry in ticket['missing_information']] == ['required_by','quantity','quantity']
+    cleaner = client_for(qa,'cleaner')
+    detail = cleaner.get(f"/procurement/api/requests/{ticket['id']}")
+    assert detail.status_code == 200
+    missing = detail.json['missing_information']
+    assert [entry['field'] for entry in missing] == ['required_by','quantity']
+    assert missing[1]['listing_id'] == 102 and 'Own paper towels' in missing[1]['message']
+    assert 'Private sibling supply' not in detail.get_data(as_text=True)
+    assert 'Searenity Haven' not in detail.get_data(as_text=True)
+    assert cleaner.get('/procurement/api/requests').json['requests'][0]['missing_information'] == missing
+
+
 def test_batch_receipt_rolls_back_all_rows_if_any_quantity_is_invalid(qa):
     admin = client_for(qa); ticket = shared(admin,qa); order = buy_shared(admin,ticket)
     body = batch_body(admin,ticket,order)

@@ -227,13 +227,33 @@ def ticket_status(ticket, items=None):
     return "new"
 
 
+def ticket_missing_information(ticket, items=None):
+    items = ticket.items if items is None else items
+    if ticket_status(ticket, items) in ("completed", "cancelled"):
+        return []
+    missing = []
+    if not items:
+        missing.append({"field": "items", "message": "Add the supplies needed for this request."})
+    if (not items and not ticket_properties(ticket) and not ticket.storage_location_id) or any(not (item_listing_id(i) or ticket.storage_location_id) for i in items):
+        missing.append({"field": "property", "message": "Choose the property or shared storage destination."})
+    if not ticket.required_by:
+        missing.append({"field": "required_by", "message": "Set the needed-by date and time."})
+    for item in items:
+        if item.quantity is None:
+            prop = item_property(item).get("name")
+            label = f"{item.name} ({item.unit})" + (f" at {prop}" if prop else "")
+            missing.append({"field": "quantity", "item_id": item.id, "listing_id": item_listing_id(item),
+                            "message": f"Enter the quantity for {label}."})
+    return missing
+
+
 def ticket_flags(ticket, now=None, items=None):
     now = now or datetime.utcnow()
     items = ticket.items if items is None else items
     if ticket_status(ticket, items) in ("completed", "cancelled"):
         return []
     flags = []
-    if not items or not all(item_listing_id(i) or ticket.storage_location_id for i in items) or not ticket.required_by or any(i.quantity is None for i in items):
+    if ticket_missing_information(ticket, items):
         flags.append("Needs information")
     if not ticket.owner_user_id:
         flags.append("Unassigned")
@@ -978,7 +998,8 @@ class ProcurementService:
                   "owner_name": self.users.get(ticket.owner_user_id, {}).get("name", "Unassigned"),
                   "priority": ticket.priority, "required_by": iso(ticket.required_by), "response_due_at": iso(ticket.response_due_at),
                   "reviewed_at": iso(ticket.reviewed_at), "created_at": iso(ticket.created_at),
-                  "status": status, "status_label": STATUS_LABELS[status], "flags": ticket_flags(ticket, items=visible_items), "items": items,
+                  "status": status, "status_label": STATUS_LABELS[status], "flags": ticket_flags(ticket, items=visible_items),
+                  "missing_information": ticket_missing_information(ticket, visible_items), "items": items,
                   "ready_properties": sum(p["ready"] for p in property_rows), "property_count": len(property_rows),
                   "cancelled_reason": ticket.cancelled_reason,
                   "fulfilled_items": sum(1 for i in items if i["requested"] is not None and i["remaining"] == 0)}

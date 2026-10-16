@@ -528,6 +528,13 @@
     background:#fff3f4
 }
 
+.pc-information-needed .pc-form-row-heading { flex-wrap:wrap; gap:12px; margin-bottom:8px; }
+.pc-information-needed .pc-button { max-width:100%; white-space:normal; }
+.pc-dialog .pc-information-needed h3 { margin:0; color:inherit; font-size:14px; }
+.pc-information-needed ul { margin:0; padding-left:20px; overflow-wrap:anywhere; }
+.pc-information-needed li+li { margin-top:5px; }
+.pc-dialog .pc-information-needed p { margin-top:10px; }
+
 .pc-notice {
     position:fixed;
     bottom:24px;

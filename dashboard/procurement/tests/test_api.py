@@ -370,6 +370,22 @@ def test_request_cannot_be_manually_marked_complete(qa):
     assert client.get(f'/procurement/api/requests/{ticket["id"]}').json["status"] == "new"
 
 
+def test_missing_information_is_specific_in_detail_lists_and_attention_and_clears_on_save(qa):
+    client = client_for(qa)
+    ticket = create(client, qa, required_by=None, items=[{"name":"Paper towels","unit":"rolls"}])
+    expected = ticket["missing_information"]
+    assert [entry["field"] for entry in expected] == ["required_by", "quantity"]
+    assert expected[1]["item_id"] == ticket["items"][0]["id"] and expected[1]["listing_id"] == 101
+    assert "Paper towels" in expected[1]["message"] and "Searenity Haven" in expected[1]["message"]
+    assert client.get(f'/procurement/api/requests/{ticket["id"]}').json["missing_information"] == expected
+    assert client.get('/procurement/api/requests').json["requests"][0]["missing_information"] == expected
+    assert client.get('/procurement/api/attention').json["requests"][0]["missing_information"] == expected
+    response = post(client, f'requests/{ticket["id"]}', {"version":ticket["version"],
+        "required_by":"2027-01-02T10:00:00-08:00", "items":[{"id":ticket["items"][0]["id"],"name":"Paper towels","unit":"rolls","quantity":"6"}]}, method="PATCH")
+    assert response.status_code == 200, response.json
+    assert response.json["missing_information"] == [] and "Needs information" not in response.json["flags"]
+
+
 def test_guest_issues_only_api_key_cannot_access_procurement(qa):
     from dashboard.auth.api_keys import create_api_key
     key = create_api_key("Disposable restricted QA key", qa.qa_users["admin"], scopes=["guest_issues:read"])
