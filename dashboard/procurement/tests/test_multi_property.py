@@ -181,22 +181,52 @@ def test_historical_requester_is_preserved_after_roster_assignments_change(servi
 
 def test_unknown_quantities_do_not_become_purchasable_or_complete(service):
     ticket = multi(service, items=[{'listing_id':101,'name':'Toilet paper','unit':'rolls','quantity':'4'}, {'listing_id':102,'name':'Toilet paper','unit':'rolls'}])
-    assert 'Needs information' in service.ticket_dict(ticket)['flags']
+    assert 'Needs information' not in service.ticket_dict(ticket)['flags']
+    assert service.ticket_dict(ticket)['ready_properties'] == 0
     with pytest.raises(WorkflowError, match='quantity before'):
         service.save_order(order_data(lines=[{'name':'Toilet paper','unit':'rolls','quantity':'2','unit_price':'1','allocations':[{'item_id':ticket.items[1].id,'quantity':'2'}]}]))
 
 
-def test_missing_quantity_identifies_its_property_and_housekeepers_only_see_their_portion(service):
+def test_optional_quantities_do_not_flag_requests_and_housekeepers_only_see_their_portion(service):
     from dashboard.procurement.service import ProcurementService
     ticket = multi(service, items=[{'listing_id':101,'name':'Toilet paper','unit':'rolls'},
                                    {'listing_id':102,'name':'Paper towels','unit':'rolls','quantity':'6'}])
     value = service.ticket_dict(ticket)
-    assert value['missing_information'] == [{'field':'quantity','item_id':ticket.items[0].id,'listing_id':101,
-        'message':'Enter the quantity for Toilet paper (rolls) at Searenity Haven.'}]
+    assert value['missing_information'] == [] and 'Needs information' not in value['flags']
     cleaner = ProcurementService(service.session, actor='Cleaner', staff_scope=service.session.get(Staff,3), properties=service.properties)
     scoped = cleaner.ticket_dict(ticket)
     assert scoped['listing_ids'] == [102] and scoped['missing_information'] == []
     assert 'Needs information' not in scoped['flags']
+
+
+def test_staff_plans_optional_quantities_then_partial_purchases_and_receipts_complete_each_property(service):
+    ticket = multi(service, items=[{'listing_id':p,'name':'Toilet paper','unit':'rolls'} for p in (101,102)])
+    assert service.ticket_dict(ticket)['missing_information'] == []
+    assert [item_progress(i)['requested'] for i in ticket.items] == [None,None]
+    service.update_ticket(ticket.id, {'version':ticket.version,'items':[
+        {'id':i.id,'listing_id':i.listing_id,'name':i.name,'unit':i.unit,'quantity':q}
+        for i,q in zip(ticket.items,('12','6'))]})
+    first = purchase(service, lines=[{'name':'Toilet paper','unit':'rolls','quantity':'14','unit_price':'1',
+        'allocations':[{'item_id':i.id,'quantity':q} for i,q in zip(ticket.items,('8','6'))]}])
+    assert [item_progress(i)['to_order'] for i in ticket.items] == [4,0]
+    deliver(service,first,'14')
+    for item,q in zip(ticket.items,('8','6')):
+        confirm(service,ticket,item.allocations[0],q,listing_id=item.listing_id)
+    value = service.ticket_dict(ticket)
+    assert value['status'] == 'in_progress' and value['ready_properties'] == 1
+    assert [i['remaining'] for i in value['items']] == [4,0]
+    second = purchase(service, lines=[{'name':'Toilet paper','unit':'rolls','quantity':'4','unit_price':'1',
+        'allocations':[{'item_id':ticket.items[0].id,'quantity':'4'}]}])
+    allocation = second.lines[0].allocations[0]
+    deliver(service,second,'2')
+    confirm(service,ticket,allocation,'2',listing_id=101)
+    assert ticket_status(ticket) == 'in_progress'
+    assert item_progress(ticket.items[0])['remaining'] == 2
+    deliver(service,second,'2')
+    assert ticket_status(ticket) == 'awaiting_confirmation'
+    confirm(service,ticket,allocation,'2',listing_id=101)
+    assert ticket_status(ticket) == 'completed'
+    assert service.ticket_dict(ticket)['ready_properties'] == 2
 
 
 def multiple_delivery_order(service):

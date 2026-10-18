@@ -58,16 +58,43 @@ def test_missing_information_is_scoped_to_assigned_property_items(qa):
     ticket = create(admin,qa,listing_id=None,listing_ids=[101,102],requester_staff_id=None,requester_name='Staff',required_by=None,
         items=[{'listing_id':101,'name':'Private sibling supply','unit':'packs'},
                {'listing_id':102,'name':'Own paper towels','unit':'rolls'}])
-    assert [entry['field'] for entry in ticket['missing_information']] == ['required_by','quantity','quantity']
+    assert [entry['field'] for entry in ticket['missing_information']] == ['required_by']
     cleaner = client_for(qa,'cleaner')
     detail = cleaner.get(f"/procurement/api/requests/{ticket['id']}")
     assert detail.status_code == 200
     missing = detail.json['missing_information']
-    assert [entry['field'] for entry in missing] == ['required_by','quantity']
-    assert missing[1]['listing_id'] == 102 and 'Own paper towels' in missing[1]['message']
+    assert [entry['field'] for entry in missing] == ['required_by']
+    assert detail.json['items'][0]['quantity'] is None
     assert 'Private sibling supply' not in detail.get_data(as_text=True)
     assert 'Searenity Haven' not in detail.get_data(as_text=True)
     assert cleaner.get('/procurement/api/requests').json['requests'][0]['missing_information'] == missing
+
+
+def test_housekeeper_intake_omits_quantity_and_staff_planning_is_validated_versioned_and_idempotent(qa):
+    cleaner = client_for(qa,'cleaner'); admin = client_for(qa)
+    ticket = create(cleaner,qa,listing_id=102,requester_staff_id=2,items=[{'name':'Toilet paper','unit':'rolls'}])
+    assert ticket['items'][0]['quantity'] is None and ticket['missing_information'] == []
+    assert 'Needs information' not in ticket['flags'] and ticket['status'] == 'new'
+    assert admin.get('/procurement/api/attention').json['requests'] == []
+    item = ticket['items'][0]
+    body = {'version':ticket['version'],'items':[{'id':item['id'],'listing_id':102,'name':item['name'],'unit':item['unit'],'quantity':'12'}]}
+    assert post(cleaner,f"requests/{ticket['id']}",body,method='PATCH').status_code == 403
+    invalid = {**body,'items':[{**body['items'][0],'quantity':'0'}]}
+    assert post(admin,f"requests/{ticket['id']}",invalid,method='PATCH').status_code == 400
+    current = admin.get(f"/procurement/api/requests/{ticket['id']}").json
+    assert current['version'] == ticket['version'] and current['items'][0]['quantity'] is None
+    key = str(uuid4())
+    response = post(admin,f"requests/{ticket['id']}",body,method='PATCH',key=key)
+    assert response.status_code == 200,response.json
+    assert response.json['items'][0]['to_order'] == 12
+    assert post(admin,f"requests/{ticket['id']}",body,method='PATCH',key=key).json == response.json
+    assert post(admin,f"requests/{ticket['id']}",body,method='PATCH').status_code == 409
+    assert any(e['action'] == 'request_updated' for e in response.json['activity'])
+    order = draft(admin,response.json)
+    current = admin.get(f"/procurement/api/requests/{ticket['id']}").json
+    assert current['items'][0]['to_order'] == 8
+    assert post(admin,f"requests/{ticket['id']}",{**body,'version':current['version']},method='PATCH').status_code == 400
+    assert order['currency'] == 'USD'
 
 
 def test_batch_receipt_rolls_back_all_rows_if_any_quantity_is_invalid(qa):

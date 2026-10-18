@@ -7,9 +7,11 @@ Existing operational tickets and bookkeeping records are not rewritten.
 
 ## Operating workflow
 
-1. Capture one request for one or several explicitly selected properties, with
-   quantities per property and supply. Incomplete property,
-   quantity, or deadline information stays visible under **Needs information**.
+1. Capture one request for one or several explicitly selected properties and add
+   the supplies needed. **Quantities (optional)** is collapsed by default; leave
+   quantities blank for purchasing staff to decide. Blank quantities never add
+   **Needs information**. Missing property or deadline information stays visible
+   under that flag.
    Shared-storage requests are also supported; final receipt must still identify
    the real property receiving the supplies.
 2. Assign a named staff owner from all approved user accounts and review the
@@ -21,8 +23,12 @@ Existing operational tickets and bookkeeping records are not rewritten.
    high / normal / planned requests. These are elapsed-time defaults, not a
    promise of business-hour or on-call coverage. Staff can change the response
    deadline independently of the required-by deadline.
-3. Open **Purchases → To buy**, select outstanding needs across requests, and
-   adjust how much to buy now. Addresses default only when the roster resolves
+3. Open **Purchases → To buy**. Supplies without a quantity appear with **Set
+   quantity**: staff choose the total to supply per property, then select how
+   much to buy now. A target of 12 and purchase of 8 leaves 4 outstanding. Setting
+   the target uses the versioned request PATCH with an audit record; housekeepers
+   cannot change it. Select outstanding needs across requests and adjust how
+   much to buy now. Addresses default only when the roster resolves
    to exactly one verified destination. Choose ambiguous/missing addresses
    explicitly, or use **Deliver selected to** for deliberate central receiving.
    Matching products/units consolidate per destination.

@@ -1008,6 +1008,8 @@
     border-top:1px solid #eef0f5
 }
 
+.pc-quantity-unplanned { grid-template-columns:repeat(3,minmax(0,1fr)); }
+
 .pc-quantity-grid span {
     color:#8a94a4;
     display:block;
@@ -1587,6 +1589,9 @@
 .pc-buy-toolbar { margin:14px 0; flex-wrap:wrap; }
 .pc-buy-row { display:grid; grid-template-columns:minmax(180px,1.5fr) minmax(120px,.6fr) minmax(180px,1fr); align-items:center; gap:18px; padding:18px 22px; border-bottom:1px solid var(--pc-line); }
 .pc-buy-row:last-child { border-bottom:0; }
+.pc-buy-unplanned .pc-buy-item { cursor:default; }
+.pc-buy-plan-action { grid-column:2 / -1; justify-self:end; }
+.pc .pc-buy-plan-action .pc-button { min-height:44px; }
 .pc-buy-item { display:flex; align-items:flex-start; gap:12px; min-width:0; cursor:pointer; }
 .pc-buy-item input { margin-top:4px; flex-shrink:0; }
 .pc-buy-item small { display:block; margin-top:5px; color:var(--pc-muted); }
@@ -1605,6 +1610,7 @@
 .pc-dialog .pc-request-product select { appearance:none; padding-right:36px; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23687386' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 12px center; background-size:16px; }
 .pc-dialog .pc-request-product input[readonly],.pc-dialog .pc-request-product select:disabled { background-color:#f7f8fb; color:#687386; }
 .pc-matrix-bulk { display:grid; grid-template-columns:minmax(0,1fr) minmax(120px,160px) auto; gap:12px; align-items:center; padding:12px; margin-top:16px; border:1px solid var(--pc-line); border-radius:8px; background:#f8faff; }
+.pc-optional-quantities #pcRequestMatrix>.pc-table-wrap { margin-top:16px; }
 .pc-bulk-copy { min-width:0; }
 .pc-bulk-copy label { display:block; min-height:0; min-width:0; margin:0; padding:0; color:#475467; font-size:12px; font-weight:600; line-height:1.5; }
 .pc-dialog .pc-bulk-copy p { margin:3px 0 0; color:var(--pc-muted); font-size:11px; line-height:1.5; }
@@ -1625,6 +1631,7 @@
 @media(max-width:700px) {
     .pc-buy-row { grid-template-columns:1fr 1fr; padding:16px; gap:12px; }
     .pc-buy-item { grid-column:1/-1; }
+    .pc-buy-plan-action { grid-column:1/-1; justify-self:start; }
     .pc-request-product .pc-field-grid { grid-template-columns:minmax(0,1fr) minmax(90px,.45fr); }
     .pc-request-product .pc-field-grid>.pc-field:first-child { grid-column:1/-1; }
     .pc-dialog .pc-request-product input,.pc-dialog .pc-request-product select { font-size:16px; }

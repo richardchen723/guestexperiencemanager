@@ -175,16 +175,25 @@ def test_shared_storage_request_requires_eventual_confirmation_at_real_property(
     assert report["properties"][0]["confirmed_cents"] == 700
 
 
-def test_missing_property_quantity_and_date_are_visible_and_cannot_be_purchased(service):
+def test_missing_property_and_date_are_visible_but_quantity_is_optional(service):
     ticket = new_ticket(service, listing_id=None, required_by=None, items=[{"name": "Paper towels", "unit": "rolls"}])
     assert "Needs information" in ticket_flags(ticket)
     assert ticket_status(ticket) == "new"
     missing = service.ticket_dict(ticket)["missing_information"]
-    assert [entry["field"] for entry in missing] == ["property", "required_by", "quantity"]
-    assert missing[2] == {"field": "quantity", "item_id": ticket.items[0].id, "listing_id": None,
-                          "message": "Enter the quantity for Paper towels (rolls)."}
+    assert [entry["field"] for entry in missing] == ["property", "required_by"]
     with pytest.raises(WorkflowError, match="destination and quantity"):
         service.save_order(order_data(ticket))
+
+
+@pytest.mark.parametrize('provided', [{}, {'quantity': None}])
+def test_request_without_quantity_is_valid_and_waits_for_staff_planning(service, provided):
+    ticket = new_ticket(service, items=[{'name':'Toilet paper','unit':'rolls',**provided}])
+    value = service.ticket_dict(ticket)
+    assert value['missing_information'] == [] and 'Needs information' not in value['flags']
+    assert value['items'][0]['quantity'] is None
+    assert value['items'][0]['requested'] is None
+    assert value['status'] == 'new' and value['ready_properties'] == 0
+    assert value['fulfilled_items'] == 0
 
 
 def test_missing_information_clears_after_clarification_and_keeps_other_flags(service):

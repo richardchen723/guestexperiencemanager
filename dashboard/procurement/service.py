@@ -238,12 +238,6 @@ def ticket_missing_information(ticket, items=None):
         missing.append({"field": "property", "message": "Choose the property or shared storage destination."})
     if not ticket.required_by:
         missing.append({"field": "required_by", "message": "Set the needed-by date and time."})
-    for item in items:
-        if item.quantity is None:
-            prop = item_property(item).get("name")
-            label = f"{item.name} ({item.unit})" + (f" at {prop}" if prop else "")
-            missing.append({"field": "quantity", "item_id": item.id, "listing_id": item_listing_id(item),
-                            "message": f"Enter the quantity for {label}."})
     return missing
 
 
@@ -439,7 +433,7 @@ class ProcurementService:
             raise WorkflowError("Choose a valid priority.")
         items = data.get("items")
         if not isinstance(items, list) or not 1 <= len(items) <= 500:
-            raise WorkflowError("Add between 1 and 500 property/item quantities.")
+            raise WorkflowError("Add between 1 and 500 property/supply items.")
         response_hours = {"critical": .5, "high": 4, "normal": 24, "planned": 72}[priority]
         ticket = Ticket(title=required(data.get("title"), "Request title"), listing_id=prop["id"] if prop else None,
                         property_snapshot=prop or {}, property_snapshots=properties, storage_location_id=location.id if location else None,
@@ -543,7 +537,7 @@ class ProcurementService:
             else:
                 ticket.items.append(RequestItem(**self.catalog_fields(row), listing_id=self.request_item_property(row, properties), quantity=quantity(row.get("quantity"), optional=True)))
         if not ticket.items or len(ticket.items) > 500:
-            raise WorkflowError("Keep between 1 and 500 property/item quantities on a request.")
+            raise WorkflowError("Keep between 1 and 500 property/supply items on a request.")
         self.validate_request_members(ticket)
         self.touch(ticket)
         self.session.flush()
