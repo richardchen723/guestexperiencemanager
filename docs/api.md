@@ -481,9 +481,10 @@ Request objects include `id`, display `code` (PR-0001), `version`, `title`,
 snapshot labels/tags/timezone, requester/owner IDs and
 names, priority, deadlines, `status`, `status_label`, `flags`, `missing_information`, and `items`.
 `missing_information` explains the Needs information flag as a list of objects
-with `field` (`property`, `items`, `required_by`, or `quantity`) and a readable
-`message`. Quantity entries include `item_id` and `listing_id`, and identify the
-supply, unit, and property. The list updates after clarification, is empty for
+with `field` (`property`, `items`, or `required_by`) and a readable
+`message`. Request quantities are optional; null/omitted quantities do not add
+the Needs information flag or a `quantity` entry. The list updates after
+clarification, is empty for
 completed/cancelled requests, and follows the same housekeeper property scope as
 items. It is also present in list and attention responses, so integrations can
 ask for specific missing details instead of repeating the generic flag.
@@ -500,6 +501,10 @@ excludes all active draft/approved/placed reservations. Allocation objects expos
 `problem_quantity`, `reportable`, `confirmable`, `property_confirmable`, and
 confirmation history. `confirmable` is bounded by recorded delivery;
 `property_confirmable` is bounded by the outstanding purchased quantity.
+`quantity`/`requested` is the total to supply to that property, either provided at
+intake or chosen later by purchasing staff. Null means staff have not chosen it;
+zero `to_order`/`remaining` on such an item must not be treated as fulfillment.
+Requests with unplanned quantities stay open and are visible in the To buy UI.
 
 Order objects include `id`, display `code` (PO-0001), `version`,
 `purchase_revision`, `vendor`, `reference`, `currency`, destination snapshot,
@@ -536,10 +541,10 @@ with one or more items. Example IDs are illustrative; replace from bootstrap:
 }
 ```
 
-`title` and 1–500 property/item quantities are required. Each item uses `catalog_id` or a custom
+`title` and 1–500 property/supply item rows are required. Each item uses `catalog_id` or a custom
 `name` and `unit` (optional `category`, default supplies). A catalog item's
 canonical name/unit must match; no automatic unit conversion occurs. Quantity
-may be null/omitted when unknown. The legacy `listing_id` shape remains supported.
+may be null/omitted without an information warning. The legacy `listing_id` shape remains supported.
 For multiple properties, send `listing_ids` and each item's `listing_id`:
 
 ```json
@@ -594,6 +599,14 @@ purchased, never-cancelled item. Property removal requires removing its eligible
 items in the same transaction. Properties with allocation history cannot be
 removed or reassigned; additional properties/items can be added. Linked
 housekeepers can append sources, not edit staff fields.
+Purchasing staff set a previously omitted quantity through this same PATCH,
+with the current request version and the item's full fields. Set the total to
+supply per property before allocating any purchase; allocating does not guess or
+automatically set it. For a target of 12 rolls, allocating 8 to a purchase leaves
+`to_order:4`; confirming those 8 leaves `remaining:4`. Drafts reserve quantities,
+and delivery alone still cannot complete a request. An automated integration
+must obtain the purchasing staff's quantity decision rather than asking the
+housekeeper to supply one or inventing a value.
 The original requester is historical: later roster changes do not force it to
 change. Selecting a different requester requires an active housekeeper assigned
 to every currently selected property.

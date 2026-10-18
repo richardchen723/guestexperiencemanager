@@ -127,28 +127,30 @@
         return locations.length === 1 ? locations[0].id : '';
     }
     function buyItems() {
-        return eligibleItems().filter(i => i.listing_id || state.requests.find(t => t.id === i.ticket_id)?.storage_location_id);
+        return eligibleItems(false, true).filter(i => i.listing_id || state.requests.find(t => t.id === i.ticket_id)?.storage_location_id);
     }
     function shownBuyItems() {
         const term = $('pcBuySearch').value.trim().toLocaleLowerCase(), property = Number($('pcBuyProperty').value);
         return buyItems().filter(i => (!property || i.listing_id === property) && (!term || i.label.toLocaleLowerCase().includes(term)));
     }
     function selectBuyItem(item) {
+        if (item.requested == null) return;
         state.buySelection[item.id] = state.buySelection[item.id] || {quantity: item.to_order, location_id: defaultDestination(item.listing_id) || state.requests.find(t => t.id === item.ticket_id)?.storage_location_id || ''};
     }
     function renderToBuy() {
         if (!state.ref.can_purchase) return;
         const all = buyItems(), shown = shownBuyItems();
-        const ids = new Set(all.map(i => i.id));
+        const ids = new Set(all.filter(i => i.requested != null).map(i => i.id));
         for (const id of Object.keys(state.buySelection)) if (!ids.has(Number(id))) delete state.buySelection[id];
         $('pcBuyList').innerHTML = shown.length ? shown.map(i => {
             const choice = state.buySelection[i.id], request = state.requests.find(t => t.id === i.ticket_id);
+            if (i.requested == null) return `<div class="pc-buy-row pc-buy-unplanned" data-buy-row="${i.id}"><div class="pc-buy-item"><span><strong>${esc(i.name)}</strong><small>${esc(request.code)} · ${esc(i.property || request.property)}</small><small>Choose how much to supply. You can purchase it in parts.</small></span></div><div class="pc-buy-plan-action">${button('plan-quantity','Set quantity',`data-id="${i.id}"`,'pc-primary')}</div></div>`;
             return `<div class="pc-buy-row" data-buy-row="${i.id}">
                 <label class="pc-buy-item"><input type="checkbox" data-buy-check="${i.id}" ${choice ? 'checked' : ''}><span><strong>${esc(i.name)}</strong><small>${esc(request.code)} · ${esc(i.property || request.property)}</small><small>${num(i.to_order)} ${esc(i.unit)} still to buy${i.reserved ? ` · ${num(i.reserved)} reserved / purchased` : ''}</small></span></label>
                 <label class="pc-field"><span>Buy now · ${esc(i.unit)}</span><input type="number" min="0.001" max="${i.to_order}" step="0.001" data-buy-quantity="${i.id}" value="${esc(choice?.quantity ?? i.to_order)}" aria-label="Buy ${esc(i.name)} for ${esc(i.property || request.property)} (${esc(request.code)})" ${choice ? '' : 'disabled'}></label>
                 <label class="pc-field"><span>Receive at</span><select data-buy-location="${i.id}" aria-label="Receive ${esc(i.name)} for ${esc(i.property || request.property)} (${esc(request.code)})" ${choice ? '' : 'disabled'}>${options(activeLocations(), choice?.location_id || defaultDestination(i.listing_id), 'Choose verified address…', 'label')}</select></label>
             </div>`;
-        }).join('') : empty('Nothing to buy here', 'Known quantities without an active purchase reservation appear here. Clarify unknown quantities on the request first.');
+        }).join('') : empty('Nothing to buy here', 'Supplies still needed appear here. Staff can choose quantities before preparing a purchase.');
         updateBuySummary();
         switchPurchaseTab(state.purchaseTab);
     }
@@ -211,7 +213,7 @@
 
     function requestDetail(t) {
         const canPurchase = state.ref.can_purchase, cancelled = t.status === 'cancelled';
-        const canOrder = canPurchase && !cancelled && t.items.some(i => i.to_order > 0);
+        const canOrder = canPurchase && !cancelled && t.items.some(i => i.requested == null || i.to_order > 0);
         const missing = t.missing_information || [], otherFlags = t.flags.filter(flag => flag !== 'Needs information' || !missing.length);
         return `<div class="pc-detail-summary"><div class="pc-actions">${badge(t.status, t.status_label)}<span class="pc-priority ${esc(t.priority)}">${esc(t.priority)}</span></div><div class="pc-actions">${canPurchase && !cancelled ? button('edit-request', 'Edit request') + (!t.reviewed_at ? button('review-request', 'Mark reviewed') : '') : ''}${canOrder ? button('purchase-request', 'Prepare purchase', '', 'pc-primary') : ''}</div></div>
             ${missing.length ? `<section class="pc-alert pc-information-needed" aria-labelledby="pcMissingInfoTitle"><div class="pc-form-row-heading"><h3 id="pcMissingInfoTitle">Needs information</h3>${canPurchase ? button('edit-request','Update missing details') : ''}</div><ul>${missing.map(detail => `<li>${esc(detail.message)}</li>`).join('')}</ul>${!canPurchase ? `<p>Ask purchasing staff to update these request details.</p>` : ''}</section>` : ''}
@@ -221,7 +223,7 @@
             <dl class="pc-info-grid"><div><dt>Property</dt><dd>${esc(t.property)}</dd></div>${canPurchase ? `<div><dt>Requested by</dt><dd>${esc(t.requester_name)}</dd></div><div><dt>Staff owner</dt><dd>${esc(t.owner_name)}</dd></div>` : ''}<div><dt>Needed by</dt><dd>${esc(date(t.required_by, t.timezone))}</dd></div>${canPurchase ? `<div><dt>Staff response due</dt><dd>${esc(date(t.response_due_at,t.timezone))}</dd></div>` : ''}<div><dt>Captured</dt><dd>${esc(date(t.created_at, t.timezone))}</dd></div></dl>
             ${t.properties.length ? `<div class="pc-property-progress"><div class="pc-form-row-heading"><h3>${t.ready_properties} of ${t.property_count} properties ready</h3>${t.items.some(i => i.listing_id && i.allocations.some(a => a.property_confirmable > 0)) ? button('confirm-properties','Confirm property receipts','','pc-primary') : ''}</div>${t.properties.map(p => `<div class="pc-property-progress-row"><span><strong>${esc(p.name)}</strong><small>${esc(p.housekeepers.map(s => s.name).join(', ') || 'Housekeeper not assigned')} · ${esc(date(p.required_by,p.timezone))}</small></span>${badge(p.status,p.status_label)}</div>`).join('')}</div>` : ''}
             <h3>Requested supplies <span class="pc-subtle">${t.fulfilled_items} of ${t.items.length} fulfilled</span></h3>
-            ${t.items.map(i => `<article class="pc-item-card"><div class="pc-item-heading"><div><h4>${esc(i.name)}</h4><small>${esc(i.property || t.property)} · ${esc(i.unit)} · ${esc(i.category)}</small></div>${i.requested != null && i.remaining === 0 ? badge('completed', 'Fulfilled') : `<span class="pc-muted">${i.requested == null ? 'Quantity to confirm' : `${num(i.remaining)} remaining`}</span>`}</div><div class="pc-quantity-grid"><div><span>Requested</span><strong>${num(i.requested)}</strong></div><div><span>Ordered</span><strong>${num(i.ordered)}</strong></div><div><span>Delivered</span><strong>${num(i.delivered)}</strong></div><div><span>At property</span><strong>${num(i.confirmed)}</strong></div></div>${i.cancelled ? `<p class="pc-detail-note">${num(i.cancelled)} cancelled: ${esc(i.cancellation_reason)}</p>` : ''}
+            ${t.items.map(i => `<article class="pc-item-card"><div class="pc-item-heading"><div><h4>${esc(i.name)}</h4><small>${esc(i.property || t.property)} · ${esc(i.unit)} · ${esc(i.category)}</small></div>${i.requested != null && i.remaining === 0 ? badge('completed', 'Fulfilled') : `<span class="pc-muted">${i.requested == null ? 'Staff will choose quantity' : `${num(i.remaining)} remaining`}</span>`}</div><div class="pc-quantity-grid ${i.requested == null ? 'pc-quantity-unplanned' : ''}">${i.requested != null ? `<div><span>To supply</span><strong>${num(i.requested)}</strong></div>` : ''}<div><span>Ordered</span><strong>${num(i.ordered)}</strong></div><div><span>Delivered</span><strong>${num(i.delivered)}</strong></div><div><span>At property</span><strong>${num(i.confirmed)}</strong></div></div>${canPurchase && i.requested == null && !cancelled ? `<div class="pc-actions" style="margin-top:12px">${button('plan-quantity','Set quantity',`data-id="${i.id}"`)}</div>` : ''}${i.cancelled ? `<p class="pc-detail-note">${num(i.cancelled)} cancelled: ${esc(i.cancellation_reason)}</p>` : ''}
             ${i.allocations.map(a => `<div class="pc-allocation"><div>${canPurchase ? `<button type="button" class="pc-text-button" data-action="order-detail" data-id="${a.order_id}">PO-${String(a.order_id).padStart(4, '0')}</button>` : `PO-${String(a.order_id).padStart(4, '0')}`} · ${esc(a.vendor)} <span class="pc-subtle">${num(a.quantity)} ${esc(i.unit)} · ${esc(a.order_state)}</span></div><div class="pc-actions">${a.property_confirmable > 0 ? button('confirm', 'Confirm at property', `data-id="${a.id}"`, 'pc-primary') : ''}${a.confirmed > 0 ? button('return', 'Record return', `data-id="${a.id}"`) : ''}${a.reportable > 0 && a.order_state === 'ordered' ? button('problem', 'Report problem', `data-id="${a.id}"`) : ''}</div></div>${a.problem_quantity ? `<p class="pc-detail-note pc-danger-text">${num(a.problem_quantity)} ${esc(i.unit)} reported lost, damaged, incorrect, or cancelled. Replacement need remains tracked.</p>` : ''}${a.confirmations.map(c => `<p class="pc-detail-note">${c.quantity < 0 ? '↩ Returned' : '✓ Confirmed'} ${num(Math.abs(c.quantity))} at ${esc(c.property)} · ${esc(c.housekeeper)} · ${esc(date(c.at))}<br>${esc(c.note)}</p>`).join('')}`).join('')}
             ${canPurchase && i.to_order > 0 && !cancelled ? `<div style="margin-top:12px">${button('cancel-item', 'Cancel unpurchased quantity', `data-id="${i.id}"`)}</div>` : ''}</article>`).join('')}
             <p class="pc-detail-note">Delivered means arrival at the shipping destination. At property means the assigned housekeeper has verified the supplies reached the rental.</p>
@@ -277,16 +279,16 @@
                 ${field('Standard product', `<select ${attr('catalog_id')} ${locked ? 'disabled' : ''}>${options(state.ref.catalog.filter(c => c.active || c.id === Number(c.catalog_id)),c.catalog_id,'Custom supply')}</select>`)}
                 ${field('Supply', `<input value="${esc(c.name)}" ${attr('name')} required maxlength="180" ${locked || c.catalog_id ? 'readonly' : ''}>`)}
                 ${field('Unit', `<input value="${esc(c.unit)}" ${attr('unit')} required maxlength="40" ${locked || c.catalog_id ? 'readonly' : ''}>`)}
-                </div><div class="pc-matrix-bulk"><div class="pc-bulk-copy"><label for="pcBulkQuantity${c.key}">Same quantity for each property</label><p>Optional. Adjust individual quantities below.</p></div><input id="pcBulkQuantity${c.key}" type="number" inputmode="decimal" min="0" step="0.001" placeholder="e.g. 12" data-bulk-column="${c.key}" aria-label="${esc(c.name || `Supply ${index + 1}`)} quantity for all properties">${button('apply-product-quantity','Apply to all',`data-id="${c.key}"`)}</div></div>`;
+                </div></div>`;
         }).join('');
     }
     function renderRequestMatrix() {
         const draft = state.requestDraft, properties = draft.ids.length ? draft.ids.map(id => state.ref.properties.find(p => p.id === id)).filter(Boolean) : [{id:0,name:'Property not yet known'}];
-        $('pcRequestMatrix').innerHTML = `<div class="pc-table-wrap"><table class="pc-table pc-quantity-matrix"><thead><tr><th>Property / housekeeper</th>${draft.columns.map(c => `<th>${esc(c.name || 'New supply')}<small>${esc(c.unit)}</small></th>`).join('')}</tr></thead><tbody>${properties.map(p => `<tr><td><strong>${esc(p.name)}</strong><small>${p.id ? esc(activeStaff(p.id).map(s => s.name).join(', ') || 'Housekeeper not assigned') : 'Clarify before purchasing'}</small></td>${draft.columns.map(c => {
+        $('pcRequestMatrix').innerHTML = `${draft.columns.map((c,index) => `<div class="pc-matrix-bulk"><div class="pc-bulk-copy"><label for="pcBulkQuantity${c.key}">${esc(c.name || `Supply ${index + 1}`)} · same quantity for each property</label><p>Optional. Adjust individual quantities below.</p></div><input id="pcBulkQuantity${c.key}" type="number" inputmode="decimal" min="0" step="0.001" placeholder="e.g. 12" data-bulk-column="${c.key}" aria-label="${esc(c.name || `Supply ${index + 1}`)} quantity for all properties">${button('apply-product-quantity','Apply to all',`data-id="${c.key}"`)}</div>`).join('')}<div class="pc-table-wrap"><table class="pc-table pc-quantity-matrix"><thead><tr><th>Property / housekeeper</th>${draft.columns.map(c => `<th>${esc(c.name || 'New supply')}<small>${esc(c.unit)}</small></th>`).join('')}</tr></thead><tbody>${properties.map(p => `<tr><td><strong>${esc(p.name)}</strong><small>${p.id ? esc(activeStaff(p.id).map(s => s.name).join(', ') || 'Housekeeper not assigned') : 'Clarify before purchasing'}</small></td>${draft.columns.map(c => {
             const v = c.values[p.id] || c.values[0] || {quantity:''};
             if (!c.values[p.id]) c.values[p.id] = {...v,id:null,locked:false};
-            return `<td data-label="${esc(c.name || 'New supply')} · ${esc(c.unit)}"><input data-matrix-quantity data-column="${c.key}" data-property="${p.id}" value="${esc(v.quantity ?? '')}" type="number" min="0" max="99999999" step="0.001" placeholder="Unknown" aria-label="${esc(p.name)} · ${esc(c.name || 'New supply')} (${esc(c.unit)})" ${v.locked ? 'readonly' : ''}>${v.locked ? '<small>Purchasing history · add another supply for changes</small>' : ''}</td>`;
-        }).join('')}</tr>`).join('')}</tbody></table></div><p class="pc-form-intro">0 = not needed · blank = quantity to confirm. Quantities with purchasing history retain their original details.</p>`;
+            return `<td data-label="${esc(c.name || 'New supply')} · ${esc(c.unit)}"><input data-matrix-quantity data-column="${c.key}" data-property="${p.id}" value="${esc(v.quantity ?? '')}" type="number" min="0" max="99999999" step="0.001" placeholder="Optional" aria-label="${esc(p.name)} · ${esc(c.name || 'New supply')} (${esc(c.unit)})" ${v.locked ? 'readonly' : ''}>${v.locked ? '<small>Purchasing history · add another supply for changes</small>' : ''}</td>`;
+        }).join('')}</tr>`).join('')}</tbody></table></div><p class="pc-form-intro">Leave blank for purchasing staff to choose · 0 = not needed at this property. Quantities with purchasing history retain their original details.</p>`;
         const staffSelect = $('pcForm').querySelector('[name=requester_staff_id]');
         const candidates = activeStaff().filter(s => draft.ids.every(id => s.listing_ids.includes(id)));
         const original = state.ref.staff.find(s => s.id === draft.originalRequesterId);
@@ -299,12 +301,12 @@
         state.requestDraft = draft;
         if (!draft.columns.length) draft.columns.push(requestColumn());
         const picker = assignmentPicker({listing_ids:draft.ids}).replace('Assigned properties','Request properties');
-        openForm(existing ? 'Edit supply request' : 'New supply request', `<p class="pc-form-intro">Select the properties, add supplies, and enter what each property needs. Use property groups to select several houses at once.</p>
+        openForm(existing ? 'Edit supply request' : 'New supply request', `<p class="pc-form-intro">Select the properties and add the supplies needed. Quantities are optional; purchasing staff can choose them later. Use property groups to select several houses at once.</p>
             <div class="pc-field-grid">${field('Request title',input('title',t.title || 'Supply restock','required maxlength="240"'),'','pc-span-2')}${state.ref.can_purchase ? field('Staff owner',select('owner_user_id',options(state.ref.users,t.owner_user_id || state.ref.user_id,'Unassigned'))) : ''}${field('Priority',select('priority',state.ref.priorities.map(p => opt(p,p[0].toUpperCase()+p.slice(1),p === (t.priority || 'normal'))).join('')))}${field('Needed by (your local time)',input('required_by',localInput(t.required_by),'type="datetime-local"'),Intl.DateTimeFormat().resolvedOptions().timeZone)}${existing ? field('Staff response due (your local time)',input('response_due_at',localInput(t.response_due_at),'type="datetime-local"')) : ''}</div>
             ${picker}${!existing && state.ref.can_purchase ? field('Or shared storage',select('storage_location_id',options(activeLocations().filter(l => l.kind === 'storage'),null,'No shared storage','label')),'Use this only when no properties are selected.') : ''}
             <details class="pc-form-section"><summary>Requester details</summary><div class="pc-field-grid">${field('Requesting housekeeper',select('requester_staff_id',options(activeStaff(),t.requester_staff_id || state.ref.staff_id,'Staff request / requester below')),'Only people assigned to every selected property can request as one housekeeper.')}${field('Requester name',input('requester_name',t.requester_name || state.ref.users.find(u => u.id === state.ref.user_id)?.name || '', 'maxlength="160"'))}</div></details>
             <div class="pc-form-section"><div class="pc-form-row-heading"><h3>Supplies</h3>${button('add-request-row','＋ Add supply')}</div><div id="pcRequestProducts"></div></div>
-            <div class="pc-form-section"><h3>Quantities by property</h3><div id="pcRequestMatrix"></div></div>
+            <details class="pc-form-section pc-optional-quantities" ${t.items?.some(i => i.quantity != null) ? 'open' : ''}><summary>Quantities (optional)</summary><p class="pc-form-intro">Add quantities if you know them, or leave them blank. Staff will decide how much to supply when preparing purchases.</p><div id="pcRequestMatrix"></div></details>
             ${!existing ? field('Original request / notes',note('body','Paste the original request or describe the need.',false)) : ''}`, async form => {
             captureRequestDraft();
             const f = Object.fromEntries(new FormData(form)), items = planning.requestChanges(draft,t.items || []);
@@ -315,7 +317,7 @@
             if (existing) {body.version = t.version;body.response_due_at = utc(f.response_due_at);}
             else if (f.body) body.source = {channel:'manual',body:f.body};
             const result = await mutate(existing ? `requests/${t.id}` : 'requests',existing ? 'PATCH' : 'POST',body);
-            return {kind:'request',id:result.id,message:existing ? 'Request updated.' : 'Request captured with quantities for each property.'};
+            return {kind:'request',id:result.id,message:existing ? 'Request updated.' : 'Request captured for the selected properties.'};
         },existing ? 'Save changes' : 'Create request');
         for (const label of $('pcForm').querySelectorAll('[data-assignment-id]')) {
             if ((t.items || []).some(i => i.listing_id === Number(label.dataset.assignmentId) && (i.allocations.length || i.cancelled))) label.querySelector('input').disabled = true;
@@ -326,8 +328,21 @@
         filterAssignments(); renderRequestProducts(); renderRequestMatrix();
     }
 
-    function eligibleItems(includeReserved = false) {
-        return state.requests.filter(t => !['cancelled'].includes(t.status)).flatMap(t => t.items.filter(i => i.requested != null && (i.to_order > 0 || includeReserved && (state.editingOrderItemIds || []).includes(i.id))).map(i => ({...i, ticket_id: t.id, label: `${t.code} · ${i.property || t.property} · ${i.name} (${num(i.to_order)} ${i.unit} to order)`})));
+    function eligibleItems(includeReserved = false, includeUnplanned = false) {
+        return state.requests.filter(t => t.status !== 'cancelled').flatMap(t => t.items.filter(i => i.requested == null ? includeUnplanned : i.to_order > 0 || includeReserved && (state.editingOrderItemIds || []).includes(i.id)).map(i => ({...i, ticket_id: t.id, label: `${t.code} · ${i.property || t.property} · ${i.name} (${i.requested == null ? 'staff choose quantity' : `${num(i.to_order)} ${i.unit} to order`})`})));
+    }
+    function quantityPlanForm(itemId) {
+        const ticket = state.requests.find(t => t.items.some(i => i.id === itemId));
+        const item = ticket?.items.find(i => i.id === itemId);
+        if (!state.ref.can_purchase || !item || ticket.status === 'cancelled' || item.requested != null) throw new Error('Reload the request to see its current quantity.');
+        // Conflict recovery must reload this request even when opened from To buy.
+        state.detail = {kind:'request',data:ticket};
+        openForm('Choose quantity to supply', `<p class="pc-form-intro"><strong>${esc(item.name)}</strong> · ${esc(item.property || ticket.property)} · ${esc(ticket.code)}</p>${field(`Total to supply (${item.unit})`,input('quantity','','type="number" min="0.001" max="99999999" step="0.001" inputmode="decimal" required'),'Choose the total needed at this property. You can buy some now and leave the rest for later.')}`, async form => {
+            const amount = new FormData(form).get('quantity');
+            await mutate(`requests/${ticket.id}`,'PATCH',{version:ticket.version,items:[{id:item.id,listing_id:item.listing_id,catalog_id:item.catalog_id,name:item.name,unit:item.unit,category:item.category,quantity:amount}]});
+            if (state.view === 'orders' && !$('pcDetailDialog').open) selectBuyItem({...item,requested:Number(amount),to_order:Number(amount),ticket_id:ticket.id});
+            return {message:'Quantity set. Choose how much to buy now; any remainder stays outstanding.'};
+        },'Set quantity');
     }
     function allocationRow(row = {}) {
         return `<div class="pc-allocation-row" data-allocation-row>${select('item_id', options(eligibleItems(true), row.item_id, 'Choose request item', 'label'), 'aria-label="Request item" required')}${input('allocation_quantity', row.quantity ?? '', 'aria-label="Allocated quantity" type="number" min="0.001" max="99999999" step="0.001" required')}<button type="button" class="pc-mini-remove" data-remove-row aria-label="Remove allocation">×</button></div>`;
@@ -613,7 +628,8 @@
             else if (action === 'new-request') requestForm();
             else if (action === 'edit-request') requestForm(state.detail.data);
             else if (action === 'new-order') orderForm();
-            else if (action === 'purchase-request') { buyItems().filter(i => i.ticket_id === state.detail.data.id).forEach(selectBuyItem); $('pcBuySearch').value = ''; $('pcBuyProperty').value = ''; $('pcDetailDialog').close(); switchView('orders'); switchPurchaseTab('buy'); renderToBuy(); notify('Choose how much to buy now, then prepare the purchase. You can include other requests.'); }
+            else if (action === 'plan-quantity') quantityPlanForm(id);
+            else if (action === 'purchase-request') { buyItems().filter(i => i.ticket_id === state.detail.data.id).forEach(selectBuyItem); $('pcBuySearch').value = ''; $('pcBuyProperty').value = ''; $('pcDetailDialog').close(); switchView('orders'); switchPurchaseTab('buy'); renderToBuy(); notify('Set any quantities staff need to choose, then select how much to buy now. You can include other requests.'); }
             else if (action === 'revise-order') orderForm(null,state.detail.data);
             else if (action === 'add-request-row') { captureRequestDraft(); state.requestDraft.columns.push(requestColumn()); renderRequestProducts(); renderRequestMatrix(); }
             else if (action === 'remove-product') { captureRequestDraft(); state.requestDraft.columns = state.requestDraft.columns.filter(c => c.key !== id); renderRequestProducts(); renderRequestMatrix(); }
