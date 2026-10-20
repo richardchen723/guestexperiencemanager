@@ -1,6 +1,7 @@
 """Browser acceptance checks against the real app and synthetic local records."""
 import threading
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import expect, sync_playwright
 from werkzeug.serving import make_server
@@ -10,6 +11,19 @@ from .conftest import email, reply
 
 
 def test_spreadsheet_detail_followup_mobile_and_escaping(app,factory):
+    from database.models import Listing, ListingTag, Tag, get_session as main_session
+    # Exercise the actual property/tag directory in the disposable QA database.
+    with main_session(None) as db:
+        for tag_id, name in ((901,'CRM QA coast'),(902,'CRM QA mountain'),(903,'CRM QA empty')):
+            if not db.get(Tag,tag_id):
+                db.add(Tag(tag_id=tag_id,name=name))
+        if not db.get(Listing,102):
+            db.add(Listing(listing_id=102,name='Emerald Haven',internal_listing_name='Emerald Haven'))
+        db.flush()
+        for listing_id, tag_id in ((101,901),(102,902)):
+            if not db.get(ListingTag,(listing_id,tag_id)):
+                db.add(ListingTag(listing_id=listing_id,tag_id=tag_id))
+        db.commit()
     c = client(app)
     lead_id = post(c,'intake',email()).json['lead_id']
     long_note = 'A complete staff note. ' * 30
@@ -33,6 +47,28 @@ def test_spreadsheet_detail_followup_mobile_and_escaping(app,factory):
             expect(page.locator('#iqTimezone')).to_have_text('America/Los_Angeles')
             assert page.locator('thead th').count() == 12
             assert page.locator('.iq-sheet').evaluate('(e)=>e.scrollWidth > e.clientWidth')
+            expect(page.get_by_label('Tag',exact=True)).to_be_visible()
+            expect(page.get_by_label('Property',exact=True)).to_be_visible()
+            page.locator('#iqProperty').select_option('102')
+            expect(page.locator('#iqRows')).to_contain_text('No inquiries match')
+            page.locator('#iqTag').select_option('901')
+            expect(page.locator('#iqProperty')).to_have_value('')
+            expect(page.locator('#iqProperty option')).to_have_text(['All properties in tag','Fair Haven'])
+            expect(page.locator('#iqRows')).to_contain_text('Sally Example')
+            with page.expect_response(lambda r: parse_qs(urlsplit(r.url).query).get('listing_id')==['101'] and parse_qs(urlsplit(r.url).query).get('tag_id')==['901']):
+                page.locator('#iqProperty').select_option('101')
+            expect(page.locator('#iqRows')).to_contain_text('Sally Example')
+            page.locator('#iqTag').select_option('902')
+            expect(page.locator('#iqProperty')).to_have_value('')
+            expect(page.locator('#iqProperty option')).to_have_text(['All properties in tag','Emerald Haven'])
+            expect(page.locator('#iqRows')).to_contain_text('No inquiries match')
+            page.locator('#iqTag').select_option('903')
+            expect(page.locator('#iqProperty')).to_be_disabled()
+            page.get_by_role('button',name='Clear filters',exact=True).click()
+            expect(page.locator('#iqTag')).to_have_value('')
+            expect(page.locator('#iqProperty')).to_be_enabled()
+            expect(page.locator('#iqProperty option')).to_have_text(['All properties','Fair Haven','Emerald Haven'])
+            expect(page.locator('#iqRows')).to_contain_text('Sally Example')
             page.screenshot(path=str(screenshots/'desktop.png'),full_page=True)
             # Editing inline retrieves the full note, never the 160-character preview.
             page.locator('[data-note]').click()

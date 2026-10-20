@@ -47,12 +47,18 @@
     return {from: day.toISOString().slice(0,10), to:end};
   }
   function query() {
-    const property = $('iqProperty').value.split(':');
     const values = {page:state.page, sort:state.sort, direction:state.direction, search:$('iqSearch').value, status:$('iqStatus').value,
+      listing_id:$('iqProperty').value, tag_id:$('iqTag').value,
       assigned_user_id:$('iqAgent').value, attention:state.attention, ...dateFilters()};
-    if (property[0] === 'listing') values.listing_id = property[1];
-    if (property[0] === 'tag') values.tag_id = property[1];
     return new URLSearchParams(Object.entries(values).filter(([,v]) => v !== '' && v != null));
+  }
+  function updatePropertyOptions() {
+    const tag = $('iqTag').value, selected = $('iqProperty').value;
+    const properties = state.bootstrap.properties.filter(p => !tag || p.tag_ids.some(id => String(id) === tag));
+    const selection = properties.some(p => String(p.id) === selected) ? selected : '';
+    const placeholder = tag && !properties.length ? 'No properties in this tag' : tag ? 'All properties in tag' : 'All properties';
+    $('iqProperty').innerHTML = option('',placeholder,selection) + properties.map(p => option(p.id,p.name,selection)).join('');
+    $('iqProperty').disabled = Boolean(tag && !properties.length);
   }
   function renderStats(stats) {
     $('iqStats').innerHTML = [['Total leads',stats.total],['New leads',stats.new],['Follow-up required',stats.follow_up],['Confirmed bookings',stats.booked],['Conversion rate',stats.conversion_rate == null ? '—' : `${stats.conversion_rate}%`]].map(([name,value]) => `<div class="iq-stat"><span>${name}</span><strong>${value}</strong>${name === 'Conversion rate' ? '<small>Of completed leads</small>' : ''}</div>`).join('');
@@ -236,13 +242,15 @@
       $('iqTimezone').textContent = tz();
       $('iqStatus').innerHTML += statusOptions('');
       $('iqAgent').innerHTML += state.bootstrap.users.map(u => option(u.id,u.name)).join('');
-      $('iqProperty').innerHTML += '<optgroup label="Properties">' + state.bootstrap.properties.map(p => option(`listing:${p.id}`,p.name)).join('') + '</optgroup><optgroup label="Tags">' + state.bootstrap.tags.map(t => option(`tag:${t.id}`,t.name)).join('') + '</optgroup>';
+      $('iqTag').innerHTML += state.bootstrap.tags.map(t => option(t.id,t.name)).join('');
+      updatePropertyOptions();
       $('iqAdmin').hidden = !state.bootstrap.can_administer;
       await load();
       let debounce;
       $('iqSearch').addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(() => {state.page = 1; load();},300); });
       ['iqDateRange','iqStatus','iqProperty','iqAgent','iqFrom','iqTo'].forEach(id => $(id).addEventListener('change', () => {state.page=1;load();}));
-      $('iqClear').addEventListener('click', () => { ['iqSearch','iqStatus','iqProperty','iqAgent','iqFrom','iqTo'].forEach(id => $(id).value=''); $('iqDateRange').value='all'; state.page=1; state.attention=''; document.querySelectorAll('[data-attention]').forEach(b => {b.classList.toggle('active',b.dataset.attention === ''); b.setAttribute('aria-pressed',String(b.dataset.attention === ''));}); load(); });
+      $('iqTag').addEventListener('change', () => {updatePropertyOptions();state.page=1;load();});
+      $('iqClear').addEventListener('click', () => { ['iqSearch','iqStatus','iqTag','iqProperty','iqAgent','iqFrom','iqTo'].forEach(id => $(id).value=''); $('iqDateRange').value='all'; updatePropertyOptions(); state.page=1; state.attention=''; document.querySelectorAll('[data-attention]').forEach(b => {b.classList.toggle('active',b.dataset.attention === ''); b.setAttribute('aria-pressed',String(b.dataset.attention === ''));}); load(); });
       document.querySelectorAll('[data-attention]').forEach(b => b.addEventListener('click', () => {state.attention=b.dataset.attention;state.page=1;document.querySelectorAll('[data-attention]').forEach(v=>{v.classList.toggle('active',v===b);v.setAttribute('aria-pressed',String(v===b));});load();}));
       document.querySelectorAll('[data-sort]').forEach(b => b.addEventListener('click', () => { state.direction=state.sort===b.dataset.sort && state.direction==='desc'?'asc':'desc';state.sort=b.dataset.sort;state.page=1;document.querySelectorAll('[data-sort]').forEach(v=>{v.textContent=v.textContent.replace(/ [↑↓]$/,'')+(v===b?(state.direction==='desc'?' ↓':' ↑'):'');});load(); }));
       $('iqPrevious').addEventListener('click',()=>{state.page--;load();}); $('iqNext').addEventListener('click',()=>{state.page++;load();});
