@@ -29,6 +29,7 @@ class Lead(Base):
     __table_args__ = (UniqueConstraint("source", "reference", name="uq_inquiry_reference"),)
     id = Column(Integer, primary_key=True)
     version = Column(Integer, nullable=False, default=1)
+    is_test = Column(Boolean, nullable=False, default=False, server_default="false", index=True)
     guest_id = Column(Integer, ForeignKey("inquiries.guests.id"), nullable=False)
     source = Column(String(80), nullable=False)
     brand = Column(String(160))
@@ -65,6 +66,7 @@ class SourceMessage(Base):
     __tablename__ = "messages"
     __table_args__ = (UniqueConstraint("mailbox", "message_id", name="uq_inquiry_message"),)
     id = Column(Integer, primary_key=True)
+    is_test = Column(Boolean, nullable=False, default=False, server_default="false")
     lead_id = Column(Integer, ForeignKey("inquiries.leads.id"), index=True)
     mailbox = Column(String(320), nullable=False)
     source = Column(String(80), nullable=False)
@@ -111,9 +113,14 @@ class Settings(Base):
 def init_inquiry_database():
     """Call under the application's existing cross-process initialization lock."""
     from sqlalchemy.schema import CreateSchema
+    from sqlalchemy import text
     with get_session() as db:
         db.execute(CreateSchema("inquiries", if_not_exists=True))
         Base.metadata.create_all(db.connection())
+        # Additive upgrade: existing records remain genuine and unchanged.
+        if db.bind.dialect.name == "postgresql":
+            db.execute(text("ALTER TABLE inquiries.leads ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT false"))
+            db.execute(text("ALTER TABLE inquiries.messages ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT false"))
         if not db.get(Settings, 1):
             db.add(Settings(id=1))
         db.commit()

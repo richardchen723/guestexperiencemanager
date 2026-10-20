@@ -3,6 +3,7 @@
   'use strict';
   const $ = (id) => document.getElementById(id);
   if (!$('inquiryApp')) return;
+  const testView = new URLSearchParams(window.location.search).get('record_scope') === 'internal-tests';
   const state = {bootstrap: null, rows: [], page: 1, total: 0, attention: '', sort: 'received_at', direction: 'desc', detail: null, dirty: false, panel: false, loading: false, request: 0, editing: false, returnFocus: null};
   const csrf = document.querySelector('meta[name="inquiries-csrf"]').content;
   const escape = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
@@ -47,7 +48,7 @@
     return {from: day.toISOString().slice(0,10), to:end};
   }
   function query() {
-    const values = {page:state.page, sort:state.sort, direction:state.direction, search:$('iqSearch').value, status:$('iqStatus').value,
+    const values = {record_scope:testView ? 'internal-tests' : 'genuine', page:state.page, sort:state.sort, direction:state.direction, search:$('iqSearch').value, status:$('iqStatus').value,
       listing_id:$('iqProperty').value, tag_id:$('iqTag').value,
       assigned_user_id:$('iqAgent').value, attention:state.attention, ...dateFilters()};
     return new URLSearchParams(Object.entries(values).filter(([,v]) => v !== '' && v != null));
@@ -66,7 +67,7 @@
   const agentOptions = selected => option('', 'Unassigned', selected) + state.bootstrap.users.map(u => option(u.id,u.name,selected)).join('');
   const statusOptions = selected => state.bootstrap.statuses.map(s => option(s,s,selected)).join('');
   function badges(lead) {
-    return `${lead.needs_reply ? '<span class="iq-badge reply">New response</span>' : ''}${lead.overdue ? '<span class="iq-badge overdue">Overdue</span>' : ''}${lead.escalated ? '<span class="iq-badge overdue">Escalated to team</span>' : ''}${lead.reminder && !lead.overdue ? '<span class="iq-badge">Follow-up soon</span>' : ''}${lead.unassigned_alert ? '<span class="iq-badge overdue">Assignment overdue</span>' : ''}${lead.review_flags.length ? '<span class="iq-badge">Review needed</span>' : ''}`;
+    return `${lead.is_test ? '<span class="iq-badge">Internal test · excluded from statistics</span>' : ''}${lead.needs_reply ? '<span class="iq-badge reply">New response</span>' : ''}${lead.overdue ? '<span class="iq-badge overdue">Overdue</span>' : ''}${lead.escalated ? '<span class="iq-badge overdue">Escalated to team</span>' : ''}${lead.reminder && !lead.overdue ? '<span class="iq-badge">Follow-up soon</span>' : ''}${lead.unassigned_alert ? '<span class="iq-badge overdue">Assignment overdue</span>' : ''}${lead.review_flags.length ? '<span class="iq-badge">Review needed</span>' : ''}`;
   }
   function renderRows() {
     $('iqRows').innerHTML = state.rows.length ? state.rows.map(l => `<tr data-id="${l.id}">
@@ -245,6 +246,10 @@
       $('iqTag').innerHTML += state.bootstrap.tags.map(t => option(t.id,t.name)).join('');
       updatePropertyOptions();
       $('iqAdmin').hidden = !state.bootstrap.can_administer;
+      $('iqTestScope').hidden = !state.bootstrap.can_administer;
+      $('iqTestScope').href = testView ? '/inquiries/' : '/inquiries/?record_scope=internal-tests';
+      $('iqTestScope').textContent = testView ? 'Genuine inquiries' : 'Internal tests';
+      $('iqTestBanner').hidden = !testView;
       await load();
       let debounce;
       $('iqSearch').addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(() => {state.page = 1; load();},300); });

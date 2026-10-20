@@ -54,6 +54,34 @@ def test_changed_message_id_content_rejected(service):
         service.ingest(email(body="Changed original"))
 
 
+def test_internal_test_reply_replay_and_original_are_isolated(service, db):
+    original = email(internal_test=True)
+    lead = create(service, internal_test=True)
+    assert lead.is_test is True and lead.original_notes == original['body']
+    assert service.ingest(reply())['lead_id'] == lead.id
+    before = service.serialize(lead, True)
+    assert service.ingest(original)['replayed'] is True
+    assert service.serialize(lead, True) == before
+    lead.status = 'Booked'
+    db.flush()
+    assert service.listing({})['total'] == 0
+    internal = service.listing({'record_scope':'internal-tests'})
+    assert internal['total'] == 1 and internal['stats']['total'] == 0 and internal['stats']['booked'] == 0
+    assert internal['stats']['conversion_rate'] is None
+    other = create(service, message_id='genuine', thread_id='genuine-thread', reference='EH-REAL1234')
+    assert other.is_test is False
+    assert service.listing({})['stats']['total'] == 1
+    assert service.listing({'record_scope':'internal-tests'})['stats']['total'] == 1
+
+
+def test_internal_classification_cannot_be_extracted_or_merge_into_real(service):
+    lead = create(service, extraction={'reference':'EH-ABC12345','is_test':True,'fields':{'email':'sally@example.invalid'}})
+    assert lead.is_test is False
+    result = service.ingest(reply(internal_test=True))
+    assert result['processing_status'] == 'failed'
+    assert lead.is_test is False
+
+
 def test_forwarded_same_reference_does_not_create_another_opportunity(service, db):
     lead = create(service)
     result = service.ingest(email(message_id="forward1", thread_id="forward1", subject="Fwd: New stay inquiry EH-ABC12345 from Sally"))

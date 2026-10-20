@@ -204,6 +204,9 @@ class InquiryService:
         """
         if not isinstance(payload, dict):
             raise InquiryError("An email object is required.")
+        internal_test = payload.get("internal_test", False)
+        if not isinstance(internal_test, bool):
+            raise InquiryError("internal_test must be a boolean.")
         mailbox = text_value(payload.get("mailbox"), "mailbox", 320, True).lower()
         source = text_value(payload.get("source"), "source", 80, True)
         policy = self.source_policy(source, mailbox)
@@ -227,6 +230,7 @@ class InquiryService:
                 return {"message_id": message.id, "lead_id": message.lead_id, "processing_status": message.processing_status, "replayed": True}
         else:
             message = SourceMessage(mailbox=mailbox, source=source, **values, received_at=received, fingerprint=fingerprint,
+                                    is_test=internal_test,
                                     source_url="https://mail.google.com/mail/u/?authuser=" + mailbox + "#all/" + values["message_id"])
             self.db.add(message)
             self.db.flush()
@@ -280,6 +284,7 @@ class InquiryService:
             normalized = {key: self.validate_field(key, value) for key, value in fields.items()}
             guest = self.identity(normalized.get("email"))
             lead = Lead(guest_id=guest.id, source=message.source, brand=policy.get("brand"), reference=reference,
+                        is_test=message.is_test,
                         received_at=message.received_at, original_notes=message.body, qualification={}, review_flags=[], staff_fields=[],
                         status="New", version=1, updated_by="Larry")
             self.db.add(lead)
@@ -287,6 +292,8 @@ class InquiryService:
             created = True
         else:
             created = False
+            if message.is_test and not lead.is_test:
+                raise InquiryError("An internal test cannot be merged into a genuine inquiry.")
         message.lead_id = lead.id
         # A matched reference alone does not make internal staff mail a guest reply.
         guest_sender = sender in self.known_guest_emails(lead)
@@ -372,7 +379,7 @@ class InquiryService:
                 "unassigned_alert": bool(active and not lead.assigned_user_id and settings.unassigned_minutes is not None and age >= settings.unassigned_minutes)}
 
     def serialize(self, lead, detail=False):
-        result = {key: iso(getattr(lead, key)) for key in ("id", "version", "guest_id", "source", "brand", "reference", "received_at",
+        result = {key: iso(getattr(lead, key)) for key in ("id", "version", "is_test", "guest_id", "source", "brand", "reference", "received_at",
             "guest_name", "email", "phone", "listing_id", "tag_id", "property_text", "check_in", "check_out", "details", "trip_type",
             "internal_notes", "assigned_user_id", "status", "next_action", "follow_up_at", "last_contact_at", "last_inbound_at", "needs_reply",
             "review_flags", "qualification", "updated_at", "updated_by")}
@@ -394,7 +401,10 @@ class InquiryService:
         return result
 
     def query(self, filters):
-        query = select(Lead)
+        scope = filters.get("record_scope", "genuine")
+        if scope not in ("genuine", "internal-tests"):
+            raise InquiryError("Unknown record scope.")
+        query = select(Lead).where(Lead.is_test.is_(scope == "internal-tests"))
         if filters.get("status"):
             if filters["status"] not in STATUSES:
                 raise InquiryError("Unknown status filter.")
@@ -445,8 +455,10 @@ class InquiryService:
 
     def listing(self, filters):
         query = self.query(filters)
-        counts = dict(self.db.execute(select(Lead.status, func.count()).where(Lead.id.in_(query.with_only_columns(Lead.id))).group_by(Lead.status)).all())
-        total = sum(counts.values())
+        genuine = self.query({**filters, "record_scope": "genuine"})
+        counts = dict(self.db.execute(select(Lead.status, func.count()).where(Lead.id.in_(genuine.with_only_columns(Lead.id))).group_by(Lead.status)).all())
+        genuine_total = sum(counts.values())
+        total = self.db.scalar(select(func.count()).select_from(query.subquery()))
         completed = counts.get("Booked", 0) + counts.get("Closed — Not Booked", 0)
         try:
             page, size = max(1, int(filters.get("page", 1))), min(100, max(1, int(filters.get("per_page", 30))))
@@ -463,7 +475,7 @@ class InquiryService:
         order = column.asc().nullslast() if filters.get("direction") == "asc" else column.desc().nullslast()
         rows = self.db.scalars(query.order_by(order, Lead.id.desc()).offset((page - 1) * size).limit(size))
         return {"leads": [self.serialize(v) for v in rows], "total": total, "page": page, "per_page": size,
-                "stats": {"total": total, "new": counts.get("New", 0), "follow_up": counts.get("Follow-up Required", 0),
+                "stats": {"total": genuine_total, "new": counts.get("New", 0), "follow_up": counts.get("Follow-up Required", 0),
                           "booked": counts.get("Booked", 0), "conversion_rate": round(counts.get("Booked", 0) / completed * 100, 1) if completed else None}}
 
     def update_settings(self, payload):

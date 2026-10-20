@@ -1,0 +1,32 @@
+[Unit]
+Description=Cotton Candy inquiry-only Gmail intake
+After=network-online.target hostaway-dashboard.service
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=hostaway
+Group=hostaway
+WorkingDirectory=/opt/hostaway-messages/app
+StateDirectory=hostaway-inquiry-intake
+StateDirectoryMode=0700
+UMask=0077
+LoadCredential=gmail.json:/etc/hostaway-inquiry-intake/larry-gmail.json
+LoadCredential=crm.key:/etc/hostaway-inquiry-intake/crm.key
+Environment=INQUIRY_WORKER_STATE=/var/lib/hostaway-inquiry-intake/state.sqlite3
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/hostaway-messages/venv/bin/python scripts/inquiry_intake_worker.py run --interval 60
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=120
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/hostaway-inquiry-intake
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

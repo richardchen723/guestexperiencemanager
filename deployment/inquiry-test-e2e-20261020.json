@@ -1,0 +1,111 @@
+{
+  "observed_at": 1792504324.7601054,
+  "services": {
+    "hostaway-dashboard.service": "active",
+    "hostaway-inquiry-intake.service": "active"
+  },
+  "metadata": {
+    "activation_at": 1792502511.4316056,
+    "mailbox": "larry@enchantedhavens.com",
+    "source": "enchanted-havens-email",
+    "backlog_recorded": true,
+    "last_full_scan": 1792502511.4316056,
+    "interval_seconds": 60,
+    "last_processing_success": 1792504204.0469036,
+    "last_scan": 1792504322.4808927,
+    "last_collection_success": 1792504323.0221026,
+    "collection_error": null,
+    "collection_failures": 0,
+    "collection_retry_at": 0
+  },
+  "backlog_candidates": 0,
+  "genuine": {
+    "total": 0,
+    "stats": {
+      "booked": 0,
+      "conversion_rate": null,
+      "follow_up": 0,
+      "new": 0,
+      "total": 0
+    }
+  },
+  "test_count": 1,
+  "worker_messages": [
+    {
+      "message_id": "1a15992d2a4c34d4",
+      "thread_id": "1a15992d2a4c34d4",
+      "role": "initial",
+      "status": "processed",
+      "error_code": null,
+      "attempts": 1,
+      "lead_id": 1,
+      "crm_record_id": 1,
+      "processed_at": 1792504204.0430605
+    }
+  ],
+  "verified_tests": [
+    {
+      "lead_id": 1,
+      "reference": "EH-A340F6FC",
+      "is_test": true,
+      "guest_name": "Richard Chen \u2014 INTERNAL CRM TEST",
+      "lead_message_count": 1,
+      "activity_count": 1,
+      "lead_version": 1,
+      "originals": [
+        {
+          "gmail_message_id": "1a15992d2a4c34d4",
+          "gmail_thread_id": "1a15992d2a4c34d4",
+          "internet_message_id": "<8685c2ef-9e48-580f-3eab-7f13a86725da@gmail.com>",
+          "in_reply_to": null,
+          "received_at": "2026-10-20T13:49:13+00:00",
+          "body_sha256": "0a56819fa1a704ebac95ef6f76485f1adea608585ea1be3ef69a18285474eecf",
+          "raw_rfc822_sha256": "1fca3eaa13f58b4ffe9b4bf0c5037b0bd87cf15ee0e231d6a71b108157eb88c6",
+          "body_matches_ledger_payload": true,
+          "original_ids_match": true,
+          "internal_test_payload": true
+        }
+      ],
+      "url": "https://yourcottoncandy.com/inquiries/?record_scope=internal-tests"
+    }
+  ],
+  "exact_replay": {
+    "result": {
+      "lead_id": 1,
+      "message_id": 1,
+      "processing_status": "processed",
+      "replayed": true
+    },
+    "all_detail_fields_unchanged": true,
+    "message_count_before": 1,
+    "message_count_after": 1,
+    "activity_count_before": 1,
+    "activity_count_after": 1,
+    "lead_version_before": 1,
+    "lead_version_after": 1,
+    "genuine_statistics_unchanged": true
+  },
+  "website": {
+    "url": "https://www.enchantedhavens.com/contact",
+    "reference": "EH-A340F6FC",
+    "submitted_once": true,
+    "receipt": "Your note is with us.",
+    "owner_email": "yunhang.chen@gmail.com"
+  },
+  "restart_verification": {
+    "passed": true,
+    "activation_preserved": true,
+    "processed_counts_preserved": {
+      "processed": 1
+    },
+    "last_collection_success": "2026-10-20T13:54:10.692362+00:00",
+    "collection_error": null,
+    "enabled": true
+  },
+  "test_suite": {
+    "passed": 84,
+    "environment": "fresh disposable local PostgreSQL plus offline protocol tests"
+  },
+  "genuine_validation": "Pending genuine new inquiry and subsequent guest reply; internal test is not genuine guest evidence.",
+  "oauth_blocker": "Existing authorization remains External/Testing and expected to expire around 2026-10-27T13:19:16Z; publishing, branding and verification changes require owner approval."
+}

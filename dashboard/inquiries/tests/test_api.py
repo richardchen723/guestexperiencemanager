@@ -143,6 +143,38 @@ def test_supported_full_access_key_can_ingest_but_not_administer(app,factory):
     from dashboard.auth.api_keys import create_api_key
     key = create_api_key('inquiry QA worker key',app.qa_users['admin'])
     c = app.test_client()
-    result = c.post('/inquiries/api/intake',json=email(),headers={'X-API-Key':key})
+    result = c.post('/inquiries/api/intake',json=email(internal_test=True),headers={'X-API-Key':key})
     assert result.status_code == 200 and result.json['processing_status'] == 'processed'
+    assert c.get('/inquiries/api/leads?record_scope=internal-tests',headers={'X-API-Key':key}).json['total'] == 1
     assert c.get('/inquiries/api/failures',headers={'X-API-Key':key}).status_code == 403
+
+
+def test_internal_tests_require_admin_and_are_separate_from_genuine_statistics(app, factory):
+    agent, admin = client(app, 'agent'), client(app)
+    data = email(internal_test=True)
+    assert post(agent, 'intake', data).status_code == 403
+    assert agent.get('/inquiries/api/leads?record_scope=internal-tests').status_code == 403
+    result = post(admin, 'intake', data)
+    assert result.status_code == 200 and result.json['processing_status'] == 'processed'
+    lead_id = result.json['lead_id']
+    genuine = admin.get('/inquiries/api/leads').json
+    assert genuine['leads'] == [] and genuine['stats']['total'] == 0
+    tests = admin.get('/inquiries/api/leads?record_scope=internal-tests').json
+    assert tests['total'] == 1 and tests['leads'][0]['is_test'] is True
+    assert tests['stats'] == genuine['stats']
+    assert post(admin, f'leads/{lead_id}', {'version':1, 'is_test':False}, method='PATCH').status_code == 400
+    assert post(admin, f'leads/{lead_id}', {'version':1, 'status':'Booked'}, method='PATCH').status_code == 200
+    metrics = admin.get('/inquiries/api/leads?record_scope=internal-tests').json['stats']
+    assert metrics['booked'] == 0 and metrics['conversion_rate'] is None
+    assert post(admin, 'intake', data).json['replayed'] is True
+
+
+def test_failed_internal_test_retains_classification_on_admin_retry(app, factory):
+    c = client(app)
+    data = email(internal_test=True, extraction={'reference':'EH-ABC12345','fields':{'email':'invalid'}})
+    result = post(c, 'intake', data).json
+    assert result['processing_status'] == 'failed'
+    retried = post(c, f'failures/{result["message_id"]}/retry', {}).json
+    assert retried['processing_status'] == 'processed'
+    assert c.get(f'/inquiries/api/leads/{retried["lead_id"]}').json['is_test'] is True
+    assert c.get('/inquiries/api/leads').json['stats']['total'] == 0

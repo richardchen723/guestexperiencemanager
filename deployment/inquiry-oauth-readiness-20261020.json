@@ -1,0 +1,58 @@
+{
+  "status": "read-only proposal; no OAuth audience, publishing, scope, IAM or legal-page changes made",
+  "project_id": "property-management-insights",
+  "project_number": "683719014815",
+  "oauth_client_name": "Hostaway Insights Web Client",
+  "current_audience": "External",
+  "current_publishing_status": "Testing",
+  "organization_owned": false,
+  "google_internal_eligible": false,
+  "observed_existing_google_users": {
+    "gmail.com": 4,
+    "enchantedhavens.com": 1
+  },
+  "branding_missing": [
+    "homepage",
+    "privacy_policy",
+    "terms_of_service"
+  ],
+  "existing_public_pages": {
+    "yourcottoncandy.com": "Application root requires approved access; no suitable public overview/privacy/terms routes found in current source.",
+    "enchantedhavens.com/privacy": "Guest website policy; does not disclose Cotton Candy Gmail/Drive data practices.",
+    "enchantedhavens.com/terms": "Guest booking terms; not internal Cotton Candy application terms."
+  },
+  "verification_exemption_assessment": "Owner confirms only their accounts and team. Google Internal exemption requires an organization-owned project and Internal audience, which are unavailable here. Google Personal Use exemption covers limited personal use under 100 users; private business-team use alone does not establish eligibility. No Google exemption decision has been verified.",
+  "minimal_proposal_for_approval": {
+    "audience": "Keep External to preserve existing personal Gmail and staff accounts.",
+    "publishing_status": "In Production, only after approved public branding pages and explicit owner approval.",
+    "app_name": "Keep Property Management Insights; public overview should identify Cotton Candy/Hostaway Insights consistently.",
+    "support_and_developer_contact": "Keep existing yunhang.chen@gmail.com.",
+    "proposed_homepage": "https://yourcottoncandy.com/about",
+    "proposed_privacy_policy": "https://yourcottoncandy.com/privacy",
+    "proposed_terms_of_service": "https://yourcottoncandy.com/terms",
+    "url_status": "Proposed new routes, not existing pages; no legal content has been created or published.",
+    "scope_client_redirect_changes": "None. Preserve existing SSO and Drive configuration. Larry worker continues gmail.readonly only.",
+    "followup_authorization": "A fresh Larry consent may be required after the approved production transition; do not repeatedly issue tokens to work around Testing expiry."
+  },
+  "factual_disclosures_to_review_before_pages": {
+    "google_sign_in": "Identity scopes: openid, email, profile. Existing approval and feature controls apply.",
+    "drive": "Shared client has a separate full-Drive authorization workflow for browsing/creating selected bookkeeping evidence folders and creating/updating uploaded evidence files; credentials stored in application database.",
+    "gmail_worker": "Larry mailbox gmail.readonly; whole-mailbox read capability, implemented source-filtered initial inquiries and tracked replies only. Full original RFC822 and IDs retained in private SQLite; decoded original bodies, IDs, extracted fields and audit in CRM. No send, label changes, models, quotes or pricing writes in worker.",
+    "credentials": "Existing root-owned mode0400 files with systemd private runtime delivery. This establishes file permissions, not a claim of application-level encryption.",
+    "retention": "No automatic purge or retention deadline configured in the intake worker; avoid promising a duration or deletion behavior not implemented.",
+    "internal_tests": "Test flag excludes authorized internal website tests from genuine lead/conversion metrics."
+  },
+  "impacts": [
+    "Production publishing affects the shared OAuth project, including existing sign-in and Drive clients.",
+    "External authorizations are not restricted to the Testing user list after publishing; application approval remains required.",
+    "If unverified sensitive/restricted scopes are used, unverified-app warnings and the lifetime OAuth user cap may remain.",
+    "Google production status removes the Testing-specific seven-day rule; individual tokens can still be revoked or expire for other reasons.",
+    "Gmail readonly and existing full Drive are restricted scopes; verification or a valid exemption must be assessed without assuming internal business use is sufficient."
+  ],
+  "sources": [
+    "https://support.google.com/cloud/answer/13464323?hl=en",
+    "https://support.google.com/cloud/answer/15549945?hl=en",
+    "https://support.google.com/cloud/answer/15549049?hl=en",
+    "https://developers.google.com/workspace/gmail/api/auth/scopes"
+  ]
+}

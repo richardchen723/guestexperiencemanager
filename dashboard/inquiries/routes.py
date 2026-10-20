@@ -93,6 +93,12 @@ def admin_only():
         raise InquiryError("An administrator browser session is required.", 403)
 
 
+def test_access():
+    user = get_current_user()
+    if not getattr(g, "api_key", None) and (not user or not user.is_admin()):
+        raise InquiryError("An administrator is required for internal test records.", 403)
+
+
 def endpoint(*, mutation=False):
     def decorator(fn):
         @wraps(fn)
@@ -153,6 +159,8 @@ def bootstrap(service):
 @inquiries_bp.get("/api/leads")
 @endpoint()
 def leads(service):
+    if request.args.get("record_scope") == "internal-tests":
+        test_access()
     return service.listing(request.args)
 
 
@@ -179,7 +187,10 @@ def update_lead(service, lead_id):
 @inquiries_bp.post("/api/intake")
 @endpoint(mutation=True)
 def intake(service):
-    return service.ingest(payload())
+    data = payload()
+    if data.get("internal_test") is True:
+        test_access()
+    return service.ingest(data)
 
 
 @inquiries_bp.get("/api/failures")
@@ -202,6 +213,7 @@ def retry(service, message_id):
     data = {k: getattr(message, k) for k in ("source", "mailbox", "message_id", "thread_id", "internet_message_id", "in_reply_to", "sender", "subject", "body")}
     data["received_at"] = message.received_at.isoformat()
     data["extraction"] = payload().get("extraction")
+    data["internal_test"] = message.is_test
     return service.ingest(data)
 
 
@@ -214,3 +226,5 @@ def settings(service):
 
 def register_inquiry_routes(app):
     app.register_blueprint(inquiries_bp)
+    from .gmail_authorization import register_gmail_authorization
+    register_gmail_authorization(app)

@@ -1,0 +1,76 @@
+{
+  "release": "inquiry-intake-20261020-r2",
+  "verified_at": "2026-10-20T13:24:20Z",
+  "production_origin": "https://yourcottoncandy.com",
+  "production_directory": "/opt/hostaway-messages/app",
+  "service": "hostaway-inquiry-intake.service",
+  "service_active": true,
+  "service_enabled": true,
+  "interval_seconds": 60,
+  "mailbox": "larry@enchantedhavens.com",
+  "source": "enchanted-havens-email",
+  "oauth": {
+    "project_id": "property-management-insights",
+    "client_name": "Hostaway Insights Web Client",
+    "scopes": [
+      "https://www.googleapis.com/auth/gmail.readonly"
+    ],
+    "authorized_at": "2026-10-20T13:19:16.322385+00:00",
+    "offline_refresh_verified": true,
+    "binding_owner": "root",
+    "binding_file_mode": "0400",
+    "staging_copy_removed": true,
+    "publishing_status": "Testing",
+    "testing_authorization_expiry_approx": "2026-10-27T13:19:16.322385+00:00",
+    "expiry_source": "https://support.google.com/cloud/answer/15549945?hl=en",
+    "gmail_api_enabled": true
+  },
+  "activation_at": "2026-10-20T13:21:51.431606Z",
+  "scheduled_syncs": [
+    "2026-10-20T13:21:51.907897Z",
+    "2026-10-20T13:22:50.790274Z",
+    "2026-10-20T13:23:50.732541Z"
+  ],
+  "restart_verification": {
+    "passed": true,
+    "activation_unchanged": true,
+    "first_sync_after_restart": "2026-10-20T13:24:19.143354Z"
+  },
+  "last_successful_sync": "2026-10-20T13:24:19.143354Z",
+  "collection_error": null,
+  "backlog_candidates": 0,
+  "message_count": 0,
+  "lead_count": 0,
+  "end_to_end_verification": "pending genuine inquiry, guest reply and exact replay",
+  "verified_lead_url": null,
+  "offline_tests_passed": 31,
+  "staff_settings": {
+    "timezone": "America/Los_Angeles",
+    "reminder_minutes": null,
+    "escalation_minutes": null,
+    "unassigned_minutes": null
+  },
+  "recovery": {
+    "state": "/var/lib/hostaway-inquiry-intake/state.sqlite3",
+    "state_mode": "0600",
+    "directory_mode": "0700",
+    "sqlite_wal_full_sync": true,
+    "overlap_seconds": 300,
+    "daily_reconciliation": true,
+    "durable_original_ids_and_raw_rfc822": true,
+    "transport_retry_backoff_persisted": true,
+    "crm_status_and_replayed_checked": true
+  },
+  "known_excluded_test": "EH-2902A0CA",
+  "limitations": [
+    "Testing-mode authorization is temporary; no publishing or verification changes were approved or made.",
+    "Conservative parser extracts explicit structured fields; unstructured replies remain complete originals with review flags.",
+    "No genuine mail means no production import latency or duplicate/reply proof yet."
+  ],
+  "code_sha256": {
+    "scripts/inquiry_intake_worker.py": "3b08ba4a1f4595beb97517fff2afd4ab6f2db6ab93aa6e29d068f7b6d348291b",
+    "dashboard/inquiries/gmail_authorization.py": "fc05c158a7d9d561c29fec6e5ad2bf758226d523e500bfac70059146d4cc876a",
+    "dashboard/inquiries/routes.py": "79477fbfc22ae0800e18a28f3d36b2829a3eaaf386129d15cf94cdce1be4bcd5",
+    "deployment/hostaway-inquiry-intake.service": "8a3aa33085d95df2d772be2bee66a9068932fde8626c5087d4fc9c15a615d882"
+  }
+}
