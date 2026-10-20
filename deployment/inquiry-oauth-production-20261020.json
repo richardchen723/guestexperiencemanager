@@ -1,0 +1,82 @@
+{
+  "release": "inquiry-public-pages-20261020-r4",
+  "published_at": 1792505921.370307,
+  "public_pages": [
+    {
+      "url": "https://yourcottoncandy.com/about",
+      "status": 200,
+      "exact_approved_text": true,
+      "approved_text_sha256": "97c4563b7bec7a27e8cd039f52e2b354cc01daf269a2573561e262e960a0a5c0"
+    },
+    {
+      "url": "https://yourcottoncandy.com/privacy",
+      "status": 200,
+      "exact_approved_text": true,
+      "approved_text_sha256": "b7c879237e3903b61e4d83a66a63282192feda5a76ef0aefef3abc01a197eaa1"
+    },
+    {
+      "url": "https://yourcottoncandy.com/terms",
+      "status": 200,
+      "exact_approved_text": true,
+      "approved_text_sha256": "c27a809868d76353bcfbd80d401099a7c92617bcb7ba8c36f7c1f1d151311cf6"
+    }
+  ],
+  "private_crm_anonymous_status": 401,
+  "dashboard_and_intake_active": true,
+  "gmail_credential_changed": false,
+  "deployed_hashes_match": true,
+  "worker": {
+    "service": "hostaway-inquiry-intake.service",
+    "active": "active",
+    "enabled": "enabled",
+    "activation_at": "2026-10-20T13:21:51.431606+00:00",
+    "last_collection_success": "2026-10-20T14:24:10.480381+00:00",
+    "collection_error": null,
+    "interval_seconds": 60,
+    "messages": {
+      "processed": 1
+    },
+    "backlog_candidates": 0
+  },
+  "gmail_credential": {
+    "owner_uid": 0,
+    "mode": "0o400",
+    "file_modified_at": "2026-10-20T13:21:07.714241+00:00",
+    "file_unchanged_since_publication_approval": true,
+    "new_consent_issued": false
+  },
+  "observed_at": "2026-10-20T14:25:06.884101+00:00",
+  "google_console": {
+    "project_id": "property-management-insights",
+    "project_number": "683719014815",
+    "publishing_status": "In production",
+    "user_type": "External",
+    "persisted_after_reload": true,
+    "branding_links": {
+      "homepage": "https://yourcottoncandy.com/about",
+      "privacy": "https://yourcottoncandy.com/privacy",
+      "terms": "https://yourcottoncandy.com/terms"
+    },
+    "branding_links_persisted_after_reload": true,
+    "declared_scopes": [
+      "openid",
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile",
+      "https://www.googleapis.com/auth/drive",
+      "https://www.googleapis.com/auth/gmail.readonly"
+    ],
+    "scope_inventory_persisted_after_reload": true,
+    "runtime_scope_client_redirect_changes": false,
+    "oauth_user_cap": 100,
+    "current_oauth_users": 3,
+    "verification_status": "Your app's data access is not verified. Verification is required because your app requests sensitive or restricted scopes.",
+    "branding_status": "Your branding is not being shown to users.",
+    "verification_prerequisite": "You need to verify and publish your branding before you can request for verification.",
+    "prepare_for_verification_enabled": false,
+    "verification_application_submitted": false,
+    "exemption_claimed": false,
+    "paid_assessment_committed": false,
+    "console_observed_at": "2026-10-20T14:25:51.808808+00:00"
+  },
+  "credential_next_step": "Working Testing-issued Larry credential retained. Fresh owner-approved post-transition consent is needed before claiming a Production-issued durable credential; current token lifetime extension has not been established."
+}

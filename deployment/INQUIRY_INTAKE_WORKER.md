@@ -171,3 +171,42 @@ is expected to expire around 2026-10-27 13:19:16 UTC. The project is not owned b
 a Google organization. No publishing, audience, scope, IAM or legal-page changes
 have been made. Internal business use alone does not establish Google's Internal
 audience eligibility or a verified exemption.
+
+
+## Production OAuth transition and fresh authorization (2026-10-20)
+
+The owner approved the exact public About, Privacy and Terms wording and the
+External/Testing to External/In Production transition at 14:13:16 UTC. Narrow
+release `inquiry-public-pages-20261020-r4` published only those public routes
+and their registration. Anonymous HTTP 200 and exact approved content were
+verified; the CRM API continues to deny anonymous access with HTTP 401. Fourteen
+application API/access checks passed. Google Branding links and all five scope
+declarations persisted after reload: the three existing identity scopes plus
+the already-used Drive and Gmail-readonly scopes. Runtime scopes, redirects,
+client, staff approvals and feature permissions were not changed.
+
+External/In Production was confirmed after reload. Google separately reports
+that data access requires verification and branding must first be verified and
+published. No verification application, exemption claim or paid assessment was
+submitted. Historical Testing snapshots above are superseded by the following
+current evidence, not rewritten.
+
+The owner separately approved fresh Production Gmail consent and secure binding
+at 14:26:52 UTC, personally completed Google's unverified-app warning, and the
+callback succeeded at 14:33:15 UTC. A distinct fresh refresh credential was
+verified against Google's token endpoint; the explicit returned scope was only
+gmail.readonly and Gmail profile matched larry@enchantedhavens.com. It was
+atomically bound root-owned mode0400 at 14:39:45 UTC after validation. The prior
+credential remains in a private root-owned mode0400 rollback file on the same
+server. The staging copy was removed after successful worker startup/sync. No
+credential values were exported to this checkout or its evidence files.
+
+The worker synced with the replacement at 14:39:47 UTC, remained enabled at a
+60-second interval, retained its original activation cutoff and processed
+original-message IDs, and reported no collection error. Under Google's policy
+the Testing-specific seven-day rule does not apply to this fresh Production
+issuance. Google returned no refresh-token expiry in validation; other expiry
+and revocation conditions remain, and indefinite validity is not claimed.
+
+See `inquiry-oauth-production-20261020.json` and
+`inquiry-gmail-production-authorization-20261020.json` for sanitized evidence.

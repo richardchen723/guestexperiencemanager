@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title }} · Cotton Candy</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #222636; background: #f7f8fc; }
+    body { margin: 0; }
+    main { max-width: 760px; margin: 64px auto; padding: 36px; background: white; border: 1px solid #e2e6ef; border-radius: 16px; }
+    .brand { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: #625ca5; }
+    h1 { font-size: 32px; line-height: 1.2; margin: 16px 0 24px; }
+    p { line-height: 1.85; }
+    nav { display: flex; flex-wrap: wrap; gap: 24px; padding-top: 24px; margin-top: 28px; border-top: 1px solid #e2e6ef; }
+    a { color: #514b91; text-underline-offset: 4px; }
+    a[aria-current="page"] { font-weight: 600; }
+    @media(max-width: 600px) { main { margin: 20px 12px; padding: 24px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">Cotton Candy</div>
+    <h1>{{ page.title }}</h1>
+    <p id="approved-text">{{ page.text }}</p>
+    <nav aria-label="Public information">
+      <a href="/about"{% if current_page == 'about' %} aria-current="page"{% endif %}>About</a>
+      <a href="/privacy"{% if current_page == 'privacy' %} aria-current="page"{% endif %}>Privacy</a>
+      <a href="/terms"{% if current_page == 'terms' %} aria-current="page"{% endif %}>Terms</a>
+    </nav>
+  </main>
+</body>
+</html>

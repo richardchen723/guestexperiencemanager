@@ -228,3 +228,5 @@ def register_inquiry_routes(app):
     app.register_blueprint(inquiries_bp)
     from .gmail_authorization import register_gmail_authorization
     register_gmail_authorization(app)
+    from dashboard.public_pages import register_public_pages
+    register_public_pages(app)

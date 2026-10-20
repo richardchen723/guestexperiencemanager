@@ -1,0 +1,63 @@
+{
+  "stage": "replacement_complete",
+  "mailbox": "larry@enchantedhavens.com",
+  "scopes": [
+    "https://www.googleapis.com/auth/gmail.readonly"
+  ],
+  "authorized_at": "2026-10-20T14:33:15.189490+00:00",
+  "refresh_passed": true,
+  "refreshed_scope_explicit": true,
+  "distinct_new_refresh_credential": true,
+  "access_credential_lifetime_seconds": 3599,
+  "refresh_credential_expiry_returned_seconds": null,
+  "bound_at": "2026-10-20T14:39:45.551906+00:00",
+  "bound_owner_uid": 0,
+  "bound_mode": "0o400",
+  "prior_credential_retained_as_private_rollback": true,
+  "staging_copy_removed": true,
+  "service": "hostaway-inquiry-intake.service",
+  "active": true,
+  "enabled": "enabled",
+  "activation_preserved": true,
+  "activation_at": "2026-10-20T13:21:51.431606+00:00",
+  "last_collection_success": "2026-10-20T14:39:47.126525+00:00",
+  "interval_seconds": 60,
+  "collection_error": null,
+  "processed_original_ids_preserved": [
+    "1a15992d2a4c34d4"
+  ],
+  "processed_ledger_records_preserved": true,
+  "message_counts_before": {
+    "processed": 1
+  },
+  "message_counts_after": {
+    "processed": 1
+  },
+  "observed_at": "2026-10-20T14:39:47.586786+00:00",
+  "production_issuance_evidence": {
+    "project_id": "property-management-insights",
+    "same_existing_oauth_client": true,
+    "publishing_status": "In production",
+    "audience": "External",
+    "observed_before_authorization": "2026-10-20T14:25:51.808808+00:00",
+    "reconfirmed_after_consent": true,
+    "new_authorization_after_production": true,
+    "callback_outcome": "authorization_ready"
+  },
+  "expiry_assessment": {
+    "testing_specific_seven_day_rule_applies": false,
+    "basis": "Distinct fresh refresh credential issued after verified In Production status, then exact scope and mailbox verified by live refresh/profile.",
+    "refresh_expiry_provided_by_google": false,
+    "indefinite_validity_claimed": false,
+    "other_revocation_or_expiry_conditions_remain": true,
+    "policy_source": "https://developers.google.com/identity/protocols/oauth2#expiration",
+    "evidence_limit": "No provider-issued refresh-token expiration was returned by the refresh validation; initial staging did not retain expiration metadata."
+  },
+  "google_verification": {
+    "required": true,
+    "completed": false,
+    "application_submitted": false,
+    "exemption_claimed": false,
+    "scope_expanded": false
+  }
+}

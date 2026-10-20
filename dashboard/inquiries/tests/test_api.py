@@ -178,3 +178,17 @@ def test_failed_internal_test_retains_classification_on_admin_retry(app, factory
     assert retried['processing_status'] == 'processed'
     assert c.get(f'/inquiries/api/leads/{retried["lead_id"]}').json['is_test'] is True
     assert c.get('/inquiries/api/leads').json['stats']['total'] == 0
+
+
+def test_approved_public_pages_do_not_require_staff_login_or_expose_workspace(app, factory):
+    from dashboard.public_pages import PUBLIC_PAGES
+    from html import unescape
+    c = app.test_client()
+    for slug, page in PUBLIC_PAGES.items():
+        response = c.get('/'+slug)
+        assert response.status_code == 200
+        assert page['text'] in unescape(response.get_data(as_text=True))
+        assert b'appSidebar' not in response.data and 'Set-Cookie' not in response.headers
+        assert 'no-store' in response.headers['Cache-Control']
+        assert all(('href="/'+p+'"').encode() in response.data for p in PUBLIC_PAGES)
+    assert c.get('/inquiries/api/leads').status_code == 401
