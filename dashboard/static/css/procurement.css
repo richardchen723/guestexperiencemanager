@@ -1592,6 +1592,27 @@
 .pc-buy-unplanned .pc-buy-item { cursor:default; }
 .pc-buy-plan-action { grid-column:2 / -1; justify-self:end; }
 .pc .pc-buy-plan-action .pc-button { min-height:44px; }
+.pc-group-summary { border:1px solid #dfe6f4; border-radius:9px; background:#f7f9ff; padding:16px; margin:18px 0; }
+.pc-group-summary h3 { margin:0; font-size:15px; }
+.pc-group-summary p { margin:6px 0 0; color:var(--pc-muted); font-size:12px; line-height:1.6; }
+.pc-group-summary .pc-form-row-heading { margin-bottom:0; gap:14px; flex-wrap:wrap; }
+.pc-group-fields { margin-top:20px; }
+.pc-dialog .pc-group-fields select { height:44px; min-height:44px; appearance:none; padding-right:34px; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23687386' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 10px center; background-size:16px; }
+.pc-group-allocation-tools { display:grid; gap:12px; margin:18px 0 12px; }
+.pc-dialog .pc-group-allocation-tools input { width:100%; min-width:0; }
+.pc-group-allocation-list { max-height:360px; overflow:auto; border:1px solid var(--pc-line); border-radius:8px; }
+.pc-group-allocation-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(110px,160px); align-items:center; gap:14px; padding:14px; border-bottom:1px solid var(--pc-line); }
+.pc-group-allocation-row:last-child { border-bottom:0; }
+.pc-group-allocation-row[hidden] { display:none; }
+.pc-dialog .pc-group-allocation-row .pc-checkbox { min-width:0; min-height:44px; padding:0; margin:0; font-size:13px; color:var(--pc-ink); }
+.pc-group-allocation-row .pc-checkbox span { overflow-wrap:anywhere; }
+.pc-group-allocation-row .pc-checkbox input { flex:0 0 15px; }
+.pc-group-allocation-row .pc-field { margin:0; }
+.pc-dialog .pc-group-allocation-row input[type=number] { min-height:44px; width:100%; min-width:0; }
+@media(max-width:700px) {
+    .pc-dialog .pc-group-fields select,.pc-dialog .pc-group-allocation-row input[type=number],.pc-dialog .pc-group-allocation-tools input { font-size:16px; }
+    .pc-group-allocation-row { grid-template-columns:minmax(0,1fr) minmax(90px,.6fr); gap:10px; padding:12px; }
+}
 .pc-buy-item { display:flex; align-items:flex-start; gap:12px; min-width:0; cursor:pointer; }
 .pc-buy-item input { margin-top:4px; flex-shrink:0; }
 .pc-buy-item small { display:block; margin-top:5px; color:var(--pc-muted); }

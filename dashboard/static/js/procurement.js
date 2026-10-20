@@ -100,7 +100,7 @@
             if (!['active', 'attention', 'all'].includes(state.status) && t.status !== state.status) return false;
             if (property && !t.listing_ids.includes(Number(property)) || priority && t.priority !== priority || tag && !t.tags.includes(tag)) return false;
             if ($('pcMine').checked && t.owner_user_id !== state.ref.user_id) return false;
-            return !term || [t.code, t.title, t.property, ...t.properties.map(p => p.name), t.requester_name, t.owner_name, ...t.items.map(i => i.name)].join(' ').toLowerCase().includes(term);
+            return !term || [t.code, t.title, t.property, t.group?.tag, ...t.properties.map(p => p.name), t.requester_name, t.owner_name, ...t.items.map(i => i.name)].join(' ').toLowerCase().includes(term);
         }).sort((a, b) => {
             const rank = {critical: 0, high: 1, normal: 2, planned: 3};
             return rank[a.priority] - rank[b.priority] || (a.required_by || '9999').localeCompare(b.required_by || '9999');
@@ -117,7 +117,7 @@
         $('pcOrderList').innerHTML = !state.orders.length ? empty('No purchases yet', 'Draft a purchase from a request, or buy shared stock and allocate it later.', button('new-order', 'Draft a purchase', '', 'pc-primary')) : `<div class="pc-table-wrap"><table class="pc-table"><thead><tr><th>Purchase</th><th>Delivery destination</th><th>Progress</th><th>Total</th><th>Financial records</th></tr></thead><tbody>${state.orders.map(o => `<tr data-action="order-detail" data-id="${o.id}" tabindex="0" role="button" aria-label="Open ${esc(o.code)}"><td><div class="pc-code">${esc(o.code)}</div><strong>${esc(o.vendor)}</strong><small>${esc(o.reference || 'Retailer order not recorded')}</small></td><td>${esc(o.destination.label)}<small>${o.lines.length} purchase line${o.lines.length === 1 ? '' : 's'}</small></td><td>${badge(o.state)}<small>${o.shipments.filter(s => s.delivered_at).length} / ${o.shipments.filter(s => !s.cancelled_reason).length} shipments delivered</small></td><td><strong>${esc(money(o.total_cents, o.currency))}</strong>${o.refund_cents ? `<small>${esc(money(o.refund_cents, o.currency))} refunded</small>` : ''}</td><td>${o.reconciled_at ? '✓ Reconciled' : 'Not reconciled'}<small>${o.attachments.length} receipt${o.attachments.length === 1 ? '' : 's'}</small></td></tr>`).join('')}</tbody></table></div>`;
     }
 
-    const actionLabels = {request_created:'Request captured',request_updated:'Request updated',order_created:'Purchase drafted',order_revised:'Purchase revised',purchase_approve:'Purchase approved',order_approve:'Purchase approved',purchase_place:'Purchase recorded',order_place:'Purchase recorded',purchase_cancel:'Draft purchase cancelled',order_cancel:'Draft purchase cancelled',shipment_updated:'Tracking updated',shipment_cancelled:'Shipment cancelled',shipment_created:'Shipment added',shipment_delivered:'Delivery recorded',delivery_reported:'Delivery reported · property confirmation needed',property_confirmed:'Housekeeper confirmed at property',property_return:'Supplies returned from property',fulfillment_issue:'Fulfillment problem reported',item_cancelled:'Unpurchased quantity cancelled',request_cancelled:'Request cancelled',refund_recorded:'Refund received',receipt_attached:'Receipt attached',purchase_reconcile:'Receipt reconciled',receipt_costs_approved:'Final receipt costs corrected',purchase_adjust_costs:'Cost correction approved',shared_stock_allocated:'Shared stock allocated'};
+    const actionLabels = {properties_allocated:'Supplies assigned to properties',request_created:'Request captured',request_updated:'Request updated',order_created:'Purchase drafted',order_revised:'Purchase revised',purchase_approve:'Purchase approved',order_approve:'Purchase approved',purchase_place:'Purchase recorded',order_place:'Purchase recorded',purchase_cancel:'Draft purchase cancelled',order_cancel:'Draft purchase cancelled',shipment_updated:'Tracking updated',shipment_cancelled:'Shipment cancelled',shipment_created:'Shipment added',shipment_delivered:'Delivery recorded',delivery_reported:'Delivery reported · property confirmation needed',property_confirmed:'Housekeeper confirmed at property',property_return:'Supplies returned from property',fulfillment_issue:'Fulfillment problem reported',item_cancelled:'Unpurchased quantity cancelled',request_cancelled:'Request cancelled',refund_recorded:'Refund received',receipt_attached:'Receipt attached',purchase_reconcile:'Receipt reconciled',receipt_costs_approved:'Final receipt costs corrected',purchase_adjust_costs:'Cost correction approved',shared_stock_allocated:'Shared stock allocated'};
     function defaultDestination(listingId) {
         if (!listingId) return '';
         const direct = activeLocations().filter(l => l.kind === 'property' && l.listing_id === listingId);
@@ -127,23 +127,24 @@
         return locations.length === 1 ? locations[0].id : '';
     }
     function buyItems() {
-        return eligibleItems(false, true).filter(i => i.listing_id || state.requests.find(t => t.id === i.ticket_id)?.storage_location_id);
+        return eligibleItems(false, true).filter(i => i.listing_id || state.requests.find(t => t.id === i.ticket_id)?.storage_location_id || i.group_pending);
     }
     function shownBuyItems() {
         const term = $('pcBuySearch').value.trim().toLocaleLowerCase(), property = Number($('pcBuyProperty').value);
         return buyItems().filter(i => (!property || i.listing_id === property) && (!term || i.label.toLocaleLowerCase().includes(term)));
     }
     function selectBuyItem(item) {
-        if (item.requested == null) return;
+        if (item.requested == null || item.group_pending) return;
         state.buySelection[item.id] = state.buySelection[item.id] || {quantity: item.to_order, location_id: defaultDestination(item.listing_id) || state.requests.find(t => t.id === item.ticket_id)?.storage_location_id || ''};
     }
     function renderToBuy() {
         if (!state.ref.can_purchase) return;
         const all = buyItems(), shown = shownBuyItems();
-        const ids = new Set(all.filter(i => i.requested != null).map(i => i.id));
+        const ids = new Set(all.filter(i => i.requested != null && !i.group_pending).map(i => i.id));
         for (const id of Object.keys(state.buySelection)) if (!ids.has(Number(id))) delete state.buySelection[id];
         $('pcBuyList').innerHTML = shown.length ? shown.map(i => {
             const choice = state.buySelection[i.id], request = state.requests.find(t => t.id === i.ticket_id);
+            if (i.group_pending) return `<div class="pc-buy-row pc-buy-unplanned"><div class="pc-buy-item"><span><strong>${esc(i.name)}</strong><small>${esc(request.code)} · ${esc(request.group.tag)}</small><small>${i.requested == null ? 'Quantity optional' : `${num(i.requested)} ${esc(i.unit)} total for the group`} · Property allocation pending</small></span></div><div class="pc-buy-plan-action">${button('allocate-properties','Assign properties',`data-id="${i.id}"`,'pc-primary')}</div></div>`;
             if (i.requested == null) return `<div class="pc-buy-row pc-buy-unplanned" data-buy-row="${i.id}"><div class="pc-buy-item"><span><strong>${esc(i.name)}</strong><small>${esc(request.code)} · ${esc(i.property || request.property)}</small><small>Choose how much to supply. You can purchase it in parts.</small></span></div><div class="pc-buy-plan-action">${button('plan-quantity','Set quantity',`data-id="${i.id}"`,'pc-primary')}</div></div>`;
             return `<div class="pc-buy-row" data-buy-row="${i.id}">
                 <label class="pc-buy-item"><input type="checkbox" data-buy-check="${i.id}" ${choice ? 'checked' : ''}><span><strong>${esc(i.name)}</strong><small>${esc(request.code)} · ${esc(i.property || request.property)}</small><small>${num(i.to_order)} ${esc(i.unit)} still to buy${i.reserved ? ` · ${num(i.reserved)} reserved / purchased` : ''}</small></span></label>
@@ -218,14 +219,15 @@
         return `<div class="pc-detail-summary"><div class="pc-actions">${badge(t.status, t.status_label)}<span class="pc-priority ${esc(t.priority)}">${esc(t.priority)}</span></div><div class="pc-actions">${canPurchase && !cancelled ? button('edit-request', 'Edit request') + (!t.reviewed_at ? button('review-request', 'Mark reviewed') : '') : ''}${canOrder ? button('purchase-request', 'Prepare purchase', '', 'pc-primary') : ''}</div></div>
             ${missing.length ? `<section class="pc-alert pc-information-needed" aria-labelledby="pcMissingInfoTitle"><div class="pc-form-row-heading"><h3 id="pcMissingInfoTitle">Needs information</h3>${canPurchase ? button('edit-request','Update missing details') : ''}</div><ul>${missing.map(detail => `<li>${esc(detail.message)}</li>`).join('')}</ul>${!canPurchase ? `<p>Ask purchasing staff to update these request details.</p>` : ''}</section>` : ''}
             ${otherFlags.length ? `<div class="pc-alert">${otherFlags.map(esc).join(' · ')}</div>` : ''}
+            ${t.group ? `<section class="pc-group-summary"><div class="pc-form-row-heading"><div><h3>${esc(t.group.tag)}</h3><p>${{entire_group:'Entire group',assign_later:'Properties assigned during staff review',selected_properties:'Selected properties'}[t.group.coverage]} · ${t.group.properties.length} properties in the saved scope</p></div>${canPurchase && t.allocation_pending && !cancelled ? button('allocate-properties','Assign properties',`data-id="${t.items.find(i=>!i.listing_id).id}"`,'pc-primary') : ''}</div><p>${t.allocation_pending ? 'Unallocated supplies are group totals. Staff assign quantities to properties before linking purchases and confirming receipts.' : 'Supplies are allocated to the properties below. Group membership changes do not alter this request.'}</p></section>` : ''}
             ${t.possible_duplicates.length && !['completed','cancelled'].includes(t.status) ? `<div class="pc-alert">Similar open requests: ${t.possible_duplicates.map(d => `<button type="button" class="pc-text-button" data-action="request-detail" data-id="${d.id}">${esc(d.code)} — ${esc(d.title)}</button>`).join(', ')}. Check whether this is a follow-up or an additional need before purchasing.</div>` : ''}
             <div class="pc-stepper">${['Captured', 'Purchasing', 'Delivered', 'At property'].map((label, i) => `<div class="${i === 0 || i === 1 && t.status !== 'new' || i === 2 && ['awaiting_confirmation', 'completed'].includes(t.status) || i === 3 && t.status === 'completed' ? 'done' : ''}">${label}</div>`).join('')}</div>
             <dl class="pc-info-grid"><div><dt>Property</dt><dd>${esc(t.property)}</dd></div>${canPurchase ? `<div><dt>Requested by</dt><dd>${esc(t.requester_name)}</dd></div><div><dt>Staff owner</dt><dd>${esc(t.owner_name)}</dd></div>` : ''}<div><dt>Needed by</dt><dd>${esc(date(t.required_by, t.timezone))}</dd></div>${canPurchase ? `<div><dt>Staff response due</dt><dd>${esc(date(t.response_due_at,t.timezone))}</dd></div>` : ''}<div><dt>Captured</dt><dd>${esc(date(t.created_at, t.timezone))}</dd></div></dl>
             ${t.properties.length ? `<div class="pc-property-progress"><div class="pc-form-row-heading"><h3>${t.ready_properties} of ${t.property_count} properties ready</h3>${t.items.some(i => i.listing_id && i.allocations.some(a => a.property_confirmable > 0)) ? button('confirm-properties','Confirm property receipts','','pc-primary') : ''}</div>${t.properties.map(p => `<div class="pc-property-progress-row"><span><strong>${esc(p.name)}</strong><small>${esc(p.housekeepers.map(s => s.name).join(', ') || 'Housekeeper not assigned')} · ${esc(date(p.required_by,p.timezone))}</small></span>${badge(p.status,p.status_label)}</div>`).join('')}</div>` : ''}
-            <h3>Requested supplies <span class="pc-subtle">${t.fulfilled_items} of ${t.items.length} fulfilled</span></h3>
-            ${t.items.map(i => `<article class="pc-item-card"><div class="pc-item-heading"><div><h4>${esc(i.name)}</h4><small>${esc(i.property || t.property)} · ${esc(i.unit)} · ${esc(i.category)}</small></div>${i.requested != null && i.remaining === 0 ? badge('completed', 'Fulfilled') : `<span class="pc-muted">${i.requested == null ? 'Staff will choose quantity' : `${num(i.remaining)} remaining`}</span>`}</div><div class="pc-quantity-grid ${i.requested == null ? 'pc-quantity-unplanned' : ''}">${i.requested != null ? `<div><span>To supply</span><strong>${num(i.requested)}</strong></div>` : ''}<div><span>Ordered</span><strong>${num(i.ordered)}</strong></div><div><span>Delivered</span><strong>${num(i.delivered)}</strong></div><div><span>At property</span><strong>${num(i.confirmed)}</strong></div></div>${canPurchase && i.requested == null && !cancelled ? `<div class="pc-actions" style="margin-top:12px">${button('plan-quantity','Set quantity',`data-id="${i.id}"`)}</div>` : ''}${i.cancelled ? `<p class="pc-detail-note">${num(i.cancelled)} cancelled: ${esc(i.cancellation_reason)}</p>` : ''}
+            <h3>Supplies <span class="pc-subtle">${t.fulfilled_items} of ${t.items.length} fulfilled</span></h3>
+            ${t.items.map(i => `<article class="pc-item-card"><div class="pc-item-heading"><div><h4>${esc(i.name)}</h4><small>${esc(i.property || (t.group && !i.listing_id ? t.group.tag : t.property))} · ${esc(i.unit)} · ${esc(i.category)}</small></div>${i.requested != null && i.remaining === 0 ? badge('completed', 'Fulfilled') : `<span class="pc-muted">${t.group && !i.listing_id ? 'Property allocation pending' : i.requested == null ? 'Staff will choose quantity' : `${num(i.remaining)} remaining`}</span>`}</div><div class="pc-quantity-grid ${i.requested == null ? 'pc-quantity-unplanned' : ''}">${i.requested != null ? `<div><span>To supply</span><strong>${num(i.requested)}</strong></div>` : ''}<div><span>Ordered</span><strong>${num(i.ordered)}</strong></div><div><span>Delivered</span><strong>${num(i.delivered)}</strong></div><div><span>At property</span><strong>${num(i.confirmed)}</strong></div></div>${canPurchase && !cancelled && (t.group && !i.listing_id || i.requested == null) ? `<div class="pc-actions" style="margin-top:12px">${button(t.group && !i.listing_id ? 'allocate-properties' : 'plan-quantity',t.group && !i.listing_id ? 'Assign properties' : 'Set quantity',`data-id="${i.id}"`)}</div>` : ''}${i.cancelled ? `<p class="pc-detail-note">${num(i.cancelled)} cancelled: ${esc(i.cancellation_reason)}</p>` : ''}
             ${i.allocations.map(a => `<div class="pc-allocation"><div>${canPurchase ? `<button type="button" class="pc-text-button" data-action="order-detail" data-id="${a.order_id}">PO-${String(a.order_id).padStart(4, '0')}</button>` : `PO-${String(a.order_id).padStart(4, '0')}`} · ${esc(a.vendor)} <span class="pc-subtle">${num(a.quantity)} ${esc(i.unit)} · ${esc(a.order_state)}</span></div><div class="pc-actions">${a.property_confirmable > 0 ? button('confirm', 'Confirm at property', `data-id="${a.id}"`, 'pc-primary') : ''}${a.confirmed > 0 ? button('return', 'Record return', `data-id="${a.id}"`) : ''}${a.reportable > 0 && a.order_state === 'ordered' ? button('problem', 'Report problem', `data-id="${a.id}"`) : ''}</div></div>${a.problem_quantity ? `<p class="pc-detail-note pc-danger-text">${num(a.problem_quantity)} ${esc(i.unit)} reported lost, damaged, incorrect, or cancelled. Replacement need remains tracked.</p>` : ''}${a.confirmations.map(c => `<p class="pc-detail-note">${c.quantity < 0 ? '↩ Returned' : '✓ Confirmed'} ${num(Math.abs(c.quantity))} at ${esc(c.property)} · ${esc(c.housekeeper)} · ${esc(date(c.at))}<br>${esc(c.note)}</p>`).join('')}`).join('')}
-            ${canPurchase && i.to_order > 0 && !cancelled ? `<div style="margin-top:12px">${button('cancel-item', 'Cancel unpurchased quantity', `data-id="${i.id}"`)}</div>` : ''}</article>`).join('')}
+            ${canPurchase && i.to_order > 0 && !cancelled && (!t.group || i.listing_id) ? `<div style="margin-top:12px">${button('cancel-item', 'Cancel unpurchased quantity', `data-id="${i.id}"`)}</div>` : ''}</article>`).join('')}
             <p class="pc-detail-note">Delivered means arrival at the shipping destination. At property means the assigned housekeeper has verified the supplies reached the rental.</p>
             ${!t.messages_private ? `<div class="pc-detail-section"><div class="pc-form-row-heading"><h3>Messages & notes</h3>${!cancelled && !t.messages_private ? button('add-note', 'Add note') : ''}</div>${t.messages.length ? t.messages.map(m => `<div class="pc-message"><div class="pc-source-label">${esc(m.source)} · ${esc(date(m.at))}${m.message_id ? ` · ${esc(m.message_id)}` : ''}</div>${esc(m.body)}${m.url ? `<br><a href="${esc(m.url)}" target="_blank" rel="noopener noreferrer">Original message ↗</a>` : ''}</div>`).join('') : `<p class="pc-muted">${t.messages_private ? 'Shared request messages are available to purchasing staff.' : 'No messages attached.'}</p>`}</div>` : ''}
             ${t.activity.length ? `<div class="pc-detail-section"><h3>Activity history</h3>${activity(t.activity)}</div>` : ''}${canPurchase && !cancelled && !t.items.some(i => i.reserved > 0) ? `<div class="pc-detail-section">${button('cancel-request', 'Cancel request', '', 'pc-destructive')}</div>` : ''}${t.cancelled_reason ? `<div class="pc-alert">Cancelled: ${esc(t.cancelled_reason)}</div>` : ''}`;
@@ -264,7 +266,7 @@
             const column = draft.columns.find(c => c.key === Number(el.dataset.column));
             if (column) column.values[el.dataset.property] = {...column.values[el.dataset.property], quantity:el.value};
         }
-        draft.ids = [...$('pcForm').querySelectorAll('[name=listing_ids]:checked')].map(el => Number(el.value));
+        draft.ids = draft.groupTitle ? [] : [...$('pcForm').querySelectorAll('[name=listing_ids]:checked')].map(el => Number(el.value));
     }
     function requestColumn() {
         const draft = state.requestDraft;
@@ -283,41 +285,71 @@
         }).join('');
     }
     function renderRequestMatrix() {
-        const draft = state.requestDraft, properties = draft.ids.length ? draft.ids.map(id => state.ref.properties.find(p => p.id === id)).filter(Boolean) : [{id:0,name:'Property not yet known'}];
-        $('pcRequestMatrix').innerHTML = `${draft.columns.map((c,index) => `<div class="pc-matrix-bulk"><div class="pc-bulk-copy"><label for="pcBulkQuantity${c.key}">${esc(c.name || `Supply ${index + 1}`)} · same quantity for each property</label><p>Optional. Adjust individual quantities below.</p></div><input id="pcBulkQuantity${c.key}" type="number" inputmode="decimal" min="0" step="0.001" placeholder="e.g. 12" data-bulk-column="${c.key}" aria-label="${esc(c.name || `Supply ${index + 1}`)} quantity for all properties">${button('apply-product-quantity','Apply to all',`data-id="${c.key}"`)}</div>`).join('')}<div class="pc-table-wrap"><table class="pc-table pc-quantity-matrix"><thead><tr><th>Property / housekeeper</th>${draft.columns.map(c => `<th>${esc(c.name || 'New supply')}<small>${esc(c.unit)}</small></th>`).join('')}</tr></thead><tbody>${properties.map(p => `<tr><td><strong>${esc(p.name)}</strong><small>${p.id ? esc(activeStaff(p.id).map(s => s.name).join(', ') || 'Housekeeper not assigned') : 'Clarify before purchasing'}</small></td>${draft.columns.map(c => {
-            const v = c.values[p.id] || c.values[0] || {quantity:''};
-            if (!c.values[p.id]) c.values[p.id] = {...v,id:null,locked:false};
+        const draft = state.requestDraft, properties = draft.ids.length ? draft.ids.map(id => state.ref.properties.find(p => p.id === id)).filter(Boolean) : [{id:0,name:draft.groupTitle ? `Group total · ${draft.groupTitle}` : 'Property not yet known'}];
+        const bulk = draft.groupTitle ? '' : draft.columns.map((c,index) => `<div class="pc-matrix-bulk"><div class="pc-bulk-copy"><label for="pcBulkQuantity${c.key}">${esc(c.name || `Supply ${index + 1}`)} · same quantity for each property</label><p>Optional. Adjust individual quantities below.</p></div><input id="pcBulkQuantity${c.key}" type="number" inputmode="decimal" min="0" step="0.001" placeholder="e.g. 12" data-bulk-column="${c.key}" aria-label="${esc(c.name || `Supply ${index + 1}`)} quantity for all properties">${button('apply-product-quantity','Apply to all',`data-id="${c.key}"`)}</div>`).join('');
+        $('pcRequestMatrix').innerHTML = `${bulk}<div class="pc-table-wrap"><table class="pc-table pc-quantity-matrix"><thead><tr><th>${draft.groupTitle ? 'Group' : 'Property / housekeeper'}</th>${draft.columns.map(c => `<th>${esc(c.name || 'New supply')}<small>${esc(c.unit)}</small></th>`).join('')}</tr></thead><tbody>${properties.map(p => `<tr><td><strong>${esc(p.name)}</strong><small>${p.id ? esc(activeStaff(p.id).map(s => s.name).join(', ') || 'Housekeeper not assigned') : draft.groupTitle ? 'Staff assign properties later' : 'Clarify before purchasing'}</small></td>${draft.columns.map(c => {
+            const v = planning.requestCell(c,p.id,draft.groupScopeUsed);
             return `<td data-label="${esc(c.name || 'New supply')} · ${esc(c.unit)}"><input data-matrix-quantity data-column="${c.key}" data-property="${p.id}" value="${esc(v.quantity ?? '')}" type="number" min="0" max="99999999" step="0.001" placeholder="Optional" aria-label="${esc(p.name)} · ${esc(c.name || 'New supply')} (${esc(c.unit)})" ${v.locked ? 'readonly' : ''}>${v.locked ? '<small>Purchasing history · add another supply for changes</small>' : ''}</td>`;
-        }).join('')}</tr>`).join('')}</tbody></table></div><p class="pc-form-intro">Leave blank for purchasing staff to choose · 0 = not needed at this property. Quantities with purchasing history retain their original details.</p>`;
+        }).join('')}</tr>`).join('')}</tbody></table></div><p class="pc-form-intro">${draft.groupTitle ? 'Optional group totals. Quantities are not multiplied by the number of properties.' : 'Leave blank for purchasing staff to choose · 0 = not needed at this property. Quantities with purchasing history retain their original details.'}</p>`;
         const staffSelect = $('pcForm').querySelector('[name=requester_staff_id]');
-        const candidates = activeStaff().filter(s => draft.ids.every(id => s.listing_ids.includes(id)));
+        const candidates = activeStaff().filter(s => draft.ids.every(id => s.listing_ids.includes(id)) && (!draft.groupTitle || (draft.allowedIds || []).some(id => s.listing_ids.includes(id))));
         const original = state.ref.staff.find(s => s.id === draft.originalRequesterId);
         if (original && !candidates.some(s => s.id === original.id)) candidates.push({...original,name:`Original requester · ${original.name}`});
         if (staffSelect) staffSelect.innerHTML = options(candidates, staffSelect.value || state.ref.staff_id, 'Staff request / requester below');
     }
-    function requestForm(existing = null) {
-        const t = existing || {}, draft = planning.requestGrid(t.items || [],t.listing_ids || []);
+    function updateRequestScope() {
+        const draft = state.requestDraft, root = $('pcForm');
+        const tag = root.querySelector('[name=group_tag]')?.value || '', coverage = root.querySelector('[name=group_coverage]');
+        if (!coverage) return;
+        captureRequestDraft();
+        if (!tag) coverage.value='selected_properties';
+        else if (draft.scopeTag !== undefined && draft.scopeTag !== tag) coverage.value='assign_later';
+        draft.scopeTag=tag;
+        draft.groupScopeUsed ||= !!tag;
+        coverage.disabled = !tag || draft.scopeLocked;
+        const entire=coverage.querySelector('[value=entire_group]');
+        entire.disabled = !!tag && state.ref.property_groups?.find(g=>g.tag===tag)?.can_request_entire_group === false;
+        if (entire.disabled && coverage.value==='entire_group') coverage.value='assign_later';
+        draft.allowedIds = tag ? (draft.savedGroup?.tag === tag ? draft.savedGroup.properties : state.ref.properties.filter(p => p.tags.includes(tag))).map(p => p.id) : null;
+        root.querySelectorAll('[name=listing_ids]').forEach(el => { if (tag && !draft.allowedIds.includes(Number(el.value)) && !el.disabled) el.checked = false; });
+        draft.groupTitle = tag && coverage.value !== 'selected_properties' ? tag : null;
+        $('pcRequestPropertyPicker').hidden = !!draft.groupTitle;
+        const storage = root.querySelector('[name=storage_location_id]');
+        if (storage) { storage.disabled = !!tag; if (tag) storage.value = ''; }
+        $('pcGroupScopeHelp').textContent = draft.groupTitle ? `${draft.allowedIds.length} properties in the saved scope. Add each supply once; staff will distribute group totals later.` : tag ? 'Choose properties within this group. Each quantity is for its selected property.' : 'Select specific properties below, or choose a group and assign properties later.';
+        captureRequestDraft(); filterAssignments(); renderRequestMatrix();
+    }
+    function requestForm(existing = null, assignedOnly = false) {
+        if (existing?.group && existing.group.coverage !== 'selected_properties' && !assignedOnly) { groupRequestForm(existing); return; }
+        const t = existing || {}, previous = assignedOnly ? t.items.filter(i => i.listing_id) : t.items || [], draft = planning.requestGrid(previous,t.listing_ids || []);
         draft.originalRequesterId = t.requester_staff_id;
+        draft.savedGroup = t.group;
+        draft.groupScopeUsed = !!t.group;
+        draft.scopeLocked = t.items?.some(i=>i.allocations.length || i.cancelled);
+        draft.allowedIds = t.group?.properties.map(p => p.id);
         state.requestDraft = draft;
         if (!draft.columns.length) draft.columns.push(requestColumn());
         const picker = assignmentPicker({listing_ids:draft.ids}).replace('Assigned properties','Request properties');
-        openForm(existing ? 'Edit supply request' : 'New supply request', `<p class="pc-form-intro">Select the properties and add the supplies needed. Quantities are optional; purchasing staff can choose them later. Use property groups to select several houses at once.</p>
+        const groups = [...new Set([...state.ref.properties.flatMap(p => p.tags),...(t.group ? [t.group.tag] : [])])].sort();
+        const groupFields = assignedOnly ? `<div class="pc-group-summary"><strong>${esc(t.group.tag)}</strong><p>Edit the assigned properties below. Unallocated group supplies are kept separately.</p></div>` : `<div class="pc-field-grid pc-group-fields">${field('Property group (optional)',select('group_tag',opt('','Choose specific properties')+groups.map(tag=>opt(tag,tag,t.group?.tag===tag)).join(''),t.items?.some(i=>i.allocations.length || i.cancelled) ? 'disabled' : ''))}${field('Request coverage',select('group_coverage',opt('assign_later','Assign properties later',!t.group || t.group.coverage==='assign_later')+opt('entire_group','Entire group',t.group?.coverage==='entire_group')+opt('selected_properties','Selected properties',t.group?.coverage==='selected_properties'),t.group ? '' : 'disabled'))}</div><p class="pc-form-intro" id="pcGroupScopeHelp"></p>`;
+        openForm(existing ? 'Edit supply request' : 'New supply request', `<p class="pc-form-intro">Choose a property group or specific properties, then add supplies. Properties and quantities can be assigned by purchasing staff later.</p>
             <div class="pc-field-grid">${field('Request title',input('title',t.title || 'Supply restock','required maxlength="240"'),'','pc-span-2')}${state.ref.can_purchase ? field('Staff owner',select('owner_user_id',options(state.ref.users,t.owner_user_id || state.ref.user_id,'Unassigned'))) : ''}${field('Priority',select('priority',state.ref.priorities.map(p => opt(p,p[0].toUpperCase()+p.slice(1),p === (t.priority || 'normal'))).join('')))}${field('Needed by (your local time)',input('required_by',localInput(t.required_by),'type="datetime-local"'),Intl.DateTimeFormat().resolvedOptions().timeZone)}${existing ? field('Staff response due (your local time)',input('response_due_at',localInput(t.response_due_at),'type="datetime-local"')) : ''}</div>
-            ${picker}${!existing && state.ref.can_purchase ? field('Or shared storage',select('storage_location_id',options(activeLocations().filter(l => l.kind === 'storage'),null,'No shared storage','label')),'Use this only when no properties are selected.') : ''}
+            ${groupFields}<div id="pcRequestPropertyPicker">${picker}</div>${!existing && state.ref.can_purchase ? field('Or shared storage',select('storage_location_id',options(activeLocations().filter(l => l.kind === 'storage'),null,'No shared storage','label')),'Use this only when no properties or group are selected.') : ''}
             <details class="pc-form-section"><summary>Requester details</summary><div class="pc-field-grid">${field('Requesting housekeeper',select('requester_staff_id',options(activeStaff(),t.requester_staff_id || state.ref.staff_id,'Staff request / requester below')),'Only people assigned to every selected property can request as one housekeeper.')}${field('Requester name',input('requester_name',t.requester_name || state.ref.users.find(u => u.id === state.ref.user_id)?.name || '', 'maxlength="160"'))}</div></details>
             <div class="pc-form-section"><div class="pc-form-row-heading"><h3>Supplies</h3>${button('add-request-row','＋ Add supply')}</div><div id="pcRequestProducts"></div></div>
             <details class="pc-form-section pc-optional-quantities" ${t.items?.some(i => i.quantity != null) ? 'open' : ''}><summary>Quantities (optional)</summary><p class="pc-form-intro">Add quantities if you know them, or leave them blank. Staff will decide how much to supply when preparing purchases.</p><div id="pcRequestMatrix"></div></details>
             ${!existing ? field('Original request / notes',note('body','Paste the original request or describe the need.',false)) : ''}`, async form => {
             captureRequestDraft();
-            const f = Object.fromEntries(new FormData(form)), items = planning.requestChanges(draft,t.items || []);
+            const f = Object.fromEntries(new FormData(form)), items = planning.requestChanges(draft,previous);
             const staff = state.ref.staff.find(s => s.id === Number(f.requester_staff_id));
             const body = {title:f.title,requester_name:staff?.name || f.requester_name,requester_staff_id:f.requester_staff_id || null,owner_user_id:f.owner_user_id || null,priority:f.priority,required_by:utc(f.required_by),items};
+            if (!assignedOnly) { body.group_tag = form.querySelector('[name=group_tag]').value || null; if (body.group_tag) body.group_coverage = form.querySelector('[name=group_coverage]').value; }
             if (!existing || JSON.stringify([...draft.ids].sort()) !== JSON.stringify([...(t.listing_ids || [])].sort())) body.listing_ids = draft.ids;
             if (!existing && f.storage_location_id) body.storage_location_id = Number(f.storage_location_id);
             if (existing) {body.version = t.version;body.response_due_at = utc(f.response_due_at);}
             else if (f.body) body.source = {channel:'manual',body:f.body};
             const result = await mutate(existing ? `requests/${t.id}` : 'requests',existing ? 'PATCH' : 'POST',body);
-            return {kind:'request',id:result.id,message:existing ? 'Request updated.' : 'Request captured for the selected properties.'};
+            return {kind:'request',id:result.id,message:existing ? 'Request updated.' : body.group_tag ? 'Group request captured. Staff can allocate properties later.' : 'Request captured for the selected properties.'};
         },existing ? 'Save changes' : 'Create request');
         for (const label of $('pcForm').querySelectorAll('[data-assignment-id]')) {
             if ((t.items || []).some(i => i.listing_id === Number(label.dataset.assignmentId) && (i.allocations.length || i.cancelled))) label.querySelector('input').disabled = true;
@@ -325,11 +357,50 @@
         const requesterSelect = $('pcForm').querySelector('[name=requester_staff_id]');
         const original = state.ref.staff.find(s => s.id === t.requester_staff_id);
         if (original && !activeStaff().some(s => s.id === original.id)) requesterSelect.insertAdjacentHTML('beforeend',opt(original.id,`Original requester · ${original.name}`,true));
-        filterAssignments(); renderRequestProducts(); renderRequestMatrix();
+        filterAssignments(); renderRequestProducts(); if (!assignedOnly) updateRequestScope(); else renderRequestMatrix();
     }
 
+    function groupRequestForm(t) {
+        const previous = t.items.filter(i => !i.listing_id), draft = planning.requestGrid(previous,[]);
+        draft.groupTitle = t.group.tag; draft.allowedIds = t.group.properties.map(p => p.id);
+        state.requestDraft = draft;
+        const assigned = t.items.filter(i => i.listing_id);
+        openForm('Edit group request', `<div class="pc-group-summary"><strong>${esc(t.group.tag)}</strong><p>${t.group.coverage === 'entire_group' ? 'Entire group' : 'Properties assigned during staff review'} · ${t.group.properties.length} properties in the saved scope.</p></div><div class="pc-field-grid">${field('Request title',input('title',t.title,'required maxlength="240"'),'','pc-span-2')}${field('Staff owner',select('owner_user_id',options(state.ref.users,t.owner_user_id,'Unassigned')))}${field('Priority',select('priority',state.ref.priorities.map(p=>opt(p,p,p===t.priority)).join('')))}${field('Needed by (your local time)',input('required_by',localInput(t.required_by),'type="datetime-local"'))}${field('Staff response due (your local time)',input('response_due_at',localInput(t.response_due_at),'type="datetime-local"'))}</div>
+            ${assigned.length ? `<div class="pc-form-section"><div class="pc-form-row-heading"><h3>Assigned supplies</h3>${button('edit-property-allocations','Edit assigned properties')}</div><p class="pc-form-intro">${assigned.length} supply allocations are preserved. Purchasing history and confirmations stay linked to their original properties.</p></div>` : ''}
+            <div class="pc-form-section"><div class="pc-form-row-heading"><h3>Unallocated group supplies</h3>${button('add-request-row','＋ Add supply')}</div><p class="pc-form-intro">Add each supply once. Staff distribute the total to properties later.</p><div id="pcRequestProducts"></div></div><details class="pc-form-section pc-optional-quantities"><summary>Group quantities (optional)</summary><div id="pcRequestMatrix"></div></details>`, async form => {
+                captureRequestDraft();
+                const f=Object.fromEntries(new FormData(form));
+                const result=await mutate(`requests/${t.id}`,'PATCH',{version:t.version,title:f.title,owner_user_id:f.owner_user_id || null,priority:f.priority,required_by:utc(f.required_by),response_due_at:utc(f.response_due_at),items:planning.requestChanges(draft,previous)});
+                return {kind:'request',id:result.id,message:'Group request updated. Assigned supplies and purchasing history were preserved.'};
+            },'Save changes');
+        renderRequestProducts(); renderRequestMatrix();
+    }
+    function groupAllocationRows() {
+        return [...$('pcForm').querySelectorAll('[data-group-assign]:checked')].map(el=>({listing_id:Number(el.value),quantity:$('pcForm').querySelector(`[data-group-quantity="${el.value}"]`).value}));
+    }
+    function previewGroupAllocation() {
+        const summary=$('pcGroupAllocationSummary'); if (!summary) return;
+        const rows=groupAllocationRows();
+        try { const plan=planning.groupAllocationPlan($('pcForm').querySelector('[name=total_quantity]').value,rows); summary.textContent=`${num(plan.allocated)} allocated to ${rows.length} propert${rows.length===1?'y':'ies'} · ${num(plan.remaining)} still to allocate`; }
+        catch(error) { summary.textContent=rows.length ? error.message : 'Choose properties and enter quantities for each. Unselected properties receive no allocation.'; }
+    }
+    function groupAllocationForm(itemId) {
+        const t=state.requests.find(t=>t.items.some(i=>i.id===itemId)), item=t?.items.find(i=>i.id===itemId);
+        if (!state.ref.can_purchase || !t?.group || !item || item.listing_id || t.status==='cancelled') throw new Error('Reload the request to see its current property allocations.');
+        state.detail={kind:'request',data:t};
+        openForm('Assign supplies to properties', `<div class="pc-group-summary"><strong>${esc(item.name)} · ${esc(t.group.tag)}</strong><p>${esc(t.code)} · Quantities below are for each selected property. No quantity is copied automatically.</p></div>${field(item.requested == null ? `Total to supply (${item.unit}) · optional` : `Total awaiting allocation (${item.unit})`,input('total_quantity',item.requested ?? '',`type="number" min="0.001" max="99999999" step="0.001" ${item.requested == null ? '' : 'readonly'}`),item.requested == null ? 'Leave blank when the allocations below cover the need. Enter a total to keep any remainder open for allocation later.' : 'Any quantity left over stays open on the group request. Edit the group request first to change this total.')}
+            <div class="pc-group-allocation-tools">${input('property_search','','type="search" data-group-allocation-search placeholder="Search properties" aria-label="Search group allocation properties"')}<div class="pc-actions">${button('select-group-properties','Select shown')}${button('clear-group-properties','Clear shown')}</div></div>
+            <div class="pc-group-allocation-list">${[...t.group.properties].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<div class="pc-group-allocation-row" data-group-property="${p.id}"><label class="pc-checkbox"><input type="checkbox" value="${p.id}" data-group-assign><span>${esc(p.name)}</span></label><label class="pc-field"><span>${esc(item.unit)} to supply</span><input type="number" min="0.001" max="99999999" step="0.001" data-group-quantity="${p.id}" aria-label="${esc(p.name)} allocation (${esc(item.unit)})" disabled></label></div>`).join('')}</div>
+            <div class="pc-matrix-bulk"><div class="pc-bulk-copy"><label for="pcGroupBulkQuantity">Same quantity for selected properties</label><p>Only checked properties are updated.</p></div><input id="pcGroupBulkQuantity" type="number" min="0.001" max="99999999" step="0.001" placeholder="e.g. 6">${button('apply-group-quantity','Apply to selected')}</div><p id="pcGroupAllocationSummary" role="status" aria-live="polite" class="pc-form-intro"></p>`,async form=>{
+                const rows=groupAllocationRows(), total=form.querySelector('[name=total_quantity]').value;
+                planning.groupAllocationPlan(total,rows);
+                const result=await mutate(`requests/${t.id}/allocate-properties`,'POST',{version:t.version,item_id:item.id,total_quantity:total || null,allocations:rows});
+                return {kind:'request',id:result.id,message:result.allocation_pending ? 'Property allocations saved. Remaining group supplies stay open.' : 'Properties assigned. Prepare purchases and confirm supplies at each property.'};
+            },'Save property allocations');
+        previewGroupAllocation();
+    }
     function eligibleItems(includeReserved = false, includeUnplanned = false) {
-        return state.requests.filter(t => t.status !== 'cancelled').flatMap(t => t.items.filter(i => i.requested == null ? includeUnplanned : i.to_order > 0 || includeReserved && (state.editingOrderItemIds || []).includes(i.id)).map(i => ({...i, ticket_id: t.id, label: `${t.code} · ${i.property || t.property} · ${i.name} (${i.requested == null ? 'staff choose quantity' : `${num(i.to_order)} ${i.unit} to order`})`})));
+        return state.requests.filter(t => t.status !== 'cancelled').flatMap(t => t.items.filter(i => (!t.group || i.listing_id || includeUnplanned) && (i.requested == null ? includeUnplanned : i.to_order > 0 || includeReserved && (state.editingOrderItemIds || []).includes(i.id))).map(i => ({...i, ticket_id: t.id, group_pending:!!t.group && !i.listing_id, label: `${t.code} · ${t.group?.tag || ''} · ${i.property || t.property} · ${i.name} (${i.requested == null ? 'staff choose quantity' : `${num(i.to_order)} ${i.unit} to order`})`})));
     }
     function quantityPlanForm(itemId) {
         const ticket = state.requests.find(t => t.items.some(i => i.id === itemId));
@@ -511,7 +582,8 @@
         let visible = 0;
         root.querySelectorAll('[data-assignment-id]').forEach(label => {
             const p = state.ref.properties.find(p => p.id === Number(label.dataset.assignmentId));
-            label.hidden = !!((tag && !p.tags.includes(tag)) || (term && ![p.name,p.city,...p.tags].join(' ').toLocaleLowerCase().includes(term)));
+            const allowed = root.querySelector('#pcRequestMatrix') ? state.requestDraft?.allowedIds : null;
+            label.hidden = !!((allowed && !allowed.includes(p.id)) || (tag && !p.tags.includes(tag)) || (term && ![p.name,p.city,...p.tags].join(' ').toLocaleLowerCase().includes(term)));
             if (!label.hidden) visible++;
         });
         const selected = [...root.querySelectorAll('[name=listing_ids]:checked')].map(input => state.ref.properties.find(p => p.id === Number(input.value)));
@@ -627,6 +699,10 @@
             else if (action === 'request-detail' || action === 'order-detail') await detail(action.startsWith('request') ? 'request' : 'order',id);
             else if (action === 'new-request') requestForm();
             else if (action === 'edit-request') requestForm(state.detail.data);
+            else if (action === 'edit-property-allocations') { $('pcFormDialog').close(); requestForm(state.detail.data,true); }
+            else if (action === 'allocate-properties') groupAllocationForm(id);
+            else if (action === 'select-group-properties' || action === 'clear-group-properties') { $('pcForm').querySelectorAll('[data-group-property]').forEach(row=>{ if (!row.hidden) { const checked=action==='select-group-properties'; row.querySelector('[data-group-assign]').checked=checked; const qty=row.querySelector('[data-group-quantity]'); qty.disabled=!checked; qty.required=checked; } }); previewGroupAllocation(); }
+            else if (action === 'apply-group-quantity') { const amount=$('pcGroupBulkQuantity').value; $('pcForm').querySelectorAll('[data-group-assign]:checked').forEach(el=>{ $('pcForm').querySelector(`[data-group-quantity="${el.value}"]`).value=amount; }); previewGroupAllocation(); }
             else if (action === 'new-order') orderForm();
             else if (action === 'plan-quantity') quantityPlanForm(id);
             else if (action === 'purchase-request') { buyItems().filter(i => i.ticket_id === state.detail.data.id).forEach(selectBuyItem); $('pcBuySearch').value = ''; $('pcBuyProperty').value = ''; $('pcDetailDialog').close(); switchView('orders'); switchPurchaseTab('buy'); renderToBuy(); notify('Set any quantities staff need to choose, then select how much to buy now. You can include other requests.'); }
@@ -650,8 +726,15 @@
             else actionForm(action,id);
         } catch (error) { if ($('pcFormDialog').open) { $('pcFormError').textContent = error.message; $('pcFormError').hidden = false; $('pcFormError').scrollIntoView({block:'nearest'}); } else if ($('pcDetailDialog').open) notify(error.message); else showError(error.message); }
     });
-    $('pcForm').addEventListener('input', event => { if (event.target.matches('[data-assignment-search]')) filterAssignments(); else previewOrder(); });
+    $('pcForm').addEventListener('input', event => {
+        if (event.target.matches('[data-assignment-search]')) filterAssignments();
+        else if (event.target.matches('[data-group-allocation-search]')) { const term=event.target.value.trim().toLocaleLowerCase(); $('pcForm').querySelectorAll('[data-group-property]').forEach(row=>{row.hidden=!row.textContent.toLocaleLowerCase().includes(term);}); }
+        else if ($('pcGroupAllocationSummary')) previewGroupAllocation();
+        else previewOrder();
+    });
     $('pcForm').addEventListener('change', event => {
+        if (event.target.matches('[name=group_tag],[name=group_coverage]')) { updateRequestScope(); return; }
+        if (event.target.matches('[data-group-assign]')) { const qty=$('pcForm').querySelector(`[data-group-quantity="${event.target.value}"]`); qty.disabled=!event.target.checked; qty.required=event.target.checked; previewGroupAllocation(); return; }
         if (event.target.matches('[data-assignment-tag],[name=listing_ids]')) { filterAssignments(); if ($('pcRequestMatrix') && event.target.name === 'listing_ids') { captureRequestDraft(); renderRequestMatrix(); } return; }
         if (event.target.matches('[data-column-field]')) {
             captureRequestDraft();

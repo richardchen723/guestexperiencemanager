@@ -35,6 +35,13 @@
         for (const old of previous) if (!retained.has(old.id)) items.push({id:old.id,remove:true});
         return items;
     }
+    function requestCell(column, propertyId, groupScopeUsed = false) {
+        if (!column.values[propertyId]) {
+            const value = (!groupScopeUsed && column.values[0]) || {quantity:''};
+            column.values[propertyId] = {...value,id:null,locked:false};
+        }
+        return column.values[propertyId];
+    }
     function combinePurchases(items, choices, locationIds) {
         if (!items.length) throw new Error('Select supplies to purchase first.');
         const groups = new Map();
@@ -60,5 +67,19 @@
         if (!Number.isFinite(amount) || !Number.isFinite(pack) || pack <= 0 || Math.round(pack * 1000) === 0) throw new Error('Enter a valid pack size and quantity first.');
         return Math.ceil(Math.round(amount * 1000) / Math.round(pack * 1000)) * Math.round(pack * 1000) / 1000;
     }
-    return {requestGrid,requestChanges,combinePurchases,wholePackQuantity};
+    function groupAllocationPlan(total, rows) {
+        if (!rows.length) throw new Error('Select at least one property and enter its quantity.');
+        const units = value => {
+            const n = Number(value);
+            if (!Number.isFinite(n) || n <= 0 || n > 99999999 || Math.abs(n * 1000 - Math.round(n * 1000)) > 0.00001) throw new Error('Enter positive quantities with at most three decimal places.');
+            return Math.round(n * 1000);
+        };
+        const ids = rows.map(r => Number(r.listing_id));
+        if (rows.length > 100 || ids.some(id => !Number.isInteger(id) || id <= 0) || new Set(ids).size !== ids.length) throw new Error('Choose up to 100 distinct properties.');
+        const allocated = rows.reduce((sum,row) => sum + units(row.quantity),0);
+        const target = total === '' || total == null ? allocated : units(total);
+        if (allocated > target) throw new Error('Property allocations exceed the total quantity to supply.');
+        return {allocated:allocated / 1000,remaining:(target - allocated) / 1000};
+    }
+    return {requestGrid,requestChanges,requestCell,combinePurchases,wholePackQuantity,groupAllocationPlan};
 });

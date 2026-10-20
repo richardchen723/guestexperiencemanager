@@ -10,7 +10,7 @@ from datetime import datetime
 from functools import wraps
 
 from flask import Blueprint, Response, g, jsonify, render_template, request, send_file, session as browser_session
-from sqlalchemy import or_, select, text
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from werkzeug.utils import secure_filename
 
@@ -178,6 +178,8 @@ def bootstrap(service):
     locations = list(db.scalars(select(Location).order_by(Location.label))) if service.staff_scope is None else []
     return {
         "properties": [p for p in service.properties.values() if service.staff_scope is None or p["id"] in service.staff_scope.listing_ids],
+        "property_groups": [{"tag":tag,"can_request_entire_group":service.staff_scope is None or all(p["id"] in service.staff_scope.listing_ids for p in service.properties.values() if tag in p.get("tags", []))}
+                            for tag in sorted({tag for p in service.properties.values() if service.staff_scope is None or p["id"] in service.staff_scope.listing_ids for tag in p.get("tags", [])})],
         "users": sorted(service.users.values(), key=lambda user: user["name"].casefold()) if service.staff_scope is None else [],
         "account_users": list(service.account_users.values()) if service.can_approve else [],
         "staff": [{"id": s.id, "version": s.version, "name": s.name, "phone": s.phone if service.staff_scope is None else None,
@@ -199,8 +201,9 @@ def bootstrap(service):
 def list_requests(service):
     query = request_query().order_by(Ticket.created_at.desc())
     if service.staff_scope is not None:
-        query = query.where(or_(Ticket.listing_id.in_(service.staff_scope.listing_ids), Ticket.items.any(RequestItem.listing_id.in_(service.staff_scope.listing_ids))))
-    return {"requests": [service.ticket_dict(t) for t in service.session.scalars(query)]}
+        query = query.where(or_(Ticket.listing_id.in_(service.staff_scope.listing_ids), Ticket.items.any(RequestItem.listing_id.in_(service.staff_scope.listing_ids)),
+            and_(Ticket.requester_staff_id == service.staff_scope.id, Ticket.group_snapshot["tag"].as_string().is_not(None), Ticket.items.any(RequestItem.listing_id.is_(None)))))
+    return {"requests": [service.ticket_dict(t) for t in service.session.scalars(query) if any(service.visible_item(i) for i in t.items)]}
 
 
 @procurement_bp.get("/api/requests/<int:ticket_id>")
@@ -235,6 +238,8 @@ def request_action(service, ticket_id, action):
         ticket = service.confirm_batch(ticket_id, payload())
     elif action == "problem":
         ticket = service.fulfillment_issue(ticket_id, payload())
+    elif action == "allocate-properties":
+        ticket = service.allocate_properties(ticket_id, payload())
     else:
         raise WorkflowError("Unknown request action.", 404)
     return service.ticket_dict(ticket, detail=True)
@@ -340,7 +345,9 @@ def integration_events(service):
         ticket = service.ticket(event.ticket_id)
         staff = service.session.get(Staff, ticket.requester_staff_id) if ticket.requester_staff_id else None
         result.append({"event_id": event.id, "action": event.action, "ticket_id": ticket.id,
-                       "request_code": f"PR-{ticket.id:04d}", "property": ticket.property_snapshot.get("name"),
+                       "request_code": f"PR-{ticket.id:04d}", "property": ticket.property_snapshot.get("name") or (ticket.group_snapshot or {}).get("tag"),
+                       "group": {key:ticket.group_snapshot[key] for key in ("tag","coverage")} if (ticket.group_snapshot or {}).get("tag") else None,
+                       "allocation_pending": bool((ticket.group_snapshot or {}).get("tag")) and any(i.listing_id is None for i in ticket.items),
                        "properties": ticket_properties(ticket), "listing_ids": [p["id"] for p in ticket_properties(ticket)],
                        "affected_listing_ids": event.detail.get("listing_ids", [event.detail["listing_id"]] if event.detail.get("listing_id") else [p["id"] for p in ticket_properties(ticket)]),
                        "status": ticket_status(ticket), "owner_user_id": ticket.owner_user_id,

@@ -76,6 +76,13 @@ def main():
                 db.flush()
             if not db.get(ListingTag, (p["id"], tag.tag_id)):
                 db.add(ListingTag(listing_id=p["id"],tag_id=tag.tag_id))
+        for label, ids in (("Coastal group", [101,104]), ("All sample properties", [101,102,103,104])):
+            tag = db.scalar(select(Tag).where(Tag.name == label))
+            if not tag:
+                tag = Tag(name=label); db.add(tag); db.flush()
+            for listing_id in ids:
+                if not db.get(ListingTag,(listing_id,tag.tag_id)):
+                    db.add(ListingTag(listing_id=listing_id,tag_id=tag.tag_id))
         db.commit()
     with get_session() as db:
         if not db.scalar(select(Ticket.id).limit(1)):
