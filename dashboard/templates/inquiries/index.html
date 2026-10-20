@@ -2,7 +2,7 @@
 {% block title %}Guest inquiries · Cotton Candy{% endblock %}
 {% block extra_head %}
 <meta name="inquiries-csrf" content="{{ inquiries_csrf }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/inquiries.css', v='813-2') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inquiries.css', v='813-3') }}">
 {% endblock %}
 {% block content %}
 <section class="iq" id="inquiryApp" aria-label="Guest inquiry CRM">
@@ -12,7 +12,7 @@
   <div class="iq-stats" id="iqStats" aria-label="Filtered inquiry statistics"><div class="iq-stat"><span>Loading inquiries…</span><strong>—</strong></div></div>
   <div class="iq-controls">
     <div class="iq-filters">
-      <label class="iq-search">Search<input id="iqSearch" type="search" placeholder="Name, email, phone, property or reference"></label>
+      <label class="iq-search">Search<input id="iqSearch" type="search" placeholder="Guest, contact or reference"></label>
       <label>Date received<select id="iqDateRange"><option value="all">All dates</option><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="custom">Custom</option></select></label>
       <label>Status<select id="iqStatus"><option value="">All statuses</option></select></label>
       <label>Tag<select id="iqTag" aria-label="Tag"><option value="">All tags</option></select></label>
