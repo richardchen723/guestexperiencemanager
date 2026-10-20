@@ -469,6 +469,10 @@ notification, and polling integration.
   API service account are excluded. Housekeeper-scoped logins receive no user list.
   `account_users` is populated only for human admins. Use existing IDs, active
   records, and verified property assignments; never invent IDs or addresses.
+  `property_groups` lists current `{tag, can_request_entire_group}` choices.
+  Groups use existing property tags. A housekeeper sees only groups containing
+  their assigned properties; `can_request_entire_group` is false unless they are
+  assigned every current member. No sibling property names are exposed.
 - `GET /procurement/api/requests` returns `{"requests":[...]}`, newest first.
 - `GET /procurement/api/requests/{id}` returns request detail, including
   `messages`, the latest 200 `activity` records, and `possible_duplicates`.
@@ -506,6 +510,17 @@ intake or chosen later by purchasing staff. Null means staff have not chosen it;
 zero `to_order`/`remaining` on such an item must not be treated as fulfillment.
 Requests with unplanned quantities stay open and are visible in the To buy UI.
 
+Requests also include `group` (null or `{tag, coverage, properties}`) and
+`allocation_pending`. Group `properties` are the frozen eligible scope at intake,
+not automatic supply requirements. Top-level `listing_ids`/`properties` contain
+only actual property allocations. A group can initially have no actual properties.
+Unassigned group items have null `listing_id`/`property`; their quantity is one
+group total, never a per-property amount. `allocation_pending:true` adds the
+Allocation pending flag and prevents completion without adding a missing-property
+information warning. Housekeepers see their assigned actual rows and may see
+unassigned rows only on their own request while still assigned within its saved
+scope. Group snapshots are filtered to their current assignments.
+
 Order objects include `id`, display `code` (PO-0001), `version`,
 `purchase_revision`, `vendor`, `reference`, `currency`, destination snapshot,
 `destinations` (all receiving-address snapshots),
@@ -521,7 +536,7 @@ Use returned IDs and versions for subsequent actions.
 
 ### Procurement intake and clarification
 
-`POST /procurement/api/requests` creates a property, multi-property, or shared-storage request
+`POST /procurement/api/requests` creates a group, property, multi-property, or shared-storage request
 with one or more items. Example IDs are illustrative; replace from bootstrap:
 
 ```json
@@ -573,6 +588,28 @@ account's Procurement permissions. API and housekeeper intake do not automatical
 assign themselves as the owner. Capture incomplete requests immediately and
 clarify missing information. Never infer a quantity, address, or deadline without evidence.
 
+For group intake, send the exact `group_tag` from bootstrap, with
+`group_coverage:"assign_later"` (default when no properties are given),
+`"entire_group"` (the stated need covers the group), or `"selected_properties"`
+(explicit `listing_ids` required). Assign-later and entire-group requests can omit
+properties and quantities. Add each supply once; neither mode duplicates supplies
+or multiplies quantities across group members. Group membership is saved at intake
+and later tag changes cannot expand it. Actual allocations must stay within that
+saved scope. A housekeeper's assign-later scope includes only their assigned group
+members; entire-group intake requires all current members to be assigned to them.
+Group requests cannot use `storage_location_id`; choose receiving addresses on
+purchases. For example:
+
+```json
+{
+  "title": "Group paper restock",
+  "group_tag": "Coastal group",
+  "group_coverage": "assign_later",
+  "requester_name": "Operations staff",
+  "items": [{"name": "Paper towels", "unit": "rolls"}]
+}
+```
+
 Priorities are `critical`, `high`, `normal`, `planned`. The default human review
 targets are 30 minutes, 4 hours, 24 hours, 72 hours respectively. Optional
 `response_due_at` overrides this target separately from `required_by`. These
@@ -583,12 +620,19 @@ required original `body` when using an ID (max 20,000), and optional HTTP(S)
 `url`. The same source channel/message ID/selected property set (regardless of
 selection order)/storage destination replays an existing
 request with `source_replayed:true`; it does not apply changed intake details.
+Group tag and coverage are part of that identity. The original intake scope is
+retained, so replay still finds the request after staff allocate properties or
+current tag membership changes.
 One message can create one request covering its explicitly named properties. Similar
 requests appear under `possible_duplicates`; review before linking a follow-up.
 
 `PATCH /procurement/api/requests/{id}` accepts current `version` plus any of
 `title`, `requester_name`, `listing_id` or `listing_ids`, `requester_staff_id`, `owner_user_id`,
 `priority`, `required_by`, `response_due_at`, `review:true`, `source`, `items`.
+Group requests additionally accept `group_tag` and `group_coverage`. Changing the
+group/coverage is blocked once any purchasing or cancellation history exists.
+Omit them to preserve the saved scope. Omitted item `listing_id` stays unassigned
+for assign-later/entire-group requests, even after other items are assigned.
 A source appends a traceable message; duplicate source IDs on the request are
 ignored. Item rows with `id` update that item; rows without `id` append items.
 Rewrites require the item's full catalog/custom fields and quantity and are
@@ -628,6 +672,43 @@ Statuses are calculated: `new`, `in_progress`, `awaiting_confirmation`,
 `completed`, `cancelled`. Needs information, unassigned ownership, approval,
 late responses, and delivery problems are flags. There is no writable status or
 manual completion endpoint. Always use the returned status.
+
+### Allocate group supplies to properties
+
+`POST /procurement/api/requests/{id}/allocate-properties` is purchasing-staff only.
+It distributes one unassigned group item into actual property/supply rows:
+
+```json
+{
+  "version": 2,
+  "item_id": 8,
+  "total_quantity": "12",
+  "allocations": [
+    {"listing_id": 101, "quantity": "8"}
+  ]
+}
+```
+
+This assigns 8 to property 101 and leaves 4 on the unassigned group item for later.
+An unknown total may be omitted/null: the submitted distribution then covers that
+supply need. A known total must be preserved (or omitted to keep it); change it
+through the request PATCH first. Quantities must be positive with at most three
+decimal places. Send 1–100 distinct properties from the saved scope; the sum cannot
+exceed a known total. No allocation is created for unchecked/omitted properties.
+The operation returns the updated request, increments its version, records
+`properties_allocated`, supports standard idempotency, and rejects stale versions
+with 409. A partial distribution keeps the original pending row; a full one reuses
+it for the first property and may create additional item IDs. Always use returned
+IDs rather than assuming they are stable after distribution.
+
+Assign properties and choose per-property quantities before linking a request item
+to purchases. One property can be assigned in several partial distributions; its
+rows remain traceable. Pending group supplies cannot be individually cancelled:
+edit/remove an unpurchased pending row, assign it first, or cancel the whole
+request. Existing purchases can still hold unallocated shared stock and link it to
+actual property requests later. Group allocation itself does not reserve a purchase
+or record delivery. Purchase, shipment, and housekeeper confirmation rules continue
+to apply independently per property; pending group supplies keep the request open.
 
 ### Procurement purchasing
 
@@ -840,6 +921,10 @@ once-only, auditable server operations; later manual changes are preserved.
   status, owner_user_id, requester_phone (active requester only), and
   source_messages (channel/message_id references). Destination addresses and
   original message bodies are not in the feed. Fetch request detail for context.
+  Events also include `group` (null or `{tag, coverage}`) and `allocation_pending`.
+  Group-only `property` labels use the tag. `properties_allocated` identifies newly
+  affected properties in `affected_listing_ids`; pending group items have no
+  property recipient, so route allocation follow-up to purchasing staff.
   Use `affected_listing_ids` to route property-specific shipment, receipt, and
   problem updates; the full request member list can include unaffected siblings.
 - `status` reflects **current state at polling time**, not the historical state

@@ -55,6 +55,7 @@ class Ticket(Base):
     listing_id = Column(Integer, index=True)
     property_snapshot = Column(JSON, nullable=False, default=dict)
     property_snapshots = Column(JSON, nullable=False, default=list)
+    group_snapshot = Column(JSON, nullable=False, default=dict)
     storage_location_id = Column(Integer, ForeignKey("procurement.locations.id"))
     requester_staff_id = Column(Integer, ForeignKey("procurement.staff.id"))
     requester_name = Column(String(160), nullable=False)
@@ -245,6 +246,7 @@ def init_procurement_database(engine=None):
     from sqlalchemy import inspect
     schema = "procurement" if engine.dialect.name == "postgresql" else None
     for table_name, name, sql_type in (("requests", "property_snapshots", "JSON NOT NULL DEFAULT '[]'"),
+                                        ("requests", "group_snapshot", "JSON NOT NULL DEFAULT '{}'"),
                                         ("request_items", "listing_id", "INTEGER"),
                                         ("order_lines", "destination", "JSON")):
         columns = {c["name"] for c in inspect(engine).get_columns(table_name, schema=schema)}

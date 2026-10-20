@@ -7,11 +7,14 @@ Existing operational tickets and bookkeeping records are not rewritten.
 
 ## Operating workflow
 
-1. Capture one request for one or several explicitly selected properties and add
+1. Capture one request for a property group or explicitly selected properties and add
    the supplies needed. **Quantities (optional)** is collapsed by default; leave
    quantities blank for purchasing staff to decide. Blank quantities never add
-   **Needs information**. Missing property or deadline information stays visible
-   under that flag.
+   **Needs information**. Choose **Assign properties later**, **Entire group**, or
+   specific properties within a group. Each group supply is entered once; an
+   optional quantity is a group total and is never multiplied across properties.
+   Membership is frozen at capture. A group satisfies intake's property context;
+   missing deadlines still appear under **Needs information**.
    Shared-storage requests are also supported; final receipt must still identify
    the real property receiving the supplies.
 2. Assign a named staff owner from all approved user accounts and review the
@@ -23,7 +26,13 @@ Existing operational tickets and bookkeeping records are not rewritten.
    high / normal / planned requests. These are elapsed-time defaults, not a
    promise of business-hour or on-call coverage. Staff can change the response
    deadline independently of the required-by deadline.
-3. Open **Purchases → To buy**. Supplies without a quantity appear with **Set
+3. Open **Purchases → To buy**. Group supplies show **Assign properties**: choose
+   actual properties and enter their quantities. A partial distribution leaves the
+   remainder open. For an unknown total, the submitted quantities cover the need;
+   optionally enter a total to leave a remainder for later. Property allocation
+   never records a purchase or delivery. Assigned supplies and their history are
+   preserved when editing the remaining group request. Group scope changes later
+   do not alter this request. Supplies without a quantity appear with **Set
    quantity**: staff choose the total to supply per property, then select how
    much to buy now. A target of 12 and purchase of 8 leaves 4 outstanding. Setting
    the target uses the versioned request PATCH with an audit record; housekeepers
@@ -56,7 +65,7 @@ Existing operational tickets and bookkeeping records are not rewritten.
    account can confirm directly. Physical receipt can be explicitly recorded
    even when carrier tracking is absent or late.
 8. Completion is derived from item quantities. Carrier delivery alone never
-   completes a request. Returns reopen the need; lost, damaged, incorrect, or
+   completes a request. Unallocated group supplies also keep it open. Returns reopen the need; lost, damaged, incorrect, or
    retailer-cancelled quantities release replacement purchasing capacity.
 9. Attach the final receipt and reconcile the charged amount. Reconciliation is
    independent of operational completion. Final receipt cost corrections need
@@ -65,7 +74,7 @@ Existing operational tickets and bookkeeping records are not rewritten.
 
 The five request statuses are **New**, **In Progress**, **Awaiting Property
 Confirmation**, **Completed**, and **Cancelled**. Needs information, approval,
-unassigned ownership, overdue responses, delivery risk, and fulfillment problems
+unassigned ownership, allocation pending, overdue responses, delivery risk, and fulfillment problems
 are flags. Staff cannot arbitrarily set a request to Completed.
 
 ## Housekeepers and property assignments
@@ -108,6 +117,10 @@ ordinary accounts.
   sees assigned properties and request portions, and can add messages, report problems,
   and confirm/return supplies as itself. It cannot purchase, access financial
   reports, read private delivery addresses, download receipts, or approve orders.
+  Group intake is restricted to its assigned properties; entire-group coverage is
+  allowed only when every group member is assigned. Pending group supplies are
+  visible only to their original housekeeper while still assigned in that scope.
+  After staff allocate, each housekeeper sees only their own property portions.
 - An approved account with Procurement access and no linked housekeeper profile
   is purchasing staff. Only administrators can approve purchases, change final
   receipt costs, or manage the directory.
@@ -181,6 +194,10 @@ properties can create one request with `listing_ids:[101,102]` and a `listing_id
 on each item. Each selected property needs a positive/unknown item; omit quantities
 that are not needed. Legacy single-property payloads remain valid.
 Similar messages appear as possible duplicates; they are not silently merged.
+For group intake use `group_tag` from bootstrap's `property_groups`, with
+`group_coverage:"assign_later"` or `"entire_group"`, and no property IDs required.
+The request returns its frozen `group` scope and `allocation_pending` flag. Source
+replay also includes the original group/coverage and survives later allocation.
 
 Use `PATCH /procurement/api/requests/<id>` with the current `version` to attach
 a follow-up under `source`, clarify details, or add items. The response includes
@@ -191,6 +208,7 @@ Other API groups:
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/requests`, `GET /api/requests/<id>` | Requests and complete history |
+| `POST /api/requests/<id>/allocate-properties` | Split an unassigned group supply across properties, preserving a partial remainder |
 | `POST/PATCH /api/orders[/<id>]` | Draft or revise purchasing details |
 | `POST /api/orders/<id>/approve` | Human administrator approval; API keys cannot approve |
 | `POST /api/orders/<id>/place` | Record an externally placed retailer purchase |
@@ -251,13 +269,15 @@ require deleting procurement history. The multi-property extension adds request
 property snapshots, item property IDs, and per-line receiving snapshots. Migration
 backfills legacy item property IDs without replacing item/allocation/confirmation
 IDs. Existing requests and single-address orders retain compatible API shapes.
+The group extension adds a JSON `group_snapshot` column, defaulting to `{}` for
+existing requests. It does not rewrite existing item IDs or purchasing history.
 Restart all workers together when enabling this version; older binaries do not
-understand newly created multi-property requests.
+understand newly created group requests.
 
 Run business and access regressions:
 
 ```sh
-.venv/bin/python -m pytest dashboard/procurement/tests/test_workflow.py dashboard/procurement/tests/test_multi_property.py dashboard/auth/tests/test_features.py -q
+.venv/bin/python -m pytest dashboard/procurement/tests/test_workflow.py dashboard/procurement/tests/test_multi_property.py dashboard/procurement/tests/test_groups.py dashboard/auth/tests/test_features.py -q
 node --test dashboard/procurement/tests/test_planning.cjs
 ```
 
@@ -267,7 +287,7 @@ For full real-app/PostgreSQL integration tests, create a disposable local DB:
 createdb codex_procurement_qa_integration
 DATABASE_URL=postgresql:///codex_procurement_qa_integration \
 PROCUREMENT_QA_DATABASE_URL=postgresql:///codex_procurement_qa_integration \
-  .venv/bin/python -m pytest dashboard/procurement/tests/test_api.py dashboard/procurement/tests/test_multi_api.py -q
+  .venv/bin/python -m pytest dashboard/procurement/tests/test_api.py dashboard/procurement/tests/test_multi_api.py dashboard/procurement/tests/test_group_api.py -q
 ```
 
 The integration suite refuses a nonlocal DB or a name outside the
@@ -282,6 +302,10 @@ upgrade from the deployed schema while preserving history.
 Dependency-free JavaScript tests exercise the same grid editing, partial
 purchase grouping and pack rounding helpers loaded by the browser, including
 preserving the distinction between unknown and not-needed property quantities.
+Group regressions cover frozen membership, scoped housekeeper intake, source
+replay after allocation/tag removal, exact decimal totals, partial distributions,
+concurrent allocation conflicts, immutable purchasing destinations, and additive
+migration of existing requests.
 
 The optional `dashboard.procurement.preview` entrypoint runs an isolated local
 sample-data preview at `127.0.0.1:5056`, with purchasing/housekeeper view switches.

@@ -187,6 +187,8 @@ def ticket_properties(ticket):
 
 
 def item_listing_id(item):
+    if (item.ticket.group_snapshot or {}).get("tag"):
+        return item.listing_id
     return item.listing_id or item.ticket.listing_id
 
 
@@ -234,7 +236,7 @@ def ticket_missing_information(ticket, items=None):
     missing = []
     if not items:
         missing.append({"field": "items", "message": "Add the supplies needed for this request."})
-    if (not items and not ticket_properties(ticket) and not ticket.storage_location_id) or any(not (item_listing_id(i) or ticket.storage_location_id) for i in items):
+    if not (ticket.group_snapshot or {}).get("tag") and ((not items and not ticket_properties(ticket) and not ticket.storage_location_id) or any(not (item_listing_id(i) or ticket.storage_location_id) for i in items)):
         missing.append({"field": "property", "message": "Choose the property or shared storage destination."})
     if not ticket.required_by:
         missing.append({"field": "required_by", "message": "Set the needed-by date and time."})
@@ -247,6 +249,8 @@ def ticket_flags(ticket, now=None, items=None):
     if ticket_status(ticket, items) in ("completed", "cancelled"):
         return []
     flags = []
+    if (ticket.group_snapshot or {}).get("tag") and any(not item_listing_id(i) for i in items):
+        flags.append("Allocation pending")
     if ticket_missing_information(ticket, items):
         flags.append("Needs information")
     if not ticket.owner_user_id:
@@ -299,9 +303,55 @@ class ProcurementService:
 
     def ticket(self, ticket_id):
         ticket = get(self.session, Ticket, ticket_id)
-        if self.staff_scope is not None and not set(p["id"] for p in ticket_properties(ticket)) & set(self.staff_scope.listing_ids):
+        if self.staff_scope is not None and not any(self.visible_item(i) for i in ticket.items):
             raise WorkflowError("This request is outside your property assignments.", 403)
         return ticket
+
+    def visible_item(self, item):
+        if self.staff_scope is None:
+            return True
+        return item_listing_id(item) in self.staff_scope.listing_ids or (
+            not item_listing_id(item) and (item.ticket.group_snapshot or {}).get("tag") and
+            item.ticket.requester_staff_id == self.staff_scope.id and
+            any(p["id"] in self.staff_scope.listing_ids for p in item.ticket.group_snapshot["properties"]))
+
+    def request_group(self, data, properties, previous=None):
+        previous = previous or {}
+        if "group_tag" not in data and "group_coverage" not in data:
+            return previous
+        tag = str(data.get("group_tag", previous.get("tag")) or "").strip()
+        if not tag:
+            if data.get("group_coverage"):
+                raise WorkflowError("Choose a property group before setting its coverage.")
+            return {"intake": previous["intake"]} if previous.get("intake") else {}
+        coverage = data.get("group_coverage", previous.get("coverage") or ("selected_properties" if properties else "assign_later"))
+        if coverage not in ("entire_group", "assign_later", "selected_properties"):
+            raise WorkflowError("Choose entire group, assign properties later, or selected properties.")
+        if tag == previous.get("tag"):
+            members = previous["properties"]
+        else:
+            members = [p for p in self.properties.values() if tag in p.get("tags", [])]
+            if not members:
+                raise WorkflowError("Choose an existing property group.")
+            if self.staff_scope is not None:
+                assigned = [p for p in members if p["id"] in self.staff_scope.listing_ids]
+                if not assigned or (coverage == "entire_group" and len(assigned) != len(members)):
+                    raise WorkflowError("This group coverage is outside your property assignments.", 403)
+                members = assigned
+        if not {p["id"] for p in properties} <= {p["id"] for p in members}:
+            raise WorkflowError("Selected properties must belong to the saved property group.")
+        if coverage == "selected_properties" and not properties:
+            raise WorkflowError("Select at least one property or choose assign properties later.")
+        return {"tag": tag, "coverage": coverage, "properties": members,
+                **({"intake": previous["intake"]} if previous.get("intake") else {})}
+
+    def validate_group_properties(self, ticket):
+        group = ticket.group_snapshot or {}
+        if group.get("tag"):
+            if not {p["id"] for p in ticket_properties(ticket)} <= {p["id"] for p in group["properties"]}:
+                raise WorkflowError("Selected properties must belong to the saved property group.")
+            if ticket.storage_location_id:
+                raise WorkflowError("Use a receiving address when purchasing; group requests cannot target shared storage.")
 
     def item_access(self, item):
         if self.staff_scope is not None and item_listing_id(item) not in self.staff_scope.listing_ids:
@@ -317,10 +367,12 @@ class ProcurementService:
             raise WorkflowError("Use listing_ids for a multi-property request; omit listing_id.")
         return [self.property(i) for i in ids]
 
-    def request_item_property(self, row, properties):
+    def request_item_property(self, row, properties, group=None):
         ids = [p["id"] for p in properties]
         listing_id = row.get("listing_id")
         if listing_id in (None, ""):
+            if (group or {}).get("tag") and group.get("coverage") != "selected_properties":
+                return None
             if len(ids) > 1:
                 raise WorkflowError("Choose the property for each requested item.")
             return ids[0] if ids else None
@@ -330,6 +382,7 @@ class ProcurementService:
         return prop["id"]
 
     def validate_request_members(self, ticket):
+        self.validate_group_properties(ticket)
         ids = {p["id"] for p in ticket_properties(ticket)}
         if ids != {item_listing_id(i) for i in ticket.items} - {None}:
             raise WorkflowError("Each selected property needs at least one item; remove unused properties or add their quantities.")
@@ -404,6 +457,10 @@ class ProcurementService:
 
     def create_ticket(self, data):
         properties = self.request_properties(data)
+        tag = str(data.get("group_tag") or "").strip() or None
+        intake = {"tag": tag, "coverage": data.get("group_coverage", "selected_properties" if properties else "assign_later") if tag else None,
+                  "listing_ids": sorted(p["id"] for p in properties),
+                  "storage_location_id": int(data["storage_location_id"]) if data.get("storage_location_id") else None}
         source = data.get("source") or {}
         if not isinstance(source, dict):
             raise WorkflowError("Source must be an object.")
@@ -414,19 +471,22 @@ class ProcurementService:
                 SourceMessage.source == source.get("channel", "whatsapp"), SourceMessage.message_id == str(source["message_id"])
             )).all()
             for message in existing:
-                if {p["id"] for p in ticket_properties(message.ticket)} == {p["id"] for p in properties} and message.ticket.storage_location_id == (int(data["storage_location_id"]) if data.get("storage_location_id") else None):
+                original = (message.ticket.group_snapshot or {}).get("intake")
+                if original == intake or (not original and not tag and {p["id"] for p in ticket_properties(message.ticket)} == {p["id"] for p in properties} and message.ticket.storage_location_id == intake["storage_location_id"]):
                     return self.ticket(message.ticket_id), True
+        group = self.request_group(data, properties)
         prop = properties[0] if len(properties) == 1 else None
         location = get(self.session, Location, data["storage_location_id"]) if data.get("storage_location_id") else None
         if properties and location:
             raise WorkflowError("Choose a property or shared storage, not both.")
         if location and (not location.active or location.kind != "storage"):
             raise WorkflowError("Choose an active shared storage location.")
-        if self.staff_scope is not None and not properties:
+        if self.staff_scope is not None and not properties and not group.get("tag"):
             raise WorkflowError("Choose one of your assigned properties.", 403)
         staff_id = self.staff_scope.id if self.staff_scope is not None else data.get("requester_staff_id")
         staff = get(self.session, Staff, staff_id) if staff_id else None
-        if staff and (not staff.active or any(p["id"] not in staff.listing_ids for p in properties)):
+        if staff and (not staff.active or any(p["id"] not in staff.listing_ids for p in properties) or
+                      (not properties and group.get("tag") and not any(p["id"] in staff.listing_ids for p in group["properties"]))):
             raise WorkflowError("The requester must be active and assigned to every selected property. Staff can use a requester name for requests spanning housekeepers.")
         priority = data.get("priority", "normal")
         if priority not in PRIORITIES:
@@ -435,8 +495,8 @@ class ProcurementService:
         if not isinstance(items, list) or not 1 <= len(items) <= 500:
             raise WorkflowError("Add between 1 and 500 property/supply items.")
         response_hours = {"critical": .5, "high": 4, "normal": 24, "planned": 72}[priority]
-        ticket = Ticket(title=required(data.get("title"), "Request title"), listing_id=prop["id"] if prop else None,
-                        property_snapshot=prop or {}, property_snapshots=properties, storage_location_id=location.id if location else None,
+        ticket = Ticket(title=required(data.get("title"), "Request title"), listing_id=prop["id"] if prop and not group.get("tag") else None,
+                        property_snapshot=prop or {}, property_snapshots=properties, group_snapshot={**group,"intake":intake}, storage_location_id=location.id if location else None,
                         requester_staff_id=staff.id if staff else None,
                         requester_name=staff.name if staff else required(data.get("requester_name"), "Requester", 160),
                         owner_user_id=self.owner(data.get("owner_user_id", self.user_id)), priority=priority,
@@ -445,7 +505,7 @@ class ProcurementService:
                         created_by=self.actor)
         self.session.add(ticket)
         for item in items:
-            ticket.items.append(RequestItem(**self.catalog_fields(item), listing_id=self.request_item_property(item, properties), quantity=quantity(item.get("quantity"), optional=True)))
+            ticket.items.append(RequestItem(**self.catalog_fields(item), listing_id=self.request_item_property(item, properties, group), quantity=quantity(item.get("quantity"), optional=True)))
         self.validate_request_members(ticket)
         self.session.flush()
         if source.get("body"):
@@ -466,7 +526,7 @@ class ProcurementService:
     def update_ticket(self, ticket_id, data):
         ticket = self.ticket(ticket_id)
         check_version(ticket, data)
-        if set(data) - {"version", "source", "title", "requester_name", "owner_user_id", "priority", "required_by", "response_due_at", "listing_id", "listing_ids", "requester_staff_id", "review", "items"}:
+        if set(data) - {"version", "source", "title", "requester_name", "owner_user_id", "priority", "required_by", "response_due_at", "listing_id", "listing_ids", "requester_staff_id", "review", "items", "group_tag", "group_coverage"}:
             raise WorkflowError("Request status is calculated from fulfillment. Use the supported request fields and actions.")
         if ticket.cancelled_reason:
             raise WorkflowError("Cancelled requests cannot be edited.")
@@ -490,12 +550,16 @@ class ProcurementService:
             if name in data:
                 setattr(ticket, name, timestamp(data[name]))
         properties = ticket_properties(ticket)
+        group = self.request_group(data, self.request_properties(data) if "listing_ids" in data or "listing_id" in data else properties, ticket.group_snapshot)
+        if group != (ticket.group_snapshot or {}) and any(i.allocations or i.cancelled_quantity for i in ticket.items):
+            raise WorkflowError("The property group and coverage cannot change after purchasing or cancellation history.")
+        ticket.group_snapshot = group
         if "listing_id" in data or "listing_ids" in data:
             new_properties = self.request_properties(data)
             removed = {p["id"] for p in properties} - {p["id"] for p in new_properties}
             if any(i.allocations and item_listing_id(i) in removed for i in ticket.items):
                 raise WorkflowError("The destination property cannot change after purchasing has started.")
-            if len(properties) <= 1 and len(new_properties) == 1:
+            if not group.get("tag") and len(properties) <= 1 and len(new_properties) == 1:
                 for item in ticket.items:
                     if not item.allocations:
                         item.listing_id = new_properties[0]["id"]
@@ -503,6 +567,8 @@ class ProcurementService:
             prop = properties[0] if len(properties) == 1 else None
             ticket.listing_id, ticket.property_snapshot = (prop["id"], prop) if prop else (None, {})
             ticket.property_snapshots, ticket.storage_location_id = properties, None
+        if group.get("tag"):
+            ticket.listing_id, ticket.property_snapshot = None, {}
         if "requester_staff_id" in data:
             staff = get(self.session, Staff, data["requester_staff_id"]) if data["requester_staff_id"] else None
             if staff and staff.id != ticket.requester_staff_id and (not staff.active or any(p["id"] not in staff.listing_ids for p in properties)):
@@ -531,17 +597,69 @@ class ProcurementService:
                 for key, value in fields.items():
                     setattr(item, key, value)
                 item.quantity = quantity(row.get("quantity"), optional=True)
-                item.listing_id = self.request_item_property(row, properties)
+                item.listing_id = self.request_item_property(row, properties, group)
                 if item.cancelled_quantity and (item.quantity is None or item.quantity < item.cancelled_quantity):
                     raise WorkflowError("Requested quantity cannot be below the cancelled quantity.")
             else:
-                ticket.items.append(RequestItem(**self.catalog_fields(row), listing_id=self.request_item_property(row, properties), quantity=quantity(row.get("quantity"), optional=True)))
+                ticket.items.append(RequestItem(**self.catalog_fields(row), listing_id=self.request_item_property(row, properties, group), quantity=quantity(row.get("quantity"), optional=True)))
         if not ticket.items or len(ticket.items) > 500:
             raise WorkflowError("Keep between 1 and 500 property/supply items on a request.")
         self.validate_request_members(ticket)
         self.touch(ticket)
         self.session.flush()
         self.audit("request_updated", {"before": before, "after": self.ticket_dict(ticket)}, ticket=ticket)
+        return ticket
+
+    def allocate_properties(self, ticket_id, data):
+        self.purchaser()
+        ticket = self.ticket(ticket_id)
+        check_version(ticket, data)
+        group = ticket.group_snapshot or {}
+        item = get(self.session, RequestItem, data.get("item_id"))
+        if not group.get("tag") or ticket.cancelled_reason or item.ticket_id != ticket.id or item_listing_id(item) or item.allocations or item.cancelled_quantity:
+            raise WorkflowError("Choose an unallocated supply on an active group request.")
+        rows = data.get("allocations")
+        if not isinstance(rows, list) or not 1 <= len(rows) <= 100:
+            raise WorkflowError("Choose between 1 and 100 property allocations.")
+        members = {p["id"]:p for p in group["properties"]}
+        targets, ids = [], set()
+        for row in rows:
+            if not isinstance(row, dict) or isinstance(row.get("listing_id"), bool) or not str(row.get("listing_id", "")).isdigit():
+                raise WorkflowError("Choose a valid property for each allocation.")
+            prop = self.property(row.get("listing_id"))
+            if prop["id"] not in members:
+                raise WorkflowError("Allocate only to properties in the saved group scope.")
+            if prop["id"] in ids:
+                raise WorkflowError("Allocate to each property only once per submission.")
+            ids.add(prop["id"])
+            targets.append((members[prop["id"]], quantity(row.get("quantity"))))
+        total = quantity(data.get("total_quantity", item.quantity), optional=True)
+        if item.quantity is not None and total != item.quantity:
+            raise WorkflowError("Keep the current group total; edit the request before changing it.")
+        allocated = sum((amount for _,amount in targets), ZERO)
+        if total is not None and allocated > total:
+            raise WorkflowError("Property allocations exceed the total quantity to supply.")
+        remaining = total - allocated if total is not None else ZERO
+        before = {"item_id":item.id,"quantity":str(item.quantity) if item.quantity is not None else None}
+        fields = {name:getattr(item,name) for name in ("catalog_id","name","unit","category")}
+        created = []
+        for index,(prop,amount) in enumerate(targets):
+            target = item if not remaining and index == 0 else RequestItem(ticket=ticket,**fields)
+            target.listing_id, target.quantity = prop["id"], amount
+            self.session.add(target)
+            created.append(target)
+        if remaining:
+            item.quantity = remaining
+        actual = {p["id"]:p for p in ticket_properties(ticket)}
+        actual.update({prop["id"]:prop for prop,_ in targets})
+        ticket.listing_id, ticket.property_snapshot, ticket.property_snapshots = None, {}, list(actual.values())
+        self.validate_request_members(ticket)
+        if len(ticket.items) > 500:
+            raise WorkflowError("Keep at most 500 property/supply items on a request.")
+        self.touch(ticket)
+        self.session.flush()
+        self.audit("properties_allocated", {"before":before,"listing_ids":sorted(ids),"total_quantity":str(total) if total is not None else None,
+                   "remaining_unallocated":str(remaining),"allocations":[{"item_id":i.id,"listing_id":i.listing_id,"quantity":str(i.quantity)} for i in created]}, ticket=ticket)
         return ticket
 
     def cancel_item(self, ticket_id, data):
@@ -551,6 +669,8 @@ class ProcurementService:
         item = get(self.session, RequestItem, data.get("item_id"))
         if item.ticket_id != ticket.id or item.quantity is None:
             raise WorkflowError("Choose a request item with a known quantity.")
+        if (ticket.group_snapshot or {}).get("tag") and not item_listing_id(item):
+            raise WorkflowError("Assign properties first, or cancel the whole group request.")
         amount = quantity(data.get("quantity"))
         if amount > item_progress(item)["to_order"]:
             raise WorkflowError("Only the unpurchased, unreserved quantity can be cancelled.")
@@ -949,8 +1069,12 @@ class ProcurementService:
         return order
 
     def ticket_dict(self, ticket, detail=False):
-        visible_items = [i for i in ticket.items if self.staff_scope is None or item_listing_id(i) in self.staff_scope.listing_ids]
+        visible_items = [i for i in ticket.items if self.visible_item(i)]
         properties = [p for p in ticket_properties(ticket) if self.staff_scope is None or p["id"] in self.staff_scope.listing_ids]
+        group = ticket.group_snapshot or {}
+        group_members = [p for p in group.get("properties", []) if self.staff_scope is None or p["id"] in self.staff_scope.listing_ids]
+        group_value = {"tag":group["tag"],"coverage":group["coverage"],"properties":group_members} if group.get("tag") else None
+        pending = bool(group_value) and any(not item_listing_id(i) for i in visible_items)
         status = ticket_status(ticket, visible_items)
         if not hasattr(self, "_directory_staff"):
             self._directory_staff = list(self.session.scalars(select(Staff).where(Staff.active.is_(True))))
@@ -982,11 +1106,12 @@ class ProcurementService:
         result = {"id": ticket.id, "code": f"PR-{ticket.id:04d}", "version": ticket.version, "title": ticket.title,
                   "listing_id": properties[0]["id"] if len(properties) == 1 else None,
                   "listing_ids": [p["id"] for p in properties], "properties": property_rows,
-                  "property": ", ".join(p.get("name", str(p["id"])) for p in properties[:3]) + (f" + {len(properties)-3} more" if len(properties) > 3 else "") if properties else (f"Shared storage #{ticket.storage_location_id}" if ticket.storage_location_id else "Property needed"),
+                  "group": group_value, "allocation_pending": pending,
+                  "property": ", ".join(p.get("name", str(p["id"])) for p in properties[:3]) + (f" + {len(properties)-3} more" if len(properties) > 3 else "") if properties else (group["tag"] if group_value else f"Shared storage #{ticket.storage_location_id}" if ticket.storage_location_id else "Property needed"),
                   "storage_location_id": ticket.storage_location_id,
                   "city": properties[0].get("city") if len(properties) == 1 else None,
                   "timezone": properties[0].get("timezone", "UTC") if properties and len({p.get("timezone", "UTC") for p in properties}) == 1 else "UTC",
-                  "tags": sorted({tag for p in properties for tag in p.get("tags", [])}),
+                  "tags": sorted({tag for p in properties for tag in p.get("tags", [])} | ({group["tag"]} if group_value else set())),
                   "requester_name": "Shared request" if self.staff_scope and ticket.requester_staff_id != self.staff_scope.id else ticket.requester_name,
                   "requester_staff_id": None if self.staff_scope and ticket.requester_staff_id != self.staff_scope.id else ticket.requester_staff_id, "owner_user_id": ticket.owner_user_id,
                   "owner_name": self.users.get(ticket.owner_user_id, {}).get("name", "Unassigned"),
@@ -1005,7 +1130,7 @@ class ProcurementService:
             events = self.activity(ticket_id=ticket.id)
             result["activity"] = events if self.staff_scope is None else [e for e in events if e["action"] in ("property_confirmed", "property_return") and e["detail"].get("listing_id") in self.staff_scope.listing_ids]
             ids = [p["id"] for p in properties]
-            result["possible_duplicates"] = [] if self.staff_scope is not None else [{"id": t.id, "code": f"PR-{t.id:04d}", "title": t.title} for t in self.session.scalars(select(Ticket).where(or_(Ticket.listing_id.in_(ids), Ticket.items.any(RequestItem.listing_id.in_(ids))), Ticket.id != ticket.id)).all()
+            result["possible_duplicates"] = [] if self.staff_scope is not None else [{"id": t.id, "code": f"PR-{t.id:04d}", "title": t.title} for t in self.session.scalars(select(Ticket).where(or_(Ticket.listing_id.in_(ids), Ticket.items.any(RequestItem.listing_id.in_(ids)), Ticket.group_snapshot["tag"].as_string() == group["tag"] if group_value else False), Ticket.id != ticket.id)).all()
                                               if ticket_status(t) not in ("completed", "cancelled") and {(item_listing_id(i), i.name.casefold()) for i in t.items} & {(item_listing_id(i), i.name.casefold()) for i in ticket.items}]
         return result
 

@@ -2,7 +2,7 @@
 {% block title %}Procurement · Cotton Candy{% endblock %}
 {% block extra_head %}
 <meta name="procurement-csrf" content="{{ procurement_csrf }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/procurement.css', v='8') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/procurement.css', v='9') }}">
 {% endblock %}
 {% block content %}
 <section class="pc" id="procurementApp" aria-label="Procurement workspace">
@@ -63,4 +63,4 @@
 <dialog class="pc-dialog pc-detail-dialog" id="pcDetailDialog" aria-labelledby="pcDetailTitle"><header class="pc-dialog-heading"><div><span class="pc-eyebrow" id="pcDetailCode"></span><h2 id="pcDetailTitle">Request details</h2></div><button type="button" class="pc-icon-button" data-close="pcDetailDialog" aria-label="Close details">×</button></header><div id="pcDetailContent" class="pc-dialog-body"></div></dialog>
 <dialog class="pc-dialog" id="pcFormDialog" aria-labelledby="pcFormTitle"><form id="pcForm" data-mobile-enhancements="off"><header class="pc-dialog-heading"><div><p class="pc-eyebrow" id="pcFormEyebrow">PROCUREMENT</p><h2 id="pcFormTitle"></h2></div><button type="button" class="pc-icon-button" data-close="pcFormDialog" aria-label="Close form">×</button></header><div class="pc-dialog-body"><div id="pcFormError" class="pc-alert pc-danger" role="alert" hidden></div><div id="pcFormFields"></div></div><footer class="pc-dialog-footer"><button type="button" class="pc-button pc-secondary" data-close="pcFormDialog">Cancel</button><button type="submit" class="pc-button pc-primary" id="pcFormSubmit">Save</button></footer></form></dialog>
 {% endblock %}
-{% block extra_scripts %}<script src="{{ url_for('static', filename='js/procurement-planning.js', v='1') }}" defer></script><script src="{{ url_for('static', filename='js/procurement.js', v='8') }}" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static', filename='js/procurement-planning.js', v='2') }}" defer></script><script src="{{ url_for('static', filename='js/procurement.js', v='9') }}" defer></script>{% endblock %}

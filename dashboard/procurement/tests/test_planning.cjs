@@ -71,3 +71,29 @@ test('pack rounding covers allocations, preserves desired extras and avoids deci
     assert.equal(planning.wholePackQuantity(0.3,0.3,0.1),0.3);
     assert.throws(() => planning.wholePackQuantity(12,12,0),/pack size/);
 });
+
+test('group quantities are totals and partial allocation keeps the remainder', () => {
+    assert.deepEqual(planning.groupAllocationPlan(12,[{listing_id:101,quantity:4},{listing_id:102,quantity:6}]),{allocated:10,remaining:2});
+    assert.deepEqual(planning.groupAllocationPlan('',[{listing_id:101,quantity:4},{listing_id:102,quantity:6}]),{allocated:10,remaining:0});
+    assert.deepEqual(planning.groupAllocationPlan('0.3',[{listing_id:101,quantity:'0.1'},{listing_id:102,quantity:'0.2'}]),{allocated:0.3,remaining:0});
+});
+
+test('group allocation rejects duplicates, over-allocation, and invalid quantities', () => {
+    assert.throws(()=>planning.groupAllocationPlan(12,[]),/Select/);
+    assert.throws(()=>planning.groupAllocationPlan(12,[{listing_id:101,quantity:7},{listing_id:102,quantity:6}]),/exceed/);
+    assert.throws(()=>planning.groupAllocationPlan(12,[{listing_id:101,quantity:4},{listing_id:101,quantity:4}]),/distinct/);
+    for(const quantity of [0,-1,'0.0001','NaN','']) assert.throws(()=>planning.groupAllocationPlan('',[{listing_id:101,quantity}]),/positive/);
+});
+
+test('switching group coverage never copies a group total into each property', () => {
+    const previous = [paper(1,null,12)];
+    const draft = planning.requestGrid(previous,[]), column = draft.columns[0];
+    draft.ids = [101,102];
+    for (const id of draft.ids) assert.equal(planning.requestCell(column,id,true).quantity,'');
+    assert.deepEqual(planning.requestChanges(draft,previous).filter(i=>!i.remove).map(i=>i.quantity),[null,null]);
+    column.values[101].quantity = '3';
+    assert.equal(planning.requestCell(column,101,true).quantity,'3');
+    assert.equal(planning.requestCell(column,0,true).quantity,12);
+    draft.ids = [];
+    assert.deepEqual(planning.requestChanges(draft,previous),[]);
+});
