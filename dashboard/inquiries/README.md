@@ -40,22 +40,33 @@ Richard confirmed on October 20, 2026:
 - A conservative structured-email parser and authenticated intake bridge for
   Larry's natural-language extraction through the existing Gmail connector.
 
-## Activation still required
+## Production release and remaining activation
 
-This is a tested local implementation, not a production release. No live CRM
-schema, leads, staff permissions, inbox rules, scheduled jobs or API keys were
-created. No guest-facing messages were sent. Existing websites/forms were not
-changed. The observed Emerald Haven inquiry thread explicitly says it is an
-internal test; it was inspected for format only and was not imported as a lead.
+Deployed October 20, 2026 at `https://yourcottoncandy.com/inquiries/` as
+`inquiry-crm-20261020-r1`. Production has the additive schema and default settings,
+with no imported leads or source messages at release. The release preserved live
+property archives, management logs and authentication changes. Backups are at
+`/opt/hostaway-messages/backups/inquiry-crm-20261020-r1`.
+
+No staff grants, inbox rules, scheduled jobs or API keys were created or changed.
+No guest-facing messages were sent. Existing websites/forms were not changed.
+The observed Emerald Haven inquiry thread explicitly says it is an internal test;
+it was inspected for format only and was not imported as a lead.
 
 The CRM server does not poll Gmail or call another model. Larry supplies authorized
-Gmail reads and structured extractions to `POST /inquiries/api/intake`. Deploy this
-branch, grant the intended team access, bind Larry's existing authorized runtime
+Gmail reads and structured extractions to `POST /inquiries/api/intake`. Grant the
+intended team access, bind Larry's existing authorized production runtime
 to that endpoint, then run a genuine or explicitly marked test submission and
 reply to verify the complete live path. A recurring inbox run should use message
 ID deduplication and an overlapping lookback, process replies from known inquiry
 threads even when their subjects change, and record unresolved failures. Do not
 call the source connected until this live check succeeds.
+
+Production currently has an active full-access key named Larry Key. Its raw value
+was not retrieved or copied during deployment. Larry must use the credential
+already available in his authorized runtime, or report that credential access is
+missing. A separate restricted Guest Issues adapter must not be repurposed.
+See `deployment/INQUIRY_CRM_LARRY_PRODUCTION.md` for the production handoff.
 
 Existing production has uncommitted management-log/auth improvements outside
 Git main. Deployment must preserve those changes and apply this module's small

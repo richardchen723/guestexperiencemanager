@@ -1,0 +1,96 @@
+{
+  "release": "inquiry-crm-20261020-r1",
+  "source_commit": "b82ff0f8d9365e5cb82191e6391855457b33b4d5",
+  "files": [
+    {
+      "path": "dashboard/app.py",
+      "before": "924c5ce33a24a7445a09f35d84a98e106c9fe4fc58a6d143ce7f0366d3bfbe67",
+      "after": "7234ec80f7fa295d009d1af11f6fbbefd242d83f606f75c5dd3939cac96b89c4"
+    },
+    {
+      "path": "dashboard/auth/features.py",
+      "before": "b4e861a44b0081389b18e7deade772557e50c9df0e1e526157c6f4da888710ee",
+      "after": "59bbf02033a25ebf262f4b35eedaf5fef3b3426ae8876ca1d53668e8899490eb"
+    },
+    {
+      "path": "dashboard/inquiries/README.md",
+      "before": null,
+      "after": "d343eb50ce586f47a50293c65afc4df1a3dfeb5ea676f5e7060b75c7c9d6ed7e"
+    },
+    {
+      "path": "dashboard/inquiries/__init__.py",
+      "before": null,
+      "after": "eba0f3431efaf2adcf206c69f1aacb33d81af1f905d6ff2e5072920f3bdc8fef"
+    },
+    {
+      "path": "dashboard/inquiries/email_adapter.py",
+      "before": null,
+      "after": "98cbd1aa94b1c1fd4ddc0feeb9c923bffbe0a8ac9e09bb5fcd43c4c3550d3c71"
+    },
+    {
+      "path": "dashboard/inquiries/models.py",
+      "before": null,
+      "after": "ff9edc428ae289ca7efc721fdad2ec5e74941a73d8f98494d865fc87e97e2d2b"
+    },
+    {
+      "path": "dashboard/inquiries/parser.py",
+      "before": null,
+      "after": "01146ec1d3b5e09c7b4386f384ef419ae5f0d16aa886bd0b0358889500e9b2c4"
+    },
+    {
+      "path": "dashboard/inquiries/routes.py",
+      "before": null,
+      "after": "bb155e60a025caf7f7d6443e14b2a21f62adb0d1137b213d3a091a6983023133"
+    },
+    {
+      "path": "dashboard/inquiries/service.py",
+      "before": null,
+      "after": "a4206364474510d3af1c5287248073a75be7fecb49bfadaf165545505977bf81"
+    },
+    {
+      "path": "dashboard/static/css/inquiries.css",
+      "before": null,
+      "after": "a6223d48ce9e32d8b37a0a8d34499663fe7c40e4f23eaecc9bc9c6805a95b170"
+    },
+    {
+      "path": "dashboard/static/js/inquiries.js",
+      "before": null,
+      "after": "2dc4765fda8eb05068a23363b96d15ad201934ccc30e3655cce6e326dad1a750"
+    },
+    {
+      "path": "dashboard/templates/base.html",
+      "before": "ccfceb476f86ce4ce4c3fdb0ed9fd681b3db4667d51f1006a9ec371b2ede21c8",
+      "after": "ab2711cd4c2a61a976ddaa907d587c0b0516198c0e5127f58394b3097e21c39b"
+    },
+    {
+      "path": "dashboard/templates/inquiries/index.html",
+      "before": null,
+      "after": "d710e8e4702204036d28c25ee6c12fa15c5aeaa5af0e8c8e9ec73476a73d0b5a"
+    },
+    {
+      "path": "docs/api.md",
+      "before": "eedd1b35a68eabfb21040a42513c9dc8237557f84c38b89989e33f3a73c59f69",
+      "after": "c32c96a7da302d5216ee00da79df3fdd7e892567401c916e6f2715b661f92b27"
+    },
+    {
+      "path": "scripts/inquiry_crm_client.py",
+      "before": null,
+      "after": "56c3c24894a62a38082769cca3734f80c34241adcb64ac1af8c36c4d45465463"
+    }
+  ],
+  "deployed_at": "2026-10-20T12:10:19Z",
+  "origin": "https://yourcottoncandy.com",
+  "backup": "/opt/hostaway-messages/backups/inquiry-crm-20261020-r1",
+  "bundle_sha256": "4d41e6a777a9fa5e2e8c6a5ec61fd71e3821ee525baaf993fb7110e3a58d7269",
+  "verification": {
+    "staged_tests_passed": 66,
+    "authenticated_server_smoke": "passed",
+    "management_log_workspace": "passed",
+    "timezone": "America/Los_Angeles",
+    "reminder_escalation_unassigned_minutes": null,
+    "leads_at_release": 0,
+    "messages_at_release": 0,
+    "browser_tag_cascade": "enchanted havens filters 58 properties to 7",
+    "gmail_watcher_active": false
+  }
+}
