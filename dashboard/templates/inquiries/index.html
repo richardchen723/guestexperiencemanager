@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Guest inquiries · Cotton Candy{% endblock %}
+{% block extra_head %}
+<meta name="inquiries-csrf" content="{{ inquiries_csrf }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inquiries.css', v='813-1') }}">
+{% endblock %}
+{% block content %}
+<section class="iq" id="inquiryApp" aria-label="Guest inquiry CRM">
+  <header class="iq-heading"><div><p class="iq-eyebrow">COTTON CANDY · RESERVATIONS</p><h1>Guest inquiries</h1><p class="iq-muted">From first question to confirmed stay.</p></div><div class="iq-header-actions"><span id="iqTimezone" class="iq-muted"></span><button id="iqAdmin" class="iq-button" type="button" hidden>Intake & settings</button><button id="iqRefresh" class="iq-button" type="button">Refresh</button></div></header>
+  <div id="iqError" class="iq-alert iq-danger" role="alert" hidden></div>
+  <div id="iqNotice" class="iq-alert" role="status" aria-live="polite" hidden></div>
+  <div class="iq-stats" id="iqStats" aria-label="Filtered inquiry statistics"><div class="iq-stat"><span>Loading inquiries…</span><strong>—</strong></div></div>
+  <div class="iq-controls">
+    <div class="iq-filters">
+      <label class="iq-search">Search<input id="iqSearch" type="search" placeholder="Name, email, phone, property or reference"></label>
+      <label>Date received<select id="iqDateRange"><option value="all">All dates</option><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="custom">Custom</option></select></label>
+      <label>Status<select id="iqStatus"><option value="">All statuses</option></select></label>
+      <label>Property / tag<select id="iqProperty"><option value="">All properties & tags</option></select></label>
+      <label>Assigned agent<select id="iqAgent"><option value="">All agents</option><option value="unassigned">Unassigned</option></select></label>
+      <button id="iqClear" class="iq-text-button" type="button">Clear filters</button>
+    </div>
+    <div class="iq-custom-dates" id="iqCustomDates" hidden><label>From<input id="iqFrom" type="date"></label><label>To<input id="iqTo" type="date"></label></div>
+    <div class="iq-queue" role="group" aria-label="Attention queue"><button data-attention="" class="active" aria-pressed="true">All inquiries</button><button data-attention="new_reply" aria-pressed="false">New replies</button><button data-attention="overdue" aria-pressed="false">Overdue follow-ups</button><button data-attention="unassigned" aria-pressed="false">Unassigned</button><button data-attention="review" aria-pressed="false">Needs review</button></div>
+  </div>
+  <div class="iq-sheet" tabindex="0" aria-label="Inquiry spreadsheet, scroll horizontally for more columns">
+    <table><thead><tr><th><button data-sort="received_at">Date received ↓</button></th><th>Guest name</th><th>Phone number</th><th>Email address</th><th>Property / tag</th><th><button data-sort="check_in">Check-in</button></th><th>Checkout</th><th>Notes / details</th><th>Internal notes</th><th><button data-sort="assigned_user_id">Assigned agent</button></th><th><button data-sort="status">Lead status</button></th><th class="iq-expand-column">Expand</th></tr></thead><tbody id="iqRows"><tr><td colspan="12" class="iq-empty">Loading inquiries…</td></tr></tbody></table>
+  </div>
+  <footer class="iq-footer"><span id="iqCount" role="status"></span><span>Updates every 30 seconds</span><div><button class="iq-button" id="iqPrevious" type="button">Previous</button><span id="iqPage"></span><button class="iq-button" id="iqNext" type="button">Next</button></div></footer>
+</section>
+<div id="iqBackdrop" class="iq-backdrop" hidden></div>
+<aside id="iqPanel" class="iq-panel" role="dialog" aria-modal="true" aria-labelledby="iqPanelTitle" hidden tabindex="-1"><header><div><p class="iq-eyebrow" id="iqPanelReference"></p><h2 id="iqPanelTitle">Inquiry details</h2></div><button id="iqClose" class="iq-button" type="button" aria-label="Close inquiry details">✕</button></header><div id="iqPanelError" class="iq-alert iq-danger" role="alert" hidden></div><div id="iqPanelBody"></div></aside>
+{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static', filename='js/inquiries.js', v='813-1') }}" defer></script>{% endblock %}

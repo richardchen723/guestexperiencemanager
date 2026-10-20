@@ -343,6 +343,35 @@ All ticket APIs are prefixed with `/tickets`.
 - `GET /tickets/api/images/{image_id}/thumbnail`
 - `POST /tickets/api/recurring/process`
 
+## Guest Inquiry CRM
+
+Access requires the `inquiries` feature grant (owners/admins inherit access), or
+an existing full-access API key. Restricted Guest Issues keys are denied.
+Browser writes require the `X-CSRF-Token` from the CRM page.
+
+- `GET /inquiries/api/bootstrap` — properties, tags, assignable staff, settings.
+- `GET /inquiries/api/leads` — paginated rows and filter-aware statistics. Params:
+  `from`, `to` (staff-local dates), `status`, `listing_id`, `tag_id`,
+  `assigned_user_id` (or `unassigned`), `search`, `attention`
+  (`new_reply`, `overdue`, `unassigned`, `review`), `page`, `per_page`,
+  `sort` (`received_at`, `check_in`, `assigned_user_id`, `status`), `direction`.
+- `GET /inquiries/api/leads/{id}` — complete details, original messages, audit.
+- `PATCH /inquiries/api/leads/{id}` — partial staff update with required `version`.
+  A stale version returns 409. Follow-up Required needs owner, action and due time.
+- `GET /inquiries/api/worker-context` — Larry's configured sources/property IDs and
+  extraction contract.
+- `POST /inquiries/api/intake` — original email metadata/body plus Larry extraction.
+  Deduplicates mailbox/message ID and links reference/thread; inspect
+  `processing_status` (`processed`, `ignored`, `failed`) and `replayed`.
+- `GET /inquiries/api/failures` — unresolved original messages; admin session only.
+- `POST /inquiries/api/failures/{message_id}/retry` — optional corrected `extraction`;
+  admin session only.
+- `PATCH /inquiries/api/settings` — timezone and optional minute intervals for
+  reminder, escalation and unassigned alerts; required settings `version`, admin
+  browser session only. Blank intervals remain unset. Alerts appear in the CRM.
+
+See `dashboard/inquiries/README.md` for the intake payload and activation steps.
+
 ## Reviews
 All review APIs are prefixed with `/reviews`.
 

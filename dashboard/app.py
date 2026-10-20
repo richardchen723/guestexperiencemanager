@@ -63,6 +63,8 @@ from dashboard.listing_audit.routes import register_listing_audit_routes
 from dashboard.stay_issues.routes import register_guest_issue_routes
 from dashboard.procurement.routes import register_procurement_routes
 from dashboard.procurement.models import init_procurement_database
+from dashboard.inquiries.routes import register_inquiry_routes
+from dashboard.inquiries.models import init_inquiry_database
 from dashboard.dashboard.routes import dashboard_bp
 from brain.models import init_guest_experience_tables, init_kpi_tables, init_listing_audit_tables
 from database.models import init_models
@@ -112,6 +114,7 @@ def create_app():
         init_listing_audit_tables()
         init_guest_experience_tables()
         init_procurement_database()
+        init_inquiry_database()
     
     # Register Google OAuth blueprint
     google_bp = create_google_blueprint(app)
@@ -132,6 +135,7 @@ def create_app():
     register_listing_audit_routes(app)
     register_guest_issue_routes(app)
     register_procurement_routes(app)
+    register_inquiry_routes(app)
     app.register_blueprint(dashboard_bp)
     
     # Health check endpoint for monitoring
@@ -178,7 +182,8 @@ def create_app():
     @app.after_request
     def add_no_cache_headers(response):
         if response.content_type and 'text/html' in response.content_type:
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            if request.blueprint != 'inquiries':
+                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
         return response

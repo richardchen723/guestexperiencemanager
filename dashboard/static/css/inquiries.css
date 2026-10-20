@@ -1,0 +1,742 @@
+.iq {
+    --iq-ink:#17324b;
+    --iq-muted:#6e7f8d;
+    --iq-border:#e2e9ef;
+    --iq-blue:#2563a8;
+    max-width:1800px;
+    margin:0 auto;
+    color:var(--iq-ink)
+}
+
+.iq *, .iq-panel * {
+    box-sizing:border-box
+}
+
+.iq [hidden],.iq-panel[hidden],.iq-backdrop[hidden],.iq-panel [hidden] {
+    display:none!important
+}
+
+.iq-heading {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:20px;
+    margin:6px 0 24px
+}
+
+.iq h1 {
+    font-size:30px;
+    letter-spacing:-1px;
+    margin:4px 0 7px;
+    font-weight:650
+}
+
+.iq-eyebrow {
+    font-size:10px;
+    letter-spacing:1.65px;
+    font-weight:700;
+    color:#6c879d;
+    margin:0 0 8px
+}
+
+.iq-muted {
+    font-size:12px;
+    color:var(--iq-muted);
+    margin:0
+}
+
+.iq-header-actions {
+    display:flex;
+    align-items:center;
+    gap:10px
+}
+
+.iq button,.iq input,.iq select,.iq textarea,.iq-panel button,.iq-panel input,.iq-panel select,.iq-panel textarea {
+    font:inherit
+}
+
+.iq button,.iq-panel button {
+    cursor:pointer
+}
+
+.iq-button {
+    border:1px solid #dce5ed;
+    background:#fff;
+    border-radius:7px;
+    padding:8px 12px;
+    font-size:12px!important;
+    color:#34526d;
+    line-height:1.4
+}
+
+.iq-button:hover {
+    background:#f3f7fb
+}
+
+.iq-button:disabled {
+    opacity:.45;
+    cursor:default
+}
+
+.iq-primary {
+    background:#2563a8;
+    color:#fff;
+    border-color:#2563a8
+}
+
+.iq-primary:hover {
+    background:#1c508b
+}
+
+.iq-text-button {
+    border:0;
+    background:none;
+    color:#2563a8;
+    font-size:12px;
+    white-space:nowrap;
+    padding:10px
+}
+
+.iq-stats {
+    display:grid;
+    grid-template-columns:repeat(5,1fr);
+    gap:12px;
+    margin-bottom:20px
+}
+
+.iq-stat {
+    padding:17px 20px;
+    border:1px solid var(--iq-border);
+    background:#fff;
+    border-radius:10px;
+    position:relative
+}
+
+.iq-stat:first-child {
+    background:#f0f6fc
+}
+
+.iq-stat span {
+    font-size:11px;
+    color:#6b7f90;
+    display:block;
+    margin-bottom:7px
+}
+
+.iq-stat strong {
+    font-size:26px;
+    font-weight:600;
+    letter-spacing:-.8px
+}
+
+.iq-stat small {
+    display:block;
+    color:#798b99;
+    font-size:10px;
+    margin-top:5px
+}
+
+.iq-controls {
+    background:#fff;
+    border:1px solid var(--iq-border);
+    border-radius:10px 10px 0 0;
+    padding:16px 16px 0
+}
+
+.iq-filters {
+    display:flex;
+    gap:12px;
+    align-items:end
+}
+
+.iq label,.iq-panel label {
+    font-size:11px;
+    color:#637b8d;
+    font-weight:500;
+    display:flex;
+    flex-direction:column;
+    gap:6px
+}
+
+.iq-search {
+    flex:1;
+    min-width:200px
+}
+
+.iq input,.iq select,.iq-panel input,.iq-panel select,.iq-panel textarea {
+    background:#fff;
+    border:1px solid #dce5ed;
+    border-radius:6px;
+    color:#213f57;
+    padding:9px 10px;
+    font-size:12px;
+    min-width:0;
+    width:100%
+}
+
+.iq input:focus,.iq select:focus,.iq-panel input:focus,.iq-panel select:focus,.iq-panel textarea:focus {
+    outline:2px solid #a7cbec;
+    outline-offset:1px
+}
+
+.iq-filters>label:not(.iq-search) {
+    flex:0 1 170px
+}
+
+.iq-queue {
+    display:flex;
+    gap:22px;
+    margin-top:15px;
+    overflow-x:auto
+}
+
+.iq-queue button {
+    border:0;
+    background:none;
+    padding:12px 0;
+    color:#738394;
+    font-size:11px;
+    white-space:nowrap;
+    border-bottom:2px solid transparent
+}
+
+.iq-queue button.active {
+    color:#2563a8;
+    border-bottom-color:#2563a8;
+    font-weight:600
+}
+
+.iq-custom-dates {
+    display:flex;
+    gap:10px;
+    margin-top:12px
+}
+
+.iq-sheet {
+    border:1px solid var(--iq-border);
+    border-top:0;
+    background:white;
+    max-height:62vh;
+    overflow:auto;
+    border-radius:0 0 10px 10px
+}
+
+.iq table {
+    border-collapse:separate;
+    border-spacing:0;
+    width:100%;
+    min-width:1900px;
+    text-align:left;
+    font-size:12px
+}
+
+.iq th {
+    position:sticky;
+    top:0;
+    z-index:1;
+    background:#f5f8fb;
+    color:#637b8c;
+    font-size:10px;
+    font-weight:600;
+    white-space:nowrap;
+    padding:13px 12px;
+    border-bottom:1px solid var(--iq-border);
+    letter-spacing:.15px
+}
+
+.iq th button {
+    border:0;
+    background:transparent;
+    padding:0;
+    color:inherit;
+    font-weight:inherit;
+    font-size:inherit
+}
+
+.iq td {
+    border-bottom:1px solid #edf1f5;
+    padding:13px 12px;
+    vertical-align:top;
+    color:#486174;
+    max-width:220px
+}
+
+.iq tbody tr:last-child td {
+    border-bottom:0
+}
+
+.iq tbody tr:hover {
+    background:#fafcfe
+}
+
+.iq td strong {
+    font-weight:600;
+    color:#193b57;
+    display:block;
+    margin-bottom:5px
+}
+
+.iq td a {
+    color:#386b93;
+    text-decoration:none
+}
+
+.iq td a:hover {
+    text-decoration:underline
+}
+
+.iq td .iq-sub {
+    display:block;
+    font-size:10px;
+    color:#8a99a6;
+    margin-top:5px
+}
+
+.iq-preview {
+    display:block;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    max-width:185px;
+    font-size:11px;
+    line-height:1.6
+}
+
+.iq-note {
+    border:0;
+    background:transparent;
+    color:#49687f;
+    padding:0;
+    text-align:left;
+    min-width:135px
+}
+
+.iq td select {
+    padding:5px 6px;
+    font-size:10px;
+    max-width:160px;
+    border-color:transparent;
+    background:transparent
+}
+
+.iq td select:hover {
+    border-color:#dce5ed
+}
+
+.iq-badge {
+    display:inline-block;
+    font-size:9px;
+    color:#a87526;
+    background:#fff5df;
+    border-radius:4px;
+    padding:3px 5px;
+    line-height:1.2;
+    margin-top:4px;
+    margin-right:4px
+}
+
+.iq-badge.reply {
+    color:#2563a8;
+    background:#eaf3ff
+}
+
+.iq-badge.overdue {
+    color:#b65050;
+    background:#fff0ef
+}
+
+.iq-badge.new {
+    color:#397bc2;
+    background:#edf5ff
+}
+
+.iq-badge.booked {
+    color:#308467;
+    background:#e8f6ef
+}
+
+.iq-expand-column {
+    position:sticky!important;
+    right:0;
+    min-width:63px
+}
+
+.iq td:last-child {
+    position:sticky;
+    right:0;
+    background:inherit;
+    text-align:center
+}
+
+.iq td:last-child button {
+    padding:3px 9px;
+    border-radius:15px;
+    background:white
+}
+
+.iq-empty {
+    text-align:center!important;
+    padding:60px!important;
+    color:#8394a2!important;
+    font-size:13px
+}
+
+.iq-footer {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    color:#7b8f9f;
+    font-size:10px;
+    padding:16px 0
+}
+
+.iq-footer>div {
+    display:flex;
+    align-items:center;
+    gap:10px
+}
+
+.iq-alert {
+    background:#eef6ff;
+    border:1px solid #d4e5f7;
+    color:#35638b;
+    border-radius:7px;
+    padding:11px 13px;
+    font-size:12px;
+    margin-bottom:14px;
+    line-height:1.6
+}
+
+.iq-danger {
+    background:#fff2ef;
+    color:#a64b40;
+    border-color:#f4d6cf
+}
+
+.iq-backdrop {
+    position:fixed;
+    inset:0;
+    background:rgba(21,44,64,.25);
+    z-index:1000
+}
+
+.iq-panel {
+    position:fixed;
+    inset:0 0 0 auto;
+    width:min(680px,100%);
+    background:#fff;
+    z-index:1001;
+    box-shadow:-10px 0 50px #0b233c25;
+    overflow:auto;
+    padding:26px 28px;
+    color:#21405a
+}
+
+.iq-panel>header {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    border-bottom:1px solid #e5edf3;
+    padding-bottom:20px;
+    margin-bottom:20px
+}
+
+.iq-panel h2 {
+    font-size:22px;
+    margin:0;
+    letter-spacing:-.5px
+}
+
+.iq-panel h3 {
+    font-size:13px;
+    margin:25px 0 14px;
+    padding-bottom:10px;
+    border-bottom:1px solid #edf1f5
+}
+
+.iq-panel h4 {
+    font-size:12px;
+    margin:0 0 6px
+}
+
+.iq-form-grid {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px
+}
+
+.iq-full {
+    grid-column:1/-1
+}
+
+.iq-panel textarea {
+    resize:vertical;
+    min-height:80px;
+    line-height:1.6
+}
+
+.iq-panel .iq-form-footer {
+    position:sticky;
+    bottom:-26px;
+    background:#fff;
+    padding:16px 0;
+    border-top:1px solid #e2e9ef;
+    display:flex;
+    align-items:center;
+    gap:14px;
+    margin-top:22px
+}
+
+.iq-message {
+    border:1px solid #e3eaf0;
+    border-radius:8px;
+    margin:10px 0;
+    overflow:hidden;
+    font-size:11px
+}
+
+.iq-message summary {
+    cursor:pointer;
+    padding:13px;
+    background:#f8fafc;
+    line-height:1.7
+}
+
+.iq-message pre,.iq-original {
+    white-space:pre-wrap;
+    overflow-wrap:anywhere;
+    font:12px/1.7 inherit;
+    padding:14px;
+    margin:0;
+    color:#4a6579
+}
+
+.iq-message a {
+    display:block;
+    padding:0 14px 14px;
+    font-size:11px
+}
+
+.iq-history {
+    list-style:none;
+    padding:0
+}
+
+.iq-history li {
+    border-left:2px solid #e3edf6;
+    padding:0 0 18px 16px;
+    font-size:11px;
+    line-height:1.7
+}
+
+.iq-history small {
+    color:#8095a6;
+    display:block
+}
+
+.iq-change {
+    font-size:10px;
+    color:#688295;
+    white-space:pre-wrap;
+    overflow-wrap:anywhere
+}
+
+.iq-panel input[type=checkbox] {
+    width:auto
+}
+
+.iq-check {
+    display:flex!important;
+    flex-direction:row!important;
+    align-items:center;
+    font-size:12px!important;
+    margin:12px 0
+}
+
+.iq-note-editor {
+    width:210px!important;
+    min-height:80px;
+    border:1px solid #9bb9d0;
+    padding:7px;
+    font-size:11px;
+    line-height:1.6
+}
+
+.iq-source {
+    background:#f6f9fc;
+    border-radius:8px;
+    padding:14px;
+    font-size:12px;
+    line-height:1.8;
+    margin:12px 0
+}
+
+.iq-panel a {
+    color:#2563a8
+}
+
+@media(max-width:1100px) {
+    .iq-filters {
+        flex-wrap:wrap
+    }
+    .iq-search {
+        flex-basis:100%
+    }
+    .iq-filters>label:not(.iq-search) {
+        flex:1
+    }
+    .iq-header-actions {
+        flex-wrap:wrap;
+        justify-content:flex-end
+    }
+    .iq-stats {
+        gap:7px
+    }
+    .iq-stat {
+        padding:14px
+    }
+    .iq-heading {
+        align-items:flex-start
+    }
+    .iq-header-actions>span {
+        width:100%;
+        text-align:right
+    }
+}
+
+@media(max-width:600px) {
+    .iq h1 {
+        font-size:25px
+    }
+    .iq-heading {
+        flex-direction:column;
+        gap:12px
+    }
+    .iq-header-actions {
+        justify-content:flex-start
+    }
+    .iq-header-actions>span {
+        width:auto
+    }
+    .iq-stats {
+        grid-template-columns:repeat(2,1fr)
+    }
+    .iq-stat:last-child {
+        grid-column:1/-1;
+        display:flex;
+        align-items:center;
+        gap:20px
+    }
+    .iq-stat:last-child span {
+        margin:0
+    }
+    .iq-stat:last-child small {
+        margin-left:auto
+    }
+    .iq-stat strong {
+        font-size:22px
+    }
+    .iq-filters>label:not(.iq-search) {
+        flex-basis:42%
+    }
+    .iq-queue {
+        gap:17px
+    }
+    .iq-footer {
+        flex-wrap:wrap
+    }
+    .iq-footer>span:nth-child(2) {
+        display:none
+    }
+    .iq-panel {
+        padding:20px
+    }
+    .iq-form-grid {
+        grid-template-columns:1fr
+    }
+    .iq-full {
+        grid-column:auto
+    }
+    .iq-sheet {
+        max-height:60vh
+    }
+    .iq-panel .iq-form-footer {
+        bottom:-20px
+    }
+}
+
+/* Isolate workspace headers from the legacy global header layout. */
+.iq .iq-heading {
+    position:static;
+    top:auto;
+    z-index:auto;
+    height:auto;
+    min-height:0;
+    background:transparent;
+    box-shadow:none;
+    border:0;
+    padding:0
+}
+
+.iq-backdrop {
+    z-index:2000
+}
+
+.iq-panel {
+    z-index:2001
+}
+
+.iq-panel>header {
+    position:sticky;
+    top:-26px;
+    z-index:2;
+    height:auto;
+    min-height:76px;
+    margin-top:-26px;
+    padding:26px 0 18px;
+    box-shadow:none;
+    background:#fff
+}
+
+.iq td:last-child {
+    background:#fff
+}
+
+.iq tr:hover td:last-child {
+    background:#fafcfe
+}
+
+.iq-note-actions {
+    display:flex;
+    gap:6px;
+    margin-top:5px
+}
+
+@media(max-width:600px) {
+    .iq-panel>header {
+        top:-20px;
+        margin-top:-20px;
+        padding-top:20px
+    }
+}
+
+.iq-queue button {
+    flex-shrink:0
+}
+
+.iq label,.iq-panel label {
+    text-align:left;
+    align-items:stretch
+}
+
+.iq-contact-links {
+    display:flex;
+    gap:18px;
+    font-size:11px;
+    margin:14px 0
+}
+
+.iq-panel label.iq-check {
+    align-items:center
+}

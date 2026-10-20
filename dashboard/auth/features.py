@@ -51,6 +51,13 @@ FEATURES = OrderedDict((feature['key'], feature) for feature in (
         'endpoint': 'tickets.tickets_list',
     },
     {
+        'key': 'inquiries',
+        'label': 'Guest Inquiries',
+        'description': 'Guest inquiry contacts, reservations follow-ups, and email history.',
+        'default_access': False,
+        'endpoint': 'inquiries.inquiry_page',
+    },
+    {
         'key': 'procurement',
         'label': 'Procurement',
         'description': 'Supply requests, purchase approvals, property confirmation, and costs.',
