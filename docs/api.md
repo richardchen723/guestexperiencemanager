@@ -356,6 +356,15 @@ Browser writes require the `X-CSRF-Token` from the CRM page.
   (`new_reply`, `overdue`, `unassigned`, `review`), `page`, `per_page`,
   `sort` (`received_at`, `check_in`, `assigned_user_id`, `status`), `direction`.
 - `GET /inquiries/api/leads/{id}` — complete details, original messages, audit.
+- `POST /inquiries/api/leads` — manual staff entry. Supply a client-generated UUID
+  `creation_id`, `guest_name`, and at least `email` or `phone`. Optional fields
+  use the same names/validation as staff updates; do not supply `version`.
+  The server sets manual source, reference, receipt time and creator audit.
+  Repeat the identical submission with the same UUID after a timeout; it returns
+  the saved lead with `replayed: true`. A changed submission under that UUID
+  returns 409. Distinct trips use distinct UUIDs even for the same guest email.
+  `internal_test: true` requires administrator/API access and keeps the lead out
+  of genuine statistics. No source email or guest-facing message is generated.
 - `PATCH /inquiries/api/leads/{id}` — partial staff update with required `version`.
   A stale version returns 409. Follow-up Required needs owner, action and due time.
 - `GET /inquiries/api/worker-context` — Larry's configured sources/property IDs and

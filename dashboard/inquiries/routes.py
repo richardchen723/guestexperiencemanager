@@ -126,7 +126,7 @@ def endpoint(*, mutation=False):
             except Exception:
                 db.rollback()
                 logger.exception("Guest inquiry request failed")
-                return jsonify(error="The inquiry could not be saved. Your original email remains in the inbox; retry this action."), 500
+                return jsonify(error="The inquiry could not be saved. Your entered details are unchanged; retry this action."), 500
             finally:
                 db.close()
         return wrapped
@@ -176,6 +176,15 @@ def worker_context(service):
 @endpoint()
 def lead_detail(service, lead_id):
     return service.serialize(service.lead(lead_id), detail=True)
+
+
+@inquiries_bp.post("/api/leads")
+@endpoint(mutation=True)
+def create_lead(service):
+    data = payload()
+    if data.get("internal_test") is True:
+        test_access()
+    return service.create(data)
 
 
 @inquiries_bp.patch("/api/leads/<int:lead_id>")

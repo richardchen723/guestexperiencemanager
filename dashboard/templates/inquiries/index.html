@@ -6,7 +6,7 @@
 {% endblock %}
 {% block content %}
 <section class="iq" id="inquiryApp" aria-label="Guest inquiry CRM">
-  <header class="iq-heading"><div><p class="iq-eyebrow">COTTON CANDY · RESERVATIONS</p><h1>Guest inquiries</h1><p class="iq-muted">From first question to confirmed stay.</p></div><div class="iq-header-actions"><span id="iqTimezone" class="iq-muted"></span><button id="iqAdmin" class="iq-button" type="button" hidden>Intake & settings</button><button id="iqRefresh" class="iq-button" type="button">Refresh</button></div></header>
+  <header class="iq-heading"><div><p class="iq-eyebrow">COTTON CANDY · RESERVATIONS</p><h1>Guest inquiries</h1><p class="iq-muted">From first question to confirmed stay.</p></div><div class="iq-header-actions"><span id="iqTimezone" class="iq-muted"></span><button id="iqCreate" class="iq-button iq-primary" type="button" disabled>New lead</button><button id="iqAdmin" class="iq-button" type="button" hidden>Intake & settings</button><button id="iqRefresh" class="iq-button" type="button">Refresh</button></div></header>
   <div id="iqError" class="iq-alert iq-danger" role="alert" hidden></div>
   <a id="iqTestScope" class="iq-text-button" hidden>Internal tests</a>
   <p id="iqTestBanner" class="iq-alert" hidden>Internal test inquiries. These records are excluded from genuine lead and conversion statistics.</p>
@@ -33,4 +33,4 @@
 <div id="iqBackdrop" class="iq-backdrop" hidden></div>
 <aside id="iqPanel" class="iq-panel" role="dialog" aria-modal="true" aria-labelledby="iqPanelTitle" hidden tabindex="-1"><header><div><p class="iq-eyebrow" id="iqPanelReference"></p><h2 id="iqPanelTitle">Inquiry details</h2></div><button id="iqClose" class="iq-button" type="button" aria-label="Close inquiry details">✕</button></header><div id="iqPanelError" class="iq-alert iq-danger" role="alert" hidden></div><div id="iqPanelBody"></div></aside>
 {% endblock %}
-{% block extra_scripts %}<script src="{{ url_for('static', filename='js/inquiries.js', v='813-4') }}" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static', filename='js/inquiries.js', v='818-1') }}" defer></script>{% endblock %}

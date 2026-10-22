@@ -4,7 +4,7 @@
   const $ = (id) => document.getElementById(id);
   if (!$('inquiryApp')) return;
   const testView = new URLSearchParams(window.location.search).get('record_scope') === 'internal-tests';
-  const state = {bootstrap: null, rows: [], page: 1, total: 0, attention: '', sort: 'received_at', direction: 'desc', detail: null, dirty: false, panel: false, loading: false, request: 0, editing: false, returnFocus: null};
+  const state = {bootstrap: null, rows: [], page: 1, total: 0, attention: '', sort: 'received_at', direction: 'desc', detail: null, dirty: false, panel: false, loading: false, request: 0, editing: false, saving: false, returnFocus: null};
   const csrf = document.querySelector('meta[name="inquiries-csrf"]').content;
   const escape = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
   const option = (value, label, selected) => `<option value="${escape(value)}"${String(value ?? '') === String(selected ?? '') ? ' selected' : ''}>${escape(label)}</option>`;
@@ -33,7 +33,7 @@
     if (!response.ok) throw new Error(result.error || 'Could not load inquiries. Try again.');
     return result;
   }
-  function error(message, panel = false) { const el = $(panel ? 'iqPanelError' : 'iqError'); el.textContent = message; el.hidden = !message; }
+  function error(message, panel = false) { const el = $(panel ? 'iqPanelError' : 'iqError'); el.textContent = message; el.hidden = !message; if (panel && message) el.scrollIntoView({block:'nearest'}); }
   function notice(message) { $('iqNotice').textContent = message; $('iqNotice').hidden = !message; }
   function dateFilters() {
     const mode = $('iqDateRange').value;
@@ -107,6 +107,7 @@
     error('', true);
   }
   function closePanel() {
+    if (state.saving) return;
     if (state.dirty && !window.confirm('Discard your unsaved changes?')) return;
     state.panel = false; state.detail = null; state.dirty = false;
     $('iqPanel').hidden = $('iqBackdrop').hidden = true;
@@ -117,25 +118,56 @@
     const input = type === 'textarea' ? `<textarea name="${name}">${escape(value)}</textarea>` : `<input name="${name}" type="${type}" value="${escape(value)}"${type === 'number' ? ' min="0" max="999"' : ''}>`;
     return `<label${full ? ' class="iq-full"' : ''}>${escape(label)}${input}</label>`;
   }
-  function selectField(label, name, options) { return `<label>${label}<select name="${name}">${options}</select></label>`; }
+  function selectField(label, name, options) { return `<label>${escape(label)}<select name="${name}" aria-label="${escape(label)}">${options}</select></label>`; }
   function renderDetail(l) {
+    const creating = Boolean(l.creation_id);
     const q = l.qualification || {};
     const prop = l.listing_id ? `listing:${l.listing_id}` : l.tag_id ? `tag:${l.tag_id}` : '';
     const propOptions = option('', 'Unassigned', prop) + '<optgroup label="Properties">' + state.bootstrap.properties.map(p => option(`listing:${p.id}`,p.name,prop)).join('') + '</optgroup><optgroup label="Tags">' + state.bootstrap.tags.map(t => option(`tag:${t.id}`,t.name,prop)).join('') + '</optgroup>';
-    $('iqPanelBody').innerHTML = `${badges(l)}<p class="iq-muted">Received ${escape(formatTime(l.received_at))} · ${escape(l.brand || l.source)}</p>
+    $('iqPanelBody').innerHTML = `${creating ? '<p class="iq-muted">Enter the guest name and at least an email address or phone number. Stay details and assignment can be added now or later.</p>' : `${badges(l)}<p class="iq-muted">Received ${escape(formatTime(l.received_at))} · ${escape(l.source === 'manual' ? 'Manual entry' : l.brand || l.source)}</p>`}
       <p class="iq-contact-links">${l.email ? `<a href="mailto:${escape(l.email)}">Email guest ↗</a>` : ''}${l.phone ? `<a href="tel:${escape(l.phone.replace(/[^+\d]/g,''))}">Call guest ↗</a>` : ''}</p>
-      <form id="iqDetailForm"><h3>Guest information</h3><div class="iq-form-grid">
+      <form id="iqDetailForm" data-mobile-enhancements="off"><h3>Guest information</h3><div class="iq-form-grid">
       ${field('Guest name','guest_name',l.guest_name)}${field('Email address','email',l.email,'email')}${field('Phone number','phone',l.phone,'tel')}${field('Preferred contact method','preferred_contact_method',q.preferred_contact_method)}
       </div><h3>Stay & qualification</h3><div class="iq-form-grid">${selectField('Property / tag','property',propOptions)}${field('Property as requested','property_text',l.property_text)}${field('Check-in','check_in',l.check_in,'date')}${field('Checkout','check_out',l.check_out,'date')}${field('Trip type','trip_type',l.trip_type)}${field('Guest count','guest_count',q.guest_count,'number')}${field('Adults','adults',q.adults,'number')}${field('Children','children',q.children,'number')}${field('Pets','pets',q.pets)}${field('Budget as supplied (include currency)','budget',q.budget)}${field('Flexible dates','date_flexibility',q.date_flexibility)}${field('Alternative dates','alternative_dates',q.alternative_dates)}${field('Stay requirements','stay_requirements',q.stay_requirements,'textarea',true)}${field('Current inquiry details','details',l.details,'textarea',true)}${field('Quote status','quote_status',q.quote_status)}
       </div><h3>Internal management</h3><div class="iq-form-grid">${selectField('Assigned agent','assigned_user_id',agentOptions(l.assigned_user_id))}${selectField('Lead status','status',statusOptions(l.status))}${field('Next action','next_action',l.next_action,'textarea',true)}${field(`Follow-up due · ${tz()}`,'follow_up_at',localInput(l.follow_up_at),'datetime-local')}${field(`Last contact · ${tz()}`,'last_contact_at',localInput(l.last_contact_at),'datetime-local')}${field('Internal notes','internal_notes',l.internal_notes,'textarea',true)}</div>
       ${l.needs_reply ? '<label class="iq-check"><input type="checkbox" name="acknowledge_reply"> I reviewed this new response and the next action</label>' : ''}
       ${l.review_flags.length ? `<h3>Review flags</h3>${l.review_flags.map(f => `<div class="iq-alert">${escape(f.field ? f.field.replaceAll('_',' ') + ': ' : '')}${escape(f.reason)}${'proposed' in f ? `<br>Suggested: ${escape(f.proposed ?? 'Blank')}<br>Retained: ${escape(f.current ?? 'Blank')}` : ''}</div>`).join('')}<label class="iq-check"><input type="checkbox" name="resolve_flags"> I resolved the flagged information</label>` : ''}
-      <div class="iq-form-footer"><button class="iq-button iq-primary" type="submit">Save changes</button><span class="iq-muted" id="iqSaveState">Saved changes are visible to the team.</span></div></form>
-      <h3>Original inquiry & conversation</h3>${l.messages.map((m,i) => `<details class="iq-message"${i === l.messages.length - 1 ? ' open' : ''}><summary><strong>${escape(m.subject)}</strong><br>${escape(m.sender)} · ${escape(formatTime(m.received_at))}</summary><pre>${escape(m.body)}</pre><a href="${escape(m.source_url)}" target="_blank" rel="noopener noreferrer">Open source email ↗</a></details>`).join('')}
-      <h3>Activity history</h3><ol class="iq-history">${l.activities.map(a => `<li><strong>${escape(a.action)}</strong><small>${escape(a.actor)} · ${escape(formatTime(a.created_at))}</small>${Object.entries(a.changes).map(([k,v]) => `<div class="iq-change">${escape(k.replaceAll('_',' '))}: ${escape(v && typeof v === 'object' && 'after' in v ? `${typeof v.before === 'object' ? JSON.stringify(v.before) : v.before ?? 'Blank'} → ${typeof v.after === 'object' ? JSON.stringify(v.after) : v.after ?? 'Blank'}` : v)}</div>`).join('')}</li>`).join('')}</ol>`;
+      <div class="iq-form-footer"><button class="iq-button iq-primary" type="submit">${creating ? 'Create lead' : 'Save changes'}</button><span class="iq-muted" id="iqSaveState">${creating ? 'The lead will be visible to the team after saving.' : 'Saved changes are visible to the team.'}</span></div></form>
+      ${creating ? '' : `<h3>Original inquiry & conversation</h3>${l.source === 'manual' && l.original_notes ? `<h4>Original manual inquiry notes</h4><pre class="iq-original">${escape(l.original_notes)}</pre>` : ''}${l.messages.map((m,i) => `<details class="iq-message"${i === l.messages.length - 1 ? ' open' : ''}><summary><strong>${escape(m.subject)}</strong><br>${escape(m.sender)} · ${escape(formatTime(m.received_at))}</summary><pre>${escape(m.body)}</pre><a href="${escape(m.source_url)}" target="_blank" rel="noopener noreferrer">Open source email ↗</a></details>`).join('')}
+      <h3>Activity history</h3><ol class="iq-history">${l.activities.map(a => `<li><strong>${escape(a.action)}</strong><small>${escape(a.actor)} · ${escape(formatTime(a.created_at))}</small>${Object.entries(a.changes).map(([k,v]) => `<div class="iq-change">${escape(k.replaceAll('_',' '))}: ${escape(v && typeof v === 'object' && 'after' in v ? `${typeof v.before === 'object' ? JSON.stringify(v.before) : v.before ?? 'Blank'} → ${typeof v.after === 'object' ? JSON.stringify(v.after) : v.after ?? 'Blank'}` : v)}</div>`).join('')}</li>`).join('')}</ol>`}`;
+    $('iqDetailForm').elements.guest_name.required = creating;
     $('iqDetailForm').addEventListener('input', () => { state.dirty = true; $('iqSaveState').textContent = 'Unsaved changes'; });
     $('iqDetailForm').addEventListener('change', () => { state.dirty = true; });
-    $('iqDetailForm').addEventListener('submit', saveDetail);
+    $('iqDetailForm').addEventListener('submit', creating ? saveNew : saveDetail);
+  }
+  function newLead() {
+    if (state.editing) { notice('Finish editing the internal note before creating a lead.'); return; }
+    if (state.saving || state.dirty && !window.confirm('Discard your unsaved changes?')) return;
+    state.detail = {creation_id:crypto.randomUUID(), qualification:{}, listing_id:null, tag_id:null,
+      status:'New', review_flags:[], needs_reply:false, messages:[], activities:[]};
+    state.dirty = false;
+    showPanel(testView ? 'New test lead' : 'New lead', 'MANUAL ENTRY');
+    renderDetail(state.detail);
+    $('iqDetailForm').elements.guest_name.focus();
+  }
+  async function saveNew(event) {
+    event.preventDefault();
+    if (state.saving) return;
+    error('',true);
+    const button = event.target.querySelector('[type="submit"]');
+    button.disabled = true; state.saving = true;
+    try {
+      const {version, ...fields} = formChanges(event.target,state.detail);
+      const saved = await api('leads','POST',{...fields,creation_id:state.detail.creation_id,internal_test:testView});
+      state.detail = saved; state.dirty = false;
+      $('iqPanelTitle').textContent = saved.guest_name;
+      $('iqPanelReference').textContent = saved.reference;
+      renderDetail(saved);
+      $('iqSaveState').textContent = 'Lead created';
+      notice('Lead created. Your current table filters remain applied.');
+      await load({quiet:true});
+    } catch (e) { error(e.message,true); }
+    finally { button.disabled = false; state.saving = false; }
   }
   async function openDetail(id, initialStatus) {
     if (state.panel && state.dirty && !window.confirm('Discard your unsaved changes?')) return;
@@ -250,6 +282,9 @@
       $('iqTestScope').href = testView ? '/inquiries/' : '/inquiries/?record_scope=internal-tests';
       $('iqTestScope').textContent = testView ? 'Genuine inquiries' : 'Internal tests';
       $('iqTestBanner').hidden = !testView;
+      $('iqCreate').disabled = false;
+      $('iqCreate').textContent = testView ? 'New test lead' : 'New lead';
+      $('iqCreate').addEventListener('click',newLead);
       await load();
       let debounce;
       $('iqSearch').addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(() => {state.page = 1; load();},300); });

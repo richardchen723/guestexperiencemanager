@@ -13,6 +13,13 @@ Richard confirmed on October 20, 2026:
 
 ## Built in this branch
 
+- Manual staff capture through **New lead** (ticket 818). Guest name and at
+  least an email or phone number are required; stay details are optional. The
+  same side panel supports property/tag, qualification, assignment, status and
+  accountable follow-ups. Manual creation records the staff actor and original
+  notes without inventing a source email or guest response. Creation UUIDs make
+  retries safe even when the successful response is lost. Internal-test entry
+  remains administrator-only and excluded from genuine statistics.
 - All 11 spreadsheet fields plus Expand, sticky headers, horizontal scrolling,
   server pagination, search, sortable receipt/check-in/agent/status columns,
   inline notes/assignment/status, and a side panel preserving table position.

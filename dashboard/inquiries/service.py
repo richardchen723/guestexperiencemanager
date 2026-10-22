@@ -6,6 +6,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parseaddr
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from uuid import UUID
 
 from sqlalchemy import func, or_, select
 
@@ -139,6 +140,46 @@ class InquiryService:
             raise InquiryError("Checkout must be after check-in.")
         if lead.status == "Follow-up Required" and not (lead.assigned_user_id and lead.next_action and lead.follow_up_at):
             raise InquiryError("Follow-up Required needs a responsible agent, next action, and due date/time.")
+
+    def create(self, payload):
+        unknown = set(payload) - STAFF_FIELDS - {"creation_id", "internal_test"}
+        if unknown:
+            raise InquiryError("Unknown inquiry fields: " + ", ".join(sorted(unknown)))
+        try:
+            creation_id = UUID(payload.get("creation_id"))
+        except (ValueError, TypeError, AttributeError):
+            raise InquiryError("A valid creation_id is required to safely retry this submission.") from None
+        internal_test = payload.get("internal_test", False)
+        if not isinstance(internal_test, bool):
+            raise InquiryError("internal_test must be a boolean.")
+        lead = Lead(source="manual", reference=f"MANUAL-{creation_id.hex}", received_at=self.now,
+                    status="New", version=1, is_test=internal_test, qualification={}, review_flags=[],
+                    staff_fields=sorted(GUEST_FIELDS & set(payload)), needs_reply=False,
+                    created_at=self.now, updated_at=self.now, updated_by=self.actor)
+        for key in STAFF_FIELDS & set(payload):
+            set_value(lead, key, self.validate_field(key, payload[key]))
+        if not lead.guest_name:
+            raise InquiryError("Guest name is required.")
+        if not (lead.email or lead.phone):
+            raise InquiryError("Enter an email address or phone number for the guest.")
+        self.validate_state(lead)
+        lead.original_notes = lead.details or ""
+        changes = {key: {"before": None, "after": iso(get_value(lead, key))}
+                   for key in sorted(STAFF_FIELDS) if get_value(lead, key) is not None}
+        changes["is_test"] = {"before": None, "after": internal_test}
+        existing = self.db.scalar(select(Lead).where(Lead.source == "manual", Lead.reference == lead.reference))
+        if existing:
+            original = self.db.scalar(select(Activity).where(Activity.lead_id == existing.id,
+                                      Activity.action == "Lead created manually").order_by(Activity.id).limit(1))
+            if not original or original.changes != changes:
+                raise InquiryError("This submission was already saved with different details. Open the saved inquiry before changing it.", 409)
+            return {**self.serialize(existing, detail=True), "replayed": True}
+        lead.guest_id = self.identity(lead.email).id
+        self.db.add(lead)
+        self.db.flush()
+        self.activity(lead, "Lead created manually", changes)
+        self.db.flush()
+        return {**self.serialize(lead, detail=True), "replayed": False}
 
     def patch(self, lead_id, payload):
         lead = self.lead(lead_id)
