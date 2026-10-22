@@ -1,0 +1,57 @@
+{
+  "release": "ticket-818-manual-leads-20261022-r1",
+  "source_commit": "b64e3339966cb6e08d7ee8a2e97143f7a6959942",
+  "files": [
+    {
+      "path": "dashboard/inquiries/service.py",
+      "before": "6f1ad1d2de3be599c45b0f8793880cb66449455905abeb2f162ba427f0a48266",
+      "after": "8da9362865faac789387748ffbeafa07dc566a7b27198e2f09c8ab3003ef601b"
+    },
+    {
+      "path": "dashboard/inquiries/routes.py",
+      "before": "58ff7a0367f1c05f5eb29472a4a5d906e0b42be405e6a10a547a7948efe576b5",
+      "after": "416dc948df427f11c76035a8f1f31f064abb6036ef4d4823b01ce0ad89ece147"
+    },
+    {
+      "path": "dashboard/static/js/inquiries.js",
+      "before": "5c98d00f20a8ce3f8112512e8edbd9b62d4789783d0caae7cb1ba97368b02eb1",
+      "after": "b905946fc42a97b9005f0ce8a6c68cb4e95774023ee91d8228d00d75c7f5e75a"
+    },
+    {
+      "path": "dashboard/templates/inquiries/index.html",
+      "before": "0910b310eb8a0a4979e1874645b5f178b118afd07e1221bb6ac5ca8bcc79f055",
+      "after": "da571f5a01b2a082494b8fd3ed54206a583180cf525d6b8ec3a88c40816666b9"
+    },
+    {
+      "path": "dashboard/inquiries/README.md",
+      "before": "872cd2924ce29dc2dbe7e9300d02f97916f9f27d145ca9e9adb303fc661a2b5e",
+      "after": "5e8522ac2c54886a0621fb4a6e261870614fac5fd0be8d521fd9b0501cc2b432"
+    },
+    {
+      "path": "docs/api.md",
+      "before": "c32c96a7da302d5216ee00da79df3fdd7e892567401c916e6f2715b661f92b27",
+      "after": "dbef1d75090af99f7f889a25af070c3874ced3b59ad193c7f88685fd87d43e35"
+    }
+  ],
+  "verification": {
+    "crm_and_access_tests_passed": 74,
+    "final_browser_tests_passed": 2,
+    "javascript_syntax": "passed",
+    "diff_check": "passed",
+    "schema_changes": false,
+    "synthetic_production_records_created": false,
+    "public_https_authentication": "passed",
+    "public_javascript_checksum": "passed",
+    "production_browser_form": "passed: existing Richard session, New lead opens with required guest/contact and optional stay/management fields",
+    "production_api_validation": {
+      "http_status": 400,
+      "missing_contact_rejected": true,
+      "genuine_leads_before": 54,
+      "genuine_leads_after": 54
+    }
+  },
+  "backup": "/opt/hostaway-messages/backups/ticket-818-manual-leads-20261022-r1",
+  "status": "deployed",
+  "prepared_at": "2026-10-22T11:19:21.643380+00:00",
+  "deployed_at": "2026-10-22T11:19:32.771714+00:00"
+}
