@@ -20,8 +20,8 @@
         <article class="ops-card" data-goal="{{ key }}">
             <a class="ops-card-link" href="{{ url_for('kpi.operational_detail', metric_key=key) }}" aria-label="Goal {{ goal[0] }}: {{ goal[1] }} — details">
                 <div class="ops-card-top"><span class="ops-goal-number">Goal {{ goal[0] }}</span><span class="ops-badge" data-field="status">Loading</span></div>
-                <h2>{{ goal[1] }}</h2><div class="ops-primary" data-field="value">—</div><p class="ops-value-label">{{ goal[3] }}</p>
-                <p class="ops-target"><strong>Target</strong> {{ goal[2] }}</p>
+                <h2>{{ goal[1] }}</h2><div class="ops-primary" data-field="value">—</div><p class="ops-value-label" data-field="label">Loading saved measure…</p>
+                <p class="ops-target"><strong>Target</strong> <span data-field="target">Loading saved target…</span></p>
                 <div class="ops-visual" data-field="visual" aria-label="Evidence loading"><span class="ops-track is-unknown"></span><small>Checking evidence…</small></div>
                 <p class="ops-card-note" data-field="note">No result until evidence is checked.</p><p class="ops-observation" data-field="observation" hidden></p>
                 <div class="ops-card-bottom"><span data-field="freshness">Source check pending</span><strong>Details →</strong></div>

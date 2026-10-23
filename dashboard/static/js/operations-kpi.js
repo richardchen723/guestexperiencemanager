@@ -40,7 +40,7 @@
     const percentage = ['revenue', 'content', 'reviews'].includes(m.key) ? m.value : m.key === 'issues' && m.denominator ? Math.min(100, m.value / m.denominator * 100) : m.key === 'response' && m.value !== null ? Math.min(100, m.value / 5 * 100) : m.key === 'cleaning' && m.value !== null ? Math.min(100, m.value * 100) : null;
     if (percentage === null) track.classList.add('is-unknown');
     else { const fill = el('span'); fill.style.width = `${Math.max(0, Math.min(100, percentage))}%`; track.dataset.verified = String(m.data_status === 'verified'); track.append(fill); }
-    const text = percentage === null ? 'Evidence gap · target comparison pending' : m.key === 'issues' ? `${m.value} active / ${m.denominator} physical units` : m.key === 'response' ? `${m.value} min / 5 min limit · lower is better` : m.key === 'cleaning' ? `${m.value} / 1 incident limit · lower is better` : `${m.display} ${m.label}`;
+    const text = m.visual_label || (percentage === null ? (m.data_status === 'deferred' ? m.summary : 'Evidence gap · target comparison pending') : `${m.display} ${m.label}`);
     container.setAttribute('aria-label', text); container.append(track, el('small', text));
   }
   function renderCards() {
@@ -49,6 +49,7 @@
       if (!card) return;
       const field = name => card.querySelector(`[data-field="${name}"]`);
       badge(field('status'), m); field('value').textContent = m.display;
+      field('label').textContent = m.label; field('target').textContent = m.target;
       visual(field('visual'), m); field('note').textContent = m.summary;
       field('observation').hidden = !m.observation; field('observation').textContent = m.observation || '';
       const checked = m.sources.map(s => s.checked_at).filter(Boolean).sort();
@@ -65,7 +66,7 @@
     const ns = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('viewBox', '0 0 780 150'); svg.setAttribute('role', 'img'); svg.classList.add('ops-chart');
-    const title = document.createElementNS(ns, 'title'); title.textContent = 'Verified observations only; gaps are unknown. Values are in the table below.'; svg.append(title);
+    const title = document.createElementNS(ns, 'title'); title.textContent = `${label(metric.data_status)} observations; gaps are unknown. Values and assumptions are in the table below.`; svg.append(title);
     const values = rows.map(x => x.value).filter(x => x !== null && x !== undefined);
     if (!values.length) return;
     const max = Math.max(1, ...values), min = Math.min(0, ...values);

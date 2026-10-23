@@ -20,7 +20,7 @@ pytestmark = pytest.mark.skipif(os.getenv("OPERATIONAL_UI_QA") != "1", reason="O
 def ui():
     from playwright.sync_api import sync_playwright
     from werkzeug.serving import make_server
-    data = build_operations({"listings": [{"id": 1, "name": "QA fixture property", "timezone": "America/New_York"}], "issues_readable": True, "issues": [{"id": 1, "listing_id": 1, "operational_status": "need_attention", "resolution_state": "resolved"}]}, as_of=datetime(2026, 10, 23, 12, tzinfo=timezone.utc))
+    data = build_operations({"allow_estimates": True, "listings": [{"id": 1, "name": "QA fixture property", "timezone": "America/New_York"}], "issues_readable": True, "issues": [{"id": 1, "listing_id": 1, "operational_status": "need_attention", "resolution_state": "resolved"}]}, as_of=datetime(2026, 10, 23, 12, tzinfo=timezone.utc))
     data["snapshot_state"] = {"status": "available", "calculated_at": data["generated_at"], "window_as_of": data["as_of"], "next_due_at": "2026-10-25T12:00:00+00:00", "refresh_status": "completed", "schedule_status": "scheduled"}
     with patch("dashboard.kpi.routes.check_feature_access", return_value=None), patch("dashboard.auth.decorators.is_logged_in", return_value=True), patch("dashboard.auth.decorators.is_approved", return_value=True), patch("dashboard.auth.decorators.authenticate_request_api_key", return_value=True), patch("dashboard.kpi.routes.get_current_user", return_value=None), patch("dashboard.kpi.routes.operational_dashboard", return_value=data):
         server = make_server("127.0.0.1", 0, make_app(), threaded=True)
@@ -39,9 +39,10 @@ def ui():
 def test_six_cards_navigation_reload_back_forward_and_mobile(ui, tmp_path):
     from playwright.sync_api import expect
     page, base, _ = ui
-    errors, methods = [], []
+    errors, methods, urls = [], [], []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.on("request", lambda request: methods.append(request.method))
+    page.on("request", lambda request: urls.append(request.url))
     page.goto(base + "/kpi/")
     expect(page.locator('#opsLoading')).to_be_hidden()
     expect(page.locator('.ops-card')).to_have_count(6)
@@ -71,6 +72,7 @@ def test_six_cards_navigation_reload_back_forward_and_mobile(ui, tmp_path):
     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
     page.screenshot(path=str(tmp_path / "overview-mobile.png"), full_page=True)
     assert not errors and set(methods) == {'GET'}
+    assert not any('/kpi/api/data' in url for url in urls)
 
 
 def test_loading_failure_retry_empty_and_repeated_clicks(ui):
@@ -110,3 +112,17 @@ def test_failed_background_refresh_keeps_saved_values_and_shows_notice(ui):
     expect(page.locator('[data-goal="issues"] [data-field="value"]')).to_have_text('1')
     expect(page.locator('#opsSnapshotNotice')).to_contain_text('Showing the previous saved results')
     expect(page.locator('#opsRefresh')).to_have_text('Reload snapshot')
+
+
+def test_overview_uses_snapshot_measure_target_and_provisional_unit_basis(ui):
+    from playwright.sync_api import expect
+    page, base, data = ui
+    reviews = next(x for x in data["metrics"] if x["key"] == "reviews")
+    reviews.update(label="Saved Airbnb coverage", target="Saved target ≥61%", value=44, display="44%")
+    page.goto(base + '/kpi/')
+    expect(page.locator('[data-goal="reviews"] [data-field="label"]')).to_have_text('Saved Airbnb coverage')
+    expect(page.locator('[data-goal="reviews"] [data-field="target"]')).to_have_text('Saved target ≥61%')
+    expect(page.locator('[data-goal="content"] [data-field="target"]')).to_have_text('Team definition pending')
+    expect(page.locator('[data-goal="issues"] [data-field="visual"]')).to_contain_text('catalog entries (unit proxy) · provisional')
+    expect(page.locator('[data-goal="issues"] [data-field="target"]')).to_contain_text('Provisional comparison')
+    assert 'physical units' not in page.locator('[data-goal="issues"]').inner_text()

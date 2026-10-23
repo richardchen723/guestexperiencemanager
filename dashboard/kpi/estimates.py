@@ -14,7 +14,7 @@ from sync.listing_timezone import valid_timezone_name
 STATE_ZONES = {"CA": "America/Los_Angeles", "GA": "America/New_York", "OH": "America/New_York", "WA": "America/Los_Angeles"}
 CITY_ZONES = {("TN", "sevierville"): "America/New_York", ("TN", "pigeon forge"): "America/New_York", ("TN", "gatlinburg"): "America/New_York", ("TX", "houston"): "America/Chicago", ("TX", "coldspring"): "America/Chicago"}
 PORTFOLIO_CODES = {"Enchanted Havens": "EH", "Luminary Resorts": "LR", "Middlefork": "MF", "Crockett’s Run": "CR", "LA St Gabe": "SG", "Urban Stays": "US"}
-MATURATION_DAYS = {"airbnb": 14, "vrbo": 365, "booking": 90}
+REVIEW_WINDOW_DAYS = {"airbnb": 14, "vrbo": 365, "booking": 90}
 
 
 def timezone_for_listing(row):
@@ -91,50 +91,77 @@ def estimate_revenue(data, windows):
     return r
 
 
+def rating_scale(row, data):
+    """A source-specific evidence contract, never inferred from score magnitude."""
+    source = data.get("rating_scales", {}).get(channel(row.get("channel")), {})
+    if row.get("scale_verified") and row.get("scale_provenance"):
+        scale, proof = numeric(row.get("native_scale")), row["scale_provenance"]
+    elif source.get("verified") and source.get("provenance"):
+        scale, proof = numeric(source.get("native_scale")), source["provenance"]
+    else:
+        return None, "Native scale unverified; no conversion or target comparison"
+    return (scale, proof) if scale and scale > 0 else (None, "Invalid source-scale contract")
+
+
 def estimate_reviews(data, windows):
-    r = estimated("reviews", "Airbnb mature-checkout coverage estimate")
-    reviews = {x["id"]: x for x in data.get("reviews", []) if str(x.get("status", "")).lower() == "published" and str(x.get("origin", "")).lower() == "guest"}
+    r = estimated("reviews", "Airbnb rolling-checkout coverage (provisional)")
+    reviews = {x["id"]: x for x in data.get("reviews", []) if str(x.get("status") or "").lower() == "published" and str(x.get("origin") or "").lower() == "guest"}
     linked = defaultdict(list)
     for x in reviews.values(): linked[(x.get("reservation_id"), x["listing_id"], channel(x.get("channel")))].append(x)
-    base, n, uncertain, immature, weeks = defaultdict(set), defaultdict(set), defaultdict(set), Counter(), defaultdict(lambda: [set(), set()])
+    base, n, uncertain, still_open, weeks = defaultdict(set), defaultdict(set), defaultdict(set), defaultdict(set), defaultdict(lambda: [set(), set()])
+    review_days = {}
+    for ch, assumed in REVIEW_WINDOW_DAYS.items():
+        policy = data.get("review_policies", {}).get(ch, {})
+        days = numeric(policy.get("review_window_days")) if policy.get("verified") else None
+        review_days[ch] = (days, "Verified source policy") if days is not None and days >= 0 else (assumed, "Assumed review window")
     for x in {x["id"]: x for x in data.get("reservations", [])}.values():
         w, ch = windows.get(x["listing_id"]), channel(x.get("channel"))
-        if not w or ch not in MATURATION_DAYS: continue
+        if not w or ch not in REVIEW_WINDOW_DAYS: continue
         checkout = day(x["departure"])
         if not w["start"] <= checkout < w["end"]: continue
-        if checkout > w["end"] - timedelta(days=MATURATION_DAYS[ch]): immature[ch] += 1; continue
         has_review = any(v.get("date") and checkout <= day(v["date"]) < w["end"] for v in linked[(x["id"], x["listing_id"], ch)])
         if qualifying(x) or has_review:
             base[ch].add(x["id"])
             key = (ch, checkout - timedelta(days=checkout.weekday()))
             weeks[key][1].add(x["id"])
             if has_review: n[ch].add(x["id"]); weeks[key][0].add(x["id"])
+            elif checkout + timedelta(days=review_days[ch][0]) >= w["end"]: still_open[ch].add(x["id"])
         elif "cancel" in str(x.get("status", "")).lower() and (not x.get("cancellation_date") or day(x["cancellation_date"]) >= day(x["arrival"])):
             uncertain[ch].add(x["id"])
     for ch, target in COVERAGE_TARGETS.items():
         count, num = len(base[ch]), len(n[ch])
         value = ratio(num, count)
         low = ratio(num, count + len(uncertain[ch]))
-        r["breakdown"].append({"group": ch.title(), "measure": "Mature-checkout coverage", "value": f"{value:g}%" if value is not None else None, "target": f"≥{target}%", "coverage": f"{num}/{count}; {immature[ch]} immature", "sensitivity": f"{low:g}–{value:g}% if unresolved cancellations are eligible" if count and uncertain[ch] else "No mature cohort" if not count else "Cancellation sensitivity unchanged"})
+        r["breakdown"].append({"group": ch.title(), "measure": "Rolling-checkout coverage (provisional)", "value": f"{value:g}%" if value is not None else None, "target": f"≥{target}%", "reviewed": num, "unreviewed": count - num, "still_open_opportunities": len(still_open[ch]), "unreviewed_window_elapsed": count - num - len(still_open[ch]), "opportunities": count, "review_window": f"{review_days[ch][0]:g} days · {review_days[ch][1]}", "sensitivity": f"{low:g}–{value:g}% if unresolved cancellations are eligible" if count and uncertain[ch] else "No observed checkout cohort" if not count else "Cancellation sensitivity unchanged"})
     if base["airbnb"]:
         value = ratio(len(n["airbnb"]), len(base["airbnb"]))
         r.update(value=value, display=f"{value:g}%", numerator=len(n["airbnb"]), denominator=len(base["airbnb"]))
     listings = {x["id"]: x for x in data.get("listings", []) + data.get("historical_listings", [])}
-    ratings = defaultdict(list)
+    ratings, proofs = defaultdict(list), {}
     for x in reviews.values():
         w, score = windows.get(x["listing_id"]), numeric(x.get("rating"))
         code = PORTFOLIO_CODES.get(listings.get(x["listing_id"], {}).get("portfolio"))
-        if w and code and score is not None and 0 < score <= 10 and x.get("date") and w["start"] <= day(x["date"]) < w["end"]:
-            ratings[code].append(score / 2)
+        if w and code and score is not None and score > 0 and x.get("date") and w["start"] <= day(x["date"]) < w["end"]:
+            scale, proof = rating_scale(x, data)
+            if scale and score > scale:
+                scale, proof = None, "Value exceeds the verified scale; source reconciliation required"
+            key = (code, channel(x.get("channel")), scale)
+            ratings[key].append(score)
+            proofs[key] = proof
     for code, target in RATING_TARGETS.items():
-        values = ratings[code]
-        r["breakdown"].append({"group": code, "measure": "Normalized rating estimate /5", "value": round(sum(values) / len(values), 3) if values else None, "target": f">{target:g}", "coverage": f"{len(values)} rated reviews", "sensitivity": "Assumes PMS overall_rating uses 0–10; native scales unverified"})
-    r["trend"] = [{"date": d.isoformat(), "group": ch.title(), "value": ratio(len(a), len(b)), "reviewed": len(a), "mature_checkouts": len(b), "target": COVERAGE_TARGETS[ch]} for (ch, d), (a, b) in sorted(weeks.items())]
-    r.update(numerator_label="Observed published guest reviews linked to mature Airbnb checkouts", denominator_label="Observed booked or review-proven mature Airbnb opportunities", summary="Coverage is estimated from mature checkout opportunities; rating estimates are a separate review-date cohort.")
-    r["diagnostics"] = [{"label": "Airbnb reviewed / mature checkout opportunities", "value": f"{len(n['airbnb'])}/{len(base['airbnb'])}" if base["airbnb"] else None}, {"label": "Airbnb unresolved cancellation opportunities", "value": len(uncertain["airbnb"])}, {"label": "Maturation assumptions (days)", "value": "Airbnb 14 · Vrbo 365 · Booking 90"}, {"label": "Historical publication visibility", "value": "Unverified; current published state / synchronized review date"}]
-    r["method"] = "Coverage uses exact reservation/listing/channel joins and checkouts in the local window, including its first day and archived listings. Assumed maturation: Airbnb 14, Vrbo 365, Booking 90 days. Canceled stays with matching published reviews count as observed opportunities. Unreviewed after-arrival/unknown-timing cancellations form a conditional sensitivity range, not a confidence interval. Actual stayed status and historical publication visibility are uncertain. Ratings use the separate synchronized-review-date cohort, divide assumed PMS 0–10 scores by two, and use tag-derived portfolio labels; this normalized estimate does not verify native channel scales."
+        keys = [key for key in ratings if key[0] == code]
+        if not keys:
+            r["breakdown"].append({"group": code, "measure": "Native guest rating", "value": None, "native_scale": "Unknown", "target": f">{target:g} /5", "coverage": "No observed rated reviews"})
+        for key in sorted(keys, key=lambda x: (x[1], x[2] or 0)):
+            _, ch, scale = key
+            values = ratings[key]
+            r["breakdown"].append({"group": code, "channel": ch.title(), "measure": "Native guest rating" if scale else "Observed native rating · scale unknown", "value": round(sum(values) / len(values), 3), "native_scale": scale or "Unknown", "target": f">{target:g} /5" if scale == 5 else f">{target:g} /5 · not comparable", "coverage": f"{len(values)} rated reviews", "scale_provenance": proofs[key], "comparison": "Portfolio mapping unverified; no compliance claim"})
+    r["trend"] = [{"date": d.isoformat(), "group": ch.title(), "value": ratio(len(a), len(b)), "reviewed": len(a), "checkout_opportunities": len(b), "target": COVERAGE_TARGETS[ch]} for (ch, d), (a, b) in sorted(weeks.items())]
+    r.update(numerator_label="Observed published guest reviews linked to Airbnb checkouts", denominator_label="Observed booked or review-proven Airbnb opportunities, including still-open windows", summary="Provisional rolling-checkout coverage includes open opportunities. Ratings remain native and separate by channel and verified scale.")
+    r["diagnostics"] = [{"label": "Airbnb reviewed / checkout opportunities", "value": f"{len(n['airbnb'])}/{len(base['airbnb'])}" if base["airbnb"] else None}, {"label": "Airbnb unreviewed / still open", "value": f"{len(base['airbnb'])-len(n['airbnb'])} / {len(still_open['airbnb'])}" if base["airbnb"] else None}, {"label": "Airbnb unresolved cancellation opportunities", "value": len(uncertain["airbnb"])}, {"label": "Historical publication visibility", "value": "Unverified; current published state / synchronized review date"}]
+    r["method"] = "Coverage uses every observed booked or review-proven checkout in the local three-month window, including its first day and archived listings. It does not discard recent checkouts to wait for full maturation. Reviewed, unreviewed and still-open opportunities are separate; open-window flags use a verified source policy when supplied, otherwise assumed Airbnb 14, Vrbo 365 and Booking 90 days. This is provisional coverage, not final missed-review performance. Canceled stays with matching published reviews count as observed opportunities. Unreviewed after-arrival/unknown-timing cancellations form a conditional sensitivity range, not a confidence interval. Ratings use a separate review-date cohort and stay in their native scale, grouped by channel and source-scale contract; unknown or non-five-point scales are not compared with five-point targets or automatically converted. Actual stayed status, historical publication visibility and tag-derived portfolio mapping remain uncertain."
     exception(r, "Review cancellation eligibility, historical publication visibility, portfolio mapping and native rating scales before certification.")
-    r["observation"] = "Estimated checkout coverage · ratings normalized with stated scale assumption"
+    r["observation"] = "Provisional coverage · open review opportunities included · native rating scales"
     return r
 
 
@@ -211,7 +238,7 @@ def estimate_issues(data):
     proxy = len(data.get("listings", [])) or None
     if n is not None: r.update(value=n, display=str(n), numerator=n, denominator=proxy)
     r["breakdown"] = [{"group": str(lid), "active_identities": count} for lid, count in counts.most_common()]
-    r.update(numerator_label="Operationally active guest issues, including old unresolved carry-ins", denominator_label="Current catalog listing count: an estimated unit proxy, not physical inventory", summary="Current operational load; only saved complaint identities are consolidated. No historical backlog is inferred.")
+    r.update(target="Provisional comparison: active load ≤ catalog entries (unit proxy)", visual_label=f"{n} active / {proxy} catalog entries (unit proxy) · provisional" if n is not None and proxy else None, numerator_label="Operationally active guest issues, including old unresolved carry-ins", denominator_label="Catalog entries (unit proxy); physical inventory unverified", summary="Current operational load; comparison with catalog entries is provisional. Physical-unit compliance is unverified.")
     r["diagnostics"] = [{"label": "Catalog entries used as unit proxy", "value": proxy}, {"label": "Active / narrative-resolved conflicts retained", "value": conflicts}, {"label": "Conditional load if all such conflicts were resolved", "value": f"{n-conflicts}–{n}" if n is not None else None}, {"label": "Historical daily backlog", "value": "Unavailable; no synthetic series"}]
     r["method"] = "Count all operationally active or unknown-status guest issues across source dates, including carry-ins. Consolidate only exact saved dedupe identities or matching property/reservation/complaint keys; possible text duplicates are not merged. Narrative-resolved conflicts remain active. The sensitivity range conditionally removes those conflicts and is not a confidence interval. Current catalog entries proxy for units; archive/scope and bundle mapping are not a physical-unit register."
     exception(r, "Reconcile active/narrative-resolved conflicts and confirm the physical-unit count before certifying the target.")
@@ -224,12 +251,13 @@ CLEANING_AMBIGUOUS = {"linens", "linens_and_bedding", "linen_condition", "missin
 
 
 def estimate_cleaning(data, windows):
-    r = estimated("cleaning", "estimated turnover incidents per 10 booked check-ins")
+    r = estimated("cleaning", "affected booked check-ins per 10 (cleaning proxy)")
     checkins = {x["id"]: x for x in data.get("reservations", []) if qualifying(x) and windows.get(x["listing_id"]) and windows[x["listing_id"]]["start"] <= day(x["arrival"]) < windows[x["listing_id"]]["end"]}
     strict, possible, unmatched = set(), set(), 0
-    distinct = set()
+    identities, strict_identities, strict_records = set(), set(), set()
+    identities_by_listing, strict_identities_by_listing, records_by_listing = defaultdict(set), defaultdict(set), defaultdict(set)
     # Includes resolved and active issues; this is an incidence metric, not backlog.
-    for x in data.get("issues", []):
+    for x in {x["id"]: x for x in data.get("issues", [])}.values():
         category = str(x.get("category") or "").lower()
         if category not in CLEANING_STRICT | CLEANING_AMBIGUOUS: continue
         reservation = checkins.get(x.get("reservation_id"))
@@ -237,29 +265,37 @@ def estimate_cleaning(data, windows):
             w = windows.get(x["listing_id"])
             if w and x.get("date") and w["start"] <= day(x["date"]) < w["end"]: unmatched += 1
             continue
-        possible.add(x["reservation_id"]); distinct.add(issue_identity(x))
-        if category in CLEANING_STRICT: strict.add(x["reservation_id"])
+        identity = issue_identity(x)
+        possible.add(x["reservation_id"]); identities.add(identity)
+        identities_by_listing[x["listing_id"]].add(identity)
+        if category in CLEANING_STRICT:
+            strict.add(x["reservation_id"])
+            strict_identities.add(identity); strict_records.add(x["id"])
+            strict_identities_by_listing[x["listing_id"]].add(identity)
+            records_by_listing[x["listing_id"]].add(x["id"])
     if checkins and data.get("issues_readable") and (possible or not unmatched):
         value = ratio(len(strict), len(checkins), 10)
         r.update(value=value, display=f"{value:g}", numerator=len(strict), denominator=len(checkins))
-    high = ratio(len(distinct), len(checkins), 10)
+    identity_rate = ratio(len(strict_identities), len(checkins), 10)
+    record_rate = ratio(len(strict_records), len(checkins), 10)
+    inclusive_rate = ratio(len(identities), len(checkins), 10)
     for lid in windows:
         ids = {key for key, x in checkins.items() if x["listing_id"] == lid}
         if ids:
-            r["breakdown"].append({"group": str(lid), "estimated_incidents": len(strict & ids), "possible_affected_checkins": len(possible & ids), "booked_checkins": len(ids), "estimated_per_10": ratio(len(strict & ids), len(ids), 10)})
-    r["breakdown"].sort(key=lambda x: -x["estimated_per_10"])
+            r["breakdown"].append({"group": str(lid), "affected_checkins": len(strict & ids), "booked_checkins": len(ids), "affected_checkin_proxy_per_10": ratio(len(strict & ids), len(ids), 10), "strict_saved_identities": len(strict_identities_by_listing[lid]), "strict_source_records": len(records_by_listing[lid]), "saved_identity_scenario_per_10": ratio(len(strict_identities_by_listing[lid]), len(ids), 10), "source_record_scenario_per_10": ratio(len(records_by_listing[lid]), len(ids), 10), "including_ambiguous_identity_per_10": ratio(len(identities_by_listing[lid]), len(ids), 10)})
+    r["breakdown"].sort(key=lambda x: -x["affected_checkin_proxy_per_10"])
     weeks = defaultdict(lambda: [set(), set()])
     for key, x in checkins.items():
         d = day(x["arrival"]); bucket = d - timedelta(days=d.weekday())
         weeks[bucket][1].add(key)
         if key in strict: weeks[bucket][0].add(key)
     if data.get("issues_readable"):
-        r["trend"] = [{"date": d.isoformat(), "value": ratio(len(a), len(b), 10), "checkins": len(b), "target": 1} for d, (a, b) in sorted(weeks.items())]
-    r.update(numerator_label="Booked check-ins with explicitly cleaning-tagged issues, active or resolved", denominator_label="Observed qualifying booked check-ins; actual arrival and package identity unverified", summary="Turnover estimate groups cleaning complaints per check-in; ambiguous categories form an upper sensitivity scenario.")
-    r["diagnostics"] = [{"label": "Conditional incident-rate sensitivity per 10", "value": f"{r['value']:g}–{high:g}" if r["value"] is not None and high is not None else None}, {"label": "Strict / possible affected check-ins", "value": f"{len(strict)} / {len(possible)}"}, {"label": "In-window candidates not joined to eligible check-ins", "value": unmatched}, {"label": "Issue statuses included", "value": "Active and resolved"}]
-    r["method"] = "Explicit cleaning/housekeeping/cleanliness category names map to a turnover incident estimate, consolidating complaints per qualifying booked reservation. Linens, laundry, odors, pests and waste tags are ambiguous. The upper sensitivity scenario allows separate saved complaint identities and ambiguous categories; it is not a confidence interval or an exhaustive bound. Active and resolved records are included. Candidates lacking an eligible reservation/listing join are excluded and reported. Booked check-ins proxy for actual arrivals; package duplicates and classification coverage remain unverified."
+        r["trend"] = [{"date": d.isoformat(), "value": ratio(len(a), len(b), 10), "measure": "Affected check-in proxy, not distinct incidents", "checkins": len(b)} for d, (a, b) in sorted(weeks.items())]
+    r.update(target="Goal: <1 distinct incident per 10 check-ins · proxy comparison provisional", numerator_label="Booked check-ins with cleaning-tagged issues, active or resolved (not distinct incidents)", denominator_label="Observed qualifying booked check-ins; actual arrival and package identity unverified", summary="Affected-check-in proxy; multiple incidents in one stay may be combined. Distinct-incident compliance remains unverified.")
+    r["diagnostics"] = [{"label": "Strict affected check-ins / saved identities / source records", "value": f"{len(strict)} / {len(strict_identities)} / {len(strict_records)}"}, {"label": "Per 10 scenarios: affected check-ins / saved identities / source records", "value": f"{r['value']:g} / {identity_rate:g} / {record_rate:g}" if r["value"] is not None else None}, {"label": "In-window candidates not joined to eligible check-ins", "value": unmatched}, {"label": "Including ambiguous identities per 10 (conditional)", "value": inclusive_rate}, {"label": "Issue statuses included", "value": "Active and resolved"}]
+    r["method"] = "The main value measures booked check-ins affected by explicit cleaning/housekeeping/cleanliness tags, not distinct incidents. Multiple complaints or incidents in one reservation contribute one affected check-in. Separate scenarios count strict saved complaint identities and strict source records; neither establishes validated distinct incidents. An additional scenario includes ambiguous linens, laundry, odors, pests and waste identities. Scenarios are conditional assumptions, not confidence intervals or exhaustive bounds. Only exact saved complaint identities are consolidated; possible text duplicates are not merged. Active and resolved records are included. Candidates lacking an eligible reservation/listing join are excluded and reported. Booked check-ins proxy for actual arrivals; package duplicates and classification coverage remain unverified. The original distinct-incident goal is retained and is not scored by this proxy."
     exception(r, "Review ambiguous categories and unmatched check-in joins; validate distinct incidents and actual arrivals before certification.")
-    r["observation"] = f"{len(strict)} estimated affected check-ins / {len(checkins)} booked check-ins" if checkins else "No usable check-in denominator"
+    r["observation"] = f"{len(strict)} affected check-ins · {len(strict_identities)} strict identities · {len(strict_records)} source records" if checkins else "No usable check-in denominator"
     return r
 
 

@@ -19,7 +19,7 @@ from sqlalchemy.orm import declarative_base
 from dashboard.kpi.operations import GOALS, as_utc, metric, months_before
 
 logger = logging.getLogger(__name__)
-CONTRACT_VERSION = "operational-kpi.v2-estimates"
+CONTRACT_VERSION = "operational-kpi.v3-provisional-cohorts"
 CADENCE = timedelta(hours=48)
 LEASE = timedelta(hours=2)
 STATE_KEY = "portfolio"

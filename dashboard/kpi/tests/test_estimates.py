@@ -62,8 +62,8 @@ def test_review_checkout_boundary_cancel_sensitivity_and_rating_cohort_are_separ
     assert r["numerator"] == r["denominator"] == 1
     assert "50–100%" in r["breakdown"][0]["sensitivity"]
     rating = next(x for x in r["breakdown"] if x["group"] == "EH")
-    assert rating["value"] == 4.5 and rating["target"] == ">4.92"
-    assert "scale" in rating["sensitivity"] and r["goal_status"] == "unknown"
+    assert rating["value"] == 9 and rating["native_scale"] == "Unknown"
+    assert "not comparable" in rating["target"] and r["goal_status"] == "unknown"
 
 
 def msg(id, minute, incoming, body):
@@ -84,6 +84,9 @@ def test_active_issue_load_keeps_carryins_and_dedupes_only_saved_identity():
     assert r["value"] == 1 and r["denominator"] == 1 and not r["trend"]
     assert "proxy" in r["denominator_label"] and r["data_status"] == "observed"
     assert r["diagnostics"][1]["value"] == 1
+    assert "catalog entries (unit proxy)" in r["target"]
+    assert "catalog entries (unit proxy)" in r["visual_label"]
+    assert "provisional" in r["visual_label"] and r["goal_status"] == "unknown"
 
 
 def test_cleaning_includes_closed_incidents_excludes_old_and_shows_ambiguity():
@@ -92,7 +95,8 @@ def test_cleaning_includes_closed_incidents_excludes_old_and_shows_ambiguity():
     r = estimate_cleaning(d, W)
     assert r["value"] == 5 and r["numerator"] == 1 and r["denominator"] == 2
     assert r["diagnostics"][2]["value"] == 0
-    assert r["diagnostics"][3]["value"] == "Active and resolved"
+    assert r["diagnostics"][4]["value"] == "Active and resolved"
+    assert "affected booked check-ins" in r["label"] and "not distinct incidents" in r["numerator_label"]
     d["reservations"] = []
     assert estimate_cleaning(d, W)["value"] is None
 
@@ -109,3 +113,53 @@ def test_upstream_stale_is_separate_from_estimate_confidence():
     d["issues"] = []
     r = next(x for x in build_operations(d, as_of=NOW)["metrics"] if x["key"] == "issues")
     assert r["data_status"] == "observed" and r["source_freshness"] == "stale_at_calculation"
+
+
+def test_rolling_review_cohorts_include_recent_vrbo_booking_and_open_opportunities():
+    d = data()
+    d["reservations"] = [booking(1, channel="vrbo", arrival=date(2026, 10, 20), departure=date(2026, 10, 22)), booking(2, channel="vrbo"), booking(3, channel="booking", arrival=date(2026, 10, 20), departure=date(2026, 10, 22)), booking(4, channel="booking", arrival=date(2026, 7, 23), departure=date(2026, 7, 24)), booking(5, arrival=date(2026, 10, 20), departure=date(2026, 10, 22))]
+    d["reviews"] = [{"id": 1, "listing_id": 1, "reservation_id": 1, "channel": "vrbo", "date": date(2026, 10, 22), "origin": "Guest", "status": "published"}]
+    r = estimate_reviews(d, W)
+    channels = {x["group"]: x for x in r["breakdown"][:3]}
+    assert channels["Vrbo"]["reviewed"] == 1
+    assert channels["Vrbo"]["unreviewed"] == channels["Vrbo"]["still_open_opportunities"] == 1
+    assert channels["Vrbo"]["value"] == "50%"
+    assert channels["Booking"]["opportunities"] == 2
+    assert channels["Booking"]["still_open_opportunities"] == channels["Booking"]["unreviewed_window_elapsed"] == 1
+    assert channels["Airbnb"]["still_open_opportunities"] == r["denominator"] == 1
+    assert r["value"] == 0 and r["goal_status"] == "unknown"
+
+
+def test_review_open_window_can_use_verified_source_policy_without_dropping_cohort():
+    d = data(); d["reservations"] = [booking()]
+    d["review_policies"] = {"airbnb": {"verified": True, "review_window_days": 100}}
+    row = estimate_reviews(d, W)["breakdown"][0]
+    assert row["opportunities"] == row["still_open_opportunities"] == 1
+    assert "Verified source policy" in row["review_window"]
+
+
+def test_ratings_stay_native_by_channel_and_only_use_provenanced_scale_contracts():
+    d = data()
+    template = {"listing_id": 1, "origin": "Guest", "status": "published", "date": date(2026, 8, 2)}
+    d["reviews"] = [{**template, "id": 1, "channel": "airbnb", "rating": 4.9, "native_scale": 5, "scale_verified": True, "scale_provenance": "Verified original Airbnb API field"}, {**template, "id": 2, "channel": "booking", "rating": 9.8}, {**template, "id": 3, "channel": "vrbo", "rating": 4.8, "native_scale": 5, "scale_verified": True}]
+    d["rating_scales"] = {"booking": {"verified": True, "native_scale": 10, "provenance": "Verified Booking source schema"}}
+    rows = {x["channel"]: x for x in estimate_reviews(d, W)["breakdown"] if x["group"] == "EH"}
+    assert rows["Airbnb"]["value"] == 4.9 and rows["Airbnb"]["native_scale"] == 5
+    assert rows["Booking"]["value"] == 9.8 and rows["Booking"]["native_scale"] == 10
+    assert "not comparable" in rows["Booking"]["target"]
+    assert rows["Vrbo"]["value"] == 4.8 and rows["Vrbo"]["native_scale"] == "Unknown"
+    assert "not comparable" in rows["Vrbo"]["target"]
+
+
+def test_cleaning_affected_checkins_do_not_hide_multiple_record_identity_scenarios():
+    d = data(); d["reservations"] = [booking(), booking(2)]
+    common = {"listing_id": 1, "reservation_id": 1, "category": "cleanliness", "operational_status": "resolved"}
+    d["issues"] = [{**common, "id": 1, "complaint_key": "dirty_bathroom"}, {**common, "id": 2, "complaint_key": "dirty_bathroom"}, {**common, "id": 3, "complaint_key": "dirty_kitchen"}, {"id": 4, "listing_id": 1, "reservation_id": 2, "category": "linens"}]
+    d["issues"].append(d["issues"][0])  # Same source ID is not a second source record.
+    r = estimate_cleaning(d, W); row = r["breakdown"][0]
+    assert r["value"] == 5 and r["numerator"] == 1
+    assert row["strict_saved_identities"] == 2 and row["strict_source_records"] == 3
+    assert row["saved_identity_scenario_per_10"] == 10
+    assert row["source_record_scenario_per_10"] == row["including_ambiguous_identity_per_10"] == 15
+    assert r["goal_status"] == "unknown" and "distinct-incident goal" in r["method"]
+    assert all("target" not in x for x in r["trend"])
