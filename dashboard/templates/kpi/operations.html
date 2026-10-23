@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ goals[metric_key][1] if metric_key else 'Operational KPI' }} · Cotton Candy{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/operations-kpi.css', v='1') }}">{% endblock %}
+{% block content %}
+<div class="ops-page" id="opsPage" data-metric="{{ metric_key or '' }}" data-endpoint="{{ url_for('kpi.api_operational_data') }}">
+    <nav class="ops-tabs" aria-label="KPI views"><a href="{{ url_for('kpi.kpi_page') }}" aria-current="page">Operational KPI</a><a href="{{ url_for('kpi.north_star_page') }}">North-star history</a></nav>
+    {% if metric_key %}<a class="ops-back" href="{{ url_for('kpi.kpi_page') }}">← All six goals</a>{% endif %}
+    <header class="ops-header">
+        <div><p class="ops-eyebrow">Cotton Candy · Q4 operations</p><h1>{{ goals[metric_key][1] if metric_key else 'Six goals. One shared view.' }}</h1><p class="ops-intro">{{ 'Diagnose the result, check its evidence, and choose the next action.' if metric_key else 'Know where attention is needed. Open a goal to see the evidence and next actions.' }}</p></div>
+        <div class="ops-owner"><span>Accountable owner <strong>Usman</strong></span><span>Deadline <strong>Dec 31, 2026</strong></span></div>
+    </header>
+    <div class="ops-context"><div><strong>Rolling 3 calendar months</strong><span id="opsWindow">Checking property-local dates…</span></div><div><span id="opsAsOf">As of —</span><span id="opsChecked">Reads cached for up to 60 seconds</span></div><button type="button" id="opsRefresh">Check latest</button></div>
+    <p class="ops-status-key">Data status: <strong>Verified</strong> = complete evidence · <strong>Partial / unverified</strong> = no passing claim · <strong>Stale</strong> = source check over 24 hours old</p>
+    <div id="opsLoading" class="ops-notice" role="status">Reading operational evidence…</div>
+    <div id="opsError" class="ops-error" role="alert" hidden><strong>Operational data could not be loaded.</strong><p id="opsErrorMessage"></p><button type="button" id="opsRetry">Try again</button></div>
+    {% if not metric_key %}
+    <div class="ops-grid" id="opsGrid" aria-busy="true">
+        {% for key, goal in goals.items() %}
+        <article class="ops-card" data-goal="{{ key }}">
+            <a class="ops-card-link" href="{{ url_for('kpi.operational_detail', metric_key=key) }}" aria-label="Goal {{ goal[0] }}: {{ goal[1] }} — details">
+                <div class="ops-card-top"><span class="ops-goal-number">Goal {{ goal[0] }}</span><span class="ops-badge" data-field="status">Loading</span></div>
+                <h2>{{ goal[1] }}</h2><div class="ops-primary" data-field="value">—</div><p class="ops-value-label">{{ goal[3] }}</p>
+                <p class="ops-target"><strong>Target</strong> {{ goal[2] }}</p>
+                <div class="ops-visual" data-field="visual" aria-label="Evidence loading"><span class="ops-track is-unknown"></span><small>Checking evidence…</small></div>
+                <p class="ops-card-note" data-field="note">No result until evidence is checked.</p><p class="ops-observation" data-field="observation" hidden></p>
+                <div class="ops-card-bottom"><span data-field="freshness">Source check pending</span><strong>Details →</strong></div>
+            </a>
+        </article>
+        {% endfor %}
+    </div>
+    <p class="ops-footer">Goals 5 (bookkeeping) and 6 (owner relations) are tracked separately. Procurement is outside this scorecard. Source goals and history are retained.</p>
+    {% else %}
+    <div id="opsDetail" hidden>
+        <section class="ops-detail-head"><div><span class="ops-badge" id="detailStatus"></span><div class="ops-primary" id="detailValue">—</div><p id="detailValueLabel"></p></div><div><h2>Target</h2><p id="detailTarget"></p><p id="detailSummary"></p></div></section>
+        <section class="ops-panel"><h2>What needs attention</h2><p id="exceptionCount"></p><div id="opsExceptions"></div></section>
+        <div class="ops-detail-columns"><section class="ops-panel"><h2>Numerator & denominator</h2><dl id="opsFormula"></dl></section><section class="ops-panel"><h2>Supporting observations</h2><dl id="opsDiagnostics"></dl></section></div>
+        <section class="ops-panel"><div class="ops-section-heading"><h2>Diagnostic trend</h2><label id="trendFilterLabel" hidden>Property / channel <select id="trendFilter"></select></label></div><p id="trendNotice"></p><div id="opsTrendChart"></div><div class="ops-table-wrap" id="opsTrend"></div></section>
+        <section class="ops-panel"><div class="ops-section-heading"><h2>Property & channel breakdown</h2><label>Find a row <input type="search" id="breakdownSearch" placeholder="Property, channel or portfolio"></label></div><div class="ops-table-wrap" id="opsBreakdown"></div></section>
+        <section class="ops-panel"><h2>Definition & evidence rules</h2><p id="opsMethod"></p><h3>Property-local windows</h3><p>Start inclusive; end exclusive. Current local day is excluded. Active guest issues and overdue unanswered are snapshots at the as-of timestamp.</p><div class="ops-table-wrap" id="opsPropertyWindows"></div></section>
+        <section class="ops-panel"><h2>Source provenance & freshness</h2><p>Calculation time does not refresh a source. Missing source-check timestamps remain unknown.</p><div id="opsSources"></div></section>
+    </div>
+    {% endif %}
+    <noscript><p class="ops-error">JavaScript is required to load KPI data. These placeholders are not actual performance.</p></noscript>
+</div>
+{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static', filename='js/operations-kpi.js', v='1') }}" defer></script>{% endblock %}
