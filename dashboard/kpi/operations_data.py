@@ -62,7 +62,7 @@ def load_operational_evidence(*, now=None, main_factory=None, brain_factory=None
             evidence["sources"][name] = {"status": "error", "checked_at": None, "provenance": "Existing synchronized database", "reason": "Source could not be read. No workflow refresh was attempted."}
             return []
 
-    listings = read_source("catalog", main_factory, select(Listing.listing_id.label("id"), Listing.internal_listing_name.label("internal_name"), Listing.name, Listing.status, Listing.timezone_name.label("timezone"), Listing.last_synced_at).where(func.lower(func.coalesce(Listing.status, "")).notin_(["deleted", "archived"])).order_by(Listing.listing_id))
+    listings = read_source("catalog", main_factory, select(Listing.listing_id.label("id"), Listing.internal_listing_name.label("internal_name"), Listing.name, Listing.status, Listing.timezone_name.label("timezone"), Listing.last_synced_at).order_by(Listing.listing_id))
     # Tags provide diagnostic portfolio labels only; physical unit and goal-code
     # mappings are deliberately not inferred from them.
     tags = {}
@@ -76,9 +76,12 @@ def load_operational_evidence(*, now=None, main_factory=None, brain_factory=None
     for x in listings:
         x["name"] = x.pop("internal_name") or x["name"] or f"Listing {x['id']}"
         x["portfolio"] = portfolio_name_for_listing(x["id"], tags.get(x["id"], [])) or "Unmapped"
-    evidence["listings"] = listings
+    evidence["listings"] = [x for x in listings if str(x.get("status") or "").lower() not in {"deleted", "archived"}]
+    # Current archive state must not erase a historical checkout opportunity.
+    # Effective management dates and review eligibility remain unverified.
+    evidence["historical_listings"] = [x for x in listings if x not in evidence["listings"]]
     ids = [x["id"] for x in listings]
-    evidence["reservations"] = read_source("reservations", main_factory, select(Reservation.reservation_id.label("id"), Reservation.listing_id, Reservation.arrival_date.label("arrival"), Reservation.departure_date.label("departure"), Reservation.status, Reservation.channel_name.label("channel"), Reservation.currency).where(Reservation.listing_id.in_(ids), Reservation.arrival_date < now.date() + timedelta(days=2), Reservation.departure_date > earliest))
+    evidence["reservations"] = read_source("reservations", main_factory, select(Reservation.reservation_id.label("id"), Reservation.listing_id, Reservation.arrival_date.label("arrival"), Reservation.departure_date.label("departure"), Reservation.cancellation_date, Reservation.status, Reservation.channel_name.label("channel"), Reservation.currency).where(Reservation.listing_id.in_(ids), Reservation.arrival_date < now.date() + timedelta(days=2), Reservation.departure_date >= earliest))
     # No guest names, text, contact data, private feedback or response bodies.
     evidence["reviews"] = read_source("reviews", main_factory, select(Review.review_id.label("id"), Review.listing_id, Review.reservation_id, Review.channel_name.label("channel"), Review.overall_rating.label("rating"), Review.review_date.label("date"), Review.origin, Review.status).where(Review.listing_id.in_(ids), Review.review_date >= start, Review.review_date <= now.date() + timedelta(days=1)))
     evidence["sources"]["reviews"]["reason"] = "Current published status and synchronized review_date are observations; historical publication time, eligibility, native scales and portfolio mapping are unverified."

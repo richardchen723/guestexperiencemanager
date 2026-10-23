@@ -115,6 +115,38 @@ def test_review_cohort_maturation_duplicate_reviews_and_unconverted_native_scale
     assert any("native scale 10" in x["label"] for x in r["diagnostics"])
 
 
+def test_review_checkout_left_boundary_counts_without_revenue_window_nights():
+    data = evidence(); data["review_policies"] = {"airbnb": {"verified": True, "maturation_days": 14}}
+    data["reservations"] = [booking(arrival=date(2026, 7, 22), departure=date(2026, 7, 23), nightly_lodging=[{"date": "2026-07-22", "unit_id": "A", "amount": 110}])]
+    data["reviews"] = [{"id": 1, "listing_id": 1, "reservation_id": 1, "origin": "Guest", "status": "published", "date": date(2026, 7, 24), "rating": 10, "channel": "airbnb"}]
+    r = result(data, "reviews")
+    assert r["numerator"] == r["denominator"] == 1
+    assert result(data, "revenue")["diagnostics"][0]["value"] == 0
+
+
+def test_cancelled_published_review_proves_opportunity_unknown_cancellation_does_not():
+    data = evidence(); data["review_policies"] = {"airbnb": {"verified": True, "maturation_days": 14}}
+    data["reservations"] = [booking(status="cancelled"), booking(2, status="cancelled", cancellation_date=datetime(2026, 8, 2)), booking(3, status="cancelled", cancellation_date=datetime(2026, 7, 30))]
+    data["reviews"] = [{"id": 1, "listing_id": 1, "reservation_id": 1, "origin": "Guest", "status": "published", "date": date(2026, 8, 3), "rating": 10, "channel": "airbnb"}]
+    r = result(data, "reviews")
+    assert r["numerator"] == r["denominator"] == 1
+    unknowns = [x for x in r["exceptions"] if "cancellation after arrival" in x["action"]]
+    assert [x["source_id"] for x in unknowns] == ["2"]
+    assert r["goal_status"] == "unknown"
+    data["reviews"][0]["channel"] = "vrbo"
+    assert result(data, "reviews")["value"] is None
+
+
+def test_currently_archived_listing_remains_in_historical_review_cohort():
+    data = evidence(); data["historical_listings"] = [{"id": 2, "name": "Archived property", "timezone": "America/New_York"}]
+    data["review_policies"] = {"airbnb": {"verified": True, "maturation_days": 14}}
+    data["reservations"] = [booking(listing_id=2)]
+    data["reviews"] = [{"id": 1, "listing_id": 2, "reservation_id": 1, "origin": "Guest", "status": "published", "date": date(2026, 8, 3), "rating": 10, "channel": "airbnb"}]
+    r = result(data, "reviews")
+    assert r["numerator"] == r["denominator"] == 1
+    assert any(x["group"] == "Archived property" for x in r["breakdown"])
+
+
 def message(id, minute, incoming, **kwargs):
     return {"id": id, "listing_id": 1, "conversation_id": 1, "at": f"2026-08-01T12:{minute:02d}:00Z", "incoming": incoming, "original_timestamp_verified": True, "sent": not incoming, "needs_reply_verified": True, "needs_reply": True, **kwargs}
 
@@ -137,6 +169,15 @@ def test_response_proxy_is_not_actual_and_carryin_overdue_blocks_success():
     data["messages"] = [message(1, 0, True), message(2, 1, False, answer_kind="meaningful", semantics_verified=True), {**message(3, 0, True), "at": "2026-07-01T12:00Z", "conversation_id": 2}]
     r = result(data, "response")
     assert r["value"] == 1 and r["goal_status"] == "off_target"
+
+
+@pytest.mark.parametrize("sent", [False, None])
+def test_written_answer_without_dispatch_match_keeps_sla_unscored(sent):
+    data = evidence(); data["messages_complete"] = True
+    data["messages"] = [message(1, 0, True), message(2, 1, False, answer_kind="meaningful", semantics_verified=True), {**message(3, 0, True), "conversation_id": 2}, {**message(4, 1, False, answer_kind="meaningful", semantics_verified=True, sent=sent), "conversation_id": 2}]
+    r = result(data, "response")
+    assert r["value"] == 1 and r["goal_status"] == "unknown"
+    assert any("No dispatch match does not establish a missed request" in x["action"] for x in r["exceptions"])
 
 
 def test_issue_carryins_conflicts_and_no_fabricated_history():

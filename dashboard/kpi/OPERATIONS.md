@@ -121,3 +121,15 @@ application do not synchronize it. Missing timezone/evidence contracts must rema
 unknown even after release. No snapshot or synthetic QA fixture is wired into
 production metrics. Deployment does not certify the six goals; verification of
 the required evidence producers is separate outstanding work.
+
+The October 23 v2 evidence audit was inspected locally without changing it or
+ingesting it as runtime actuals. Review checkout cohorts include the exact left
+boundary even when there are zero revenue-window nights. Archived properties
+remain available to historical review cohorts without adding them to the current
+listing roster. Matching published guest reviews establish observed review
+opportunities on canceled stays; unreviewed after-arrival cancellations remain
+explicit eligibility exceptions. Historical publication/visibility and management
+dates remain unverified. The old provisional coverage rates are not hardcoded.
+Triggered instructions can be meaningful answers; fast generic templates are not
+automatically answers. A written meaningful answer without dispatch proof keeps
+the exact SLA unscored, even when other conversations have verified replies.

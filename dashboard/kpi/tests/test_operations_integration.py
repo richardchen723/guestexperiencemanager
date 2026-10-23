@@ -73,6 +73,26 @@ def test_adapter_failure_is_source_error_not_silent_zero():
     assert all(x["value"] is None for x in p["metrics"])
 
 
+def test_adapter_preserves_archived_checkout_and_exact_left_boundary(db):
+    from database.models import Listing, Reservation, Review
+    factory, _ = db
+    with factory() as s:
+        s.add(Listing(listing_id=2, name="Archived fixture", timezone_name="America/New_York", status="archived"))
+        s.add(Reservation(reservation_id=2, listing_id=2, status="cancelled", arrival_date=datetime(2026, 7, 22).date(), departure_date=datetime(2026, 7, 23).date(), channel_name="airbnbOfficial"))
+        s.add(Review(review_id=2, listing_id=2, reservation_id=2, origin="Guest", status="published", review_date=datetime(2026, 7, 24).date(), channel_name="airbnbOfficial", overall_rating=10))
+        s.commit()
+    now = datetime(2026, 10, 23, 12, tzinfo=timezone.utc)
+    data = load_operational_evidence(now=now, main_factory=factory, brain_factory=factory)
+    assert [x["id"] for x in data["listings"]] == [1]
+    assert [x["id"] for x in data["historical_listings"]] == [2]
+    assert any(x["id"] == 2 for x in data["reservations"])
+    data["review_policies"] = {"airbnb": {"verified": True, "maturation_days": 14}}
+    r = next(x for x in build_operations(data, as_of=now)["metrics"] if x["key"] == "reviews")
+    assert r["denominator"] == 2
+    assert r["breakdown"][0]["reviewed_checkouts"] == 1
+    assert r["goal_status"] == "unknown"
+
+
 def make_app():
     base = Path(__file__).resolve().parents[2]
     app = Flask(__name__, template_folder=str(base / "templates"), static_folder=str(base / "static"))

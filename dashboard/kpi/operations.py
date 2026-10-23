@@ -224,14 +224,20 @@ def reviews(data, windows):
     for row in data.get("reservations", []):
         w, ch = windows.get(row["listing_id"]), channel(row.get("channel"))
         policy = policies.get(ch, {})
-        if not w or ch not in COVERAGE_TARGETS or not qualifying(row) or not policy.get("verified"):
+        if not w or ch not in COVERAGE_TARGETS or not policy.get("verified"):
             continue
         departure = day(row["departure"])
         if w["start"] <= departure < w["end"] and departure <= w["end"] - timedelta(days=policy["maturation_days"]):
+            matching_review = any(x.get("reservation_id") == row["id"] and x.get("listing_id") == row["listing_id"] and channel(x.get("channel")) == ch and x.get("date") and day(x["date"]) < w["end"] for x in published.values())
+            eligible = qualifying(row) or matching_review or row.get("review_eligibility_verified") and row.get("review_eligible") is True
+            if not eligible:
+                if "cancel" in str(row.get("status", "")).lower() and not row.get("review_eligibility_verified") and (not row.get("cancellation_date") or day(row["cancellation_date"]) >= day(row["arrival"])):
+                    exception(r, "Verify review eligibility for this unreviewed cancellation after arrival or with unknown cancellation timing; it is not silently treated as an ineligible stay.", row["id"], row["listing_id"])
+                continue
             denominator[ch].add(row["id"])
             bucket = (ch, departure - timedelta(days=departure.weekday()))
             weeks[bucket][1].add(row["id"])
-            if any(x.get("reservation_id") == row["id"] and x.get("listing_id") == row["listing_id"] and x.get("date") and day(x["date"]) < w["end"] for x in published.values()):
+            if matching_review:
                 numerator[ch].add(row["id"])
                 weeks[bucket][0].add(row["id"])
     met = 0
@@ -245,7 +251,7 @@ def reviews(data, windows):
         w = windows.get(x["listing_id"])
         if w and x.get("date") and w["start"] <= day(x["date"]) < w["end"] and not x.get("reservation_id"):
             exception(r, "Link published review to its verified source reservation ID.", x["id"], x["listing_id"])
-    ratings, listing_map, observed_reviews = defaultdict(list), {x["id"]: x for x in data.get("listings", [])}, defaultdict(int)
+    ratings, listing_map, observed_reviews = defaultdict(list), {x["id"]: x for x in data.get("listings", []) + data.get("historical_listings", [])}, defaultdict(int)
     for x in published.values():
         listing, w = listing_map.get(x["listing_id"], {}), windows.get(x["listing_id"])
         if not w or not x.get("date") or not w["start"] <= day(x["date"]) < w["end"] or x.get("rating") is None:
@@ -273,6 +279,8 @@ def reviews(data, windows):
     exception(r, "Verify channel eligibility/maturation, source-native rating scales and EH/LR/MF/CR/SG/US portfolio mapping before evaluating all rating goals.") if not data.get("review_contract_verified") else None
     r.update(numerator_label="Distinct eligible mature checkouts with a published guest review", denominator_label="Distinct eligible mature checkouts", summary="Channel coverage and portfolio ratings must both meet their individual targets.")
     r["diagnostics"].insert(0, {"label": "Observed published rated guest reviews in synchronized date window (publication time unverified)", "value": sum(observed_reviews.values()) if len(windows) == len(listing_map) and listing_map else None})
+    if any(x["id"] not in windows for x in data.get("historical_listings", [])):
+        exception(r, "Verify historical property timezones; archived properties cannot be silently removed from the checkout cohort.")
     return finish(r, data.get("review_contract_verified", False) and rating_complete and not r["exceptions"] and all(x["coverage_pct"] is not None for x in r["breakdown"][:3]), met == 3 and all(rating_checks))
 
 
@@ -282,7 +290,7 @@ def response(data, windows, as_of):
     for x in {m["id"]: m for m in data.get("messages", [])}.values():
         grouped[x["conversation_id"]].append(x)
     durations, proxy, overdue, breakdown, weekly = [], [], [], defaultdict(list), defaultdict(list)
-    unverified, proxy_seen = 0, set()
+    unverified, proxy_seen, dispatch_uncertain = 0, set(), set()
     for messages in grouped.values():
         pending = None
         for x in sorted(messages, key=lambda m: (as_utc(m["at"]), str(m["id"]))):
@@ -294,7 +302,12 @@ def response(data, windows, as_of):
                     continue
                 pending = pending or x
                 continue
-            if not pending or not x.get("sent", True):
+            if not pending:
+                continue
+            if x.get("sent") is not True and x.get("answer_kind") == "meaningful" and x.get("semantics_verified"):
+                dispatch_uncertain.add(x["id"])
+                exception(r, "Verify dispatch of this written meaningful answer. No dispatch match does not establish a missed request.", x["id"], x["listing_id"])
+            if not x.get("sent", True):
                 continue
             # Explicitly known non-answers never close an inbound sequence.
             if x.get("answer_kind") in {"acknowledgement", "unrelated_scheduled"} or x.get("automated") and x.get("answer_kind") != "meaningful":
@@ -330,7 +343,7 @@ def response(data, windows, as_of):
     r.update(numerator_label="Meaningful verified sent replies strictly under five minutes", denominator_label="Verified answered guest sequences", summary="A fast acknowledgement is not proof of an answer. Every reply must beat five minutes.")
     if not data.get("messages_complete") or unverified:
         exception(r, "Verify complete original message history, carry-ins, timestamps and meaningful answer labels. Timing proxy is not the goal actual.")
-    return finish(r, data.get("messages_complete", False) and not unverified and bool(durations), all(x < 5 for x in durations) and not overdue)
+    return finish(r, data.get("messages_complete", False) and not unverified and not dispatch_uncertain and bool(durations), all(x < 5 for x in durations) and not overdue)
 
 
 def issues(data, windows, as_of):
@@ -416,7 +429,8 @@ def build_operations(data, *, as_of=None):
     as_of = as_utc(as_of or datetime.now(timezone.utc))
     windows = {x["id"]: local_window(as_of, x.get("timezone")) for x in data.get("listings", [])}
     windows = {k: v for k, v in windows.items() if v}
-    metrics = [revenue(data, windows), content(data, windows), reviews(data, windows), response(data, windows, as_of), issues(data, windows, as_of), cleaning(data, windows)]
+    review_windows = {**windows, **{x["id"]: w for x in data.get("historical_listings", []) if (w := local_window(as_of, x.get("timezone")))}}
+    metrics = [revenue(data, windows), content(data, windows), reviews(data, review_windows), response(data, windows, as_of), issues(data, windows, as_of), cleaning(data, windows)]
     for r in metrics:
         for source in SOURCE_DEPENDENCIES[r["key"]]:
             s = dict(data.get("sources", {}).get(source, {"status": "missing", "checked_at": None}))
@@ -453,9 +467,10 @@ def build_operations(data, *, as_of=None):
         elif r["key"] == "cleaning" and data.get("issues_readable"):
             r["observation"] = f"{r['diagnostics'][0]['value']} category candidates · distinct incidents unverified"
     dates = sorted({(w["start"].isoformat(), w["end"].isoformat(), w["days"]) for w in windows.values()})
-    names = {x["id"]: x["name"] for x in data.get("listings", [])}
+    names = {x["id"]: x["name"] for x in data.get("listings", []) + data.get("historical_listings", [])}
     for r in metrics:
         for row in r["breakdown"] + r["trend"]:
             if str(row.get("group", "")).isdigit():
                 row["group"] = names.get(int(row["group"]), f"Unmapped listing {row['group']}")
-    return {"owner": "Usman", "deadline": "2026-12-31", "as_of": as_of.isoformat(), "generated_at": datetime.now(timezone.utc).isoformat(), "window": {"kind": "rolling_three_calendar_months", "ranges": [{"start_inclusive": a, "end_exclusive": b, "days": d} for a, b, d in dates], "semantics": "Property-local calendar dates; current local day excluded. Active issue load and overdue unanswered are snapshots at as-of."}, "property_windows": [{"listing_id": lid, "property": names.get(lid), **{k: v.isoformat() if isinstance(v, date) else v for k, v in w.items()}} for lid, w in windows.items()], "metrics": metrics, "excluded_goals": [5, 6, 9]}
+    property_windows = [{"listing_id": lid, "property": names.get(lid), "scope": "Current catalog" if lid in windows else "Historical review cohort", **{k: v.isoformat() if isinstance(v, date) else v for k, v in w.items()}} for lid, w in review_windows.items()]
+    return {"owner": "Usman", "deadline": "2026-12-31", "as_of": as_of.isoformat(), "generated_at": datetime.now(timezone.utc).isoformat(), "window": {"kind": "rolling_three_calendar_months", "ranges": [{"start_inclusive": a, "end_exclusive": b, "days": d} for a, b, d in dates], "semantics": "Property-local calendar dates; current local day excluded. Active issue load and overdue unanswered are snapshots at as-of."}, "property_windows": property_windows, "metrics": metrics, "excluded_goals": [5, 6, 9]}
