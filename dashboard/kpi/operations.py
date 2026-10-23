@@ -69,7 +69,7 @@ def channel(value):
 
 
 def qualifying(row):
-    return str(row.get("status", "")).lower() in {"new", "modified", "confirmed", "booked", "accepted"} and "ical" not in channel(row.get("channel"))
+    return str(row.get("status", "")).lower() in {"new", "modified", "confirmed", "booked", "accepted"} and "ical" not in channel(row.get("channel")) and "ical" not in channel(row.get("source"))
 
 
 def ratio(n, d, multiplier=100):
@@ -110,7 +110,8 @@ def revenue(data, windows):
             exception(r, "Correct invalid stay dates.", row["id"], lid)
             invalid.add(lid)
             continue
-        if not (start < w["end"] and end > months_before(w["start"], 12)):
+        prior_start, prior_end = months_before(w["start"], 12), months_before(w["end"], 12)
+        if not (start < w["end"] and end > w["start"] or start < prior_end and end > prior_start):
             continue
         if not all(row.get(f) for f in ("financials_verified", "refunds_reconciled", "allocation_verified")) or row.get("currency") != "USD":
             invalid.add(lid)
@@ -159,10 +160,11 @@ def revenue(data, windows):
     met = 0
     for unit, lids in comparable.items():
         prior, current = totals[(unit, "prior")], totals[(unit, "current")]
-        valid = not invalid.intersection(lids) and nights[(unit, "prior")] > 0 and nights[(unit, "current")] > 0
-        growth = ratio(current - prior, prior) if valid and prior > 0 else None
+        complete_window = data.get("revenue_window_complete") or data.get("sources", {}).get("reservations", {}).get("window_coverage_complete") is True
+        valid = not invalid.intersection(lids) and nights[(unit, "prior")] > 0 and (nights[(unit, "current")] > 0 or complete_window)
+        growth = (current - prior) / prior * 100 if valid and prior > 0 else None
         met += growth is not None and growth >= 10
-        r["breakdown"].append({"group": f"Physical property {unit}", "current_usd": round(current, 2) if valid else None, "prior_usd": round(prior, 2) if valid else None, "growth_pct": growth, "target_pct": 10})
+        r["breakdown"].append({"group": f"Physical property {unit}", "current_usd": round(current, 2) if valid else None, "prior_usd": round(prior, 2) if valid else None, "growth_pct": round(growth, 4) if growth is not None else None, "target_pct": 10})
     if comparable and any(x["growth_pct"] is not None for x in r["breakdown"]):
         r.update(value=ratio(met, len(comparable)), display=f"{met} / {len(comparable)}", numerator=met, denominator=len(comparable))
     r.update(numerator_label="Comparable properties with growth ≥10%", denominator_label="All verified comparable physical properties")
@@ -175,7 +177,7 @@ def revenue(data, windows):
         if w and qualifying(x) and day(x["arrival"]) < w["end"] and day(x["departure"]) > w["start"]:
             observed[(x["listing_id"], channel(x.get("channel")))] += 1
     r["breakdown"].extend({"group": listings.get(lid, {}).get("name", str(lid)), "channel": ch, "observed_overlapping_bookings": n, "certified_lodging_usd": None} for (lid, ch), n in sorted(observed.items()) if lid in invalid or not comparable)
-    r["diagnostics"] = [{"label": "Observed current-window overlapping bookings (not revenue)", "value": sum(observed.values()) if len(windows) == len(listings) and listings else None}, {"label": "New / unverified cohort listings", "value": sum(not x.get("comparable") or not x.get("cohort_verified") for x in listings.values()) if listings else None}]
+    r["diagnostics"] = [{"label": "Observed current-window overlapping bookings (not revenue)", "value": sum(observed.values()) if len(windows) == len(listings) and listings and data.get("sources", {}).get("reservations", {}).get("status") != "error" else None}, {"label": "New / unverified cohort listings", "value": sum(not x.get("comparable") or not x.get("cohort_verified") for x in listings.values()) if listings else None}]
     r["summary"] = "Every comparable property must grow; portfolio growth cannot hide a declining property."
     verified = bool(comparable) and not r["exceptions"] and all(x.get("growth_pct") is not None for x in r["breakdown"]) and all(x.get("cohort_verified") for x in listings.values())
     return finish(r, verified, met == len(comparable))
@@ -218,7 +220,7 @@ def content(data, windows):
 
 def reviews(data, windows):
     r = metric("reviews")
-    published = {x["id"]: x for x in data.get("reviews", []) if x.get("origin", "").lower() == "guest" and x.get("status", "").lower() == "published"}
+    published = {x["id"]: x for x in data.get("reviews", []) if str(x.get("origin") or "").lower() == "guest" and str(x.get("status") or "").lower() == "published"}
     policies = data.get("review_policies", {})
     numerator, denominator, weeks = defaultdict(set), defaultdict(set), defaultdict(lambda: [set(), set()])
     for row in data.get("reservations", []):
@@ -278,7 +280,11 @@ def reviews(data, windows):
     r["trend"] = [{"date": d.isoformat(), "group": ch, "value": ratio(len(n), len(de)), "reviewed": len(n), "eligible": len(de), "target": COVERAGE_TARGETS[ch]} for (ch, d), (n, de) in sorted(weeks.items())]
     exception(r, "Verify channel eligibility/maturation, source-native rating scales and EH/LR/MF/CR/SG/US portfolio mapping before evaluating all rating goals.") if not data.get("review_contract_verified") else None
     r.update(numerator_label="Distinct eligible mature checkouts with a published guest review", denominator_label="Distinct eligible mature checkouts", summary="Channel coverage and portfolio ratings must both meet their individual targets.")
-    r["diagnostics"].insert(0, {"label": "Observed published rated guest reviews in synchronized date window (publication time unverified)", "value": sum(observed_reviews.values()) if len(windows) == len(listing_map) and listing_map else None})
+    r["diagnostics"].insert(0, {"label": "Observed published rated guest reviews in synchronized date window (publication time unverified)", "value": sum(observed_reviews.values()) if len(windows) == len(listing_map) and listing_map and data.get("sources", {}).get("reviews", {}).get("status") != "error" else None})
+    unusable = sum(not x.get("origin") or not x.get("status") for x in data.get("reviews", []))
+    if unusable:
+        r["diagnostics"].append({"label": "Review rows excluded for missing direction/status", "value": unusable})
+        exception(r, "Some review records lack origin/status; excluded rows require source reconciliation.")
     if any(x["id"] not in windows for x in data.get("historical_listings", [])):
         exception(r, "Verify historical property timezones; archived properties cannot be silently removed from the checkout cohort.")
     return finish(r, data.get("review_contract_verified", False) and rating_complete and not r["exceptions"] and all(x["coverage_pct"] is not None for x in r["breakdown"][:3]), met == 3 and all(rating_checks))
@@ -290,9 +296,9 @@ def response(data, windows, as_of):
     for x in {m["id"]: m for m in data.get("messages", [])}.values():
         grouped[x["conversation_id"]].append(x)
     durations, proxy, overdue, breakdown, weekly = [], [], [], defaultdict(list), defaultdict(list)
-    unverified, proxy_seen, dispatch_uncertain = 0, set(), set()
+    unverified, dispatch_uncertain, obligation_unknown = 0, set(), 0
     for messages in grouped.values():
-        pending = None
+        pending, sequences = None, []
         for x in sorted(messages, key=lambda m: (as_utc(m["at"]), str(m["id"]))):
             at = as_utc(x["at"])
             if at > as_of:
@@ -300,7 +306,11 @@ def response(data, windows, as_of):
             if x.get("incoming"):
                 if x.get("needs_reply_verified") and x.get("needs_reply") is False:
                     continue
-                pending = pending or x
+                if pending is None:
+                    pending = {"first": x, "answered": False, "uncertain": False}
+                    sequences.append(pending)
+                    if not (x.get("needs_reply_verified") and x.get("needs_reply") is True and x.get("original_timestamp_verified")):
+                        obligation_unknown += 1
                 continue
             if not pending:
                 continue
@@ -312,26 +322,28 @@ def response(data, windows, as_of):
             # Explicitly known non-answers never close an inbound sequence.
             if x.get("answer_kind") in {"acknowledgement", "unrelated_scheduled"} or x.get("automated") and x.get("answer_kind") != "meaningful":
                 continue
-            w = windows.get(pending["listing_id"])
-            start = as_utc(pending["at"])
+            first = pending["first"]
+            w = windows.get(first["listing_id"])
+            start = as_utc(first["at"])
             d = start.astimezone(ZoneInfo(w["timezone"])).date() if w else None
-            verified = x.get("sent") is True and x.get("answer_kind") == "meaningful" and x.get("semantics_verified") and x.get("original_timestamp_verified") and pending.get("original_timestamp_verified") and pending.get("needs_reply_verified") and pending.get("needs_reply") is True
+            verified = x.get("sent") is True and x.get("answer_kind") == "meaningful" and x.get("semantics_verified") and x.get("original_timestamp_verified") and first.get("original_timestamp_verified") and first.get("needs_reply_verified") and first.get("needs_reply") is True
             elapsed = (at - start).total_seconds() / 60
             if w and w["start"] <= d < w["end"]:
                 if verified:
                     durations.append(elapsed)
-                    breakdown[pending["listing_id"]].append(elapsed)
+                    breakdown[first["listing_id"]].append(elapsed)
                     weekly[d - timedelta(days=d.weekday())].append(elapsed)
-                elif pending["id"] not in proxy_seen:
+                else:
                     proxy.append(elapsed)
                     unverified += 1
-                    proxy_seen.add(pending["id"])
-            # An unverified outgoing message is only a timing proxy, not proof
-            # the sequence was answered. Keep it pending for meaningful evidence.
-            if verified:
-                pending = None
-        if pending and (as_of - as_utc(pending["at"])).total_seconds() >= 300:
-            overdue.append(pending)
+            pending["answered"], pending["uncertain"] = bool(verified), not verified
+            # The proxy exchange closes here, independently of whether the
+            # semantic obligation is verified. A new inbound starts a new clock.
+            pending = None
+        for sequence in sequences:
+            first = sequence["first"]
+            if not sequence["answered"] and (as_of - as_utc(first["at"])).total_seconds() >= 300:
+                overdue.append(first)
     for x in overdue:
         exception(r, "Review this possibly overdue sequence against the original conversation, including carry-ins; a missing verified answer is not proof of a missed request.", x["id"], x["listing_id"])
     if durations:
@@ -343,7 +355,7 @@ def response(data, windows, as_of):
     r.update(numerator_label="Meaningful verified sent replies strictly under five minutes", denominator_label="Verified answered guest sequences", summary="A fast acknowledgement is not proof of an answer. Every reply must beat five minutes.")
     if not data.get("messages_complete") or unverified:
         exception(r, "Verify complete original message history, carry-ins, timestamps and meaningful answer labels. Timing proxy is not the goal actual.")
-    return finish(r, data.get("messages_complete", False) and not unverified and not dispatch_uncertain and bool(durations), all(x < 5 for x in durations) and not overdue)
+    return finish(r, data.get("messages_complete", False) and not unverified and not dispatch_uncertain and not obligation_unknown and bool(durations), all(x < 5 for x in durations) and not overdue)
 
 
 def issues(data, windows, as_of):
@@ -395,11 +407,16 @@ def cleaning(data, windows):
     incidents = {}
     for x in data.get("issues", []):
         if x.get("cleaning_candidate"):
-            exception(r, "Validate cleaning category and incident identity; candidate is excluded from the numerator.", x["id"], x["listing_id"])
+            w = windows.get(x["listing_id"])
+            in_window = x.get("reservation_id") in checkins or w and x.get("date") and w["start"] <= day(x["date"]) < w["end"]
+            if in_window:
+                exception(r, "Validate cleaning category and incident identity; in-window candidate is excluded from the numerator.", x["id"], x["listing_id"])
+            elif not x.get("date"):
+                exception(r, "Review unattributed cleaning candidate: its source window is unknown.", x["id"], x["listing_id"])
         if x.get("category_verified") and x.get("category") == "cleaning" and x.get("incident_verified") and x.get("reservation_id") in checkins:
             incidents[x["incident_id"]] = x
     if data.get("cleaning_contract_verified") and checkins:
-        value = ratio(len(incidents), len(checkins), 10)
+        value = round(len(incidents) / len(checkins) * 10, 4)
         r.update(value=value, display=f"{value:g}", numerator=len(incidents), denominator=len(checkins))
     for lid in windows:
         n = sum(x["listing_id"] == lid for x in incidents.values())
@@ -418,8 +435,9 @@ def cleaning(data, windows):
     if not data.get("cleaning_contract_verified"):
         exception(r, "Approve documented cleaning category mapping, check-in eligibility and reviewed incident deduplication before calculating the rate.")
     r.update(numerator_label="Distinct validated cleaning incidents", denominator_label="Distinct qualifying verified check-ins", summary="Candidate messages are not distinct incidents; zero eligible check-ins means no rate.")
-    r["diagnostics"] = [{"label": "Observed cleaning-category candidates (not validated incidents)", "value": sum(x.get("cleaning_candidate", False) for x in data.get("issues", [])) if data.get("issues_readable") else None}]
-    return finish(r, data.get("cleaning_contract_verified", False) and data.get("checkins_complete", False) and bool(checkins) and not r["exceptions"], r["value"] is not None and r["value"] < 1)
+    scoped_candidates = [x for x in data.get("issues", []) if x.get("cleaning_candidate") and (x.get("reservation_id") in checkins or windows.get(x["listing_id"]) and x.get("date") and windows[x["listing_id"]]["start"] <= day(x["date"]) < windows[x["listing_id"]]["end"])]
+    r["diagnostics"] = [{"label": "Observed in-window cleaning candidates (not validated incidents)", "value": len(scoped_candidates) if data.get("issues_readable") else None}, {"label": "Cleaning candidates with unknown source window", "value": sum(x.get("cleaning_candidate", False) and not x.get("date") and x.get("reservation_id") not in checkins for x in data.get("issues", [])) if data.get("issues_readable") else None}]
+    return finish(r, data.get("cleaning_contract_verified", False) and data.get("checkins_complete", False) and bool(checkins) and not r["exceptions"], bool(checkins) and len(incidents) * 10 < len(checkins))
 
 
 SOURCE_DEPENDENCIES = {"revenue": ("catalog", "reservations"), "content": ("catalog", "content"), "reviews": ("catalog", "reservations", "reviews"), "response": ("catalog", "messages"), "issues": ("catalog", "issues"), "cleaning": ("catalog", "reservations", "issues")}
@@ -431,6 +449,9 @@ def build_operations(data, *, as_of=None):
     windows = {k: v for k, v in windows.items() if v}
     review_windows = {**windows, **{x["id"]: w for x in data.get("historical_listings", []) if (w := local_window(as_of, x.get("timezone")))}}
     metrics = [revenue(data, windows), content(data, windows), reviews(data, review_windows), response(data, windows, as_of), issues(data, windows, as_of), cleaning(data, windows)]
+    if data.get("allow_estimates"):
+        from dashboard.kpi.estimates import apply_estimates
+        metrics = apply_estimates(metrics, data, windows, review_windows, as_of)
     for r in metrics:
         for source in SOURCE_DEPENDENCIES[r["key"]]:
             s = dict(data.get("sources", {}).get(source, {"status": "missing", "checked_at": None}))
@@ -441,20 +462,24 @@ def build_operations(data, *, as_of=None):
                 s["status"] = "unverified"
                 s["reason"] = "Source check timestamp is later than as-of; verify the source clock."
             r["sources"].append(s)
+        is_proxy = r["data_status"] in {"estimated", "observed", "deferred"}
         if len(windows) != len(data.get("listings", [])):
             exception(r, "Verify missing/invalid property timezones before evaluating the complete portfolio.")
-            r["data_status"], r["goal_status"] = "partial" if r["value"] is not None else "unverified", "unknown"
-        if not data.get("listings"):
+            if not is_proxy: r["data_status"], r["goal_status"] = "partial" if r["value"] is not None else "unverified", "unknown"
+        if not data.get("listings") and not is_proxy:
             r["data_status"], r["goal_status"] = "unavailable", "unknown"
             exception(r, "No readable property catalog is available; restore source coverage.")
-        if any(s.get("status") != "complete" or not s.get("checked_at") for s in r["sources"]):
+        if not is_proxy and any(s.get("status") != "complete" or not s.get("checked_at") for s in r["sources"]):
             r["data_status"] = "partial" if r["value"] is not None else "unavailable"
             r["goal_status"] = "unknown"
-        if any(s["stale"] for s in r["sources"]):
+        r["source_freshness"] = "stale_at_calculation" if any(s["stale"] for s in r["sources"]) else "unknown" if any(not s.get("checked_at") for s in r["sources"]) else "fresh_at_calculation"
+        if not is_proxy and any(s["stale"] for s in r["sources"]):
             r["data_status"], r["goal_status"] = "stale", "unknown"
         # Bounded diagnostic payloads with honest total counts; no PII fields.
         r["exception_count"] = len(r["exceptions"])
         r["exceptions"] = r["exceptions"][:100]
+        if data.get("allow_estimates"):
+            continue
         r["observation"] = None
         if r["key"] == "revenue" and r["diagnostics"][0]["value"] is not None and data.get("reservations"):
             r["observation"] = f"{r['diagnostics'][0]['value']} overlapping bookings observed · lodging unverified"
@@ -472,5 +497,6 @@ def build_operations(data, *, as_of=None):
         for row in r["breakdown"] + r["trend"]:
             if str(row.get("group", "")).isdigit():
                 row["group"] = names.get(int(row["group"]), f"Unmapped listing {row['group']}")
-    property_windows = [{"listing_id": lid, "property": names.get(lid), "scope": "Current catalog" if lid in windows else "Historical review cohort", **{k: v.isoformat() if isinstance(v, date) else v for k, v in w.items()}} for lid, w in review_windows.items()]
+    timezone_sources = {x["id"]: x.get("timezone_provenance", "Supplied IANA timezone") for x in data.get("listings", []) + data.get("historical_listings", [])}
+    property_windows = [{"listing_id": lid, "property": names.get(lid), "scope": "Current catalog" if lid in windows else "Historical review cohort", "timezone_source": timezone_sources.get(lid), **{k: v.isoformat() if isinstance(v, date) else v for k, v in w.items()}} for lid, w in review_windows.items()]
     return {"owner": "Usman", "deadline": "2026-12-31", "as_of": as_of.isoformat(), "generated_at": datetime.now(timezone.utc).isoformat(), "window": {"kind": "rolling_three_calendar_months", "ranges": [{"start_inclusive": a, "end_exclusive": b, "days": d} for a, b, d in dates], "semantics": "Property-local calendar dates; current local day excluded. Active issue load and overdue unanswered are snapshots at as-of."}, "property_windows": property_windows, "metrics": metrics, "excluded_goals": [5, 6, 9]}

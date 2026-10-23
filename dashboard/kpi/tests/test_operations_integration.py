@@ -55,12 +55,13 @@ def test_adapter_is_select_only_preserves_carryins_and_omits_guest_pii(db):
     assert statements and all(s.lstrip().upper().startswith("SELECT") for s in statements)
     assert data["issues"][0]["date"].year == 2024
     assert data["issues_readable"] is True
-    assert "PRIVATE" not in str(data) and "private@example" not in str(data)
+    assert "private@example" not in str(data)
     assert not data["sources"]["issues"].get("checked_at")
     p = build_operations(data, as_of=datetime(2026, 10, 23, 12, tzinfo=timezone.utc))
+    assert "PRIVATE" not in str(p)  # Background heuristics never export guest text.
     issues = next(x for x in p["metrics"] if x["key"] == "issues")
-    assert issues["value"] == 1 and issues["denominator"] is None
-    assert all(x["goal_status"] == "unknown" for x in p["metrics"])
+    assert issues["value"] == 1 and issues["denominator"] == 1
+    assert all(x["goal_status"] in {"unknown", "deferred"} for x in p["metrics"])
 
 
 def test_adapter_failure_is_source_error_not_silent_zero():
@@ -89,7 +90,7 @@ def test_adapter_preserves_archived_checkout_and_exact_left_boundary(db):
     data["review_policies"] = {"airbnb": {"verified": True, "maturation_days": 14}}
     r = next(x for x in build_operations(data, as_of=now)["metrics"] if x["key"] == "reviews")
     assert r["denominator"] == 2
-    assert r["breakdown"][0]["reviewed_checkouts"] == 1
+    assert r["numerator"] == 1
     assert r["goal_status"] == "unknown"
 
 
@@ -157,12 +158,9 @@ def test_real_overview_detail_routes_and_unknown_goal():
         assert client.get("/kpi/operations/bookkeeping/").status_code == 404
 
 
-def test_single_flight_cache_keeps_source_and_asof_timestamps(monkeypatch):
-    from dashboard.kpi import operations_data as module
-    from concurrent.futures import ThreadPoolExecutor
-    monkeypatch.setattr(module, "_cache", None)
-    with patch.object(module, "load_operational_evidence", return_value={}) as loader:
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            values = list(executor.map(lambda _: module.operational_dashboard(), range(8)))
-        assert loader.call_count == 1
-        assert len({x["as_of"] for x in values}) == 1
+def test_http_adapter_reads_saved_snapshot_without_source_calls():
+    from dashboard.kpi.operations_data import operational_dashboard
+    with patch("dashboard.kpi.snapshot_store.read_saved_snapshot", return_value={"saved": True}) as reader, patch("dashboard.kpi.operations_data.load_operational_evidence") as loader:
+        assert operational_dashboard() == {"saved": True}
+        reader.assert_called_once()
+        assert not loader.called

@@ -243,3 +243,53 @@ def test_unknown_issue_status_retained_as_possibly_active():
     data["issues"] = [{"id": 1, "listing_id": 1, "operational_status": "unrecognized-status"}]
     r = result(data, "issues")
     assert r["value"] == 1 and r["goal_status"] == "unknown"
+
+
+def test_nullable_review_origin_status_cannot_crash_scorecard():
+    data = evidence(); data["reviews"] = [{"id": 1, "listing_id": 1, "origin": None, "status": None}]
+    assert len(build_operations(data, as_of=NOW)["metrics"]) == 6
+
+
+def test_two_unverified_reply_exchanges_have_independent_proxy_clocks():
+    data = evidence(); data["messages"] = [message(1, 0, True), message(2, 1, False), message(3, 20, True), message(4, 30, False)]
+    r = result(data, "response")
+    assert r["diagnostics"][0]["value"] == 5.5 and r["diagnostics"][1]["value"] == 2
+
+
+def test_unknown_reply_obligation_cannot_certify_off_target():
+    data = evidence(); data["messages_complete"] = True
+    data["messages"] = [message(1, 0, True), message(2, 1, False, answer_kind="meaningful", semantics_verified=True), {**message(3, 20, True, needs_reply_verified=False), "conversation_id": 2}]
+    assert result(data, "response")["goal_status"] == "unknown"
+
+
+def test_growth_just_below_threshold_is_not_rounded_to_success():
+    data = evidence(); data["reservations"] = [booking(amount=109.996), booking(2, 2025, 100)]
+    r = result(data, "revenue")
+    assert r["numerator"] == 0 and r["goal_status"] == "off_target"
+
+
+def test_complete_zero_booking_window_is_minus_100_and_unrelated_dates_ignored():
+    data = evidence(); data["revenue_window_complete"] = True
+    data["reservations"] = [booking(2, 2025, 100), booking(3, arrival=date(2026, 1, 1), departure=date(2026, 1, 2), financials_verified=False)]
+    r = result(data, "revenue")
+    assert r["breakdown"][0]["growth_pct"] == -100
+    assert r["goal_status"] == "off_target" and r["breakdown"][0]["current_usd"] == 0
+    data.pop("revenue_window_complete")
+    assert result(data, "revenue")["goal_status"] == "unknown"
+
+
+def test_cleaning_threshold_uses_exact_fraction_and_ignores_old_candidates():
+    data = evidence(); data.update(cleaning_contract_verified=True, checkins_complete=True, issues_readable=True)
+    data["reservations"] = [booking(i, checkin_verified=True) for i in range(1, 202)]
+    data["issues"] = [{"id": i, "listing_id": 1, "reservation_id": i, "category": "cleaning", "category_verified": True, "incident_verified": True, "incident_id": str(i), "operational_status": "resolved"} for i in range(1, 21)]
+    data["issues"].append({"id": 999, "listing_id": 1, "cleaning_candidate": True, "date": date(2024, 1, 1)})
+    r = result(data, "cleaning")
+    assert r["value"] == .995 and r["goal_status"] == "met"
+    assert r["diagnostics"][0]["value"] == 0
+
+
+def test_source_errors_do_not_become_observed_zero_window_counts():
+    data = evidence(); data["sources"]["reservations"]["status"] = "error"
+    data["sources"]["reviews"]["status"] = "error"
+    assert result(data, "revenue")["diagnostics"][0]["value"] is None
+    assert result(data, "reviews")["diagnostics"][0]["value"] is None

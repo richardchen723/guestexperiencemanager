@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from dashboard.kpi.operations import build_operations
+from dashboard.kpi.snapshot_store import empty_snapshot
 from dashboard.kpi.tests.test_operations_integration import make_app
 
 pytestmark = pytest.mark.skipif(os.getenv("OPERATIONAL_UI_QA") != "1", reason="Opt-in local browser QA")
@@ -20,6 +21,7 @@ def ui():
     from playwright.sync_api import sync_playwright
     from werkzeug.serving import make_server
     data = build_operations({"listings": [{"id": 1, "name": "QA fixture property", "timezone": "America/New_York"}], "issues_readable": True, "issues": [{"id": 1, "listing_id": 1, "operational_status": "need_attention", "resolution_state": "resolved"}]}, as_of=datetime(2026, 10, 23, 12, tzinfo=timezone.utc))
+    data["snapshot_state"] = {"status": "available", "calculated_at": data["generated_at"], "window_as_of": data["as_of"], "next_due_at": "2026-10-25T12:00:00+00:00", "refresh_status": "completed", "schedule_status": "scheduled"}
     with patch("dashboard.kpi.routes.check_feature_access", return_value=None), patch("dashboard.auth.decorators.is_logged_in", return_value=True), patch("dashboard.auth.decorators.is_approved", return_value=True), patch("dashboard.auth.decorators.authenticate_request_api_key", return_value=True), patch("dashboard.kpi.routes.get_current_user", return_value=None), patch("dashboard.kpi.routes.operational_dashboard", return_value=data):
         server = make_server("127.0.0.1", 0, make_app(), threaded=True)
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
@@ -50,7 +52,7 @@ def test_six_cards_navigation_reload_back_forward_and_mobile(ui, tmp_path):
     page.locator('[data-goal="issues"] a').click()
     page.wait_for_url('**/kpi/operations/issues/')
     expect(page.locator('#opsDetail')).to_be_visible()
-    expect(page.get_by_role('heading', name='Source provenance & freshness')).to_be_visible()
+    expect(page.locator('summary', has_text='Source provenance & freshness')).to_be_visible()
     assert page.locator('dialog').count() == 0
     page.reload(); expect(page.locator('#opsDetail')).to_be_visible()
     page.go_back(); page.wait_for_url('**/kpi/')
@@ -93,6 +95,18 @@ def test_loading_failure_retry_empty_and_repeated_clicks(ui):
     page.locator('#opsRefresh').evaluate('(el) => { el.click(); el.click(); el.click(); }')
     page.wait_for_timeout(50)
     assert len(pending) == 1
-    pending.pop().fulfill(json=build_operations({}))
-    expect(page.locator('[data-goal="issues"] [data-field="value"]')).to_have_text('Not verified')
+    pending.pop().fulfill(json=empty_snapshot())
+    expect(page.locator('[data-goal="issues"] [data-field="value"]')).to_have_text('Not calculated')
+    expect(page.locator('[data-goal="content"] [data-field="value"]')).to_have_text('Deferred')
+    expect(page.locator('#opsSnapshotNotice')).to_contain_text('Not calculated yet')
     expect(page.locator('.ops-card')).to_have_count(6)
+
+
+def test_failed_background_refresh_keeps_saved_values_and_shows_notice(ui):
+    from playwright.sync_api import expect
+    page, base, data = ui
+    data["snapshot_state"]["refresh_status"] = "failed"
+    page.goto(base + '/kpi/')
+    expect(page.locator('[data-goal="issues"] [data-field="value"]')).to_have_text('1')
+    expect(page.locator('#opsSnapshotNotice')).to_contain_text('Showing the previous saved results')
+    expect(page.locator('#opsRefresh')).to_have_text('Reload snapshot')

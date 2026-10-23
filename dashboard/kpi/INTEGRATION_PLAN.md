@@ -1,8 +1,11 @@
 # Operational KPI source-integration checkpoints
 
 This is the remaining local implementation plan, not a production-ready claim.
-No production jobs, writes, migrations, secrets, pushes or deployment are approved
-by this plan. Existing feature/API-key gates and legacy KPI routes stay intact.
+The current release prioritizes persisted 48-hour calculations and documented
+estimates. Listing edit-history/refresh tracking and historical extraction are
+deferred for team discussion. The remaining producer work below is retained for
+a later integration phase. This document does not authorize additional production
+writes. Existing feature/API-key gates and legacy KPI routes stay intact.
 
 1. **Timezone ingestion (first checkpoint).** Parse Hostaway `timeZoneName` and
    legacy `timezoneName`, validate IANA identifiers, retain valid stored zones

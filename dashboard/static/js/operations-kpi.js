@@ -52,7 +52,7 @@
       visual(field('visual'), m); field('note').textContent = m.summary;
       field('observation').hidden = !m.observation; field('observation').textContent = m.observation || '';
       const checked = m.sources.map(s => s.checked_at).filter(Boolean).sort();
-      field('freshness').textContent = m.sources.some(s => !s.checked_at) ? 'Source freshness incomplete' : `Oldest source check ${stamp(checked[0])}`;
+      field('freshness').textContent = m.data_status === 'deferred' ? 'Tracking deferred' : m.source_freshness === 'stale_at_calculation' ? 'Upstream source stale at calculation' : !m.sources.length ? 'Awaiting saved calculation' : m.sources.some(s => !s.checked_at) ? 'Source freshness incomplete' : `Oldest source check ${stamp(checked[0])}`;
     });
     $('opsGrid').setAttribute('aria-busy', 'false');
   }
@@ -83,10 +83,11 @@
     $('detailValueLabel').textContent = metric.label; $('detailTarget').textContent = metric.target;
     $('detailSummary').textContent = metric.summary; $('opsMethod').textContent = metric.method;
     definitions($('opsFormula'), [{label: metric.numerator_label, value: metric.numerator}, {label: metric.denominator_label, value: metric.denominator}]);
-    definitions($('opsDiagnostics'), metric.diagnostics);
+    definitions($('opsDiagnostics'), metric.diagnostics.slice(0, 4));
     $('exceptionCount').textContent = metric.exception_count ? `${metric.exception_count} evidence or action items${metric.exception_count > metric.exceptions.length ? ` · first ${metric.exceptions.length} shown` : ''}. Review source records before changing workflows.` : 'No exceptions returned. Check source completeness before treating this as clear.';
     $('opsExceptions').replaceChildren();
-    metric.exceptions.forEach(x => { const item = el('div', x.action, 'ops-exception'); if (x.source_id || x.listing_id) item.append(el('small', `${x.listing_id ? `Listing ${x.listing_id}` : ''}${x.source_id ? ` · Source record ${x.source_id}` : ''}`)); $('opsExceptions').append(item); });
+    const actions = [...new Map(metric.exceptions.map(x => [x.action, x])).values()].slice(0, 5);
+    actions.forEach(x => { const item = el('div', x.action, 'ops-exception'); if (x.source_id || x.listing_id) item.append(el('small', `${x.listing_id ? `Example listing ${x.listing_id}` : ''}${x.source_id ? ` · Source record ${x.source_id}` : ''}`)); $('opsExceptions').append(item); });
     const groups = [...new Set(metric.trend.map(x => x.group).filter(Boolean))];
     $('trendFilter').replaceChildren(...groups.map(g => { const o = el('option', g); o.value = g; return o; }));
     $('trendFilterLabel').hidden = !groups.length;
@@ -113,9 +114,18 @@
       data = next; $('opsError').hidden = true;
       if ($('opsGrid')) $('opsGrid').hidden = false;
       const ranges = data.window.ranges;
-      $('opsWindow').textContent = ranges.length === 1 ? `${ranges[0].start_inclusive} → ${ranges[0].end_exclusive} (exclusive) · ${ranges[0].days} days · property-local` : ranges.length ? 'Property-local dates differ · see each detail page' : 'Property-local dates unavailable · timezone evidence missing';
-      $('opsAsOf').textContent = `As of ${stamp(data.as_of)}`;
-      $('opsChecked').textContent = `Calculated ${stamp(data.generated_at)} · source freshness shown per goal`;
+      const saved = data.snapshot_state || {};
+      $('opsWindow').textContent = ranges.length === 1 ? `${ranges[0].start_inclusive} → ${ranges[0].end_exclusive} (exclusive) · ${ranges[0].days} days · property-local` : ranges.length ? 'Property-local dates differ · see each detail page' : saved.status && saved.status !== 'available' ? 'Window available after the first saved calculation' : 'Property-local dates unavailable · timezone evidence missing';
+      $('opsAsOf').textContent = `Calculation cutoff ${stamp(saved.window_as_of || data.as_of)}`;
+      $('opsChecked').textContent = `Calculated ${stamp(saved.calculated_at || data.generated_at)} · next due ${stamp(saved.next_due_at)} · every 48h`;
+      const notices = [];
+      if (saved.status === 'storage_unavailable') notices.push('Saved results storage is unavailable. No calculation was triggered.');
+      else if (saved.status === 'contract_update_pending') notices.push('Waiting for the scheduled job to publish the current metric definition.');
+      else if (saved.status === 'not_yet_calculated') notices.push('Not calculated yet. The scheduled background job will publish the first scorecard; page reloads do not calculate metrics.');
+      if (saved.refresh_status === 'failed' || saved.refresh_status === 'interrupted') notices.push(saved.calculated_at ? 'The latest calculation did not finish successfully. Showing the previous saved results.' : 'The latest calculation did not finish successfully; no previous results are available.');
+      if (saved.refresh_status === 'running') notices.push('The scheduled calculation is running. Saved results stay visible until all six goals are published.');
+      if (saved.schedule_status === 'overdue' && saved.refresh_status !== 'running') notices.push('The scheduled calculation is overdue. Source-quality warnings below are separate.');
+      $('opsSnapshotNotice').hidden = !notices.length; $('opsSnapshotNotice').textContent = notices.join(' ');
       if (root.dataset.metric) renderDetail(); else renderCards();
     } catch (error) {
       $('opsError').hidden = false;

@@ -1,135 +1,87 @@
-# Operational KPI implementation
+# Operational KPI scorecard
 
-`/kpi/` contains exactly original goals 1, 2, 3, 4, 7 and 8. Each card is a normal
-link to `/kpi/operations/<revenue|content|reviews|response|issues|cleaning>/`.
-The prior dashboard, definitions and APIs remain at `/kpi/north-star/` and their
-existing API routes. Goals 5/6 are tracked separately; procurement is excluded.
-Owner: Usman. Deadline: December 31, 2026.
+Exactly six original goals appear at `/kpi/`: 1, 2, 3, 4, 7, 8. Normal links open
+concise separate details. Goal 2 listing refresh/edit history is **deferred for
+team definition**, not failed or zero. Goals 5/6 are tracked separately;
+procurement is excluded. Owner Usman; deadline December 31, 2026. Legacy
+north-star routes remain.
 
-## Reads, permissions and cost
+## Persisted 48-hour results
 
-`GET /kpi/api/operations` inherits the KPI blueprint feature gate and approved-user
-or existing API-key authentication. It accepts no write, verification override,
-secret, or historical-as-of parameter. Responses are private/no-store. An internal
-single-flight cache lasts 60 seconds per worker and retains its original as-of,
-calculation and source timestamps. Visible tabs reread once a minute; refresh
-buttons never queue a sync. Background tabs do not poll.
+`GET /kpi/api/operations` calls `read_saved_snapshot()` via the HTTP adapter and
+reads one joined snapshot/state record. It never calls source reads, aggregation,
+DDL, source APIs or jobs. Overview/detail HTML renders the shell. Reload snapshot,
+normal reloads, navigation and visible-tab polling read saved results only. The
+legacy `/kpi/api/data` retains its prior behavior; this page never calls it.
 
-`operations_data.py` projects allowlisted columns from existing internal tables.
-Each PostgreSQL transaction sets READ ONLY and an eight-second statement timeout,
-rolls back, and closes. No application factory, DDL, classification, external API,
-review queue/unresponded route, workflow service or credential change is used.
-Messages are bounded at 50,000 rows and explicitly do not claim complete carry-in
-coverage. Reservation queries include overlapping stays and prior-year padding.
-All active issue rows are considered, including records outside the window and
-records missing from the current catalog. No guest names, contacts, bodies or
-review text enter the payload. Source exceptions become explicit error states.
+`python -m dashboard.kpi.snapshot_job run-due` is the separate background command.
+Durable `next_due_at` enforces 48-hour calculation slots. The systemd timer checks
+that inexpensive state hourly; it does not aggregate hourly. No scheduler loop
+runs in web workers. A two-hour lease, generation/token fencing and unique
+contract/slot constraint prevent overlapping publishers; expired attempts recover
+the same logical slot. Missed historical slots are not replayed as backfills.
 
-## Evidence contract and honest incompleteness
+All six metrics and the shared pointer publish in one transaction. Failed source
+reads, incomplete/invalid payloads and insertion failures retain the previous
+snapshot plus safe failure status. Cold/missing storage returns static
+placeholders; unsupported contract versions await new publication. GET never
+initializes storage or calculates, even when no saved result exists.
 
-The production adapter deliberately does **not** set the verification flags used
-by the pure aggregation engine. Current database columns do not establish the
-required contracts. A successful synchronization check supplies freshness, not
-semantic verification or completeness. Source checks older than 24 hours are
-stale; missing timestamps stay unknown. A passing badge requires complete, fresh
-sources, verified metric evidence, all relevant property timezones and the goal.
+Metadata separates calculated_at, window_as_of, source_as_of (per-source actual
+checks/provenance), and next_due_at. Normal snapshot age does not turn stale
+at 24 hours. Upstream stale/incomplete warnings are assessed at the calculation
+cutoff, independently of overdue/failed scheduling. Unknown checks stay unknown.
 
-Every property uses its IANA timezone to determine the current local date and
-subtract three calendar months, clamping month ends. Dates are half-open. At the
-reference instant on October 23, the window is July 23–October 23, 92 days for
-properties whose local date is October 23. Missing timezones produce unknown
-window observations. UTC is not substituted. The issue load and overdue queue
-are as-of snapshots; issue history uses daily local closing times.
+## Storage and release
 
-The engine's normalized internal contracts (not public request parameters) are:
+The two new models use independent metadata, excluded from app-startup DDL.
+`deployment/sql/operational_kpi_snapshots.sql` contains additive DDL; alternatively
+`python -m dashboard.kpi.snapshot_job init-storage` explicitly creates only these
+tables. Existing brain schema required. No existing source records, credentials
+or roles change. After reviewed release prechecks, initialize storage, install
+the service/timer, run the first controlled calculation and enable the timer.
+Page loads and the general deployment script never silently enable this job.
+Review preexisting application-startup DDL/DML before restarting production.
+Retain the prior revision and stop the new timer on rollback; saved tables can
+remain without deleting data.
 
-| Goal | Required verified evidence | Available observations remain distinct |
+## Explicit estimates and provenance
+
+The job reads configured internal Hostaway/Cotton tables only. Library files,
+local historical extracts and QA fixtures are never runtime actuals. Source reads
+use READ ONLY transactions and timeouts. At most 50,000 message rows are read;
+text is used only for a background relevance heuristic and never returned.
+Guest names/contacts, message/review bodies and channel booking references do
+not enter saved scorecards.
+
+| Goal | Estimate/observation | Limits |
 |---|---|---|
-| 1 | Stable comparable physical-unit mapping; reconciled USD discounted lodging/refunds; complete per-night physical-unit allocations and canonical booking keys | Overlapping booking counts; no substitution of `total_price`, no invented earned revenue |
-| 2 | Unique meaningful publication IDs, publication timestamps, complete edit ledger, channel/quality verification | Listing snapshots; pricing is excluded as content-edit proof; clipped edge weeks are separate |
-| 3 | Channel-specific verified eligibility/maturation policies; reservation-ID review join; publication-time, native-scale and portfolio verification | Current published review records and raw scores by channel; native 10-point scores are never blindly converted or pooled |
-| 4 | Complete original timestamp history, inbound reply-need labels, sent state and meaningful answer labels (human or AI), carry-ins | One timing proxy per inbound sequence; a no-match sequence is only possibly unanswered |
-| 7 | Active physical-unit register, complete guest-issue coverage, initial historical issue states plus timestamped guest-issue events | Operationally active records (not distinct incidents); conflicts remain active; ticket transitions cannot reconstruct backlog |
-| 8 | Verified qualifying check-ins, approved cleaning-category mapping, reviewed distinct incident IDs and duplicate reconciliation | Cleaning-category candidate records, never the validated numerator |
+|1|Known-fee-adjusted USD booking value prorated over nights; each common listing compared separately|Missing tax/cleaning excludes bookings. Refunds, discounts, deposit inclusion and pass-throughs remain unreconciled. Common listing IDs proxy for physical properties; shared channel-booking IDs across listings are excluded for bundle ambiguity.|
+|2|Deferred for team definition|No edit ledger/refresh tracking implemented.|
+|3|Mature-checkout coverage with exact reservation/listing/channel joins; separate review-date rating cohort|Assumed maturation: Airbnb 14 / Vrbo 365 / Booking 90 days. Unknown after-arrival cancellations form conditional sensitivity scenarios, not confidence intervals. Current publication status does not prove historical visibility. PMS 0–10 scores divided by 2 are normalized estimates; native scales/tag-based portfolio mapping unverified. Targets remain EH/LR/MF/CR >4.92, SG >4.9, US >4.8.|
+|4|Recorded inbound-to-relevant-outbound timestamp proxy, distinct exchanges|Generic acknowledgements/unrelated schedules excluded heuristically; triggered instructions may qualify. Original send/dispatch/answer quality unverified. Missing matches do not prove missed requests.|
+|7|Operationally active load across all source dates including carry-ins; only exact saved complaint identities consolidated|Narrative-resolved conflicts stay active. Catalog entries are a declared unit proxy, not physical inventory. No fabricated daily history.|
+|8|Cleaning-tagged turnover estimate per 10 booked check-ins, active AND resolved records|Same-reservation consolidation and ambiguous-category sensitivity documented; unmatched joins excluded/count shown. Actual arrival/package identity and classification coverage unverified.|
 
-The pure engine tests the future verified contracts as well as missing evidence.
-Enabling certified metrics requires implementing verified producers for these
-contracts; changing a Boolean or a source status without the evidence is unsafe.
-No schema migration or new secret configuration is included in this change.
+Timezones use synchronized IANA values or explicitly supported US jurisdictions
+with provenance; no silent UTC or split-state guesses. Local windows subtract
+three calendar months with month-end clamping. Archived review cohorts and exact
+left-boundary checkouts remain included even with zero revenue-window nights.
+Further integration gaps remain in INTEGRATION_PLAN.md; historical extraction and
+edit tracking are deferred.
 
-## Reference evidence inspected
+## Validation
 
-The saved HTML design version 2 was materialized locally through the current
-Library helper. The PriceLabs reservation evidence and sanitized Cotton evidence
-were read as snapshots, and the Cotton ZIP checksum matched
-`f3aec6af28a8983c8b69cc691b056c3797b8fb7fdba62e453cf51d9c90d6e46f`.
-The joined six-goal contract generated October 23 was read from the provided local
-path without modifying it. None of these files are runtime actuals or committed
-data. Denied native listing IDs 311151, 312300, 323907, 389253, 486217 were never
-requested, retried or bypassed by this implementation.
-
-Research caveats remain: catalog entries are not verified physical units; Cotton
-and Hostaway review counts must be reconciled rather than added; 61 possible
-duplicate groups and 133 cleaning candidates are unapproved; 57 narrative/status
-conflicts cannot be auto-resolved. Historical backlog cannot be reconstructed
-from current status. The runtime derives observed counts from its configured
-database and labels stale/different snapshots; it does not hardcode these counts.
-
-## Verification commands
-
-Use the existing Python environment with test-only environment variables and a
-non-production DATABASE_URL. Tests mock routes or use isolated in-memory SQLite
-fixtures; they never run the application factory or real migrations. SQLite JSON
-storage in fixtures is not a claim of PostgreSQL integration certification.
+Isolated DB/fixture tests cover repeated GET zero source/calculation calls, first
+publication, 48-hour cadence, cold/missing storage, atomic failure/last-good,
+concurrency/lease fencing, contract/window versions, source freshness versus age,
+permissions, independent estimate arithmetic, rounding boundaries, nullable rows,
+unknown/error data, closed cleaning incidents, carry-ins/timezones, and browser
+navigation/loading/error/empty/mobile states. Fixtures do not certify production
+data accuracy. Run regression and opt-in browser tests before release.
 
 ```sh
-python -m pytest dashboard/auth/tests dashboard/kpi/tests dashboard/stay_issues/test_workflow.py dashboard/reviews/tests/test_published_reviews.py -q
+python -m pytest sync/tests dashboard/auth/tests dashboard/kpi/tests dashboard/stay_issues dashboard/reviews/tests -q
 OPERATIONAL_UI_QA=1 python -m pytest dashboard/kpi/tests/test_operations_ui.py -q
 node --check dashboard/static/js/operations-kpi.js
-PYTHONPYCACHEPREFIX=/tmp/operational-pycache python -m compileall -q dashboard/kpi
-git diff --check
 ```
-
-Browser tests use local synthetic fixtures only. They cover desktop/mobile,
-exactly six cards, all detail URLs, reload/back/forward, repeated clicks,
-empty/loading/error/retry states, no modal, no green with incomplete evidence,
-no browser errors and GET-only requests. Screenshots are QA fixtures, not live
-performance. No repository lint/type-check configuration was present.
-
-## Main-based verification and release preparation
-
-The original checkpoint is retained on `codex/operational-kpi` at `3d55b30`.
-Only that feature commit was transplanted onto main commit
-`abd0d09ddd69f6d95abeeb6d4c39198f0e585f87` in a separate worktree. Main's
-additional API-documentation navigation is stubbed by the local test application;
-production navigation and auth code are unchanged. A regression test confirms
-that a guest-issue-only API key cannot read the operational KPI API.
-
-Release preparation remains local-only. Before any authorized release, validate
-the intended environment's source timestamps and property IANA timezones through
-read-only internal queries/API access, then review the code/static assets and
-existing application startup behavior. This feature requires no new schema or
-secret configuration, but normal application startup has existing schema setup
-outside this feature and must be accounted for in the release procedure. Use an
-approved revision, verify the protected overview/detail/API routes after release,
-and retain the prior application revision for rollback.
-
-The 60-second cache is per application worker. Browser polling is also once per
-minute, so a displayed calculation can be nearly two minutes old plus query
-latency. Source data can be much older: recalculation, polling and restarting the
-application do not synchronize it. Missing timezone/evidence contracts must remain
-unknown even after release. No snapshot or synthetic QA fixture is wired into
-production metrics. Deployment does not certify the six goals; verification of
-the required evidence producers is separate outstanding work.
-
-The October 23 v2 evidence audit was inspected locally without changing it or
-ingesting it as runtime actuals. Review checkout cohorts include the exact left
-boundary even when there are zero revenue-window nights. Archived properties
-remain available to historical review cohorts without adding them to the current
-listing roster. Matching published guest reviews establish observed review
-opportunities on canceled stays; unreviewed after-arrival cancellations remain
-explicit eligibility exceptions. Historical publication/visibility and management
-dates remain unverified. The old provisional coverage rates are not hardcoded.
-Triggered instructions can be meaningful answers; fast generic templates are not
-automatically answers. A written meaningful answer without dispatch proof keeps
-the exact SLA unscored, even when other conversations have verified replies.

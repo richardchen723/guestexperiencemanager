@@ -9,9 +9,10 @@
         <div><p class="ops-eyebrow">Cotton Candy · Q4 operations</p><h1>{{ goals[metric_key][1] if metric_key else 'Six goals. One shared view.' }}</h1><p class="ops-intro">{{ 'Diagnose the result, check its evidence, and choose the next action.' if metric_key else 'Know where attention is needed. Open a goal to see the evidence and next actions.' }}</p></div>
         <div class="ops-owner"><span>Accountable owner <strong>Usman</strong></span><span>Deadline <strong>Dec 31, 2026</strong></span></div>
     </header>
-    <div class="ops-context"><div><strong>Rolling 3 calendar months</strong><span id="opsWindow">Checking property-local dates…</span></div><div><span id="opsAsOf">As of —</span><span id="opsChecked">Reads cached for up to 60 seconds</span></div><button type="button" id="opsRefresh">Check latest</button></div>
-    <p class="ops-status-key">Data status: <strong>Verified</strong> = complete evidence · <strong>Partial / unverified</strong> = no passing claim · <strong>Stale</strong> = source check over 24 hours old</p>
-    <div id="opsLoading" class="ops-notice" role="status">Reading operational evidence…</div>
+    <div class="ops-context"><div><strong>Rolling 3 calendar months</strong><span id="opsWindow">Loading saved window…</span></div><div><span id="opsAsOf">Calculation cutoff —</span><span id="opsChecked">Calculated every 48 hours</span></div><button type="button" id="opsRefresh" title="Read the saved snapshot; this does not calculate or synchronize data">Reload snapshot</button></div>
+    <div id="opsSnapshotNotice" class="ops-notice" role="status" hidden></div>
+    <p class="ops-status-key"><strong>Estimated / observed</strong> results carry assumptions · <strong>Verified</strong> requires complete evidence · Source freshness is assessed at calculation time, separately from the 48-hour schedule.</p>
+    <div id="opsLoading" class="ops-notice" role="status">Loading saved scorecard…</div>
     <div id="opsError" class="ops-error" role="alert" hidden><strong>Operational data could not be loaded.</strong><p id="opsErrorMessage"></p><button type="button" id="opsRetry">Try again</button></div>
     {% if not metric_key %}
     <div class="ops-grid" id="opsGrid" aria-busy="true">
@@ -32,12 +33,12 @@
     {% else %}
     <div id="opsDetail" hidden>
         <section class="ops-detail-head"><div><span class="ops-badge" id="detailStatus"></span><div class="ops-primary" id="detailValue">—</div><p id="detailValueLabel"></p></div><div><h2>Target</h2><p id="detailTarget"></p><p id="detailSummary"></p></div></section>
-        <section class="ops-panel"><h2>What needs attention</h2><p id="exceptionCount"></p><div id="opsExceptions"></div></section>
+        <section class="ops-panel"><h2>Top actions</h2><p id="exceptionCount"></p><div id="opsExceptions"></div></section>
         <div class="ops-detail-columns"><section class="ops-panel"><h2>Numerator & denominator</h2><dl id="opsFormula"></dl></section><section class="ops-panel"><h2>Supporting observations</h2><dl id="opsDiagnostics"></dl></section></div>
         <section class="ops-panel"><div class="ops-section-heading"><h2>Diagnostic trend</h2><label id="trendFilterLabel" hidden>Property / channel <select id="trendFilter"></select></label></div><p id="trendNotice"></p><div id="opsTrendChart"></div><div class="ops-table-wrap" id="opsTrend"></div></section>
         <section class="ops-panel"><div class="ops-section-heading"><h2>Property & channel breakdown</h2><label>Find a row <input type="search" id="breakdownSearch" placeholder="Property, channel or portfolio"></label></div><div class="ops-table-wrap" id="opsBreakdown"></div></section>
-        <section class="ops-panel"><h2>Definition & evidence rules</h2><p id="opsMethod"></p><h3>Property-local windows</h3><p>Start inclusive; end exclusive. Current local day is excluded. Active guest issues and overdue unanswered are snapshots at the as-of timestamp.</p><div class="ops-table-wrap" id="opsPropertyWindows"></div></section>
-        <section class="ops-panel"><h2>Source provenance & freshness</h2><p>Calculation time does not refresh a source. Missing source-check timestamps remain unknown.</p><div id="opsSources"></div></section>
+        <details class="ops-panel"><summary>Assumptions, coverage & calculation rules</summary><p id="opsMethod"></p><h3>Property-local windows</h3><p>Start inclusive; end exclusive. Current local day is excluded. Issue load and unanswered candidates reflect the saved calculation cutoff.</p><div class="ops-table-wrap" id="opsPropertyWindows"></div></details>
+        <details class="ops-panel"><summary>Source provenance & freshness</summary><p>Source checks were assessed at the saved calculation cutoff. Reloading does not synchronize sources or recalculate. Missing source-check timestamps remain unknown.</p><div id="opsSources"></div></details>
     </div>
     {% endif %}
     <noscript><p class="ops-error">JavaScript is required to load KPI data. These placeholders are not actual performance.</p></noscript>
