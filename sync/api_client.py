@@ -471,9 +471,14 @@ class HostawayAPIClient:
                               offset: Optional[int] = None,
                               latest_activity_on: Optional[datetime] = None,
                               after_id: Optional[int] = None,
-                              sort_order: Optional[str] = None) -> Optional[List[Dict]]:
+                              sort_order: Optional[str] = None,
+                              include_resources: bool = False) -> Optional[List[Dict]]:
         """Return one reservation page and preserve API failure as ``None``."""
         params: Dict[str, Any] = {}
+        if after_id is not None and sort_order is not None:
+            raise ValueError('Hostaway afterId cannot be combined with sortOrder')
+        if include_resources:
+            params['includeResources'] = 1
         if listing_id:
             params['listingId'] = listing_id
         if limit:
@@ -499,6 +504,23 @@ class HostawayAPIClient:
             return None
         return result
     
+    def get_reservation_detail(self, reservation_id: int) -> Optional[Dict]:
+        """Exact-ID lookup; a wrong resource is a failure, never a substitute."""
+        if type(reservation_id) is not int or reservation_id <= 0:
+            raise ValueError('A positive exact reservation ID is required')
+        data = self._make_request(f'reservations/{reservation_id}', {'includeResources': 1})
+        result = data.get('result') if isinstance(data, dict) else None
+        if not isinstance(result, dict) or result.get('id') != reservation_id:
+            return None
+        return result
+
+    def get_reservation_finance_fields(self, reservation_id: int) -> Optional[List[Dict]]:
+        if type(reservation_id) is not int or reservation_id <= 0:
+            raise ValueError('A positive exact reservation ID is required')
+        data = self._make_request(f'financeField/{reservation_id}')
+        result = data.get('result') if isinstance(data, dict) else None
+        return result if isinstance(result, list) else None
+
     def get_all_reservations(self, limit: int = 100) -> List[Dict]:
         """
         Get all reservations with pagination support.
