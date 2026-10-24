@@ -127,6 +127,29 @@ published revision is idempotent. A future existing next-due timestamp remains
 unchanged. Failures retain the last good snapshot and its history. No HTTP route
 can request a refresh, and the timer continues to call only `run-due`.
 
+## Controlled release and rollback
+
+`deployment/operational_kpi_release.py` consumes a reviewed nine-file runtime
+manifest (seven preimages, two new paths). It stops/disables the timer and stops
+both regular and one-time workers before capturing the existing saved-snapshot
+control state. It backs up the seven files, checks every hash again, then applies
+only those paths. No migration, source repair or credential change is included.
+
+The explicit refresh action records the resulting state and accepts only
+`published` or `already_current`, with the expected saved revision and snapshot
+ID. Timer enablement requires that checkpoint. The importer release/targeted
+corrections must be coordinated separately before this calculation.
+
+Rollback checks every original file hash and every recorded state field. It
+restores the previous saved-snapshot pointer **before** restoring the seven
+original files, with the dashboard stopped. The generation increases to fence
+any late worker; leases are cleared and the old schedule is restored. Both old
+and new snapshot history rows remain. The timer stays disabled. A changed
+snapshot checkpoint or file blocks restoration rather than overwriting later
+work. File-only rollback is unsafe: the prior UI interprets cleaning's `value`
+as per-ten, whereas the new snapshot stores a percentage. Review the recorded
+checkpoint after any uncertain release outcome before retrying.
+
 ## Validation
 
 Isolated DB/fixture tests cover repeated GET zero source/calculation calls, first

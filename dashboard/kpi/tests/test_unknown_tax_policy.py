@@ -76,4 +76,3 @@ def test_truly_blank_or_known_zero_deposit_remains_distinct_from_invalid(deposit
     r=estimate_revenue(d,W)
     assert r['breakdown'][0]['current_proxy_usd']==r['breakdown'][0]['prior_proxy_usd']==220
     assert r['financial_coverage']['excluded_financial_or_currency']=={'current':0,'prior':0}
-
