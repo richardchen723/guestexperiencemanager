@@ -8,6 +8,7 @@ import sys
 import os
 import json
 import logging
+from collections import Counter
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional, Tuple, Any
 
@@ -18,12 +19,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sync.api_client import HostawayAPIClient
 from sync.progress_tracker import get_progress_tracker
+from sync.reservation_financials import map_financials, needs_financial_hydration, hydrate_financials
 from database.models import Reservation, Guest, Listing, SyncLog, Base, get_session, init_models
 from database.schema import get_database_path
 from config import DATABASE_PATH, VERBOSE, BATCH_SIZE
 
 # Configure logging
 logger = logging.getLogger(__name__)
+MAX_FINANCIAL_HYDRATIONS = 100  # Bounded per run; no unlimited historical hydration.
 
 
 def parse_timestamp(ts_str: Optional[str]) -> Optional[datetime]:
@@ -273,6 +276,7 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                     listing_id=listing_id,
                     limit=limit,
                     after_id=after_id,
+                    include_resources=True,
                 )
                 if reservations is None:
                     raise RuntimeError(
@@ -424,6 +428,8 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
         
         # Track per-listing statistics
         listing_stats = {}  # {listing_id: {reservations: count, guests: count}}
+        financial_field_states = {}
+        financial_hydrations = 0
         
         # Commit in batches to avoid database locking
         batch_count = 0
@@ -443,6 +449,33 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                 
                 # Check if reservation exists using lookup map (before processing)
                 existing_reservation = existing_reservation_map.get(reservation_id)
+                financials = map_financials(reservation_data, existing_tax=(
+                    existing_reservation.tax_amount if existing_reservation else None))
+                api_updated_on = parse_timestamp(reservation_data.get('updatedOn'))
+                financial_source_older = bool(existing_reservation and api_updated_on and
+                    existing_reservation.updated_on and api_updated_on < existing_reservation.updated_on)
+                if financial_source_older:
+                    financials.values.clear()
+                    financials.tax_basis = None
+                    financials.reason = 'older_financial_source_ignored'
+                elif needs_financial_hydration(reservation_data,
+                        existing_reservation.tax_amount if existing_reservation else None):
+                    if financial_hydrations < MAX_FINANCIAL_HYDRATIONS:
+                        financial_hydrations += 1
+                        financials = hydrate_financials(client, reservation_data,
+                            existing_reservation.tax_amount if existing_reservation else None)
+                    else:
+                        financials.values.pop('tax_amount', None)
+                        financials.tax_basis = None
+                        financials.reason = 'financial_hydration_budget_exhausted'
+                finance_listing_id = reservation_data.get('listingMapId')
+                if finance_listing_id:
+                    counts = financial_field_states.setdefault(finance_listing_id, Counter())
+                    counts.update(f'{key}:{state}' for key, state in financials.states.items())
+                    if financials.tax_basis:
+                        counts['tax_basis:' + financials.tax_basis] += 1
+                    elif financials.reason:
+                        counts['tax_unknown:' + financials.reason] += 1
                 
                 # OPTIMIZATION 1: Early exit for unchanged reservations
                 # Check updated_on/latest_activity_on first to avoid unnecessary processing
@@ -456,6 +489,18 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                             # Check latest_activity_on as fallback
                             if not api_latest_activity or (existing_reservation.latest_activity_on and 
                                                           api_latest_activity <= existing_reservation.latest_activity_on):
+                                # Equal timestamps do not guarantee financial resources
+                                # are unchanged. Refresh validated finance fields only;
+                                # never regress to an older source version.
+                                financial_changed = False
+                                if api_updated_on == existing_reservation.updated_on:
+                                    for key, value in financials.values.items():
+                                        if getattr(existing_reservation, key) != value:
+                                            setattr(existing_reservation, key, value)
+                                            financial_changed = True
+                                if financial_changed:
+                                    records_updated += 1
+                                    batch_updated += 1
                                 # Timestamps suggest no changes - but we still need to update last_synced_at
                                 existing_reservation.last_synced_at = datetime.utcnow()
                                 # Track statistics even for unchanged reservations
@@ -464,7 +509,10 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                                     if listing_id not in listing_stats:
                                         listing_stats[listing_id] = {'reservations': 0, 'guests': set()}
                                     listing_stats[listing_id]['reservations'] += 1
-                                progress.increment()
+                                if financial_changed:
+                                    progress.increment(updated=True)
+                                else:
+                                    progress.increment()
                                 
                                 # Still count towards batch commit (last_synced_at was updated)
                                 batch_count += 1
@@ -538,11 +586,7 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                     'children': reservation_data.get('children'),
                     'infants': reservation_data.get('infants'),
                     'pets': reservation_data.get('pets'),
-                    'total_price': reservation_data.get('totalPrice'),
-                    'currency': reservation_data.get('currency'),
-                    'tax_amount': reservation_data.get('taxAmount'),
-                    'cleaning_fee': reservation_data.get('cleaningFee'),
-                    'security_deposit_fee': reservation_data.get('securityDepositFee'),
+                    **financials.values,
                     'remaining_balance': reservation_data.get('remainingBalance'),
                     'status': reservation_data.get('status'),
                     'payment_status': reservation_data.get('paymentStatus'),
@@ -558,7 +602,9 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
                     'comment': reservation_data.get('comment'),
                     'custom_field_values': json.dumps(reservation_data.get('customFieldValues', [])) if reservation_data.get('customFieldValues') else None,
                     'inserted_on': parse_timestamp(reservation_data.get('insertedOn')),
-                    'updated_on': parse_timestamp(reservation_data.get('updatedOn')),
+                    # Activity can advance independently; do not regress the
+                    # financial version watermark and admit stale values later.
+                    'updated_on': existing_reservation.updated_on if financial_source_older else api_updated_on,
                     'latest_activity_on': parse_timestamp(reservation_data.get('latestActivityOn')),
                     'last_synced_at': datetime.utcnow()
                 }
@@ -697,7 +743,8 @@ def sync_reservations(full_sync: bool = True, listing_id: int = None, progress_t
         for listing_id, stats in listing_stats.items():
             listing_stats_serializable[listing_id] = {
                 'reservations': stats['reservations'],
-                'guests': len(stats['guests'])
+                'guests': len(stats['guests']),
+                'financial_field_states': dict(financial_field_states.get(listing_id, {})),
             }
         
         # Log sync operation
