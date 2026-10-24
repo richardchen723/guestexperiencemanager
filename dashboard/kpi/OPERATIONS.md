@@ -70,6 +70,30 @@ left-boundary checkouts remain included even with zero revenue-window nights.
 Further integration gaps remain in INTEGRATION_PLAN.md; historical extraction and
 edit tracking are deferred.
 
+## Revenue weekly comparison
+
+The revenue detail comparison uses the same common-listing cohort as its growth
+summary. Current Monday buckets are clipped to each local reporting window, and
+their exact month/day boundaries are shifted back one calendar year with the
+same month-end clamping as the goal. This is a calendar-anniversary comparison,
+not an ISO-week or 52-week shift. Both dollar columns use observed prorated
+booking proxies; refunds remain unreconciled. Edge weeks are labeled. Unequal
+leap-year lengths keep their dollar totals but have no YoY percentage. Missing
+observations remain null; an observed zero remains numeric, and a zero prior
+denominator has no percentage. The two chart series use these same saved values.
+
+`revenue-weekly-yoy.v1` is an optional revenue-trend schema inside the compatible
+snapshot contract. Old snapshots keep all other metrics visible and show the
+weekly comparison as unavailable; GET never upgrades or computes it. A later
+scheduled background calculation fills the new fields. Immediate visibility
+after a release would require a separately controlled one-time snapshot rebuild;
+the ordinary `run-due` command still respects the existing 48-hour slot. The
+removed assumptions/property-window UI does not delete stored audit metadata.
+
+The existing incomplete-financial-fields/USD diagnostic is unchanged: it is
+counted before window-overlap filtering, after recognized iCal rows are rejected.
+It must not be interpreted as an iCal count or a window-scoped exclusion count.
+
 ## Validation
 
 Isolated DB/fixture tests cover repeated GET zero source/calculation calls, first

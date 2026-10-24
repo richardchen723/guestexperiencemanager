@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ goals[metric_key][1] if metric_key else 'Operational KPI' }} · Cotton Candy{% endblock %}
-{% block extra_head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/operations-kpi.css', v='1') }}">{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/operations-kpi.css', v='2') }}">{% endblock %}
 {% block content %}
 <div class="ops-page" id="opsPage" data-metric="{{ metric_key or '' }}" data-endpoint="{{ url_for('kpi.api_operational_data') }}">
     <nav class="ops-tabs" aria-label="KPI views"><a href="{{ url_for('kpi.kpi_page') }}" aria-current="page">Operational KPI</a><a href="{{ url_for('kpi.north_star_page') }}">North-star history</a></nav>
@@ -35,13 +35,12 @@
         <section class="ops-detail-head"><div><span class="ops-badge" id="detailStatus"></span><div class="ops-primary" id="detailValue">—</div><p id="detailValueLabel"></p></div><div><h2>Target</h2><p id="detailTarget"></p><p id="detailSummary"></p></div></section>
         <section class="ops-panel"><h2>Top actions</h2><p id="exceptionCount"></p><div id="opsExceptions"></div></section>
         <div class="ops-detail-columns"><section class="ops-panel"><h2>Numerator & denominator</h2><dl id="opsFormula"></dl></section><section class="ops-panel"><h2>Supporting observations</h2><dl id="opsDiagnostics"></dl></section></div>
-        <section class="ops-panel"><div class="ops-section-heading"><h2>Diagnostic trend</h2><label id="trendFilterLabel" hidden>Property / channel <select id="trendFilter"></select></label></div><p id="trendNotice"></p><div id="opsTrendChart"></div><div class="ops-table-wrap" id="opsTrend"></div></section>
+        <section class="ops-panel"><div class="ops-section-heading"><h2>Diagnostic trend</h2><label id="trendFilterLabel" hidden>Property / channel <select id="trendFilter"></select></label></div><p id="trendNotice"></p><div id="opsTrendChart"></div><p id="opsTrendScope" hidden></p><div class="ops-table-wrap" id="opsTrend"></div></section>
         <section class="ops-panel"><div class="ops-section-heading"><h2>Property & channel breakdown</h2><label>Find a row <input type="search" id="breakdownSearch" placeholder="Property, channel or portfolio"></label></div><div class="ops-table-wrap" id="opsBreakdown"></div></section>
-        <details class="ops-panel"><summary>Assumptions, coverage & calculation rules</summary><p id="opsMethod"></p><h3>Property-local windows</h3><p>Start inclusive; end exclusive. Current local day is excluded. Issue load and unanswered candidates reflect the saved calculation cutoff.</p><div class="ops-table-wrap" id="opsPropertyWindows"></div></details>
         <details class="ops-panel"><summary>Source provenance & freshness</summary><p>Source checks were assessed at the saved calculation cutoff. Reloading does not synchronize sources or recalculate. Missing source-check timestamps remain unknown.</p><div id="opsSources"></div></details>
     </div>
     {% endif %}
     <noscript><p class="ops-error">JavaScript is required to load KPI data. These placeholders are not actual performance.</p></noscript>
 </div>
 {% endblock %}
-{% block extra_scripts %}<script src="{{ url_for('static', filename='js/operations-kpi.js', v='1') }}" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static', filename='js/operations-kpi.js', v='2') }}" defer></script>{% endblock %}

@@ -183,3 +183,30 @@ def test_saved_window_is_from_calculation_not_read_time(store):
     assert p["property_windows"][0]["start"] == "2026-07-23"
     assert p["property_windows"][0]["end"] == "2026-10-23"
     assert p["property_windows"][0]["days"] == 92
+
+
+def test_new_revenue_comparison_is_saved_and_older_payloads_remain_read_only(store):
+    from copy import deepcopy
+    from dashboard.kpi.tests.test_estimates import booking, data
+    factory, _ = store
+    evidence = data(); evidence.update(allow_estimates=True, reservations=[booking(), booking(2, 2025)])
+    first = run(factory, loader=lambda **_: evidence)
+    payload = read_saved_snapshot(factory=factory, now=NOW)
+    revenue = payload['metrics'][0]
+    assert revenue['trend_schema'] == 'revenue-weekly-yoy.v1'
+    assert any(x['prior_booking_value_usd'] is not None for x in revenue['trend'])
+    with factory() as session:
+        saved = session.get(OperationalSnapshot, first['snapshot_id'])
+        old = deepcopy(saved.payload)
+        for key in ('trend_schema','trend_scope','trend_alignment'): old['metrics'][0].pop(key)
+        old['metrics'][0]['trend'] = [{'date':'2026-07-27','value':200,'unit':'USD booking proxy'}]
+        saved.payload = old
+        session.commit()
+    with patch('dashboard.kpi.operations.build_operations') as calc, patch('dashboard.kpi.operations_data.load_operational_evidence') as load:
+        reread = read_saved_snapshot(factory=factory, now=NOW+timedelta(hours=1))
+    assert reread['snapshot_state']['status'] == 'available'
+    assert reread['snapshot_state']['snapshot_id'] == first['snapshot_id']
+    assert 'trend_schema' not in reread['metrics'][0] and len(reread['metrics']) == 6
+    assert reread['property_windows'] == payload['property_windows']  # Audit data stays stored.
+    assert reread['metrics'][1:] == payload['metrics'][1:]
+    assert not calc.called and not load.called

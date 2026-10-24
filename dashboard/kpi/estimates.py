@@ -43,7 +43,7 @@ def estimated(key, label):
 
 def estimate_revenue(data, windows):
     r = estimated("revenue", "common listings at ≥10% estimated growth")
-    sums, covered, excluded, weekly = defaultdict(float), defaultdict(int), Counter(), defaultdict(float)
+    sums, covered, excluded, daily = defaultdict(float), defaultdict(int), Counter(), {}
     rows = {x["id"]: x for x in data.get("reservations", [])}
     booking_listings = defaultdict(set)
     for x in rows.values():
@@ -67,25 +67,30 @@ def estimate_revenue(data, windows):
             if not overlap: continue
             sums[(x["listing_id"], period)] += amount * overlap / (b - a).days
             covered[(x["listing_id"], period)] += 1
-            if period == "current":
-                d = max(a, start)
-                while d < min(b, end):
-                    weekly[d - timedelta(days=d.weekday())] += amount / (b - a).days
-                    d += timedelta(days=1)
-    met, common = 0, 0
+            d = max(a, start)
+            while d < min(b, end):
+                key = (x["listing_id"], period, d)
+                daily[key] = daily.get(key, 0.0) + amount / (b - a).days
+                d += timedelta(days=1)
+    met, common, cohort = 0, 0, set()
     for listing in data.get("listings", []):
         lid = listing["id"]
         prior, current = sums[(lid, "prior")], sums[(lid, "current")]
         if not covered[(lid, "prior")] or not covered[(lid, "current")] or prior <= 0: continue
         growth = (current / prior - 1) * 100
+        cohort.add(lid)
         common += 1; met += growth >= 10 - 1e-9
         r["breakdown"].append({"group": listing["name"], "estimated_growth_pct": round(growth, 2), "current_proxy_usd": round(current, 2), "prior_proxy_usd": round(prior, 2), "target_pct": 10, "covered_bookings": f"{covered[(lid, 'current')]} current / {covered[(lid, 'prior')]} prior"})
     r["breakdown"].sort(key=lambda x: x["estimated_growth_pct"])
     if common: r.update(value=ratio(met, common), display=f"{met} / {common}", numerator=met, denominator=common)
     r.update(numerator_label="Common listings with estimated growth ≥10%", denominator_label="Listings with usable bookings in both windows; physical cohort unverified", summary="Known-fee-adjusted booking estimate before unreconciled refunds; each common listing is compared separately.")
-    r["trend"] = [{"date": d.isoformat(), "value": round(v, 2), "unit": "USD booking proxy"} for d, v in sorted(weekly.items())]
+    from dashboard.kpi.revenue_trend import ALIGNMENT, SCHEMA, weekly_comparison
+    r["trend"] = weekly_comparison(daily, windows, cohort)
+    r["trend_schema"] = SCHEMA
+    r["trend_scope"] = f"Same {common} common listing{'s' if common != 1 else ''} as the growth comparison · observed booking-value proxy before unreconciled refunds."
+    r["trend_alignment"] = ALIGNMENT
     r["diagnostics"] = [{"label": "Common-listing proxy cohort", "value": common or None}, {"label": "Bookings excluded for incomplete financial fields / USD", "value": excluded["missing tax/cleaning/total or non-USD"]}, {"label": "Shared-booking bundle exclusions", "value": excluded["shared booking across listings / bundle ambiguity"]}, {"label": "Refund and discount reconciliation", "value": "Unknown; this is before unreconciled adjustments"}]
-    r["method"] = "Estimate: reservation total less recorded taxes, cleaning and known deposit components; prorated equally over whole-stay nights. Missing tax/cleaning excludes a booking. Missing deposits/pass-through components, discount treatment and refunds remain unreconciled, not assumed settled or zero. Common listing IDs proxy for comparable physical properties; shared channel booking IDs across listings are excluded for bundle ambiguity. New/unpaired listings are outside this comparison. Coverage is the synchronized database, not a certified financial population."
+    r["method"] = "Estimate: reservation total less recorded taxes, cleaning and known deposit components; prorated equally over whole-stay nights. Missing tax/cleaning excludes a booking. Missing deposits/pass-through components, discount treatment and refunds remain unreconciled, not assumed settled or zero. Common listing IDs proxy for comparable physical properties; shared channel booking IDs across listings are excluded for bundle ambiguity. New/unpaired listings are outside this comparison. Coverage is the synchronized database, not a certified financial population. Weekly dollar columns use this same fixed common-listing cohort, not all current listings. " + ALIGNMENT
     exception(r, "Reconcile refunds, component inclusion and physical-unit/package mapping before treating this estimate as net lodging revenue.")
     r["observation"] = "Estimated from common listing IDs · before unreconciled refunds" if common else "Financial fields insufficient for a paired estimate"
     return r
