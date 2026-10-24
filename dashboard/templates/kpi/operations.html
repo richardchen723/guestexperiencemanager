@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ goals[metric_key][1] if metric_key else 'Operational KPI' }} · Cotton Candy{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/operations-kpi.css', v='2') }}">{% endblock %}
+{% block content %}
+<div class="ops-page" id="opsPage" data-metric="{{ metric_key or '' }}" data-endpoint="{{ url_for('kpi.api_operational_data') }}">
+    <nav class="ops-tabs" aria-label="KPI views"><a href="{{ url_for('kpi.kpi_page') }}" aria-current="page">Operational KPI</a><a href="{{ url_for('kpi.north_star_page') }}">North-star history</a></nav>
+    {% if metric_key %}<a class="ops-back" href="{{ url_for('kpi.kpi_page') }}">← All six goals</a>{% endif %}
+    <header class="ops-header">
+        <div><p class="ops-eyebrow">Cotton Candy · Q4 operations</p><h1>{{ goals[metric_key][1] if metric_key else 'Six goals. One shared view.' }}</h1><p class="ops-intro">{{ 'See how many stays had recorded cleaning issues.' if metric_key == 'cleaning' else 'Diagnose the result, check its evidence, and choose the next action.' if metric_key else 'Know where attention is needed. Open a goal to see the evidence and next actions.' }}</p></div>
+        <div class="ops-owner"><span>Accountable owner <strong>Usman</strong></span><span>Deadline <strong>Dec 31, 2026</strong></span></div>
+    </header>
+    <div class="ops-context"><div><strong>Rolling 3 calendar months</strong><span id="opsWindow">Loading saved window…</span></div><div><span id="opsAsOf">Calculation cutoff —</span><span id="opsChecked">Calculated every 48 hours</span></div><button type="button" id="opsRefresh" title="Read the saved snapshot; this does not calculate or synchronize data">Reload snapshot</button></div>
+    <div id="opsSnapshotNotice" class="ops-notice" role="status" hidden></div>
+    {% if metric_key != 'cleaning' %}<p class="ops-status-key"><strong>Estimated / observed</strong> results carry assumptions · <strong>Verified</strong> requires complete evidence · Source freshness is assessed at calculation time, separately from the 48-hour schedule.</p>{% endif %}
+    <div id="opsLoading" class="ops-notice" role="status">Loading saved scorecard…</div>
+    <div id="opsError" class="ops-error" role="alert" hidden><strong>Operational data could not be loaded.</strong><p id="opsErrorMessage"></p><button type="button" id="opsRetry">Try again</button></div>
+    {% if not metric_key %}
+    <div class="ops-grid" id="opsGrid" aria-busy="true">
+        {% for key, goal in goals.items() %}
+        <article class="ops-card" data-goal="{{ key }}">
+            <a class="ops-card-link" href="{{ url_for('kpi.operational_detail', metric_key=key) }}" aria-label="Goal {{ goal[0] }}: {{ goal[1] }} — details">
+                <div class="ops-card-top"><span class="ops-goal-number">Goal {{ goal[0] }}</span><span class="ops-badge" data-field="status">Loading</span></div>
+                <h2>{{ goal[1] }}</h2><div class="ops-primary" data-field="value">—</div><p class="ops-value-label" data-field="label">Loading saved measure…</p>
+                <p class="ops-target"><strong>Target</strong> <span data-field="target">Loading saved target…</span></p>
+                <div class="ops-visual" data-field="visual" aria-label="Evidence loading"><span class="ops-track is-unknown"></span><small>Checking evidence…</small></div>
+                <p class="ops-card-note" data-field="note">No result until evidence is checked.</p><p class="ops-observation" data-field="observation" hidden></p>
+                <div class="ops-card-bottom"><span data-field="freshness">Source check pending</span><strong>Details →</strong></div>
+            </a>
+        </article>
+        {% endfor %}
+    </div>
+    <p class="ops-footer">Goals 5 (bookkeeping) and 6 (owner relations) are tracked separately. Procurement is outside this scorecard. Source goals and history are retained.</p>
+    {% else %}
+    <div id="opsDetail" hidden>
+        <section class="ops-detail-head"><div><span class="ops-badge" id="detailStatus"></span><div class="ops-primary" id="detailValue">—</div><p id="detailValueLabel"></p></div><div>{% if metric_key == 'cleaning' %}<div class="ops-primary" id="cleaningShare">—</div><p>Share of total stays</p><p id="cleaningFreshness"></p>{% else %}<h2>Target</h2><p id="detailTarget"></p>{% endif %}<p id="detailSummary"></p></div></section>
+        {% if metric_key != 'cleaning' %}
+        <section class="ops-panel"><h2>Top actions</h2><p id="exceptionCount"></p><div id="opsExceptions"></div></section>
+        <div class="ops-detail-columns"><section class="ops-panel"><h2>Numerator & denominator</h2><dl id="opsFormula"></dl></section><section class="ops-panel"><h2>Supporting observations</h2><dl id="opsDiagnostics"></dl></section></div>
+        {% endif %}
+        {% if metric_key == 'response' %}<section class="ops-panel" id="opsLateReplies"><div class="ops-section-heading"><h2>Matched replies ≥30 minutes</h2><strong>Target: 0</strong></div><div class="ops-primary" id="lateReplyCount">—</div><p id="lateReplyFraction"></p><p id="lateReplyQuality">Heuristic matches · original send/dispatch unverified. This does not prove meaningful-answer compliance.</p><p id="lateReplyUnmatched"></p><p id="lateReplyListNotice"></p><div class="ops-table-wrap" id="lateReplyTable"></div></section>{% endif %}
+        <section class="ops-panel"><div class="ops-section-heading"><h2>{{ 'Weekly cleaning impact' if metric_key == 'cleaning' else 'Diagnostic trend' }}</h2><label id="trendFilterLabel" hidden>{{ 'Channel' if metric_key == 'reviews' else 'Property' if metric_key == 'cleaning' else 'Property / channel' }} <select id="trendFilter"></select></label></div><p id="revenueQualityNote" class="ops-quality-note" hidden>Incomplete financial coverage · not suitable for judging goal attainment.</p><p id="revenuePolicyNote" hidden></p><p id="trendNotice"></p><p id="reviewChannelNotice" role="status" hidden></p><div id="opsTrendChart"></div><p id="opsTrendScope" hidden></p><div class="ops-table-wrap" id="opsTrend"></div></section>
+        {% if metric_key != 'reviews' %}
+        <section class="ops-panel"><div class="ops-section-heading"><h2>{{ 'Cleaning by property' if metric_key == 'cleaning' else 'Property & channel breakdown' }}</h2><label>{{ 'Find a property' if metric_key == 'cleaning' else 'Find a row' }} <input type="search" id="breakdownSearch" placeholder="{{ 'Property' if metric_key == 'cleaning' else 'Property, channel or portfolio' }}"></label></div><div class="ops-table-wrap" id="opsBreakdown"></div></section>
+        {% endif %}
+        {% if metric_key != 'cleaning' %}<details class="ops-panel"><summary>Source provenance & freshness</summary><p>Source checks were assessed at the saved calculation cutoff. Reloading does not synchronize sources or recalculate. Missing source-check timestamps remain unknown.</p><div id="opsSources"></div></details>{% endif %}
+    </div>
+    {% endif %}
+    <noscript><p class="ops-error">JavaScript is required to load KPI data. These placeholders are not actual performance.</p></noscript>
+</div>
+{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static', filename='js/operations-kpi.js', v='2') }}" defer></script>{% endblock %}
