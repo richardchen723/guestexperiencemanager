@@ -38,8 +38,8 @@ def test_revenue_independent_boundary_proration_and_unreconciled_refund_label():
     assert "refund" in r["method"] and "unknown" in r["method"].lower() or "unreconciled" in r["method"]
 
 
-def test_revenue_does_not_invent_missing_tax_or_allow_portfolio_average_to_pass():
-    d = data(); d["reservations"] = [booking(tax_amount=None), booking(2, 2025)]
+def test_revenue_does_not_invent_missing_cleaning_or_allow_portfolio_average_to_pass():
+    d = data(); d["reservations"] = [booking(cleaning_fee=None), booking(2, 2025)]
     assert estimate_revenue(d, W)["value"] is None
     d["listings"].append({**d["listings"][0], "id": 2, "name": "B"})
     d["reservations"] = [booking(total_price=1050), booking(2, 2025), booking(3, listing_id=2, total_price=230), booking(4, 2025, listing_id=2)]
@@ -52,7 +52,7 @@ def test_shared_booking_across_listings_is_excluded_not_double_counted():
     d = data(); d["listings"].append({**d["listings"][0], "id": 2, "name": "Bundle"})
     d["reservations"] = [booking(channel_booking_id="same"), booking(2, listing_id=2, channel_booking_id="same"), booking(3, 2025)]
     r = estimate_revenue(d, {**W, 2: W[1]})
-    assert r["value"] is None and r["diagnostics"][2]["value"] == 2
+    assert r["value"] is None and next(x['value'] for x in r['diagnostics'] if x['label']=='Shared-booking bundle exclusions') == 2
 
 
 def test_review_checkout_boundary_cancel_sensitivity_and_rating_cohort_are_separate():
@@ -93,10 +93,11 @@ def test_cleaning_includes_closed_incidents_excludes_old_and_shows_ambiguity():
     d = data(); d["reservations"] = [booking(), booking(2)]
     d["issues"] = [{"id": 1, "listing_id": 1, "reservation_id": 1, "category": "cleanliness", "operational_status": "resolved"}, {"id": 2, "listing_id": 1, "reservation_id": 1, "category": "cleanliness", "operational_status": "need_attention"}, {"id": 3, "listing_id": 1, "reservation_id": 2, "category": "linens", "operational_status": "resolved"}, {"id": 4, "listing_id": 1, "reservation_id": 99, "category": "cleanliness", "date": date(2024, 1, 1)}]
     r = estimate_cleaning(d, W)
-    assert r["value"] == 5 and r["numerator"] == 1 and r["denominator"] == 2
+    assert r["value"] == 50 and r["numerator"] == 1 and r["denominator"] == 2
+    assert r['audit_rate_per_10'] == 5
     assert r["diagnostics"][2]["value"] == 0
     assert r["diagnostics"][4]["value"] == "Active and resolved"
-    assert "affected booked check-ins" in r["label"] and "not distinct incidents" in r["numerator_label"]
+    assert r['label'] == 'stays had cleaning issues'
     d["reservations"] = []
     assert estimate_cleaning(d, W)["value"] is None
 
@@ -157,7 +158,7 @@ def test_cleaning_affected_checkins_do_not_hide_multiple_record_identity_scenari
     d["issues"] = [{**common, "id": 1, "complaint_key": "dirty_bathroom"}, {**common, "id": 2, "complaint_key": "dirty_bathroom"}, {**common, "id": 3, "complaint_key": "dirty_kitchen"}, {"id": 4, "listing_id": 1, "reservation_id": 2, "category": "linens"}]
     d["issues"].append(d["issues"][0])  # Same source ID is not a second source record.
     r = estimate_cleaning(d, W); row = r["breakdown"][0]
-    assert r["value"] == 5 and r["numerator"] == 1
+    assert r["value"] == 50 and r["numerator"] == 1
     assert row["strict_saved_identities"] == 2 and row["strict_source_records"] == 3
     assert row["saved_identity_scenario_per_10"] == 10
     assert row["source_record_scenario_per_10"] == row["including_ambiguous_identity_per_10"] == 15

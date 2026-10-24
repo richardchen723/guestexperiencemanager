@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from dashboard.kpi.operations import build_operations
 from dashboard.kpi.snapshot_job import run_due_snapshot
-from dashboard.kpi.snapshot_store import (Base, CADENCE, CONTRACT_VERSION, LEASE, OperationalSnapshot, OperationalSnapshotState, claim_due_snapshot, publish_snapshot, read_saved_snapshot)
+from dashboard.kpi.snapshot_store import (Base, CADENCE, CALCULATION_REVISION, CONTRACT_VERSION, LEASE, OperationalSnapshot, OperationalSnapshotState, claim_due_snapshot, publish_snapshot, read_saved_snapshot)
 from dashboard.kpi.tests.test_operations_integration import make_app
 
 NOW = datetime(2026, 10, 23, 12, tzinfo=timezone.utc)
@@ -210,3 +210,87 @@ def test_new_revenue_comparison_is_saved_and_older_payloads_remain_read_only(sto
     assert reread['property_windows'] == payload['property_windows']  # Audit data stays stored.
     assert reread['metrics'][1:] == payload['metrics'][1:]
     assert not calc.called and not load.called
+
+
+def test_tax_policy_and_30minute_fields_are_persisted_not_generated_on_read(store):
+    from copy import deepcopy
+    from dashboard.kpi.tests.test_estimates import booking,data
+    from dashboard.kpi.tests.test_late_reply_metric import pair
+    factory,_=store
+    evidence=data();evidence.update(allow_estimates=True,reservations=[booking(tax_amount=None),booking(2,2025,tax_amount=None)],messages=pair(1,30))
+    first=run(factory,loader=lambda **_:evidence)
+    p=read_saved_snapshot(factory=factory,now=NOW)
+    assert p['metrics'][0]['booking_estimate_policy']=='known-components-unknown-tax.v2'
+    assert p['metrics'][0]['financial_coverage']['included_unknown_tax']=={'current':1,'prior':1}
+    assert p['metrics'][3]['late_replies_30m']['count']==1
+    with factory() as session:
+        row=session.get(OperationalSnapshot,first['snapshot_id']);old=deepcopy(row.payload)
+        old['metrics'][0].pop('booking_estimate_policy');old['metrics'][0].pop('financial_coverage')
+        old['metrics'][3].pop('late_replies_30m');row.payload=old;session.commit()
+    with patch('dashboard.kpi.operations.build_operations') as calc,patch('dashboard.kpi.operations_data.load_operational_evidence') as load:
+        old=read_saved_snapshot(factory=factory,now=NOW+timedelta(hours=1))
+    assert old['snapshot_state']['snapshot_id']==first['snapshot_id']
+    assert old['snapshot_state']['status']=='available' and len(old['metrics'])==6
+    assert 'booking_estimate_policy' not in old['metrics'][0] and 'late_replies_30m' not in old['metrics'][3]
+    assert not calc.called and not load.called
+
+
+def old_revision(factory):
+    with factory() as session:
+        state=session.get(OperationalSnapshotState,'portfolio')
+        row=session.get(OperationalSnapshot,state.last_good_snapshot_id)
+        row.payload={k:v for k,v in row.payload.items() if k!='calculation_revision'}
+        session.commit()
+
+
+def test_controlled_refresh_once_preserves_next_due_history_and_is_idempotent(store):
+    factory,_=store
+    first=run(factory);old_revision(factory)
+    now=NOW+timedelta(hours=1)
+    result=run_due_snapshot(factory=factory,now=now,clock=lambda:now,loader=lambda **_:{},refresh_revision=CALCULATION_REVISION)
+    assert result['status']=='published' and result['snapshot_id']!=first['snapshot_id']
+    assert result['next_due_at']==(NOW+CADENCE).isoformat()
+    with factory() as session: assert session.query(OperationalSnapshot).count()==2
+    with patch('dashboard.kpi.operations_data.load_operational_evidence') as load,patch('dashboard.kpi.operations.build_operations') as calc:
+        again=run_due_snapshot(factory=factory,now=now+timedelta(minutes=1),refresh_revision=CALCULATION_REVISION)
+        assert again['status']=='already_current' and not load.called and not calc.called
+        p=read_saved_snapshot(factory=factory,now=now)
+        assert p['calculation_revision']==CALCULATION_REVISION
+        assert p['snapshot_state']['snapshot_id']==result['snapshot_id']
+    assert run(factory,now=now)['status']=='not_due'
+
+
+def test_controlled_failure_retains_last_good_and_schedule_and_can_retry(store):
+    factory,_=store
+    first=run(factory);old_revision(factory)
+    now=NOW+timedelta(hours=1)
+    failed=run_due_snapshot(factory=factory,now=now,clock=lambda:now,loader=lambda **_:(_ for _ in ()).throw(RuntimeError('fixture failure')),refresh_revision=CALCULATION_REVISION)
+    assert failed['status']=='failed'
+    saved=read_saved_snapshot(factory=factory,now=now)
+    assert saved['snapshot_state']['snapshot_id']==first['snapshot_id']
+    assert saved['snapshot_state']['next_due_at']==(NOW+CADENCE).isoformat()
+    assert saved['snapshot_state']['refresh_status']=='failed'
+    assert run_due_snapshot(factory=factory,now=now+timedelta(minutes=1),clock=lambda:now+timedelta(minutes=1),loader=lambda **_:{},refresh_revision=CALCULATION_REVISION)['status']=='published'
+
+
+def test_controlled_refresh_obeys_busy_lease_and_recovery_keeps_schedule(store):
+    factory,_=store
+    run(factory);old_revision(factory)
+    now=NOW+timedelta(hours=1)
+    claim=claim_due_snapshot(factory=factory,now=now,refresh_revision=CALCULATION_REVISION)
+    assert claim['status']=='claimed'
+    with patch('dashboard.kpi.operations_data.load_operational_evidence') as load:
+        assert run_due_snapshot(factory=factory,now=now,refresh_revision=CALCULATION_REVISION)['status']=='busy'
+        assert run(factory,now=now)['status']=='busy'
+        assert not load.called
+    recovered=run(factory,now=now+LEASE+timedelta(seconds=1))
+    assert recovered['status']=='published' and recovered['next_due_at']==(NOW+CADENCE).isoformat()
+    assert run_due_snapshot(factory=factory,now=now+LEASE+timedelta(minutes=1),refresh_revision=CALCULATION_REVISION)['status']=='already_current'
+
+
+def test_controlled_refresh_cold_start_and_wrong_revision(store):
+    factory,_=store
+    with pytest.raises(ValueError,match='installed calculation revision'):
+        claim_due_snapshot(factory=factory,now=NOW,refresh_revision='unapproved-revision')
+    result=run_due_snapshot(factory=factory,now=NOW,clock=lambda:NOW,loader=lambda **_:{},refresh_revision=CALCULATION_REVISION)
+    assert result['status']=='published' and result['next_due_at']==(NOW+CADENCE).isoformat()

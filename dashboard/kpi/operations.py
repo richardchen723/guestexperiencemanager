@@ -18,7 +18,7 @@ GOALS = {
     "reviews": (3, "Guest reviews & ratings", "Airbnb ≥60% · Vrbo ≥30% · Booking ≥40%", "channels at coverage target"),
     "response": (4, "Meaningful guest replies", "Every reply <5 min · zero overdue unanswered", "median reply time"),
     "issues": (7, "Active guest issues", "Active guest issues ≤ active physical units", "operationally active records"),
-    "cleaning": (8, "Cleaning incidents", "<1 distinct incident per 10 qualifying check-ins", "incidents per 10 check-ins"),
+    "cleaning": (8, "Cleaning issues by stay", "<1 distinct incident per 10 qualifying check-ins", "incidents per 10 check-ins"),
 }
 RATING_TARGETS = {"EH": 4.92, "LR": 4.92, "MF": 4.92, "CR": 4.92, "SG": 4.9, "US": 4.8}
 COVERAGE_TARGETS = {"airbnb": 60, "vrbo": 30, "booking": 40}
@@ -290,10 +290,35 @@ def reviews(data, windows):
     return finish(r, data.get("review_contract_verified", False) and rating_complete and not r["exceptions"] and all(x["coverage_pct"] is not None for x in r["breakdown"][:3]), met == 3 and all(rating_checks))
 
 
+def timed_messages(messages):
+    valid, untimed = [], []
+    for row in {m["id"]: m for m in messages}.values():
+        try:
+            at = as_utc(row.get("at"))
+        except (ValueError, TypeError, AttributeError):
+            at = None
+        if at is None: untimed.append(row)
+        else: valid.append({**row, "at": at})
+    return valid, untimed
+
+
+def reply_pair_record(first, reply, elapsed, windows, names):
+    lid = first["listing_id"]
+    return {"listing_id": lid, "property": names.get(lid, f"Listing {lid}"), "thread_reference": str(first["conversation_id"]), "request_message_id": str(first["id"]), "reply_message_id": str(reply["id"]), "request_at": as_utc(first["at"]).isoformat(), "reply_at": as_utc(reply["at"]).isoformat(), "elapsed_minutes": round(elapsed, 4), "property_timezone": windows[lid]["timezone"]}
+
+
+def late_reply_summary(durations, records, unmatched, untimed, *, basis, unplaced_requests=0):
+    count = sum(value >= 30 for value in durations)
+    return {"schema": "matched-replies-30m.v1", "threshold_minutes": 30, "operator": ">=", "target_count": 0, "count": count if durations else None, "percentage": ratio(count, len(durations)), "matched_pairs": len(durations), "unmatched_request_candidates": unmatched, "missing_timestamp_messages": len(untimed), "unplaced_request_candidates": unplaced_requests, "basis": basis, "records": sorted(records, key=lambda row: -row["elapsed_minutes"])[:25], "record_limit": 25}
+
+
 def response(data, windows, as_of):
     r = metric("response")
     grouped = defaultdict(list)
-    for x in {m["id"]: m for m in data.get("messages", [])}.values():
+    messages, untimed = timed_messages(data.get("messages", []))
+    names = {row["id"]: row["name"] for row in data.get("listings", [])}
+    late_pairs, unmatched = [], 0
+    for x in messages:
         grouped[x["conversation_id"]].append(x)
     durations, proxy, overdue, breakdown, weekly = [], [], [], defaultdict(list), defaultdict(list)
     unverified, dispatch_uncertain, obligation_unknown = 0, set(), 0
@@ -331,6 +356,7 @@ def response(data, windows, as_of):
             if w and w["start"] <= d < w["end"]:
                 if verified:
                     durations.append(elapsed)
+                    if elapsed >= 30: late_pairs.append(reply_pair_record(first, x, elapsed, windows, names))
                     breakdown[first["listing_id"]].append(elapsed)
                     weekly[d - timedelta(days=d.weekday())].append(elapsed)
                 else:
@@ -342,6 +368,9 @@ def response(data, windows, as_of):
             pending = None
         for sequence in sequences:
             first = sequence["first"]
+            w = windows.get(first["listing_id"])
+            local_day = first["at"].astimezone(ZoneInfo(w["timezone"])).date() if w else None
+            if not sequence["answered"] and w and w["start"] <= local_day < w["end"]: unmatched += 1
             if not sequence["answered"] and (as_of - as_utc(first["at"])).total_seconds() >= 300:
                 overdue.append(first)
     for x in overdue:
@@ -352,10 +381,11 @@ def response(data, windows, as_of):
     r["breakdown"] = [{"group": str(lid), "median_minutes": round(median(v), 2), "under_5": sum(x < 5 for x in v), "answered": len(v)} for lid, v in breakdown.items()]
     r["trend"] = [{"date": d.isoformat(), "value": round(median(v), 2), "sample": len(v), "target": 5} for d, v in sorted(weekly.items())]
     r["diagnostics"] = [{"label": "Timing proxy median (unverified answers)", "value": round(median(proxy), 2) if proxy else None}, {"label": "Unverified outbound timing observations", "value": unverified}, {"label": "Overdue / possible unanswered sequences, including carry-ins", "value": len(overdue) if data.get("messages_complete") else None}]
+    r["late_replies_30m"] = late_reply_summary(durations, late_pairs, unmatched, untimed, basis="verified_meaningful_pairs", unplaced_requests=sum(bool(row.get("incoming")) for row in untimed))
     r.update(numerator_label="Meaningful verified sent replies strictly under five minutes", denominator_label="Verified answered guest sequences", summary="A fast acknowledgement is not proof of an answer. Every reply must beat five minutes.")
-    if not data.get("messages_complete") or unverified:
+    if not data.get("messages_complete") or unverified or untimed:
         exception(r, "Verify complete original message history, carry-ins, timestamps and meaningful answer labels. Timing proxy is not the goal actual.")
-    return finish(r, data.get("messages_complete", False) and not unverified and not dispatch_uncertain and not obligation_unknown and bool(durations), all(x < 5 for x in durations) and not overdue)
+    return finish(r, data.get("messages_complete", False) and not unverified and not dispatch_uncertain and not obligation_unknown and not untimed and bool(durations), all(x < 5 for x in durations) and not overdue)
 
 
 def issues(data, windows, as_of):

@@ -20,6 +20,7 @@ from dashboard.kpi.operations import GOALS, as_utc, metric, months_before
 
 logger = logging.getLogger(__name__)
 CONTRACT_VERSION = "operational-kpi.v3-provisional-cohorts"
+CALCULATION_REVISION = 'operational-kpi.2026-10-24-details.v1'
 CADENCE = timedelta(hours=48)
 LEASE = timedelta(hours=2)
 STATE_KEY = "portfolio"
@@ -124,8 +125,10 @@ def _ensure_state(factory):
             session.rollback()  # A concurrent job created the singleton first.
 
 
-def claim_due_snapshot(*, factory=session_factory, now=None):
+def claim_due_snapshot(*, factory=session_factory, now=None, refresh_revision=None):
     now = as_utc(now or datetime.now(timezone.utc))
+    if refresh_revision is not None and refresh_revision != CALCULATION_REVISION:
+        raise ValueError('Controlled refresh must name the installed calculation revision')
     _ensure_state(factory)
     with factory() as session:
         state = session.get(OperationalSnapshotState, STATE_KEY)
@@ -133,14 +136,18 @@ def claim_due_snapshot(*, factory=session_factory, now=None):
         expired = running and (not state.lease_expires_at or as_utc(state.lease_expires_at) <= now)
         if running and not expired:
             return {"status": "busy"}
+        if refresh_revision and state.last_good_snapshot_id:
+            saved = session.get(OperationalSnapshot, state.last_good_snapshot_id)
+            if saved and saved.contract_version == CONTRACT_VERSION and saved.payload.get('calculation_revision') == refresh_revision:
+                return {'status':'already_current','snapshot_id':saved.snapshot_id,'next_due_at':iso(state.next_due_at)}
         changed_contract = state.contract_version != CONTRACT_VERSION
-        if not expired and not changed_contract and state.next_due_at and now < as_utc(state.next_due_at):
+        if not refresh_revision and not expired and not changed_contract and state.next_due_at and now < as_utc(state.next_due_at):
             return {"status": "not_due", "next_due_at": iso(state.next_due_at)}
         # Interrupted attempts recover the same logical slot, with a new fencing
         # token. Missed scheduled slots are not replayed as expensive backfills.
         recover_slot = expired and not changed_contract and state.next_due_at and now < as_utc(state.next_due_at)
-        scheduled_for = as_utc(state.scheduled_for_at) if recover_slot else now
-        next_due = scheduled_for + CADENCE
+        scheduled_for = as_utc(state.scheduled_for_at) if recover_slot and not refresh_revision else now
+        next_due = as_utc(state.next_due_at) if (recover_slot or refresh_revision) and state.next_due_at and now < as_utc(state.next_due_at) else scheduled_for + CADENCE
         token, generation = str(uuid.uuid4()), state.generation + 1
         updated = session.execute(update(OperationalSnapshotState).where(OperationalSnapshotState.state_key == STATE_KEY, OperationalSnapshotState.generation == state.generation).values(contract_version=CONTRACT_VERSION, generation=generation, status="running", lease_token=token, lease_expires_at=now + LEASE, scheduled_for_at=scheduled_for, last_attempt_at=now, last_attempt_finished_at=None, last_error=None, next_due_at=next_due))
         if updated.rowcount != 1:

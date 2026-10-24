@@ -56,12 +56,12 @@ not enter saved scorecards.
 
 | Goal | Estimate/observation | Limits |
 |---|---|---|
-|1|Known-fee-adjusted USD booking value prorated over nights; each common listing compared separately|Missing tax/cleaning excludes bookings. Refunds, discounts, deposit inclusion and pass-throughs remain unreconciled. Common listing IDs proxy for physical properties; shared channel-booking IDs across listings are excluded for bundle ambiguity.|
+|1|USD booking value less known components, prorated over nights; each common listing compared separately|Blank tax is included as an unknown-tax estimate; tax is subtracted only when recorded. Invalid nonblank tax, missing/invalid total or cleaning, non-USD and negative adjusted values remain excluded. Refunds, discounts, deposit inclusion and pass-throughs remain unreconciled. Common listing IDs proxy for physical properties; shared channel-booking IDs across listings are excluded for bundle ambiguity.|
 |2|Deferred for team definition|No edit ledger/refresh tracking implemented.|
 |3|Provisional rolling-checkout coverage with exact reservation/listing/channel joins; separate review-date rating cohort|Includes recent checkouts rather than waiting for full maturation. Reviewed, unreviewed and still-open opportunities are separate. Open-window flags use a verified policy when provided, otherwise assumed Airbnb 14 / Vrbo 365 / Booking 90 days. Cancellation scenarios are conditional, not confidence intervals. Ratings remain native and separate by channel/scale; verified source-specific scale provenance is required for a /5 comparison. No automatic conversion. Tag-based portfolio mapping remains unverified. Targets remain EH/LR/MF/CR >4.92, SG >4.9, US >4.8.|
-|4|Recorded inbound-to-relevant-outbound timestamp proxy, distinct exchanges|Generic acknowledgements/unrelated schedules excluded heuristically; triggered instructions may qualify. Original send/dispatch/answer quality unverified. Missing matches do not prove missed requests.|
+|4|Recorded inbound-to-relevant-outbound timestamp proxy, distinct exchanges; ≥30-minute count/percentage with zero target|Same matched-pair sample as the under-five-minute measure. Generic acknowledgements/unrelated schedules excluded heuristically; triggered instructions may qualify. Original send/dispatch/answer quality unverified. Missing matches and missing timestamps remain separate from confirmed late pairs.|
 |7|Operationally active load across all source dates including carry-ins; only exact saved complaint identities consolidated|Narrative-resolved conflicts stay active. Comparison with catalog entries (unit proxy) is provisional, never actual physical-unit compliance. No fabricated daily history.|
-|8|Affected booked check-ins per 10 with cleaning tags, active AND resolved records|This approximation is not distinct incidents. Separate strict saved-identity, strict source-record and ambiguous-category scenarios are shown; unmatched joins excluded/count shown. Original distinct-incident goal retained without a compliance claim. Actual arrival/package identity and classification coverage unverified.|
+|8|Stays with recorded cleaning issues versus total eligible booked stays|Each stay counts once, including active and resolved issues. The page shows counts and percentages by week/property. Existing category matching and check-in eligibility remain unchanged. Ambiguous-category, saved-identity and source-record audit scenarios remain in the payload only.|
 
 Timezones use synchronized IANA values or explicitly supported US jurisdictions
 with provenance; no silent UTC or split-state guesses. Local windows subtract
@@ -81,6 +81,10 @@ booking proxies; refunds remain unreconciled. Edge weeks are labeled. Unequal
 leap-year lengths keep their dollar totals but have no YoY percentage. Missing
 observations remain null; an observed zero remains numeric, and a zero prior
 denominator has no percentage. The two chart series use these same saved values.
+Every contributing property must have observations in the relevant weekly
+period before that dollar column is shown. A missing property is not assumed to
+have zero bookings; row coverage identifies the missing portion. Cross-property
+current/prior observations cannot produce an unsupported YoY percentage.
 
 `revenue-weekly-yoy.v1` is an optional revenue-trend schema inside the compatible
 snapshot contract. Old snapshots keep all other metrics visible and show the
@@ -90,9 +94,38 @@ after a release would require a separately controlled one-time snapshot rebuild;
 the ordinary `run-due` command still respects the existing 48-hour slot. The
 removed assumptions/property-window UI does not delete stored audit metadata.
 
-The existing incomplete-financial-fields/USD diagnostic is unchanged: it is
-counted before window-overlap filtering, after recognized iCal rows are rejected.
-It must not be interpreted as an iCal count or a window-scoped exclusion count.
+The `known-components-unknown-tax.v2` calculation counts unknown-tax inclusions
+and real financial/currency exclusions separately, in both relevant windows,
+before common-cohort matching. It does not zero-fill any source field. Old saved
+results retain their earlier policy and broader exclusion counter, explicitly
+labeled as earlier-policy data until a background publication replaces them.
+
+The review weekly table defaults to all three channels, labels Monday checkout
+buckets with the requested visible headers, and keeps each row's original
+target. Optional channel selection survives automatic reads and page reloads.
+Absent weekly channel data is explicit; no 0% rows are synthesized. The sprawling
+review breakdown is hidden without removing its underlying snapshot evidence.
+
+`matched-replies-30m.v1` adds a detail diagnostic to goal 4, not a seventh card.
+It uses an inclusive unrounded ≥30-minute threshold and the existing matched
+sample denominator, counts unmatched candidates separately, and lists at most
+25 longest pairs with recorded timestamps/property/thread references. Untimed
+messages are excluded from timing and identified as unplaced evidence. Missing
+new fields in old snapshots show unavailable, never an inferred zero. A normal
+scheduled calculation or separately approved controlled rebuild is needed to
+publish the new tax policy, comparison fields and 30-minute diagnostic.
+
+Cleaning uses optional `affected-stay-share.v3` fields with cached exact counts
+and percentages. The simple page does not expose technical audit scenarios or
+duplicate supporting panels. Old snapshots without those fields show unavailable
+weekly percentages, without reversing a rounded per-ten rate into a numerator.
+
+An authorized release can run `snapshot_job refresh-once --revision
+operational-kpi.2026-10-24-details.v1` once. It uses the same durable lease,
+generation fencing, source reads and atomic publication as `run-due`; an already
+published revision is idempotent. A future existing next-due timestamp remains
+unchanged. Failures retain the last good snapshot and its history. No HTTP route
+can request a refresh, and the timer continues to call only `run-due`.
 
 ## Validation
 

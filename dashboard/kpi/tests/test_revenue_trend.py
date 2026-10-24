@@ -86,3 +86,16 @@ def test_different_property_local_edges_retain_the_same_roster_and_clip_each_pro
 def test_missing_common_cohort_has_no_fabricated_rows():
     assert weekly_comparison({}, W, set()) == []
     assert estimate_revenue(data(), W)['trend'] == []
+
+
+def test_different_properties_cannot_supply_each_others_comparison_coverage():
+    daily={(1,'current',date(2026,8,1)):100,(2,'prior',date(2025,8,1)):200}
+    rows=weekly_comparison(daily,{1:W[1],2:W[1]},{1,2})
+    row=next(x for x in rows if x['date']=='2026-07-27')
+    assert row['booking_value_usd'] is row['prior_booking_value_usd'] is row['yoy_change_pct'] is None
+    assert row['coverage']['current']=={'observed_listings':1,'expected_listings':2,'missing_listing_ids':[2]}
+    assert row['coverage']['prior']['missing_listing_ids']==[1]
+    # Explicit observed zeros establish coverage, unlike absent entries.
+    daily.update({(2,'current',date(2026,8,1)):0,(1,'prior',date(2025,8,1)):0})
+    row=next(x for x in weekly_comparison(daily,{1:W[1],2:W[1]},{1,2}) if x['date']=='2026-07-27')
+    assert row['booking_value_usd']==100 and row['prior_booking_value_usd']==200 and row['yoy_change_pct']==-50

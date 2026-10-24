@@ -33,7 +33,7 @@ def weekly_comparison(daily, windows, cohort):
             monday += timedelta(days=7)
     rows = []
     for monday, spans in sorted(buckets.items()):
-        amounts, observed = {"current": 0.0, "prior": 0.0}, {"current": False, "prior": False}
+        amounts, observed = {"current": 0.0, "prior": 0.0}, {"current": set(), "prior": set()}
         day_counts_match = True
         for member, start, end, prior_start, prior_end in spans:
             day_counts_match &= (end - start).days == (prior_end - prior_start).days
@@ -42,10 +42,13 @@ def weekly_comparison(daily, windows, cohort):
                     key = (member, period, a)
                     if key in daily:
                         amounts[period] += daily[key]
-                        observed[period] = True
+                        observed[period].add(member)
                     a += timedelta(days=1)
-        current = amounts["current"] if observed["current"] else None
-        prior = amounts["prior"] if observed["prior"] else None
+        # One property's current data cannot stand in for another property's
+        # absent prior data. Absence is not a proven zero-booking week.
+        expected = {member for member, *_ in spans}
+        current = amounts["current"] if observed['current'] == expected else None
+        prior = amounts["prior"] if observed['prior'] == expected else None
         reason = "Different calendar day counts" if not day_counts_match else "Current observations unavailable" if current is None else "Prior observations unavailable" if prior is None else "Prior booking value is zero" if prior == 0 else None
         change = (current / prior - 1) * 100 if reason is None else None
         current_days = sorted({(b - a).days for _, a, b, _, _ in spans})
@@ -61,5 +64,6 @@ def weekly_comparison(daily, windows, cohort):
             "current_spans": sorted({f"{a.isoformat()} → {b.isoformat()} (exclusive)" for _, a, b, _, _ in spans}),
             "prior_spans": sorted({f"{a.isoformat()} → {b.isoformat()} (exclusive)" for _, _, _, a, b in spans}),
             "cohort_size": len(cohort), "contributing_listings": len(spans),
+            "coverage": {period: {'observed_listings': len(observed[period]), 'expected_listings': len(expected), 'missing_listing_ids': sorted(expected-observed[period])} for period in ('current','prior')},
         })
     return rows

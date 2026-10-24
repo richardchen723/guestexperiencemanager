@@ -6,7 +6,7 @@ import math
 import re
 from zoneinfo import ZoneInfo
 
-from dashboard.kpi.operations import ACTIVE_ISSUES, COVERAGE_TARGETS, RATING_TARGETS, as_utc, channel, day, exception, metric, months_before, qualifying, ratio
+from dashboard.kpi.operations import ACTIVE_ISSUES, COVERAGE_TARGETS, RATING_TARGETS, as_utc, channel, day, exception, metric, months_before, qualifying, ratio, timed_messages, reply_pair_record, late_reply_summary
 from sync.listing_timezone import valid_timezone_name
 
 # Restrict fallback to unambiguous jurisdictions and explicit city mappings.
@@ -15,6 +15,7 @@ STATE_ZONES = {"CA": "America/Los_Angeles", "GA": "America/New_York", "OH": "Ame
 CITY_ZONES = {("TN", "sevierville"): "America/New_York", ("TN", "pigeon forge"): "America/New_York", ("TN", "gatlinburg"): "America/New_York", ("TX", "houston"): "America/Chicago", ("TX", "coldspring"): "America/Chicago"}
 PORTFOLIO_CODES = {"Enchanted Havens": "EH", "Luminary Resorts": "LR", "Middlefork": "MF", "Crockett’s Run": "CR", "LA St Gabe": "SG", "Urban Stays": "US"}
 REVIEW_WINDOW_DAYS = {"airbnb": 14, "vrbo": 365, "booking": 90}
+BOOKING_ESTIMATE_POLICY = "known-components-unknown-tax.v2"
 
 
 def timezone_for_listing(row):
@@ -35,6 +36,10 @@ def numeric(value):
     except (ValueError, TypeError): return None
 
 
+def blank_amount(value):
+    return value is None or isinstance(value, str) and not value.strip()
+
+
 def estimated(key, label):
     r = metric(key)
     r.update(data_status="estimated", goal_status="unknown", label=label, observation=None, display="Not enough data")
@@ -44,6 +49,8 @@ def estimated(key, label):
 def estimate_revenue(data, windows):
     r = estimated("revenue", "common listings at ≥10% estimated growth")
     sums, covered, excluded, daily = defaultdict(float), defaultdict(int), Counter(), {}
+    unknown_tax, rejected, bundles = defaultdict(set), defaultdict(set), defaultdict(set)
+    unknown_tax_values = defaultdict(float)
     rows = {x["id"]: x for x in data.get("reservations", [])}
     booking_listings = defaultdict(set)
     for x in rows.values():
@@ -54,19 +61,40 @@ def estimate_revenue(data, windows):
         if not w or not qualifying(x): continue
         a, b = day(x["arrival"]), day(x["departure"])
         if b <= a: excluded["invalid dates"] += 1; continue
+        periods = [(period, start, end) for period, start, end in (("current", w["start"], w["end"]), ("prior", months_before(w["start"], 12), months_before(w["end"], 12))) if a < end and b > start]
+        if not periods: continue
         if x.get("channel_booking_id") and len(booking_listings[(channel(x.get("channel")), x["channel_booking_id"])]) > 1:
-            excluded["shared booking across listings / bundle ambiguity"] += 1; continue
+            excluded["shared booking across listings / bundle ambiguity"] += 1
+            for period, _, _ in periods: bundles[period].add(x["id"])
+            continue
         total, tax, clean, deposit = (numeric(x.get(k)) for k in ("total_price", "tax_amount", "cleaning_fee", "security_deposit_fee"))
-        if x.get("currency") != "USD" or total is None or tax is None or clean is None:
-            excluded["missing tax/cleaning/total or non-USD"] += 1; continue
-        amount = total - tax - clean - (deposit if deposit is not None else 0)
+        tax_unknown = blank_amount(x.get("tax_amount"))
+        reasons = []
+        if x.get("currency") != "USD": reasons.append("non_USD_currency")
+        if total is None: reasons.append("missing_or_invalid_total")
+        if clean is None: reasons.append("missing_or_invalid_cleaning")
+        if tax is None and not tax_unknown: reasons.append("invalid_nonblank_tax")
+        if deposit is None and not blank_amount(x.get('security_deposit_fee')): reasons.append('invalid_nonblank_deposit')
+        if reasons:
+            for period, _, _ in periods: rejected[period].add(x["id"])
+            for reason in reasons: excluded[reason] += 1
+            continue
+        # A missing tax remains unknown in the source. This proxy subtracts only
+        # recorded components; it does not assert that unrecorded tax is zero.
+        amount = total - clean - (deposit if deposit is not None else 0)
+        if tax is not None: amount -= tax
         if deposit is None: excluded["deposit component unknown (not reconciled)"] += 1
-        if amount < 0: excluded["negative component-adjusted value"] += 1; continue
-        for period, start, end in (("current", w["start"], w["end"]), ("prior", months_before(w["start"], 12), months_before(w["end"], 12))):
+        if amount < 0:
+            excluded["negative_component_adjusted_value"] += 1
+            for period, _, _ in periods: rejected[period].add(x["id"])
+            continue
+        for period, start, end in periods:
             overlap = max(0, (min(b, end) - max(a, start)).days)
-            if not overlap: continue
             sums[(x["listing_id"], period)] += amount * overlap / (b - a).days
             covered[(x["listing_id"], period)] += 1
+            if tax_unknown:
+                unknown_tax[period].add(x["id"])
+                unknown_tax_values[(x["listing_id"], period)] += amount * overlap / (b - a).days
             d = max(a, start)
             while d < min(b, end):
                 key = (x["listing_id"], period, d)
@@ -83,16 +111,18 @@ def estimate_revenue(data, windows):
         r["breakdown"].append({"group": listing["name"], "estimated_growth_pct": round(growth, 2), "current_proxy_usd": round(current, 2), "prior_proxy_usd": round(prior, 2), "target_pct": 10, "covered_bookings": f"{covered[(lid, 'current')]} current / {covered[(lid, 'prior')]} prior"})
     r["breakdown"].sort(key=lambda x: x["estimated_growth_pct"])
     if common: r.update(value=ratio(met, common), display=f"{met} / {common}", numerator=met, denominator=common)
-    r.update(numerator_label="Common listings with estimated growth ≥10%", denominator_label="Listings with usable bookings in both windows; physical cohort unverified", summary="Known-fee-adjusted booking estimate before unreconciled refunds; each common listing is compared separately.")
+    r.update(numerator_label="Common listings with estimated growth ≥10%", denominator_label="Listings with usable bookings in both windows; physical cohort unverified", summary="Booking totals less known components; unknown tax may remain included. Refunds are unreconciled and each common listing is compared separately.")
     from dashboard.kpi.revenue_trend import ALIGNMENT, SCHEMA, weekly_comparison
     r["trend"] = weekly_comparison(daily, windows, cohort)
     r["trend_schema"] = SCHEMA
-    r["trend_scope"] = f"Same {common} common listing{'s' if common != 1 else ''} as the growth comparison · observed booking-value proxy before unreconciled refunds."
+    r["trend_scope"] = f"Same {common} common listing{'s' if common != 1 else ''} as the growth comparison · booking-value estimate before unreconciled refunds; unknown tax may be included."
     r["trend_alignment"] = ALIGNMENT
-    r["diagnostics"] = [{"label": "Common-listing proxy cohort", "value": common or None}, {"label": "Bookings excluded for incomplete financial fields / USD", "value": excluded["missing tax/cleaning/total or non-USD"]}, {"label": "Shared-booking bundle exclusions", "value": excluded["shared booking across listings / bundle ambiguity"]}, {"label": "Refund and discount reconciliation", "value": "Unknown; this is before unreconciled adjustments"}]
-    r["method"] = "Estimate: reservation total less recorded taxes, cleaning and known deposit components; prorated equally over whole-stay nights. Missing tax/cleaning excludes a booking. Missing deposits/pass-through components, discount treatment and refunds remain unreconciled, not assumed settled or zero. Common listing IDs proxy for comparable physical properties; shared channel booking IDs across listings are excluded for bundle ambiguity. New/unpaired listings are outside this comparison. Coverage is the synchronized database, not a certified financial population. Weekly dollar columns use this same fixed common-listing cohort, not all current listings. " + ALIGNMENT
+    r["booking_estimate_policy"] = BOOKING_ESTIMATE_POLICY
+    r["financial_coverage"] = {"scope": "Qualifying bookings overlapping current/prior windows across scoped listings, before common-cohort matching", "included_unknown_tax": {period: len(unknown_tax[period]) for period in ("current", "prior")}, "excluded_financial_or_currency": {period: len(rejected[period]) for period in ("current", "prior")}, "shared_booking_exclusions": {period: len(bundles[period]) for period in ("current", "prior")}, "unknown_tax_booking_value_usd": {period: round(sum(value for (lid, p), value in unknown_tax_values.items() if p == period), 2) for period in ("current", "prior")}, "common_cohort_unknown_tax_booking_value_usd": {period: round(sum(value for (lid, p), value in unknown_tax_values.items() if p == period and lid in cohort), 2) for period in ("current", "prior")}, "exclusion_reason_counts": {key: value for key, value in excluded.items() if key not in {"deposit component unknown (not reconciled)", "invalid dates"}}}
+    r["diagnostics"] = [{"label": "Common-listing proxy cohort", "value": common or None}, {"label": "Unknown-tax bookings included (scoped current / prior)", "value": f"{len(unknown_tax['current'])} / {len(unknown_tax['prior'])}"}, {"label": "Financial / USD exclusions (scoped current / prior)", "value": f"{len(rejected['current'])} / {len(rejected['prior'])}"}, {"label": "Tax, refunds and discounts", "value": "Unknown tax may remain included; refunds/discounts unreconciled"}, {"label": "Shared-booking bundle exclusions", "value": excluded["shared booking across listings / bundle ambiguity"]}]
+    r["method"] = "Booking-value estimate: recorded total less known cleaning/deposit components and tax only when actually recorded, prorated equally over whole-stay nights. A genuinely absent tax (NULL, missing field or blank string) stays unknown and does not exclude the booking; its value may still include tax. Invalid/nonfinite nonblank tax, missing/invalid total or cleaning, non-USD currency and negative component-adjusted values remain excluded. No source field is changed or zero-filled. Financial diagnostic counts cover only overlapping current/prior windows before common-cohort matching. Missing deposits/pass-through components, discount treatment and refunds remain unreconciled. Common listing IDs proxy for comparable physical properties; shared channel booking IDs across listings are excluded for bundle ambiguity. New/unpaired listings are outside the growth comparison. Coverage is the synchronized database, not a certified financial population. Weekly dollar columns use this same fixed common-listing cohort. " + ALIGNMENT
     exception(r, "Reconcile refunds, component inclusion and physical-unit/package mapping before treating this estimate as net lodging revenue.")
-    r["observation"] = "Estimated from common listing IDs · before unreconciled refunds" if common else "Financial fields insufficient for a paired estimate"
+    r["observation"] = "Common-listing estimate · unknown tax may be included · refunds unreconciled" if common else "Financial fields insufficient for a paired estimate"
     return r
 
 
@@ -184,7 +214,10 @@ def estimate_response(data, windows, as_of):
     r = estimated("response", "recorded-message reply timing proxy")
     grouped, durations, groups, weeks = defaultdict(list), [], defaultdict(list), defaultdict(list)
     matched, pending_count, request_count = 0, 0, 0
-    for x in {x["id"]: x for x in data.get("messages", [])}.values(): grouped[x["conversation_id"]].append(x)
+    messages, untimed = timed_messages(data.get("messages", []))
+    names = {x["id"]: x["name"] for x in data.get("listings", [])}
+    late_pairs = []
+    for x in messages: grouped[x["conversation_id"]].append(x)
     for messages in grouped.values():
         pending, request_text = None, ""
         for x in sorted(messages, key=lambda x: (as_utc(x["at"]), x["id"])):
@@ -204,6 +237,7 @@ def estimate_response(data, windows, as_of):
             elapsed = (at - as_utc(pending["at"])).total_seconds() / 60
             if elapsed < 0: continue
             durations.append(elapsed); groups[x["listing_id"]].append(elapsed)
+            if elapsed >= 30: late_pairs.append(reply_pair_record(pending, x, elapsed, windows, names))
             d = as_utc(pending["at"]).astimezone(ZoneInfo(w["timezone"])).date()
             weeks[d - timedelta(days=d.weekday())].append(elapsed)
             matched += 1; pending = None; request_text = ""
@@ -211,7 +245,7 @@ def estimate_response(data, windows, as_of):
     if durations:
         value = round(median(durations), 2)
         r.update(value=value, display=f"{value:g} min", numerator=sum(x < 5 for x in durations), denominator=len(durations))
-    names = {x["id"]: x["name"] for x in data.get("listings", [])}
+    r["late_replies_30m"] = late_reply_summary(durations, late_pairs, pending_count, untimed, basis="matched_recorded_timing_proxy", unplaced_requests=sum(bool(x.get("incoming")) and bool(REQUEST.search(str(x.get("body") or ""))) and not bool(ACK.search(str(x.get("body") or ""))) for x in untimed))
     r["breakdown"] = [{"group": names.get(lid, str(lid)), "median_proxy_minutes": round(median(v), 2), "under_5_pct": ratio(sum(x < 5 for x in v), len(v)), "matched_pairs": len(v)} for lid, v in groups.items()]
     r["breakdown"].sort(key=lambda x: -x["median_proxy_minutes"])
     r["trend"] = [{"date": d.isoformat(), "value": round(median(v), 2), "sample": len(v), "target": 5} for d, v in sorted(weeks.items())]
@@ -256,11 +290,13 @@ CLEANING_AMBIGUOUS = {"linens", "linens_and_bedding", "linen_condition", "missin
 
 
 def estimate_cleaning(data, windows):
-    r = estimated("cleaning", "affected booked check-ins per 10 (cleaning proxy)")
+    r = estimated("cleaning", "affected stays per 10 check-ins (estimate)")
     checkins = {x["id"]: x for x in data.get("reservations", []) if qualifying(x) and windows.get(x["listing_id"]) and windows[x["listing_id"]]["start"] <= day(x["arrival"]) < windows[x["listing_id"]]["end"]}
     strict, possible, unmatched = set(), set(), 0
     identities, strict_identities, strict_records = set(), set(), set()
     identities_by_listing, strict_identities_by_listing, records_by_listing = defaultdict(set), defaultdict(set), defaultdict(set)
+    names = {row['id']: str(row.get('name') or row['id']) for row in data.get('listings', [])}
+    references = []
     # Includes resolved and active issues; this is an incidence metric, not backlog.
     for x in {x["id"]: x for x in data.get("issues", [])}.values():
         category = str(x.get("category") or "").lower()
@@ -271,6 +307,8 @@ def estimate_cleaning(data, windows):
             if w and x.get("date") and w["start"] <= day(x["date"]) < w["end"]: unmatched += 1
             continue
         identity = issue_identity(x)
+        checkin = day(reservation['arrival'])
+        references.append({'issue_id': str(x['id']), 'listing_id': x['listing_id'], 'property': names.get(x['listing_id'], str(x['listing_id'])), 'checkin_date': checkin.isoformat(), 'week': (checkin-timedelta(days=checkin.weekday())).isoformat(), 'category': category, 'category_mapping': 'Strict mapped' if category in CLEANING_STRICT else 'Ambiguous candidate', 'source_view': 'resolved' if x.get('workflow_status') == 'resolved' else 'active'})
         possible.add(x["reservation_id"]); identities.add(identity)
         identities_by_listing[x["listing_id"]].add(identity)
         if category in CLEANING_STRICT:
@@ -289,18 +327,56 @@ def estimate_cleaning(data, windows):
         if ids:
             r["breakdown"].append({"group": str(lid), "affected_checkins": len(strict & ids), "booked_checkins": len(ids), "affected_checkin_proxy_per_10": ratio(len(strict & ids), len(ids), 10), "strict_saved_identities": len(strict_identities_by_listing[lid]), "strict_source_records": len(records_by_listing[lid]), "saved_identity_scenario_per_10": ratio(len(strict_identities_by_listing[lid]), len(ids), 10), "source_record_scenario_per_10": ratio(len(records_by_listing[lid]), len(ids), 10), "including_ambiguous_identity_per_10": ratio(len(identities_by_listing[lid]), len(ids), 10)})
     r["breakdown"].sort(key=lambda x: -x["affected_checkin_proxy_per_10"])
-    weeks = defaultdict(lambda: [set(), set()])
+    weeks = defaultdict(set)
+    property_weeks = defaultdict(set)
+    for w in windows.values():
+        monday=w['start']-timedelta(days=w['start'].weekday())
+        while monday<w['end']:
+            weeks[monday]
+            monday+=timedelta(days=7)
+    for lid,w in windows.items():
+        monday=w['start']-timedelta(days=w['start'].weekday())
+        while monday<w['end']:
+            property_weeks[(lid,monday)]
+            monday+=timedelta(days=7)
     for key, x in checkins.items():
         d = day(x["arrival"]); bucket = d - timedelta(days=d.weekday())
-        weeks[bucket][1].add(key)
-        if key in strict: weeks[bucket][0].add(key)
-    if data.get("issues_readable"):
-        r["trend"] = [{"date": d.isoformat(), "value": ratio(len(a), len(b), 10), "measure": "Affected check-in proxy, not distinct incidents", "checkins": len(b)} for d, (a, b) in sorted(weeks.items())]
+        weeks[bucket].add(key);property_weeks[(x['listing_id'],bucket)].add(key)
+    readable_checkins = 'reservations' in data and data.get('sources',{}).get('reservations',{}).get('status') not in {'error','missing'}
+    def weekly_row(monday,ids,lids):
+        denominator=len(ids) if readable_checkins else None
+        numerator=len(strict&ids) if readable_checkins and data.get('issues_readable') else None
+        percentage=ratio(numerator,denominator) if numerator is not None else None
+        days=sorted({(min(monday+timedelta(days=7),windows[lid]['end'])-max(monday,windows[lid]['start'])).days for lid in lids if max(monday,windows[lid]['start'])<min(monday+timedelta(days=7),windows[lid]['end'])})
+        return {'date':monday.isoformat(),'value':percentage,'total_stays':denominator,'affected_stays':numerator,'ambiguous_only_stays':len((possible-strict)&ids) if readable_checkins and data.get('issues_readable') else None,'partial_week':any(n<7 for n in days),'days_per_property':days}
+    r['trend']=[weekly_row(d,ids,windows.keys()) for d,ids in sorted(weeks.items())]
+    property_rows=[dict(weekly_row(d,ids,[lid]),listing_id=lid) for (lid,d),ids in sorted(property_weeks.items())]
+    references.sort(key=lambda row:(row['checkin_date'],row['issue_id']),reverse=True)
+    properties=[]
+    for lid in sorted(windows):
+        ids={key for key,row in checkins.items() if row['listing_id']==lid}
+        numerator=len(strict&ids) if data.get('issues_readable') and readable_checkins else None
+        properties.append({'listing_id':lid,'name':names.get(lid,str(lid)),'total_stays':len(ids) if readable_checkins else None,'affected_stays':numerator,'percentage':ratio(numerator,len(ids)) if numerator is not None else None,'source_issue_count':sum(row['listing_id']==lid for row in references) if data.get('issues_readable') else None})
+    # Keep at least one recent reference per property before filling the cap.
+    chosen={}
+    for lid in sorted(windows):
+        first=next((row for row in references if row['listing_id']==lid),None)
+        if first: chosen[first['issue_id']]=first
+    for row in references:
+        if len(chosen)>=200: break
+        chosen[row['issue_id']]=row
+    total=len(checkins) if readable_checkins and windows else None
+    affected=len(strict) if total is not None and data.get('issues_readable') else None
+    percentage=ratio(affected,total) if affected is not None else None
+    r['cleaning_weekly']={'schema':'affected-stay-share.v3','counts':{'total_stays':total,'affected_stays':affected,'percentage':percentage},'properties':properties,'property_rows':property_rows,'references':list(chosen.values()),'reference_count':len(references),'reference_limit':200,'ambiguous_only_stays':len(possible-strict) if data.get('issues_readable') and readable_checkins else None,'unmatched_issue_records':unmatched if data.get('issues_readable') else None}
     r.update(target="Goal: <1 distinct incident per 10 check-ins · proxy comparison provisional", numerator_label="Booked check-ins with cleaning-tagged issues, active or resolved (not distinct incidents)", denominator_label="Observed qualifying booked check-ins; actual arrival and package identity unverified", summary="Affected-check-in proxy; multiple incidents in one stay may be combined. Distinct-incident compliance remains unverified.")
     r["diagnostics"] = [{"label": "Strict affected check-ins / saved identities / source records", "value": f"{len(strict)} / {len(strict_identities)} / {len(strict_records)}"}, {"label": "Per 10 scenarios: affected check-ins / saved identities / source records", "value": f"{r['value']:g} / {identity_rate:g} / {record_rate:g}" if r["value"] is not None else None}, {"label": "In-window candidates not joined to eligible check-ins", "value": unmatched}, {"label": "Including ambiguous identities per 10 (conditional)", "value": inclusive_rate}, {"label": "Issue statuses included", "value": "Active and resolved"}]
     r["method"] = "The main value measures booked check-ins affected by explicit cleaning/housekeeping/cleanliness tags, not distinct incidents. Multiple complaints or incidents in one reservation contribute one affected check-in. Separate scenarios count strict saved complaint identities and strict source records; neither establishes validated distinct incidents. An additional scenario includes ambiguous linens, laundry, odors, pests and waste identities. Scenarios are conditional assumptions, not confidence intervals or exhaustive bounds. Only exact saved complaint identities are consolidated; possible text duplicates are not merged. Active and resolved records are included. Candidates lacking an eligible reservation/listing join are excluded and reported. Booked check-ins proxy for actual arrivals; package duplicates and classification coverage remain unverified. The original distinct-incident goal is retained and is not scored by this proxy."
     exception(r, "Review ambiguous categories and unmatched check-in joins; validate distinct incidents and actual arrivals before certification.")
     r["observation"] = f"{len(strict)} affected check-ins · {len(strict_identities)} strict identities · {len(strict_records)} source records" if checkins else "No usable check-in denominator"
+    r['audit_rate_per_10']=r['value']
+    r['original_goal_target']=r['target']
+    r.update(value=percentage,display=f'{affected} of {total}' if affected is not None and total else 'No stay data' if total==0 else 'Unavailable',label='stays had cleaning issues',numerator=affected,denominator=total,target='Track affected stays versus total stays',summary='Each stay counts once, even with multiple recorded cleaning issues.',observation=f'{percentage:g}% of recorded stays' if percentage is not None else None)
     return r
 
 
@@ -311,6 +387,6 @@ def apply_estimates(metrics, data, windows, review_windows, as_of):
         if m["key"] == "content":
             m = metric("content")
             m.update(display="Deferred", data_status="deferred", goal_status="deferred", target="Team definition pending", summary="Listing refresh and edit-history tracking are deferred for team discussion.", observation=None)
-        elif m["data_status"] != "verified": m = replacements[m["key"]]()
+        elif m["data_status"] != "verified" or m['key'] == 'cleaning': m = replacements[m["key"]]()
         result.append(m)
     return result

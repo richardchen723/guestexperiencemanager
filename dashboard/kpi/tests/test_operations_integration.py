@@ -153,7 +153,13 @@ def test_real_overview_detail_routes_and_unknown_goal():
         for key in ("revenue", "content", "reviews", "response", "issues", "cleaning"):
             response = client.get(f"/kpi/operations/{key}/")
             assert response.status_code == 200
-            assert b"Diagnostic trend" in response.data and b"Source provenance" in response.data
+            if key == 'cleaning':
+                assert b'Weekly cleaning impact' in response.data
+                assert b'id="detailTarget"' not in response.data
+                assert b'id="opsFormula"' not in response.data
+                assert b'id="opsSources"' not in response.data
+            else:
+                assert b"Diagnostic trend" in response.data and b"Source provenance" in response.data
             assert b"<dialog" not in response.data
         assert client.get("/kpi/operations/bookkeeping/").status_code == 404
 

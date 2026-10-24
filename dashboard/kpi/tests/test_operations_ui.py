@@ -165,6 +165,8 @@ def test_revenue_four_column_comparison_currency_signed_changes_and_partial_week
     expect(row('2026-08-17').locator('td').nth(2)).to_have_text('N/A')
     expect(row('2026-08-24').locator('td').nth(3)).to_have_text('0.00%')
     expect(page.locator('#detailStatus')).to_have_text('Estimated')
+    expect(page.locator('#revenueQualityNote')).to_be_visible()
+    expect(page.locator('#revenueQualityNote')).to_contain_text('not suitable for judging goal attainment')
     expect(page.locator('#opsSnapshotNotice')).to_be_hidden()
     expect(page.locator('#opsMethod, #opsPropertyWindows')).to_have_count(0)
     chart = page.locator('#opsTrendChart svg')
@@ -206,13 +208,17 @@ def test_old_revenue_snapshot_shows_unavailable_comparison_without_fabrication(u
     from playwright.sync_api import expect
     page, base, saved = ui
     revenue = saved['metrics'][0]
-    for key in ('trend_schema', 'trend_scope', 'trend_alignment'): revenue.pop(key, None)
+    for key in ('trend_schema', 'trend_scope', 'trend_alignment', 'booking_estimate_policy', 'financial_coverage'): revenue.pop(key, None)
+    revenue['diagnostics']=[{'label':'Bookings excluded for incomplete financial fields / USD','value':382}]
     revenue['trend'] = [{'date':'2026-07-20','value':999999,'unit':'USD booking proxy'}]
     page.goto(base + '/kpi/operations/revenue/')
     expect(page.locator('#opsTrend th')).to_have_count(4)
     expect(page.locator('#opsTrend caption')).to_contain_text('unavailable in this saved snapshot')
     expect(page.locator('#opsTrend tbody')).to_contain_text('Unavailable until a saved calculation')
     expect(page.locator('#opsTrendChart svg')).to_have_count(0)
+    expect(page.locator('#revenuePolicyNote')).to_contain_text('earlier blank-tax exclusion policy')
+    expect(page.locator('#opsDiagnostics')).to_contain_text('Earlier-policy financial exclusions (not window scoped)')
+    expect(page.locator('#opsDiagnostics')).to_contain_text('382')
     assert '$999,999' not in page.locator('#opsTrend').inner_text()
     page.goto(base+'/kpi/')
     expect(page.locator('.ops-card')).to_have_count(6)
@@ -265,3 +271,226 @@ def test_revenue_chart_all_missing_stays_empty_and_leap_spans_are_marked(ui):
     expect(leap_row.locator('td').nth(3)).to_have_text('N/A')
     page.locator('.ops-chart-hit[data-date="2024-02-26"]').focus()
     expect(page.locator('.ops-chart-tooltip')).to_contain_text('Different calendar day counts')
+
+
+def review_rows():
+    return [
+        {'date':'2026-08-03','group':'Airbnb','checkout_opportunities':2,'reviewed':1,'value':50,'target':60},
+        {'date':'2026-08-03','group':'Vrbo','checkout_opportunities':4,'reviewed':1,'value':25,'target':30},
+        {'date':'2026-08-03','group':'Booking','checkout_opportunities':5,'reviewed':2,'value':40,'target':40},
+        {'date':'2026-08-10','group':'Airbnb','checkout_opportunities':3,'reviewed':2,'value':66.67,'target':60},
+    ]
+
+
+def test_reviews_show_all_channels_renamed_columns_targets_and_preserve_selection(ui,tmp_path):
+    from playwright.sync_api import expect
+    page,base,saved=ui
+    reviews=saved['metrics'][2]; reviews['trend']=review_rows()
+    page.clock.install()
+    page.goto(base+'/kpi/operations/reviews/')
+    expect(page.locator('#opsDetail')).to_be_visible()
+    expect(page.locator('#trendFilter')).to_have_value('__all__')
+    expect(page.locator('#opsTrend th')).to_have_text(['Stays','Checkout date','Channel','Reviews','Review rate (%)','Target (%)'])
+    expect(page.locator('#opsTrend tbody tr')).to_have_count(4)
+    rows=page.locator('#opsTrend tbody tr')
+    expect(rows.nth(0).locator('td')).to_have_text(['2','2026-08-03','Airbnb','1','50','60'])
+    expect(rows.nth(1).locator('td')).to_have_text(['4','2026-08-03','Vrbo','1','25','30'])
+    expect(rows.nth(2).locator('td')).to_have_text(['5','2026-08-03','Booking.com','2','40','40'])
+    expect(page.locator('#trendNotice')).to_contain_text('Week starting')
+    expect(page.locator('#reviewChannelNotice')).to_be_hidden()
+    expect(page.get_by_text('Property & channel breakdown',exact=True)).to_have_count(0)
+    expect(page.locator('#opsBreakdown, #breakdownSearch, #opsMethod, #opsPropertyWindows')).to_have_count(0)
+    expect(page.locator('.ops-review-dot')).to_have_count(4)
+    assert set(page.locator('.ops-review-line').evaluate_all('nodes => nodes.map(x => x.dataset.channel)'))=={'Airbnb','Vrbo','Booking.com'}
+    expect(page.locator('.ops-chart-legend')).to_contain_text('Booking.com')
+    page.screenshot(path=str(tmp_path/'reviews-all-channels-desktop.png'),full_page=True)
+    page.locator('#trendFilter').select_option('Vrbo')
+    expect(rows).to_have_count(1)
+    expect(rows.locator('td').nth(5)).to_have_text('30')
+    # A newer saved result arrives at the real automatic polling boundary.
+    reviews['trend'][1].update(reviewed=2,value=50)
+    with page.expect_response('**/kpi/api/operations'):
+        page.clock.fast_forward(60000)
+    expect(rows.locator('td').nth(4)).to_have_text('50')
+    expect(page.locator('#trendFilter')).to_have_value('Vrbo')
+    page.locator('#opsRefresh').click()
+    expect(page.locator('#opsRefresh')).to_be_enabled()
+    expect(page.locator('#trendFilter')).to_have_value('Vrbo')
+    page.reload(); expect(page.locator('#trendFilter')).to_have_value('Vrbo')
+    page.locator('#trendFilter').select_option('__all__')
+    page.set_viewport_size({'width':390,'height':844})
+    expect(rows).to_have_count(4)
+    page.wait_for_function('Number(document.querySelector("#opsTrendChart svg").getAttribute("viewBox").split(" ")[2]) < 400')
+    assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+    page.screenshot(path=str(tmp_path/'reviews-all-channels-mobile.png'),full_page=True)
+
+
+def test_reviews_missing_channels_are_explicit_without_synthesized_zero_rows(ui):
+    from playwright.sync_api import expect
+    page,base,saved=ui
+    reviews=saved['metrics'][2]
+    reviews['trend']=[review_rows()[0]]
+    page.goto(base+'/kpi/operations/reviews/')
+    expect(page.locator('#trendFilter')).to_have_value('__all__')
+    expect(page.locator('#opsTrend tbody tr')).to_have_count(1)
+    expect(page.locator('#reviewChannelNotice')).to_contain_text('Vrbo, Booking.com')
+    expect(page.locator('#reviewChannelNotice')).to_contain_text('No zero rate is inferred')
+    page.locator('#trendFilter').select_option('Vrbo')
+    expect(page.locator('#opsTrend tbody')).to_have_text('No weekly data for the selected channel in this saved snapshot.')
+    expect(page.locator('#opsTrendChart svg')).to_have_count(0)
+    assert '0%' not in page.locator('#opsTrend').inner_text()
+    page.locator('#opsRefresh').click()
+    expect(page.locator('#opsRefresh')).to_be_enabled()
+    expect(page.locator('#trendFilter')).to_have_value('Vrbo')
+    expect(page.locator('#opsTrend tbody')).to_contain_text('No weekly data')
+
+
+def test_review_table_preserves_unknown_values_and_legacy_eligible_key(ui):
+    from playwright.sync_api import expect
+    page,base,saved=ui
+    saved['metrics'][2]['trend']=[{'date':'2026-08-03','group':'airbnb','eligible':None,'reviewed':None,'value':None,'target':60}, {'date':'2026-08-03','group':'booking','eligible':5,'reviewed':0,'value':0,'target':None}]
+    page.goto(base+'/kpi/operations/reviews/')
+    rows=page.locator('#opsTrend tbody tr')
+    expect(rows.nth(0).locator('td')).to_have_text(['N/A','2026-08-03','Airbnb','N/A','N/A','60'])
+    expect(rows.nth(1).locator('td')).to_have_text(['5','2026-08-03','Booking.com','0','0','N/A'])
+    expect(page.locator('.ops-review-dot')).to_have_count(1)
+
+
+def test_response_detail_shows_30_minute_count_fraction_and_separate_unmatched(ui,tmp_path):
+    from playwright.sync_api import expect
+    from dashboard.kpi.tests.test_estimates import data as evidence,NOW,msg
+    from dashboard.kpi.tests.test_late_reply_metric import pair
+    page,base,saved=ui
+    source=evidence();source.update(allow_estimates=True,messages=pair(1,4)+pair(2,30)+[msg(50,0,True,'Where is the wifi password?')|{'conversation_id':50}])
+    saved['metrics'][3]=build_operations(source,as_of=NOW)['metrics'][3]
+    page.goto(base+'/kpi/operations/response/')
+    expect(page.locator('#detailValue')).to_have_text('17 min')
+    expect(page.locator('#lateReplyCount')).to_have_text('1')
+    expect(page.locator('#lateReplyFraction')).to_have_text('1 / 2 matched request/reply pairs · 50%')
+    expect(page.locator('#opsLateReplies')).to_contain_text('Target: 0')
+    expect(page.locator('#lateReplyUnmatched')).to_contain_text('1 unmatched in-window request candidates (not confirmed late replies)')
+    expect(page.locator('#lateReplyQuality')).to_contain_text('does not prove meaningful-answer compliance')
+    expect(page.locator('#lateReplyTable tbody tr')).to_have_count(1)
+    expect(page.locator('#lateReplyTable tbody')).to_contain_text('Fixture')
+    expect(page.locator('#lateReplyTable tbody')).to_contain_text('EDT')
+    expect(page.locator('#lateReplyTable tbody tr td').nth(1)).to_have_text('2')
+    expect(page.locator('#lateReplyTable tbody tr td').last).to_have_text('30')
+    assert 'wifi password' not in page.locator('#opsLateReplies').inner_text()
+    page.screenshot(path=str(tmp_path/'response-30-minute-detail.png'),full_page=True)
+    page.goto(base+'/kpi/')
+    expect(page.locator('.ops-card')).to_have_count(6)
+    expect(page.locator('#opsLateReplies')).to_have_count(0)
+
+
+def test_older_reply_snapshot_does_not_invent_30_minute_result(ui):
+    from playwright.sync_api import expect
+    page,base,saved=ui
+    saved['metrics'][3].pop('late_replies_30m',None)
+    saved['metrics'][3].update(value=6.63,display='6.63 min')
+    page.goto(base+'/kpi/operations/response/')
+    expect(page.locator('#detailValue')).to_have_text('6.63 min')
+    expect(page.locator('#lateReplyCount')).to_have_text('Unavailable')
+    expect(page.locator('#lateReplyFraction')).to_contain_text('reloading does not calculate it')
+    expect(page.locator('#lateReplyTable tbody tr')).to_have_count(0)
+
+
+def cleaning_fixture(saved):
+    from dashboard.kpi.tests.test_estimates import booking, data as evidence, NOW
+    source=evidence();source['listings'].append({**source['listings'][0],'id':2,'name':'Second property'})
+    source.update(allow_estimates=True,reservations=[booking(i,listing_id=1 if i<=10 else 2) for i in range(1,21)],issues=[{'id':1,'listing_id':1,'reservation_id':1,'category':'cleanliness','operational_status':'resolved'},{'id':2,'listing_id':1,'reservation_id':1,'category':'cleanliness','operational_status':'need_attention'}])
+    saved['metrics'][5]=build_operations(source,as_of=NOW)['metrics'][5]
+    return saved['metrics'][5]
+
+
+def test_cleaning_simple_counts_share_property_and_week_agree_and_filter_survives_refresh(ui,tmp_path):
+    from playwright.sync_api import expect
+    page,base,saved=ui
+    m=cleaning_fixture(saved)
+    errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+    page.goto(base+'/kpi/operations/cleaning/')
+    expect(page.locator('#opsDetail')).to_be_visible()
+    expect(page.locator('#detailValue')).to_have_text('1 of 20')
+    expect(page.locator('#cleaningShare')).to_have_text('5%')
+    expect(page.locator('#detailSummary')).to_contain_text('Each stay counts once')
+    expect(page.locator('#opsBreakdown th')).to_have_text(['Property','Total stays','Stays with cleaning issues','Affected stays (%)'])
+    expect(page.locator('#opsBreakdown tbody tr').nth(0).locator('td')).to_have_text(['Fixture','10','1','10'])
+    expect(page.locator('#opsBreakdown tbody tr').nth(1).locator('td')).to_have_text(['Second property','10','0','0'])
+    expect(page.locator('#opsTrend th')).to_have_text(['Week starting','Total stays','Stays with cleaning issues','Affected stays (%)'])
+    assert page.locator('#detailTarget,#opsFormula,#opsDiagnostics,#opsExceptions,#opsSources').count()==0
+    assert 'Saved Identity' not in page.locator('#opsDetail').inner_text()
+    assert 'scenario' not in page.locator('#opsDetail').inner_text().lower()
+    expect(page.locator('.ops-cleaning-dot')).to_have_count(1)
+    expect(page.locator('.ops-cleaning-dot')).to_have_attribute('data-value','5')
+    expect(page.locator('.ops-cleaning-dot')).to_have_attribute('data-date','2026-07-27')
+    page.locator('.ops-cleaning-dot').focus()
+    expect(page.locator('.ops-chart-tooltip')).to_contain_text('1 of 20 stays had cleaning issues (5%)')
+    assert page.locator('.ops-y-tick').all_text_contents()==['0%','5%','10%','15%','20%']
+    expected=[[row['date'],row['value']] for row in m['trend'] if row['value'] is not None]
+    assert page.locator('.ops-cleaning-dot').evaluate_all('nodes => nodes.map(x => [x.dataset.date,Number(x.dataset.value)])')==expected
+    expect(page.locator('#opsTrend tbody tr').first).to_contain_text('Partial week')
+    page.locator('#trendFilter').select_option('2')
+    expect(page.locator('.ops-cleaning-dot')).to_have_attribute('data-value','0')
+    expect(page.locator('#opsTrend tbody')).to_contain_text('10')
+    page.locator('#opsRefresh').click();expect(page.locator('#opsRefresh')).to_be_enabled()
+    expect(page.locator('#trendFilter')).to_have_value('2')
+    page.reload();expect(page.locator('#opsDetail')).to_be_visible();expect(page.locator('#trendFilter')).to_have_value('2')
+    page.locator('#trendFilter').select_option('__all__')
+    page.locator('#breakdownSearch').fill('Second')
+    expect(page.locator('#opsBreakdown tbody tr')).to_have_count(1)
+    expect(page.locator('#opsBreakdown')).to_contain_text('Second property')
+    page.locator('#breakdownSearch').fill('')
+    page.screenshot(path=str(tmp_path/'cleaning-simple-desktop.png'),full_page=True)
+    page.set_viewport_size({'width':390,'height':844})
+    page.wait_for_function('Number(document.querySelector(".ops-cleaning-chart").getAttribute("viewBox").split(" ")[2]) < 400')
+    assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+    page.screenshot(path=str(tmp_path/'cleaning-simple-mobile.png'),full_page=True)
+    page.goto(base+'/kpi/');expect(page.locator('[data-goal="cleaning"] [data-field="value"]')).to_have_text('1 of 20')
+    assert page.locator('[data-goal="cleaning"] .ops-track>span').evaluate('el => el.style.width')=='5%'
+    assert not errors
+
+
+def test_old_cleaning_per_ten_snapshot_does_not_invent_percentage_or_new_weekly_counts(ui):
+    from playwright.sync_api import expect
+    page,base,saved=ui
+    m=cleaning_fixture(saved);m.pop('cleaning_weekly');m.update(value=.5,display='.5',label='affected booked check-ins per 10 (estimate)')
+    page.goto(base+'/kpi/operations/cleaning/')
+    expect(page.locator('#detailValue')).to_have_text('1 of 20')
+    expect(page.locator('#cleaningShare')).to_have_text('N/A')
+    expect(page.locator('#opsTrend')).to_contain_text('Unavailable in this saved snapshot')
+    expect(page.locator('.ops-cleaning-dot')).to_have_count(0)
+    expect(page.locator('#opsBreakdown')).to_contain_text('Unavailable')
+    page.goto(base+'/kpi/')
+    expect(page.locator('[data-goal="cleaning"] .ops-track')).to_have_class('ops-track is-unknown')
+
+
+def test_cleaning_unknown_source_and_no_stays_have_no_fabricated_percent(ui):
+    from playwright.sync_api import expect
+    from dashboard.kpi.tests.test_estimates import booking,data as evidence,NOW
+    page,base,saved=ui
+    source=evidence();source.update(allow_estimates=True,reservations=[booking()],issues_readable=False)
+    saved['metrics'][5]=build_operations(source,as_of=NOW)['metrics'][5]
+    page.goto(base+'/kpi/operations/cleaning/')
+    expect(page.locator('#detailValue')).to_have_text('Unavailable')
+    expect(page.locator('#cleaningShare')).to_have_text('N/A')
+    expect(page.locator('.ops-cleaning-dot')).to_have_count(0)
+    source.update(reservations=[],issues_readable=True,issues=[])
+    saved['metrics'][5]=build_operations(source,as_of=NOW)['metrics'][5]
+    page.locator('#opsRefresh').click();expect(page.locator('#opsRefresh')).to_be_enabled()
+    expect(page.locator('#detailValue')).to_have_text('No stays')
+    expect(page.locator('#cleaningShare')).to_have_text('N/A')
+
+
+def test_revenue_different_property_coverage_does_not_render_unsupported_yoy(ui):
+    from playwright.sync_api import expect
+    from dashboard.kpi.revenue_trend import SCHEMA,weekly_comparison
+    from dashboard.kpi.tests.test_estimates import W
+    page,base,saved=ui
+    daily={(1,'current',date(2026,8,1)):100,(2,'prior',date(2025,8,1)):200}
+    saved['metrics'][0].update(trend_schema=SCHEMA,trend=weekly_comparison(daily,{1:W[1],2:W[1]},{1,2}))
+    page.goto(base+'/kpi/operations/revenue/')
+    row=page.locator('#opsTrend tbody tr').filter(has_text='2026-07-27')
+    expect(row.locator('td').nth(0)).to_contain_text('Observed listings: 1/2 current · 1/2 prior')
+    expect(row.locator('td').nth(1)).to_have_text('N/A')
+    expect(row.locator('td').nth(2)).to_have_text('N/A')
+    expect(row.locator('td').nth(3)).to_have_text('N/A')
+    expect(page.locator('#opsTrendChart svg')).to_have_count(0)
