@@ -73,3 +73,56 @@ def test_invalid_configured_label_fails_with_configuration_error(app, factory, m
     response = client(app).get("/inquiries/api/bootstrap")
     assert response.status_code == 503
     assert "administrator configuration" in response.json["error"]
+
+
+def test_source_filter_combines_with_other_filters_and_counts_all_pages(app, factory, monkeypatch):
+    c = client(app)
+    ids, sources = seed_sources(c, monkeypatch)
+    manual = c.get(f'/inquiries/api/leads/{ids["manual"]}').json
+    post(c, f'leads/{manual["id"]}', {"version": manual["version"], "status": "Booked"}, method="PATCH")
+    for source, lead_id in ids.items():
+        response = c.get('/inquiries/api/leads', query_string={"source": source, "per_page": 1}).json
+        assert response["total"] == response["stats"]["total"] == 1
+        assert [lead["id"] for lead in response["leads"]] == [lead_id]
+        assert {s["id"] for s in response["source_options"]} == set(ids)
+    booked = c.get('/inquiries/api/leads?source=manual&status=Booked').json
+    assert booked["stats"]["booked"] == 1 and booked["stats"]["conversion_rate"] == 100
+    assert c.get('/inquiries/api/leads?source=manual&status=New').json["total"] == 0
+    assert c.get('/inquiries/api/leads?source=manual&search=EH%20Guest').json["total"] == 0
+    assert c.get('/inquiries/api/leads?source=enchanted-havens-email&listing_id=102').json["total"] == 0
+    assert c.get('/inquiries/api/leads?source=not-recorded').json["total"] == 0
+    second = post(c, 'leads', {"creation_id": str(uuid4()), "guest_name": "Second Manual", "phone": "+1 425 555 0101"}).json
+    first_page = c.get('/inquiries/api/leads?source=manual&per_page=1').json
+    second_page = c.get('/inquiries/api/leads?source=manual&per_page=1&page=2').json
+    assert first_page["total"] == second_page["total"] == first_page["stats"]["total"] == 2
+    assert {first_page["leads"][0]["id"], second_page["leads"][0]["id"]} == {manual["id"], second["id"]}
+
+    # Options include disabled historical sources even when another filter is empty.
+    monkeypatch.setenv("INQUIRY_EMAIL_SOURCES", "[]")
+    retired = c.get('/inquiries/api/leads?source=luminary-resorts-email').json
+    assert retired["total"] == 1
+    assert {s["id"]: s["label"] for s in retired["source_options"]}["partner-referral"] == "Travel partner"
+
+
+def test_source_options_respect_test_scope_and_discover_new_channels(app, factory):
+    from dashboard.inquiries.models import Lead
+    c = client(app)
+    assert len(c.get('/inquiries/api/leads').json["source_options"]) == 3
+    result = post(c, 'leads', {"creation_id": str(uuid4()), "guest_name": "QA only", "phone": "+1 425 555 0101", "internal_test": True}).json
+    with factory() as db:
+        lead = db.get(Lead, result["id"])
+        lead.source, lead.brand = "test-only-channel", "Test channel"
+        db.commit()
+    genuine = c.get('/inquiries/api/leads').json
+    assert 'test-only-channel' not in {s["id"] for s in genuine["source_options"]}
+    tests = c.get('/inquiries/api/leads?record_scope=internal-tests&source=test-only-channel').json
+    assert tests["total"] == 1 and tests["stats"]["total"] == 0
+    assert {s["id"]: s["label"] for s in tests["source_options"]}["test-only-channel"] == "Test channel"
+    assert client(app, 'agent').get('/inquiries/api/leads?record_scope=internal-tests').status_code == 403
+    # A newly recorded source appears on the next list refresh without reloading bootstrap.
+    with factory() as db:
+        db.get(Lead, result["id"]).is_test = False
+        db.commit()
+    refreshed = c.get('/inquiries/api/leads?source=test-only-channel').json
+    assert refreshed["total"] == 1
+    assert {s["id"]: s["label"] for s in refreshed["source_options"]}["test-only-channel"] == "Test channel"

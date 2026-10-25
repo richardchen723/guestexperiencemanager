@@ -49,7 +49,7 @@
   }
   function query() {
     const values = {record_scope:testView ? 'internal-tests' : 'genuine', page:state.page, sort:state.sort, direction:state.direction, search:$('iqSearch').value, status:$('iqStatus').value,
-      listing_id:$('iqProperty').value, tag_id:$('iqTag').value,
+      source:$('iqSource').value, listing_id:$('iqProperty').value, tag_id:$('iqTag').value,
       assigned_user_id:$('iqAgent').value, attention:state.attention, ...dateFilters()};
     return new URLSearchParams(Object.entries(values).filter(([,v]) => v !== '' && v != null));
   }
@@ -60,6 +60,11 @@
     const placeholder = tag && !properties.length ? 'No properties in this tag' : tag ? 'All properties in tag' : 'All properties';
     $('iqProperty').innerHTML = option('',placeholder,selection) + properties.map(p => option(p.id,p.name,selection)).join('');
     $('iqProperty').disabled = Boolean(tag && !properties.length);
+  }
+  function updateSourceOptions(sources) {
+    const selected = $('iqSource').value;
+    $('iqSource').innerHTML = option('', 'All sources', selected) + sources.map(s => option(s.id, s.label, selected)).join('')
+      + (selected && !sources.some(s => s.id === selected) ? option(selected, selected, selected) : '');
   }
   function renderStats(stats) {
     $('iqStats').innerHTML = [['Total leads',stats.total],['New leads',stats.new],['Follow-up required',stats.follow_up],['Confirmed bookings',stats.booked],['Conversion rate',stats.conversion_rate == null ? '—' : `${stats.conversion_rate}%`]].map(([name,value]) => `<div class="iq-stat"><span>${name}</span><strong>${value}</strong>${name === 'Conversion rate' ? '<small>Of completed leads</small>' : ''}</div>`).join('');
@@ -94,6 +99,7 @@
       const result = await api('leads?' + query());
       if (serial !== state.request) return;
       state.rows = result.leads; state.total = result.total;
+      updateSourceOptions(result.source_options);
       renderRows(); renderStats(result.stats);
     } catch (e) { error(e.message); if (!state.rows.length) $('iqRows').innerHTML = '<tr><td colspan="13" class="iq-empty">Inquiries could not load. Use Refresh to try again.</td></tr>'; }
   }
@@ -289,9 +295,9 @@
       await load();
       let debounce;
       $('iqSearch').addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(() => {state.page = 1; load();},300); });
-      ['iqDateRange','iqStatus','iqProperty','iqAgent','iqFrom','iqTo'].forEach(id => $(id).addEventListener('change', () => {state.page=1;load();}));
+      ['iqDateRange','iqStatus','iqSource','iqProperty','iqAgent','iqFrom','iqTo'].forEach(id => $(id).addEventListener('change', () => {state.page=1;load();}));
       $('iqTag').addEventListener('change', () => {updatePropertyOptions();state.page=1;load();});
-      $('iqClear').addEventListener('click', () => { ['iqSearch','iqStatus','iqTag','iqProperty','iqAgent','iqFrom','iqTo'].forEach(id => $(id).value=''); $('iqDateRange').value='all'; updatePropertyOptions(); state.page=1; state.attention=''; document.querySelectorAll('[data-attention]').forEach(b => {b.classList.toggle('active',b.dataset.attention === ''); b.setAttribute('aria-pressed',String(b.dataset.attention === ''));}); load(); });
+      $('iqClear').addEventListener('click', () => { ['iqSearch','iqStatus','iqSource','iqTag','iqProperty','iqAgent','iqFrom','iqTo'].forEach(id => $(id).value=''); $('iqDateRange').value='all'; updatePropertyOptions(); state.page=1; state.attention=''; document.querySelectorAll('[data-attention]').forEach(b => {b.classList.toggle('active',b.dataset.attention === ''); b.setAttribute('aria-pressed',String(b.dataset.attention === ''));}); load(); });
       document.querySelectorAll('[data-attention]').forEach(b => b.addEventListener('click', () => {state.attention=b.dataset.attention;state.page=1;document.querySelectorAll('[data-attention]').forEach(v=>{v.classList.toggle('active',v===b);v.setAttribute('aria-pressed',String(v===b));});load();}));
       document.querySelectorAll('[data-sort]').forEach(b => b.addEventListener('click', () => { state.direction=state.sort===b.dataset.sort && state.direction==='desc'?'asc':'desc';state.sort=b.dataset.sort;state.page=1;document.querySelectorAll('[data-sort]').forEach(v=>{v.textContent=v.textContent.replace(/ [↑↓]$/,'')+(v===b?(state.direction==='desc'?' ↓':' ↑'):'');});load(); }));
       $('iqPrevious').addEventListener('click',()=>{state.page--;load();}); $('iqNext').addEventListener('click',()=>{state.page++;load();});

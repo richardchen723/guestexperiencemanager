@@ -457,6 +457,9 @@ class InquiryService:
         if scope not in ("genuine", "internal-tests"):
             raise InquiryError("Unknown record scope.")
         query = select(Lead).where(Lead.is_test.is_(scope == "internal-tests"))
+        source = text_value(filters.get("source"), "source", 80)
+        if source:
+            query = query.where(Lead.source == source)
         if filters.get("status"):
             if filters["status"] not in STATUSES:
                 raise InquiryError("Unknown status filter.")
@@ -505,6 +508,17 @@ class InquiryService:
             raise InquiryError("Unknown attention filter.")
         return query
 
+    def source_options(self, scope):
+        # Include all sources in this record scope, independent of the current
+        # filters/page, so retired and newly imported channels remain selectable.
+        labels = {source: source_label(source) for source in SOURCE_LABELS}
+        labels.update({s["id"]: source_label(s["id"], self.sources) for s in self.sources})
+        recorded = self.db.execute(select(Lead.source, func.min(Lead.brand)).where(
+            Lead.is_test.is_(scope == "internal-tests")).group_by(Lead.source))
+        labels.update({source: source_label(source, self.sources, brand) for source, brand in recorded})
+        return [{"id": source, "label": label} for source, label in sorted(
+            labels.items(), key=lambda item: (item[1].casefold(), item[0]))]
+
     def listing(self, filters):
         query = self.query(filters)
         genuine = self.query({**filters, "record_scope": "genuine"})
@@ -527,6 +541,7 @@ class InquiryService:
         order = column.asc().nullslast() if filters.get("direction") == "asc" else column.desc().nullslast()
         rows = self.db.scalars(query.order_by(order, Lead.id.desc()).offset((page - 1) * size).limit(size))
         return {"leads": [self.serialize(v) for v in rows], "total": total, "page": page, "per_page": size,
+                "source_options": self.source_options(filters.get("record_scope", "genuine")),
                 "stats": {"total": genuine_total, "new": counts.get("New", 0), "follow_up": counts.get("Follow-up Required", 0),
                           "booked": counts.get("Booked", 0), "conversion_rate": round(counts.get("Booked", 0) / completed * 100, 1) if completed else None}}
 

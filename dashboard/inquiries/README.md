@@ -23,6 +23,10 @@ Richard confirmed on October 20, 2026:
 - A **Source** column beside Date received shows **EH website**, **LR website**
   or **Manual entry** from the immutable recorded source. The detail panel uses
   the same label, including for historical sources no longer enabled for intake.
+  The **Source** filter combines with other filters and applies to every page
+  and the summary statistics. Its options refresh with the list and include
+  built-in, configured and historically recorded channels in the current record
+  scope. **Clear filters** resets it to **All sources**.
 - All 11 spreadsheet fields plus Expand, sticky headers, horizontal scrolling,
   server pagination, search, sortable receipt/check-in/agent/status columns,
   inline notes/assignment/status, and a side panel preserving table position.

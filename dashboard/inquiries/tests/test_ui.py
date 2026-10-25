@@ -2,6 +2,7 @@
 import threading
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+from uuid import uuid4
 
 from playwright.sync_api import expect, sync_playwright
 from werkzeug.serving import make_server
@@ -152,10 +153,42 @@ def test_all_source_columns_and_detail_labels_on_desktop_and_mobile(app, factory
                 page.locator(f'[data-open="{lead_id}"]').click()
                 expect(page.locator('#iqPanel .iq-muted').first).to_contain_text(expected[source])
                 page.get_by_role('button', name='Close inquiry details').click()
+            source_filter = page.get_by_label('Source', exact=True)
+            for source in ids:
+                source_filter.select_option(source)
+                expect(page.locator('#iqRows tr')).to_have_count(1)
+                expect(page.locator('#iqRows .iq-origin')).to_have_text(expected[source])
+                expect(page.locator('#iqStats .iq-stat strong').first).to_have_text('1')
+                expect(source_filter).to_have_value(source)
+            page.locator('#iqStatus').select_option('Booked')
+            expect(page.locator('#iqRows')).to_contain_text('No inquiries match')
+            page.get_by_role('button', name='Clear filters', exact=True).click()
+            expect(source_filter).to_have_value('')
+            expect(page.locator('#iqRows tr')).to_have_count(4)
+            for i in range(30):
+                response = post(c, 'leads', {'creation_id': str(uuid4()), 'guest_name': f'Pagination Guest {i}', 'phone': '+1 425 555 0101'})
+                assert response.status_code == 200
+            page.get_by_role('button', name='Refresh', exact=True).click()
+            expect(page.locator('#iqCount')).to_have_text('34 inquiries')
+            page.get_by_role('button', name='Next', exact=True).click()
+            expect(page.locator('#iqPage')).to_have_text('Page 2 of 2')
+            source_filter.select_option('luminary-resorts-email')
+            expect(page.locator('#iqPage')).to_have_text('Page 1 of 1')
+            expect(page.locator('#iqRows .iq-origin')).to_have_text('LR website')
+            page.screenshot(path=str(screenshots / 'desktop-filter.png'), full_page=True)
+            page.get_by_role('button', name='Refresh', exact=True).click()
+            expect(source_filter).to_have_value('luminary-resorts-email')
+            expect(page.locator('#iqCount')).to_have_text('1 inquiry')
             page.set_viewport_size({'width': 390, 'height': 844})
+            source_filter.select_option('manual')
+            expect(page.locator('#iqCount')).to_have_text('31 inquiries')
+            expect(page.locator('#iqRows .iq-origin')).to_have_text(['Manual entry'] * 30)
+            page.screenshot(path=str(screenshots / 'mobile-filter.png'), full_page=True)
+            page.get_by_role('button', name='Clear filters', exact=True).click()
+            expect(source_filter).to_have_value('')
+            expect(page.locator('#iqCount')).to_have_text('34 inquiries')
             page.locator('.iq-sheet').evaluate('(e) => e.scrollLeft = 0')
             assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
-            expect(page.locator(f'#iqRows tr[data-id="{ids["manual"]}"] .iq-origin')).to_be_visible()
             page.screenshot(path=str(screenshots / 'mobile.png'), full_page=True)
             assert errors == []
             browser.close()
