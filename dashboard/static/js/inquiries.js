@@ -72,6 +72,7 @@
   function renderRows() {
     $('iqRows').innerHTML = state.rows.length ? state.rows.map(l => `<tr data-id="${l.id}">
       <td>${escape(formatTime(l.received_at))}<span class="iq-sub">${escape(l.reference || 'No reference')}</span></td>
+      <td><span class="iq-origin">${escape(l.source_label || l.source)}</span></td>
       <td><strong>${escape(l.guest_name || 'Name not supplied')}</strong>${badges(l)}${l.unassigned ? `<span class="iq-sub">Unassigned · ${Math.floor(l.age_minutes / 60)}h old</span>` : ''}</td>
       <td>${l.phone ? `<a href="tel:${escape(l.phone.replace(/[^+\d]/g,''))}">${escape(l.phone)}</a>` : '—'}</td>
       <td>${l.email ? `<a href="mailto:${escape(l.email)}">${escape(l.email)}</a>` : '—'}</td>
@@ -80,7 +81,7 @@
       <td><button type="button" class="iq-note iq-preview" data-note="${l.id}" aria-label="Edit internal notes for ${escape(l.guest_name || 'inquiry')}">${escape(l.internal_notes || 'Add a note…')}</button></td>
       <td><select data-inline="assigned_user_id" aria-label="Assign ${escape(l.guest_name || 'inquiry')}">${agentOptions(l.assigned_user_id)}</select></td>
       <td><select data-inline="status" aria-label="Status for ${escape(l.guest_name || 'inquiry')}">${statusOptions(l.status)}</select></td>
-      <td><button class="iq-button" type="button" data-open="${l.id}" aria-label="Expand ${escape(l.guest_name || 'inquiry')}">↗</button></td></tr>`).join('') : '<tr><td colspan="12" class="iq-empty">No inquiries match these filters.</td></tr>';
+      <td><button class="iq-button" type="button" data-open="${l.id}" aria-label="Expand ${escape(l.guest_name || 'inquiry')}">↗</button></td></tr>`).join('') : '<tr><td colspan="13" class="iq-empty">No inquiries match these filters.</td></tr>';
     $('iqCount').textContent = `${state.total} ${state.total === 1 ? 'inquiry' : 'inquiries'}`;
     $('iqPage').textContent = `Page ${state.page} of ${Math.max(1,Math.ceil(state.total / 30))}`;
     $('iqPrevious').disabled = state.page <= 1;
@@ -94,7 +95,7 @@
       if (serial !== state.request) return;
       state.rows = result.leads; state.total = result.total;
       renderRows(); renderStats(result.stats);
-    } catch (e) { error(e.message); if (!state.rows.length) $('iqRows').innerHTML = '<tr><td colspan="12" class="iq-empty">Inquiries could not load. Use Refresh to try again.</td></tr>'; }
+    } catch (e) { error(e.message); if (!state.rows.length) $('iqRows').innerHTML = '<tr><td colspan="13" class="iq-empty">Inquiries could not load. Use Refresh to try again.</td></tr>'; }
   }
   function showPanel(title, reference) {
     state.returnFocus = document.activeElement;
@@ -124,7 +125,7 @@
     const q = l.qualification || {};
     const prop = l.listing_id ? `listing:${l.listing_id}` : l.tag_id ? `tag:${l.tag_id}` : '';
     const propOptions = option('', 'Unassigned', prop) + '<optgroup label="Properties">' + state.bootstrap.properties.map(p => option(`listing:${p.id}`,p.name,prop)).join('') + '</optgroup><optgroup label="Tags">' + state.bootstrap.tags.map(t => option(`tag:${t.id}`,t.name,prop)).join('') + '</optgroup>';
-    $('iqPanelBody').innerHTML = `${creating ? '<p class="iq-muted">Enter the guest name and at least an email address or phone number. Stay details and assignment can be added now or later.</p>' : `${badges(l)}<p class="iq-muted">Received ${escape(formatTime(l.received_at))} · ${escape(l.source === 'manual' ? 'Manual entry' : l.brand || l.source)}</p>`}
+    $('iqPanelBody').innerHTML = `${creating ? '<p class="iq-muted">Enter the guest name and at least an email address or phone number. Stay details and assignment can be added now or later.</p>' : `${badges(l)}<p class="iq-muted">Received ${escape(formatTime(l.received_at))} · ${escape(l.source_label || l.source)}</p>`}
       <p class="iq-contact-links">${l.email ? `<a href="mailto:${escape(l.email)}">Email guest ↗</a>` : ''}${l.phone ? `<a href="tel:${escape(l.phone.replace(/[^+\d]/g,''))}">Call guest ↗</a>` : ''}</p>
       <form id="iqDetailForm" data-mobile-enhancements="off"><h3>Guest information</h3><div class="iq-form-grid">
       ${field('Guest name','guest_name',l.guest_name)}${field('Email address','email',l.email,'email')}${field('Phone number','phone',l.phone,'tel')}${field('Preferred contact method','preferred_contact_method',q.preferred_contact_method)}
@@ -254,7 +255,7 @@
     state.dirty = false; state.detail = null;
     showPanel('Intake & settings', 'GUEST INQUIRIES');
     const s = state.bootstrap.settings;
-    $('iqPanelBody').innerHTML = `<p class="iq-muted">Follow-up dates are displayed in ${escape(s.timezone)}. Blank timing leaves scheduled alerts unset; overdue and unassigned inquiries remain visible in the team queue.</p><form id="iqSettingsForm"><h3>Team follow-ups</h3><div class="iq-form-grid">${field('Staff timezone','timezone',s.timezone)}${field('Reminder before due (minutes)','reminder_minutes',s.reminder_minutes,'number')}${field('Escalate after overdue (minutes)','escalation_minutes',s.escalation_minutes,'number')}${field('Flag unassigned after (minutes)','unassigned_minutes',s.unassigned_minutes,'number')}</div><p class="iq-muted" style="margin-top:15px">Alerts appear on the inquiry and in the shared CRM queue.</p><div class="iq-form-footer"><button class="iq-button iq-primary" type="submit">Save settings</button></div></form><h3>Email intake configuration</h3>${state.bootstrap.sources.map(v => `<div class="iq-source"><strong>${escape(v.brand || v.id)}</strong><br>${escape(v.mailbox)}<br>Subject: ${escape(v.subject_prefixes.join(', '))}<br><span class="iq-muted">Configured source. Worker activation and a verified sample import are required before calling it connected.</span></div>`).join('') || '<p>No intake sources configured.</p>'}<h3>Unresolved processing</h3><div id="iqFailures">Loading…</div>`;
+    $('iqPanelBody').innerHTML = `<p class="iq-muted">Follow-up dates are displayed in ${escape(s.timezone)}. Blank timing leaves scheduled alerts unset; overdue and unassigned inquiries remain visible in the team queue.</p><form id="iqSettingsForm"><h3>Team follow-ups</h3><div class="iq-form-grid">${field('Staff timezone','timezone',s.timezone)}${field('Reminder before due (minutes)','reminder_minutes',s.reminder_minutes,'number')}${field('Escalate after overdue (minutes)','escalation_minutes',s.escalation_minutes,'number')}${field('Flag unassigned after (minutes)','unassigned_minutes',s.unassigned_minutes,'number')}</div><p class="iq-muted" style="margin-top:15px">Alerts appear on the inquiry and in the shared CRM queue.</p><div class="iq-form-footer"><button class="iq-button iq-primary" type="submit">Save settings</button></div></form><h3>Email intake configuration</h3>${state.bootstrap.sources.map(v => `<div class="iq-source"><strong>${escape(v.label || v.brand || v.id)}</strong><br>${escape(v.mailbox)}<br>Subject: ${escape(v.subject_prefixes.join(', '))}<br><span class="iq-muted">Configured source. Worker activation and a verified sample import are required before calling it connected.</span></div>`).join('') || '<p>No intake sources configured.</p>'}<h3>Unresolved processing</h3><div id="iqFailures">Loading…</div>`;
     $('iqSettingsForm').addEventListener('input', () => { state.dirty = true; });
     $('iqSettingsForm').querySelectorAll('input[type=number]').forEach(i => i.max = '525600');
     $('iqSettingsForm').addEventListener('submit', async e => {
@@ -307,7 +308,7 @@
       });
       window.addEventListener('beforeunload',e=>{if(state.dirty||state.editing){e.preventDefault();e.returnValue='';}});
       setInterval(()=>{if(!document.hidden&&!state.editing&&!state.dirty)load({quiet:true});},30000);
-    } catch (e) { error(e.message); $('iqRows').innerHTML='<tr><td colspan="12" class="iq-empty">The workspace could not load. Reload the page to retry.</td></tr>'; }
+    } catch (e) { error(e.message); $('iqRows').innerHTML='<tr><td colspan="13" class="iq-empty">The workspace could not load. Reload the page to retry.</td></tr>'; }
   }
   init();
 })();

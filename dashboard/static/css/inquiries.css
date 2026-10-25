@@ -270,7 +270,7 @@
     border-collapse:separate;
     border-spacing:0;
     width:100%;
-    min-width:1900px;
+    min-width:2020px;
     text-align:left;
     font-size:12px
 }
@@ -335,6 +335,15 @@
     font-size:10px;
     color:#8a99a6;
     margin-top:5px
+}
+
+.iq-origin {
+    display:block;
+    min-width:100px;
+    max-width:160px;
+    overflow-wrap:anywhere;
+    font-size:11px;
+    line-height:1.6
 }
 
 .iq-preview {

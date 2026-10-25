@@ -20,6 +20,9 @@ Richard confirmed on October 20, 2026:
   notes without inventing a source email or guest response. Creation UUIDs make
   retries safe even when the successful response is lost. Internal-test entry
   remains administrator-only and excluded from genuine statistics.
+- A **Source** column beside Date received shows **EH website**, **LR website**
+  or **Manual entry** from the immutable recorded source. The detail panel uses
+  the same label, including for historical sources no longer enabled for intake.
 - All 11 spreadsheet fields plus Expand, sticky headers, horizontal scrolling,
   server pagination, search, sortable receipt/check-in/agent/status columns,
   inline notes/assignment/status, and a side panel preserving table position.
@@ -81,8 +84,14 @@ app/navigation/feature registrations to the live files; do not broadly replace
 the production checkout with this worktree or run the broad deployment script.
 
 Source configuration is `INQUIRY_EMAIL_SOURCES`, a JSON list of objects containing
-`id`, `mailbox`, `brand`, `subject_prefixes`, and optional exact sender addresses
-in `senders`. With no override, the implementation uses the mailbox confirmed by
+`id`, `mailbox`, `brand`, `subject_prefixes`, optional exact sender addresses
+in `senders`, and an optional `label` (1–120 nonblank characters) for the Source
+column, such as `Partner referral` or `Facebook lead form`. Configured labels
+override the built-in website labels; `manual` always means Manual entry.
+Unrecognized sources display their configured brand, recorded brand, or source
+ID, so future channels remain identifiable without a UI or schema change. Use
+distinct stable source IDs for distinct channels. This labels intake already
+configured; it does not activate additional integrations. With no override, the implementation uses the mailbox confirmed by
 Richard and the observed/specification format `New stay inquiry EH-`, sent by
 `yunhang.chen@gmail.com`. An empty list disables intake. Additional brands or
 patterns require explicit configuration rather than a broad scan of business mail.
@@ -189,7 +198,7 @@ OPENAI_API_KEY=qa-not-a-real-key SECRET_KEY=qa-only \
 node --check dashboard/static/js/inquiries.js
 ```
 
-The UI test covers desktop and 390px mobile, all 12 columns, full inline-note
+The UI test covers desktop and 390px mobile, all 13 columns, full inline-note
 content, the side panel, Pacific/UTC conversion, guest reply acknowledgement,
 filter/clear behavior, unsaved edits and source HTML escaping. Screenshots are
 written to `/tmp/ticket-813-qa/` and contain synthetic data only.

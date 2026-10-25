@@ -22,6 +22,16 @@ GUEST_FIELDS = {"guest_name", "email", "phone", "listing_id", "tag_id", "propert
 STAFF_FIELDS = GUEST_FIELDS | {"internal_notes", "assigned_user_id", "status", "next_action", "follow_up_at", "last_contact_at"}
 DEFAULT_SOURCES = [{"id": "enchanted-havens-email", "mailbox": "larry@enchantedhavens.com", "brand": "Enchanted Havens",
                     "subject_prefixes": ["New stay inquiry EH-"], "senders": ["yunhang.chen@gmail.com"]}]
+SOURCE_LABELS = {"manual": "Manual entry", "enchanted-havens-email": "EH website",
+                 "luminary-resorts-email": "LR website"}
+
+
+def source_label(source, sources=(), brand=None):
+    """Label the recorded origin, including retired and future intake sources."""
+    if source == "manual":
+        return SOURCE_LABELS[source]
+    policy = next((s for s in sources if s["id"] == source), {})
+    return policy.get("label") or SOURCE_LABELS.get(source) or policy.get("brand") or brand or source
 
 
 class InquiryError(ValueError):
@@ -426,7 +436,8 @@ class InquiryService:
             "review_flags", "qualification", "updated_at", "updated_by")}
         prop = self.properties.get(lead.listing_id, {})
         tag = self.tags.get(lead.tag_id, {})
-        result.update(property_label=prop.get("name") or tag.get("name") or lead.property_text or "Unassigned",
+        result.update(source_label=source_label(lead.source, self.sources, lead.brand),
+                      property_label=prop.get("name") or tag.get("name") or lead.property_text or "Unassigned",
                       agent_name=self.users.get(lead.assigned_user_id, {}).get("name", "Unassigned"),
                       **self.attention(lead))
         if not detail:

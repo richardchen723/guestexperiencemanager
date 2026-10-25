@@ -349,13 +349,17 @@ Access requires the `inquiries` feature grant (owners/admins inherit access), or
 an existing full-access API key. Restricted Guest Issues keys are denied.
 Browser writes require the `X-CSRF-Token` from the CRM page.
 
-- `GET /inquiries/api/bootstrap` — properties, tags, assignable staff, settings.
+- `GET /inquiries/api/bootstrap` — properties, tags, assignable staff, settings,
+  and configured intake sources with resolved display `label`.
 - `GET /inquiries/api/leads` — paginated rows and filter-aware statistics. Params:
   `from`, `to` (staff-local dates), `status`, `listing_id`, `tag_id`,
   `assigned_user_id` (or `unassigned`), `search`, `attention`
   (`new_reply`, `overdue`, `unassigned`, `review`), `page`, `per_page`,
   `sort` (`received_at`, `check_in`, `assigned_user_id`, `status`), `direction`.
 - `GET /inquiries/api/leads/{id}` — complete details, original messages, audit.
+  Both list rows and details include immutable `source` and resolved
+  `source_label` (EH website, LR website, Manual entry, or a configured future
+  channel label). Unknown sources fall back to their brand or source ID.
 - `POST /inquiries/api/leads` — manual staff entry. Supply a client-generated UUID
   `creation_id`, `guest_name`, and at least `email` or `phone`. Optional fields
   use the same names/validation as staff updates; do not supply `version`.

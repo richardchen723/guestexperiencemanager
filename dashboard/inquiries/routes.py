@@ -18,7 +18,7 @@ from database.models import Listing, Tag, get_session as main_session
 import dashboard.config as config
 
 from .models import SourceMessage, get_session
-from .service import DEFAULT_SOURCES, GUEST_FIELDS, STATUSES, InquiryError, InquiryService
+from .service import DEFAULT_SOURCES, GUEST_FIELDS, STATUSES, InquiryError, InquiryService, source_label
 
 
 logger = logging.getLogger(__name__)
@@ -80,6 +80,7 @@ def configured_sources():
         or not isinstance(v.get("subject_prefixes"), list) or not v["subject_prefixes"]
         or any(not isinstance(p, str) or not p.strip() for p in v["subject_prefixes"])
         or not isinstance(v.get("senders", []), list) or any(not isinstance(s, str) or not s.strip() for s in v.get("senders", []))
+        or ("label" in v and (not isinstance(v["label"], str) or not v["label"].strip() or len(v["label"]) > 120))
         for v in sources
     ):
         raise InquiryError("Inquiry email sources need administrator configuration.", 503)
@@ -153,7 +154,8 @@ def bootstrap(service):
     return {"properties": list(service.properties.values()), "tags": list(service.tags.values()),
             "users": list(service.users.values()), "statuses": STATUSES, "settings": service.settings_dict(),
             "can_administer": bool(user.is_admin() and not getattr(g, "api_key", None)),
-            "sources": [{k: v.get(k) for k in ("id", "mailbox", "brand", "subject_prefixes")} for v in service.sources]}
+            "sources": [{**{k: v.get(k) for k in ("id", "mailbox", "brand", "subject_prefixes")},
+                         "label": source_label(v["id"], service.sources)} for v in service.sources]}
 
 
 @inquiries_bp.get("/api/leads")

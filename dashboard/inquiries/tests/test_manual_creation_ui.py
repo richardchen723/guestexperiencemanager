@@ -78,6 +78,7 @@ def test_manual_capture_validation_retry_filters_and_mobile(app, factory):
             expect(page.locator('#iqPanel')).to_be_hidden()
             page.get_by_role('button', name='Clear filters', exact=True).click()
             expect(page.locator('#iqRows')).to_contain_text('Phone enquiry guest')
+            expect(page.locator('#iqRows .iq-origin')).to_have_text('Manual entry')
             page.screenshot(path=str(screenshots / 'desktop-created-lead.png'), full_page=True)
 
             page.set_viewport_size({'width': 390, 'height': 844})

@@ -8,6 +8,7 @@ from werkzeug.serving import make_server
 
 from .test_api import app, client, post
 from .conftest import email, reply
+from .test_sources import seed_sources
 
 
 def test_spreadsheet_detail_followup_mobile_and_escaping(app,factory):
@@ -45,7 +46,8 @@ def test_spreadsheet_detail_followup_mobile_and_escaping(app,factory):
             expect(page.locator('#iqRows tr')).to_have_count(1)
             expect(page.locator('#iqRows')).to_contain_text('Sally Example')
             expect(page.locator('#iqTimezone')).to_have_text('America/Los_Angeles')
-            assert page.locator('thead th').count() == 12
+            assert page.locator('thead th').count() == 13
+            expect(page.locator('#iqRows .iq-origin')).to_have_text('EH website')
             assert page.locator('.iq-sheet').evaluate('(e)=>e.scrollWidth > e.clientWidth')
             expect(page.get_by_label('Tag',exact=True)).to_be_visible()
             expect(page.get_by_label('Property',exact=True)).to_be_visible()
@@ -116,3 +118,47 @@ def test_spreadsheet_detail_followup_mobile_and_escaping(app,factory):
             browser.close()
     finally:
         server.shutdown();thread.join(timeout=5)
+
+
+def test_all_source_columns_and_detail_labels_on_desktop_and_mobile(app, factory, monkeypatch):
+    c = client(app)
+    ids, sources = seed_sources(c, monkeypatch)
+    cookie = c.get_cookie('session')
+    server = make_server('127.0.0.1', 0, app, threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    origin = f'http://127.0.0.1:{server.server_port}'
+    screenshots = Path('/tmp/inquiry-source-qa')
+    screenshots.mkdir(exist_ok=True)
+    expected = {'enchanted-havens-email': 'EH website', 'luminary-resorts-email': 'LR website',
+                'manual': 'Manual entry', 'partner-referral': sources[2]['label']}
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(viewport={'width': 1586, 'height': 1000})
+            context.add_cookies([{'name': 'session', 'value': cookie.value, 'url': origin}])
+            page = context.new_page()
+            errors = []
+            page.on('pageerror', lambda e: errors.append(str(e)))
+            page.goto(origin + '/inquiries/')
+            expect(page.locator('#iqRows tr')).to_have_count(4)
+            expect(page.get_by_role('columnheader', name='Source', exact=True)).to_be_visible()
+            for source, lead_id in ids.items():
+                expect(page.locator(f'#iqRows tr[data-id="{lead_id}"] .iq-origin')).to_have_text(expected[source])
+            assert page.locator('#iqRows .iq-origin img').count() == 0
+            assert page.evaluate('window.sourceInjected') is None
+            page.screenshot(path=str(screenshots / 'desktop.png'), full_page=True)
+            for source, lead_id in ids.items():
+                page.locator(f'[data-open="{lead_id}"]').click()
+                expect(page.locator('#iqPanel .iq-muted').first).to_contain_text(expected[source])
+                page.get_by_role('button', name='Close inquiry details').click()
+            page.set_viewport_size({'width': 390, 'height': 844})
+            page.locator('.iq-sheet').evaluate('(e) => e.scrollLeft = 0')
+            assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+            expect(page.locator(f'#iqRows tr[data-id="{ids["manual"]}"] .iq-origin')).to_be_visible()
+            page.screenshot(path=str(screenshots / 'mobile.png'), full_page=True)
+            assert errors == []
+            browser.close()
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
