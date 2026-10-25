@@ -1,0 +1,52 @@
+{
+  "release": "inquiry-source-20261025-r1",
+  "files": [
+    {
+      "path": "dashboard/inquiries/service.py",
+      "before": "8da9362865faac789387748ffbeafa07dc566a7b27198e2f09c8ab3003ef601b",
+      "after": "3dd958f48e04b9150215c18714541dc29798799168eba31944d5a3a7d0093d2c"
+    },
+    {
+      "path": "dashboard/inquiries/routes.py",
+      "before": "416dc948df427f11c76035a8f1f31f064abb6036ef4d4823b01ce0ad89ece147",
+      "after": "722a520adfa0ec48c960aef71e62f0782c28534f6bbaef5a606e19783af79379"
+    },
+    {
+      "path": "dashboard/static/js/inquiries.js",
+      "before": "b905946fc42a97b9005f0ce8a6c68cb4e95774023ee91d8228d00d75c7f5e75a",
+      "after": "f280967739b62ed13c986db8dac33df804622857d89901192655e58b869da927"
+    },
+    {
+      "path": "dashboard/static/css/inquiries.css",
+      "before": "a6223d48ce9e32d8b37a0a8d34499663fe7c40e4f23eaecc9bc9c6805a95b170",
+      "after": "45c97d507c19b90f789f8dbc4c793bb0a37beb84c15546404a3c10a0f0b7b511"
+    },
+    {
+      "path": "dashboard/templates/inquiries/index.html",
+      "before": "da571f5a01b2a082494b8fd3ed54206a583180cf525d6b8ec3a88c40816666b9",
+      "after": "a613af7c25bfaeda215ff59656c4504322f77a2acf58d80f0e8e302d6291f5c6"
+    }
+  ],
+  "verification": {
+    "crm_and_access_tests_passed": 82,
+    "javascript_syntax": "passed",
+    "diff_check": "passed",
+    "schema_changes": false,
+    "public_health": 200,
+    "anonymous_crm_api": 401,
+    "authenticated_browser": "Source column and EH website / LR website rows verified",
+    "genuine_leads_before": 54,
+    "genuine_leads_after": 54,
+    "source_counts": {
+      "enchanted-havens-email": 36,
+      "luminary-resorts-email": 18
+    },
+    "manual_and_future_source": "verified in disposable local PostgreSQL and desktop/mobile browser checks",
+    "synthetic_production_records_created": false
+  },
+  "source_commit": "7d542cb",
+  "status": "deployed",
+  "deployed_at": "2026-10-25T00:35:49.586934+00:00",
+  "backup": "/opt/hostaway-messages/backups/inquiry-source-20261025-r1",
+  "url": "https://yourcottoncandy.com/inquiries/"
+}
