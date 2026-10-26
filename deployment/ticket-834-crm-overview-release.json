@@ -1,0 +1,38 @@
+{
+  "release": "ticket-834-crm-overview-20261026-r1",
+  "files": [
+    {
+      "path": "dashboard/static/js/inquiries.js",
+      "before": "9c33edf8d2351a130639881845e8e1214d6385292ce642bfb1fc5ebe65785026",
+      "after": "0119e6ca3c609ae6207a02beb9a1372e02ab917bc65e15afcbb66ff42b90352a"
+    },
+    {
+      "path": "dashboard/static/css/inquiries.css",
+      "before": "3e84c838b188de4ea09e45683b83058937d7ea95e0248dbb94803c725f86484d",
+      "after": "8c0584f793133fb08a54db66de235ae6f8abd9966adbda87b6aaeb52f06e49fb"
+    },
+    {
+      "path": "dashboard/templates/inquiries/index.html",
+      "before": "ba7a2b6d078c8790ea90609e15863d99f8fb900e464abf827f05c928eedd5180",
+      "after": "ebeb38388b0ac4b22e6c2ba3b4c3e350faaf41eeb1fe9f87d40fcd7c324a5a56"
+    }
+  ],
+  "schema_changes": false,
+  "status": "deployed",
+  "backup": "/opt/hostaway-messages/backups/ticket-834-crm-overview-20261026-r1",
+  "prepared_at": "2026-10-26T00:30:10.569934+00:00",
+  "deployed_at": "2026-10-26T00:30:19.349272+00:00",
+  "source_commit": "8e9b4b3",
+  "url": "https://yourcottoncandy.com/inquiries/",
+  "verification": {
+    "crm_and_auth_tests_passed": 85,
+    "final_ui_checks_passed": 3,
+    "javascript_syntax": "passed",
+    "diff_check": "passed",
+    "public_health": 200,
+    "public_assets": "hash verified",
+    "authenticated_browser": "nine columns, date-only received, status colors, full timestamp and stay fields in expanded details",
+    "synthetic_production_records_created": false,
+    "schema_changes": false
+  }
+}
