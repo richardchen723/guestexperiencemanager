@@ -2,7 +2,7 @@
 {% block title %}Guest inquiries · Cotton Candy{% endblock %}
 {% block extra_head %}
 <meta name="inquiries-csrf" content="{{ inquiries_csrf }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/inquiries.css', v='source-filter-1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/inquiries.css', v='overview-834-1') }}">
 {% endblock %}
 {% block content %}
 <section class="iq" id="inquiryApp" aria-label="Guest inquiry CRM">
@@ -26,12 +26,21 @@
     <div class="iq-custom-dates" id="iqCustomDates" hidden><label>From<input id="iqFrom" type="date"></label><label>To<input id="iqTo" type="date"></label></div>
     <div class="iq-queue" role="group" aria-label="Attention queue"><button data-attention="" class="active" aria-pressed="true">All inquiries</button><button data-attention="new_reply" aria-pressed="false">New replies</button><button data-attention="overdue" aria-pressed="false">Overdue follow-ups</button><button data-attention="unassigned" aria-pressed="false">Unassigned</button><button data-attention="review" aria-pressed="false">Needs review</button></div>
   </div>
-  <div class="iq-sheet" tabindex="0" aria-label="Inquiry spreadsheet, scroll horizontally for more columns">
-    <table><thead><tr><th><button data-sort="received_at">Date received ↓</button></th><th>Source</th><th>Guest name</th><th>Phone number</th><th>Email address</th><th>Property / tag</th><th><button data-sort="check_in">Check-in</button></th><th>Checkout</th><th>Notes / details</th><th>Internal notes</th><th><button data-sort="assigned_user_id">Assigned agent</button></th><th><button data-sort="status">Lead status</button></th><th class="iq-expand-column">Expand</th></tr></thead><tbody id="iqRows"><tr><td colspan="13" class="iq-empty">Loading inquiries…</td></tr></tbody></table>
+  <details class="iq-status-key"><summary>Status color key</summary><div>
+    <span class="iq-status-urgent">Red · overdue follow-up, escalation or assignment</span>
+    <span class="iq-status-attention">Yellow · new or follow-up required</span>
+    <span class="iq-status-progress">Blue · in progress</span>
+    <span class="iq-status-booked">Green · booked</span>
+    <span class="iq-status-closed">Gray · closed without booking</span>
+    <p>Urgent alerts take precedence over the lead’s status color. Text badges explain what needs attention.</p>
+  </div></details>
+  <label class="iq-mobile-sort">Sort inquiries<select id="iqMobileSort" aria-label="Sort inquiries"><option value="received_at:desc">Newest first</option><option value="received_at:asc">Oldest first</option><option value="status:asc">Status · A to Z</option><option value="status:desc">Status · Z to A</option><option value="assigned_user_id:asc">Assigned agent · ascending</option><option value="assigned_user_id:desc">Assigned agent · descending</option></select></label>
+  <div class="iq-sheet" tabindex="0" aria-label="Guest inquiries and lead management">
+    <table><colgroup><col class="iq-col-date"><col class="iq-col-source"><col class="iq-col-guest"><col class="iq-col-status"><col class="iq-col-agent"><col class="iq-col-notes"><col class="iq-col-phone"><col class="iq-col-email"><col class="iq-col-expand"></colgroup><thead><tr><th><button data-sort="received_at">Date received ↓</button></th><th>Source</th><th>Guest name</th><th><button data-sort="status">Lead status</button></th><th><button data-sort="assigned_user_id">Assigned agent</button></th><th>Internal notes</th><th>Phone number</th><th>Email address</th><th class="iq-expand-column">Expand</th></tr></thead><tbody id="iqRows"><tr><td colspan="9" class="iq-empty">Loading inquiries…</td></tr></tbody></table>
   </div>
   <footer class="iq-footer"><span id="iqCount" role="status"></span><span>Updates every 30 seconds</span><div><button class="iq-button" id="iqPrevious" type="button">Previous</button><span id="iqPage"></span><button class="iq-button" id="iqNext" type="button">Next</button></div></footer>
 </section>
 <div id="iqBackdrop" class="iq-backdrop" hidden></div>
 <aside id="iqPanel" class="iq-panel" role="dialog" aria-modal="true" aria-labelledby="iqPanelTitle" hidden tabindex="-1"><header><div><p class="iq-eyebrow" id="iqPanelReference"></p><h2 id="iqPanelTitle">Inquiry details</h2></div><button id="iqClose" class="iq-button" type="button" aria-label="Close inquiry details">✕</button></header><div id="iqPanelError" class="iq-alert iq-danger" role="alert" hidden></div><div id="iqPanelBody"></div></aside>
 {% endblock %}
-{% block extra_scripts %}<script src="{{ url_for('static', filename='js/inquiries.js', v='source-filter-1') }}" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static', filename='js/inquiries.js', v='overview-834-1') }}" defer></script>{% endblock %}

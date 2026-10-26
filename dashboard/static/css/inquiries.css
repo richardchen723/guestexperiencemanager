@@ -270,7 +270,8 @@
     border-collapse:separate;
     border-spacing:0;
     width:100%;
-    min-width:2020px;
+    min-width:1160px;
+    table-layout:fixed;
     text-align:left;
     font-size:12px
 }
@@ -284,7 +285,7 @@
     font-size:10px;
     font-weight:600;
     white-space:nowrap;
-    padding:13px 12px;
+    padding:13px 10px;
     border-bottom:1px solid var(--iq-border);
     letter-spacing:.15px
 }
@@ -300,7 +301,7 @@
 
 .iq td {
     border-bottom:1px solid #edf1f5;
-    padding:13px 12px;
+    padding:13px 10px;
     vertical-align:top;
     color:#486174;
     max-width:220px
@@ -339,7 +340,7 @@
 
 .iq-origin {
     display:block;
-    min-width:100px;
+    min-width:0;
     max-width:160px;
     overflow-wrap:anywhere;
     font-size:11px;
@@ -362,7 +363,8 @@
     color:#49687f;
     padding:0;
     text-align:left;
-    min-width:135px
+    min-width:0;
+    width:100%
 }
 
 .iq td select {
@@ -412,7 +414,7 @@
 .iq-expand-column {
     position:sticky!important;
     right:0;
-    min-width:63px
+    min-width:52px
 }
 
 .iq td:last-child {
@@ -609,7 +611,7 @@
 }
 
 .iq-note-editor {
-    width:210px!important;
+    width:100%!important;
     min-height:80px;
     border:1px solid #9bb9d0;
     padding:7px;
@@ -781,4 +783,63 @@
 
 .iq-panel label.iq-check {
     align-items:center
+}
+
+/* The overview keeps status, ownership and staff notes together. */
+.iq-col-date { width:9% }
+.iq-col-source { width:7% }
+.iq-col-guest { width:12% }
+.iq-col-status { width:15% }
+.iq-col-agent { width:12% }
+.iq-col-notes { width:15% }
+.iq-col-phone { width:11% }
+.iq-col-email { width:14% }
+.iq-col-expand { width:5% }
+.iq td { overflow-wrap:anywhere }
+.iq td .iq-sub { color:#64798b }
+.iq td select { max-width:none; font-size:11px }
+.iq .iq-note.iq-preview {
+    white-space:normal;
+    padding:0;
+    min-height:0;
+    display:-webkit-box;
+    -webkit-box-orient:vertical;
+    -webkit-line-clamp:3;
+    max-width:none
+}
+.iq-status-key { border:1px solid var(--iq-border); border-top:0; background:#fff; padding:10px 16px; font-size:11px }
+.iq-status-key summary { cursor:pointer; color:#486174; width:fit-content }
+.iq-status-key>div { display:flex; flex-wrap:wrap; gap:8px; padding-top:10px }
+.iq-status-key span { padding:5px 8px; border-radius:5px }
+.iq-status-key p { width:100%; margin:2px 0; color:#486174 }
+.iq .iq-status-urgent { color:#9b2929; background:#fff0ef; border-color:#e6aaa4 }
+.iq .iq-status-attention { color:#7a5308; background:#fff5d6; border-color:#e2c775 }
+.iq .iq-status-progress { color:#205990; background:#edf5ff; border-color:#accbe9 }
+.iq .iq-status-booked { color:#216747; background:#e8f6ef; border-color:#9acbb0 }
+.iq .iq-status-closed { color:#526270; background:#f0f3f5; border-color:#cbd4db }
+.iq td .iq-status { font-weight:600; border-width:1px; border-style:solid; padding:6px 4px }
+.iq .iq-badge { color:#7a5308 }
+.iq .iq-badge.reply { color:#205990 }
+.iq .iq-badge.overdue { color:#9b2929 }
+
+.iq label.iq-mobile-sort { display:none }
+
+@media(max-width:760px) {
+    .iq label.iq-mobile-sort { display:flex; margin:14px 0 0 }
+    .iq-sheet { max-height:none; overflow:visible; border:0; background:transparent }
+    .iq table,.iq tbody { display:block; width:100%; min-width:0 }
+    .iq colgroup { display:none }
+    .iq thead { position:absolute; width:1px; height:1px; overflow:hidden; visibility:hidden; clip-path:inset(50%) }
+    .iq .iq-lead-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; position:relative; padding:16px; margin-top:12px; border:1px solid var(--iq-border); border-radius:10px; background:#fff }
+    .iq .iq-lead-row td { display:block; padding:0; border:0; max-width:none; min-width:0 }
+    .iq .iq-lead-row td[data-label]::before { content:attr(data-label); display:block; margin-bottom:5px; color:#64798b; font-size:10px }
+    .iq .iq-lead-row td.iq-date::before,.iq .iq-lead-row td.iq-source-cell::before,.iq .iq-lead-row td.iq-guest::before { display:none }
+    .iq .iq-lead-row .iq-source-cell { padding-right:40px }
+    .iq .iq-guest,.iq .iq-notes-cell { grid-column:1/-1 }
+    .iq .iq-guest strong { font-size:15px }
+    .iq td select { min-height:36px; border-color:#dce5ed; padding:6px; max-width:100% }
+    .iq .iq-lead-row .iq-expand-cell { position:absolute; top:12px; right:12px; background:transparent }
+    .iq td:last-child button { min-height:32px; min-width:32px }
+    .iq .iq-empty { display:block; padding:32px!important }
+    .iq-status-key { border-radius:0 0 10px 10px }
 }

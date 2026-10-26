@@ -202,7 +202,30 @@ OPENAI_API_KEY=qa-not-a-real-key SECRET_KEY=qa-only \
 node --check dashboard/static/js/inquiries.js
 ```
 
-The UI test covers desktop and 390px mobile, all 13 columns, full inline-note
+The UI test covers desktop and 390px mobile, the nine overview columns and mobile cards, full inline-note
 content, the side panel, Pacific/UTC conversion, guest reply acknowledgement,
 filter/clear behavior, unsaved edits and source HTML escaping. Screenshots are
 written to `/tmp/ticket-813-qa/` and contain synthetic data only.
+
+
+## Overview and status colors (ticket 834)
+
+The overview shows the received calendar date in the configured staff timezone,
+source, guest/reference, lead status, assigned agent, internal notes, phone and
+email. The full received timestamp, property/tag, stay dates and guest inquiry
+notes remain in expanded details. Internal staff notes remain editable inline.
+The minimum desktop table width is 1160px (previously 2020px); screens at 760px
+and below use cards with a sort selector and no horizontal table scrolling.
+
+Status colors always retain the existing text labels:
+
+- Red: an overdue follow-up, escalation or overdue assignment. This takes
+  precedence over the normal status color; badges identify the alert.
+- Yellow: New or Follow-up Required.
+- Blue: In Progress.
+- Green: Booked.
+- Gray: Closed — Not Booked.
+
+New responses and review flags retain their separate labeled badges. The color
+key is available above the list. These presentation rules reuse existing server
+attention flags and do not change schedules, lead states or stored records.

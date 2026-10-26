@@ -10,7 +10,7 @@
   const option = (value, label, selected) => `<option value="${escape(value)}"${String(value ?? '') === String(selected ?? '') ? ' selected' : ''}>${escape(label)}</option>`;
   const tz = () => state.bootstrap.settings.timezone;
   const formatTime = (value) => value ? new Intl.DateTimeFormat('en-US', {timeZone: tz(), month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit', timeZoneName:'short'}).format(new Date(value)) : '—';
-  const formatDay = value => value ? new Intl.DateTimeFormat('en-US', {timeZone:'UTC', month:'short', day:'numeric', year:'numeric'}).format(new Date(value + 'T12:00:00Z')) : '—';
+  const formatReceivedDate = value => value ? new Intl.DateTimeFormat('en-US', {timeZone:tz(), month:'short', day:'numeric', year:'numeric'}).format(new Date(value)) : '—';
   function localParts(value) {
     return Object.fromEntries(new Intl.DateTimeFormat('en-CA', {timeZone: tz(), year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23'}).formatToParts(new Date(value)).filter(v => v.type !== 'literal').map(v => [v.type, v.value]));
   }
@@ -74,19 +74,25 @@
   function badges(lead) {
     return `${lead.is_test ? '<span class="iq-badge">Internal test · excluded from statistics</span>' : ''}${lead.needs_reply ? '<span class="iq-badge reply">New response</span>' : ''}${lead.overdue ? '<span class="iq-badge overdue">Overdue</span>' : ''}${lead.escalated ? '<span class="iq-badge overdue">Escalated to team</span>' : ''}${lead.reminder && !lead.overdue ? '<span class="iq-badge">Follow-up soon</span>' : ''}${lead.unassigned_alert ? '<span class="iq-badge overdue">Assignment overdue</span>' : ''}${lead.review_flags.length ? '<span class="iq-badge">Review needed</span>' : ''}`;
   }
+  function statusTone(lead) {
+    if (lead.overdue || lead.escalated || lead.unassigned_alert) return 'urgent';
+    return {'New':'attention', 'Follow-up Required':'attention', 'In Progress':'progress', 'Booked':'booked', 'Closed — Not Booked':'closed'}[lead.status] || 'closed';
+  }
+  function updateSortControls() {
+    $('iqMobileSort').value = `${state.sort}:${state.direction}`;
+    document.querySelectorAll('[data-sort]').forEach(v => { v.textContent = v.textContent.replace(/ [↑↓]$/, '') + (v.dataset.sort === state.sort ? (state.direction === 'desc' ? ' ↓' : ' ↑') : ''); });
+  }
   function renderRows() {
-    $('iqRows').innerHTML = state.rows.length ? state.rows.map(l => `<tr data-id="${l.id}">
-      <td>${escape(formatTime(l.received_at))}<span class="iq-sub">${escape(l.reference || 'No reference')}</span></td>
-      <td><span class="iq-origin">${escape(l.source_label || l.source)}</span></td>
-      <td><strong>${escape(l.guest_name || 'Name not supplied')}</strong>${badges(l)}${l.unassigned ? `<span class="iq-sub">Unassigned · ${Math.floor(l.age_minutes / 60)}h old</span>` : ''}</td>
-      <td>${l.phone ? `<a href="tel:${escape(l.phone.replace(/[^+\d]/g,''))}">${escape(l.phone)}</a>` : '—'}</td>
-      <td>${l.email ? `<a href="mailto:${escape(l.email)}">${escape(l.email)}</a>` : '—'}</td>
-      <td>${escape(l.property_label)}</td><td>${escape(formatDay(l.check_in))}</td><td>${escape(formatDay(l.check_out))}</td>
-      <td><span class="iq-preview" title="Open the full inquiry to read the original message">${escape(l.details || l.original_notes)}</span></td>
-      <td><button type="button" class="iq-note iq-preview" data-note="${l.id}" aria-label="Edit internal notes for ${escape(l.guest_name || 'inquiry')}">${escape(l.internal_notes || 'Add a note…')}</button></td>
-      <td><select data-inline="assigned_user_id" aria-label="Assign ${escape(l.guest_name || 'inquiry')}">${agentOptions(l.assigned_user_id)}</select></td>
-      <td><select data-inline="status" aria-label="Status for ${escape(l.guest_name || 'inquiry')}">${statusOptions(l.status)}</select></td>
-      <td><button class="iq-button" type="button" data-open="${l.id}" aria-label="Expand ${escape(l.guest_name || 'inquiry')}">↗</button></td></tr>`).join('') : '<tr><td colspan="13" class="iq-empty">No inquiries match these filters.</td></tr>';
+    $('iqRows').innerHTML = state.rows.length ? state.rows.map(l => `<tr class="iq-lead-row" data-id="${l.id}">
+      <td class="iq-date" data-label="Date received">${escape(formatReceivedDate(l.received_at))}</td>
+      <td class="iq-source-cell" data-label="Source"><span class="iq-origin">${escape(l.source_label || l.source)}</span></td>
+      <td class="iq-guest" data-label="Guest name"><strong>${escape(l.guest_name || 'Name not supplied')}</strong><span class="iq-sub">${escape(l.reference || 'No reference')}</span>${l.unassigned ? `<span class="iq-sub">Unassigned · ${Math.floor(l.age_minutes / 60)}h old</span>` : ''}</td>
+      <td class="iq-status-cell" data-label="Lead status"><select class="iq-status iq-status-${statusTone(l)}" data-inline="status" aria-label="Status for ${escape(l.guest_name || 'inquiry')}">${statusOptions(l.status)}</select>${badges(l)}</td>
+      <td class="iq-agent-cell" data-label="Assigned agent"><select data-inline="assigned_user_id" aria-label="Assign ${escape(l.guest_name || 'inquiry')}">${agentOptions(l.assigned_user_id)}</select></td>
+      <td class="iq-notes-cell" data-label="Internal notes"><button type="button" class="iq-note iq-preview" data-note="${l.id}" aria-label="Edit internal notes for ${escape(l.guest_name || 'inquiry')}">${escape(l.internal_notes || 'Add a note…')}</button></td>
+      <td class="iq-phone" data-label="Phone number">${l.phone ? `<a href="tel:${escape(l.phone.replace(/[^+\d]/g,''))}">${escape(l.phone)}</a>` : '—'}</td>
+      <td class="iq-email" data-label="Email address">${l.email ? `<a href="mailto:${escape(l.email)}">${escape(l.email)}</a>` : '—'}</td>
+      <td class="iq-expand-cell"><button class="iq-button" type="button" data-open="${l.id}" aria-label="Expand ${escape(l.guest_name || 'inquiry')}">↗</button></td></tr>`).join('') : '<tr><td colspan="9" class="iq-empty">No inquiries match these filters.</td></tr>';
     $('iqCount').textContent = `${state.total} ${state.total === 1 ? 'inquiry' : 'inquiries'}`;
     $('iqPage').textContent = `Page ${state.page} of ${Math.max(1,Math.ceil(state.total / 30))}`;
     $('iqPrevious').disabled = state.page <= 1;
@@ -101,7 +107,7 @@
       state.rows = result.leads; state.total = result.total;
       updateSourceOptions(result.source_options);
       renderRows(); renderStats(result.stats);
-    } catch (e) { error(e.message); if (!state.rows.length) $('iqRows').innerHTML = '<tr><td colspan="13" class="iq-empty">Inquiries could not load. Use Refresh to try again.</td></tr>'; }
+    } catch (e) { error(e.message); if (!state.rows.length) $('iqRows').innerHTML = '<tr><td colspan="9" class="iq-empty">Inquiries could not load. Use Refresh to try again.</td></tr>'; }
   }
   function showPanel(title, reference) {
     state.returnFocus = document.activeElement;
@@ -299,7 +305,8 @@
       $('iqTag').addEventListener('change', () => {updatePropertyOptions();state.page=1;load();});
       $('iqClear').addEventListener('click', () => { ['iqSearch','iqStatus','iqSource','iqTag','iqProperty','iqAgent','iqFrom','iqTo'].forEach(id => $(id).value=''); $('iqDateRange').value='all'; updatePropertyOptions(); state.page=1; state.attention=''; document.querySelectorAll('[data-attention]').forEach(b => {b.classList.toggle('active',b.dataset.attention === ''); b.setAttribute('aria-pressed',String(b.dataset.attention === ''));}); load(); });
       document.querySelectorAll('[data-attention]').forEach(b => b.addEventListener('click', () => {state.attention=b.dataset.attention;state.page=1;document.querySelectorAll('[data-attention]').forEach(v=>{v.classList.toggle('active',v===b);v.setAttribute('aria-pressed',String(v===b));});load();}));
-      document.querySelectorAll('[data-sort]').forEach(b => b.addEventListener('click', () => { state.direction=state.sort===b.dataset.sort && state.direction==='desc'?'asc':'desc';state.sort=b.dataset.sort;state.page=1;document.querySelectorAll('[data-sort]').forEach(v=>{v.textContent=v.textContent.replace(/ [↑↓]$/,'')+(v===b?(state.direction==='desc'?' ↓':' ↑'):'');});load(); }));
+      document.querySelectorAll('[data-sort]').forEach(b => b.addEventListener('click', () => { state.direction=state.sort===b.dataset.sort && state.direction==='desc'?'asc':'desc';state.sort=b.dataset.sort;state.page=1;updateSortControls();load(); }));
+      $('iqMobileSort').addEventListener('change', e => { [state.sort, state.direction] = e.target.value.split(':'); state.page = 1; updateSortControls(); load(); });
       $('iqPrevious').addEventListener('click',()=>{state.page--;load();}); $('iqNext').addEventListener('click',()=>{state.page++;load();});
       $('iqRows').addEventListener('click', e => { const open=e.target.closest('[data-open]'), note=e.target.closest('[data-note]');if(open)openDetail(open.dataset.open);if(note)editNote(note); });
       $('iqRows').addEventListener('change', e => {if(e.target.matches('[data-inline]'))inlineEdit(e.target);});
@@ -314,7 +321,7 @@
       });
       window.addEventListener('beforeunload',e=>{if(state.dirty||state.editing){e.preventDefault();e.returnValue='';}});
       setInterval(()=>{if(!document.hidden&&!state.editing&&!state.dirty)load({quiet:true});},30000);
-    } catch (e) { error(e.message); $('iqRows').innerHTML='<tr><td colspan="13" class="iq-empty">The workspace could not load. Reload the page to retry.</td></tr>'; }
+    } catch (e) { error(e.message); $('iqRows').innerHTML='<tr><td colspan="9" class="iq-empty">The workspace could not load. Reload the page to retry.</td></tr>'; }
   }
   init();
 })();

@@ -47,9 +47,13 @@ def test_spreadsheet_detail_followup_mobile_and_escaping(app,factory):
             expect(page.locator('#iqRows tr')).to_have_count(1)
             expect(page.locator('#iqRows')).to_contain_text('Sally Example')
             expect(page.locator('#iqTimezone')).to_have_text('America/Los_Angeles')
-            assert page.locator('thead th').count() == 13
+            assert page.locator('thead th').count() == 9
+            expect(page.locator('thead th')).to_have_text(['Date received ↓','Source','Guest name','Lead status','Assigned agent','Internal notes','Phone number','Email address','Expand'])
+            expect(page.locator('#iqRows .iq-date')).to_have_text('Oct 20, 2026')
+            expect(page.locator('#iqRows .iq-status')).to_have_class('iq-status iq-status-attention')
+            expect(page.locator('#iqRows')).not_to_contain_text('Fair Haven')
             expect(page.locator('#iqRows .iq-origin')).to_have_text('EH website')
-            assert page.locator('.iq-sheet').evaluate('(e)=>e.scrollWidth > e.clientWidth')
+            assert page.locator('table').evaluate('(e)=>e.getBoundingClientRect().width') < 1400
             expect(page.get_by_label('Tag',exact=True)).to_be_visible()
             expect(page.get_by_label('Property',exact=True)).to_be_visible()
             page.locator('#iqProperty').select_option('102')
@@ -80,6 +84,10 @@ def test_spreadsheet_detail_followup_mobile_and_escaping(app,factory):
             page.locator('[data-open]').click()
             expect(page.locator('#iqPanel')).to_be_visible()
             expect(page.locator('#iqPanel')).to_contain_text('Original inquiry & conversation')
+            expect(page.locator('#iqPanel')).to_contain_text('Received Oct 20, 2026, 10:00 AM PDT')
+            expect(page.get_by_label('Property / tag',exact=True)).to_have_value('listing:101')
+            expect(page.get_by_label('Check-in',exact=True)).to_have_value('2026-11-22')
+            expect(page.get_by_label('Checkout',exact=True)).to_have_value('2026-11-25')
             expect(page.locator('#iqPanel a[href="mailto:sally@example.invalid"]')).to_be_visible()
             expect(page.locator('#iqPanel')).to_contain_text('window.inquiryInjected=true')
             assert page.evaluate('window.inquiryInjected') is None
@@ -108,7 +116,12 @@ def test_spreadsheet_detail_followup_mobile_and_escaping(app,factory):
             page.once('dialog',lambda dialog:dialog.accept())
             page.get_by_role('button',name='Close inquiry details').click()
             page.set_viewport_size({'width':390,'height':844})
+            page.wait_for_function('document.documentElement.scrollWidth <= window.innerWidth')
             assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+            page.wait_for_function('document.querySelector(".iq-sheet").scrollWidth === document.querySelector(".iq-sheet").clientWidth')
+            assert page.locator('.iq-sheet').evaluate('(e)=>e.scrollWidth == e.clientWidth')
+            expect(page.locator('#iqRows .iq-notes-cell')).to_be_visible()
+            expect(page.locator('#iqRows [data-inline=assigned_user_id]')).to_be_visible()
             page.screenshot(path=str(screenshots/'mobile.png'),full_page=True)
             page.locator('[data-open]').click()
             expect(page.locator('#iqPanel')).to_be_visible()
@@ -191,6 +204,59 @@ def test_all_source_columns_and_detail_labels_on_desktop_and_mobile(app, factory
             assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
             page.screenshot(path=str(screenshots / 'mobile.png'), full_page=True)
             assert errors == []
+            browser.close()
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_received_local_date_and_status_colors_survive_inline_updates(app, factory):
+    c = client(app)
+    lead_id = post(c, 'intake', email(received_at='2026-10-20T01:00:00+00:00')).json['lead_id']
+    cookie = c.get_cookie('session')
+    server = make_server('127.0.0.1', 0, app, threaded=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    origin = f'http://127.0.0.1:{server.server_port}'
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(viewport={'width': 1586, 'height': 1000})
+            context.add_cookies([{'name': 'session', 'value': cookie.value, 'url': origin}])
+            page = context.new_page()
+            page.goto(origin + '/inquiries/')
+            expect(page.locator('.iq-date')).to_have_text('Oct 19, 2026')
+            page.wait_for_function('document.querySelector(".iq-sheet").scrollWidth === document.querySelector(".iq-sheet").clientWidth')
+            assert page.locator('.iq-sheet').evaluate('(e)=>e.scrollWidth == e.clientWidth')
+            status = page.get_by_label('Status for Sally Example', exact=True)
+            expect(status).to_have_class('iq-status iq-status-attention')
+            for value, tone in [('In Progress','progress'), ('Booked','booked'), ('Closed — Not Booked','closed')]:
+                status.select_option(value)
+                expect(status).to_have_class('iq-status iq-status-' + tone)
+            status.select_option('Follow-up Required')
+            expect(page.locator('#iqPanel')).to_be_visible()
+            expect(page.locator('#iqPanel')).to_contain_text('Received Oct 19, 2026, 6:00 PM PDT')
+            page.get_by_label('Assigned agent', exact=True).select_option(str(app.qa_users['agent']))
+            page.get_by_label('Next action', exact=True).fill('Confirm available dates')
+            page.locator('[name=follow_up_at]').fill('2030-01-10T10:30')
+            page.get_by_role('button', name='Save changes', exact=True).click()
+            expect(page.locator('#iqSaveState')).to_have_text('Changes saved')
+            page.get_by_role('button', name='Close inquiry details').click()
+            expect(status).to_have_class('iq-status iq-status-attention')
+            lead = c.get(f'/inquiries/api/leads/{lead_id}').json
+            assert post(c, f'leads/{lead_id}', {'version':lead['version'], 'follow_up_at':'2020-01-10T18:30:00+00:00'}, method='PATCH').status_code == 200
+            page.get_by_role('button', name='Refresh', exact=True).click()
+            expect(status).to_have_class('iq-status iq-status-urgent')
+            expect(page.locator('.iq-status-cell')).to_contain_text('Overdue')
+            page.locator('.iq-status-key summary').click()
+            expect(page.locator('.iq-status-key')).to_contain_text('Urgent alerts take precedence')
+            page.set_viewport_size({'width':390, 'height':844})
+            with page.expect_response(lambda r: parse_qs(urlsplit(r.url).query).get('sort')==['status']):
+                page.get_by_label('Sort inquiries', exact=True).select_option('status:asc')
+            expect(status).to_have_class('iq-status iq-status-urgent')
+            page.wait_for_function('document.querySelector(".iq-sheet").scrollWidth === document.querySelector(".iq-sheet").clientWidth')
+            assert page.locator('.iq-sheet').evaluate('(e)=>e.scrollWidth == e.clientWidth')
+            page.screenshot(path='/tmp/ticket-834-mobile-urgent.png', full_page=True)
             browser.close()
     finally:
         server.shutdown()
