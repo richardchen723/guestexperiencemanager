@@ -131,3 +131,11 @@ test('custom reporting dates are forwarded on every reload', async () => {
     await run('loadResolutions()');
     assert.equal(requestedUrl, '/reviews/api/resolutions?start_date=2026-10-01&end_date=2026-10-28');
 });
+
+test('adding or reordering workflow statuses cannot swap Disputed and Resolved colors', () => {
+    const { run } = setup();
+    run(`resolutionState.stages = ['Resolved', 'New', 'Disputed', 'No Response'];`);
+    assert.match(run(`createResolutionRow({ticket_id: 1, stage: 'Resolved'})`), /data-stage-tone="positive"/);
+    assert.match(run(`createResolutionRow({ticket_id: 2, stage: 'Disputed'})`), /data-stage-tone="disputed"/);
+    assert.match(run(`createResolutionRow({ticket_id: 3, stage: 'No Response'})`), /data-stage-tone="neutral"/);
+});

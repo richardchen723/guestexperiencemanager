@@ -2032,12 +2032,12 @@ body.review-modal-open { overflow: hidden; }
     font-size: .7rem;
 }
 
-.review-resolution-table-stage[data-stage-index="0"] { background: #fffae8; border-color: #e9dba5; color: #795c13; }
-.review-resolution-table-stage[data-stage-index="1"] { background: #edf4ff; border-color: #ccdcf6; color: #305b93; }
-.review-resolution-table-stage[data-stage-index="2"] { background: #fff1e8; border-color: #efd0b9; color: #8e4e20; }
-.review-resolution-table-stage[data-stage-index="3"],
-.review-resolution-table-stage[data-stage-index="6"] { background: #edf8f2; border-color: #c7e4d3; color: #28724d; }
-.review-resolution-table-stage[data-stage-index="4"] { background: #fdf0f0; border-color: #ebcbcb; color: #9a3b3b; }
+.review-resolution-table-stage[data-stage-tone="new"] { background: #fffae8; border-color: #e9dba5; color: #795c13; }
+.review-resolution-table-stage[data-stage-tone="outreach"] { background: #edf4ff; border-color: #ccdcf6; color: #305b93; }
+.review-resolution-table-stage[data-stage-tone="follow-up"] { background: #fff1e8; border-color: #efd0b9; color: #8e4e20; }
+.review-resolution-table-stage[data-stage-tone="positive"] { background: #edf8f2; border-color: #c7e4d3; color: #28724d; }
+.review-resolution-table-stage[data-stage-tone="declined"] { background: #fdf0f0; border-color: #ebcbcb; color: #9a3b3b; }
+.review-resolution-table-stage[data-stage-tone="disputed"] { background: #f4efff; border-color: #d9ccf1; color: #69479a; }
 .review-resolution-table-stage:disabled { opacity: .6; }
 
 .review-resolution-table-link {

@@ -409,6 +409,15 @@ function createResolutionRow(review) {
     const ticketId = resolutionEscape(review.ticket_id);
     const rating = review.rating == null ? 'N/A' : `${Number(review.rating).toFixed(1)} ★`;
     const notes = Number(review.note_count || 0);
+    const stageTone = {
+        'New': 'new',
+        'Outreach Initiated': 'outreach',
+        'Require Follow Up': 'follow-up',
+        'Responded – Agreed to Remove': 'positive',
+        'Responded – Declined': 'declined',
+        'Disputed': 'disputed',
+        'Resolved': 'positive',
+    }[review.stage] || 'neutral';
     return `
         <tr data-ticket-id="${ticketId}">
             <td class="review-resolution-table-date">${review.review_date ? `<time datetime="${resolutionEscape(review.review_date)}">${resolutionFormatDate(review.review_date)}</time>` : '—'}</td>
@@ -422,7 +431,7 @@ function createResolutionRow(review) {
                 <span class="review-rating-pill" title="Rating out of 5 stars">${resolutionEscape(rating)}</span>
                 <small>${resolutionEscape(review.priority || 'Medium')} priority</small>
             </td>
-            <td><select class="review-resolution-table-stage" data-stage-index="${resolutionState.stages.indexOf(review.stage)}" data-action="change-stage" data-ticket-id="${ticketId}" aria-label="Resolution stage for ${guest}" ${resolutionState.movingTicketId ? 'disabled' : ''}>
+            <td><select class="review-resolution-table-stage" data-stage-tone="${stageTone}" data-action="change-stage" data-ticket-id="${ticketId}" aria-label="Resolution stage for ${guest}" ${resolutionState.movingTicketId ? 'disabled' : ''}>
                 ${resolutionState.stages.map((stage) => `<option value="${resolutionEscape(stage)}" ${stage === review.stage ? 'selected' : ''}>${resolutionEscape(stage)}</option>`).join('')}
             </select></td>
             <td>${resolutionEscape(review.assigned_user_name || 'Unassigned')}</td>
