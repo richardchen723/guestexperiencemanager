@@ -66,7 +66,7 @@
         const scopes = Array.isArray(key.scopes) ? key.scopes : ['*'];
         const access = document.createElement('span');
         access.className = `api-key-access${scopes.includes('*') ? ' is-full' : ''}`;
-        access.textContent = scopes.includes('*') ? 'Full API' : 'Guest Issues · read only';
+        access.textContent = scopes.includes('*') ? 'Full API' : scopes.map(scope => ({'guest_issues:read': 'Guest Issues · read only', 'sales:read': 'Owner Sales · read', 'sales:intake': 'Owner Sales · intake'}[scope] || scope)).join(' + ');
 
         const created = createMeta('Created', formatDateTime(key.created_at));
         const lastUsed = createMeta('Last used', formatDateTime(key.last_used_at));
@@ -125,7 +125,9 @@
             const scopes = Array.isArray(payload.scopes) ? payload.scopes : ['*'];
             document.getElementById('newApiKeyWarning').innerHTML = scopes.includes('*')
                 ? '<strong>Keep this credential private.</strong> It has full read and write API access.'
-                : '<strong>Keep this credential private.</strong> It can read the PII-minimized Guest Issues API only.';
+                : scopes.some(scope => scope.startsWith('sales:'))
+                    ? '<strong>Keep this credential private.</strong> Sales keys require an issuer with Sales CRM access. Human review is required for sales decisions.'
+                    : '<strong>Keep this credential private.</strong> It can read the PII-minimized Guest Issues API only.';
             panel.hidden = false;
             nameInput.value = '';
             panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });

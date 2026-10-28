@@ -19,7 +19,7 @@ from dashboard.config import API_KEY_SECRET
 FULL_ACCESS_SCOPE = "*"
 LEGACY_API_SCOPE = "legacy:full"
 GUEST_ISSUES_READ_SCOPE = "guest_issues:read"
-SUPPORTED_API_KEY_SCOPES = frozenset({FULL_ACCESS_SCOPE, GUEST_ISSUES_READ_SCOPE})
+SUPPORTED_API_KEY_SCOPES = frozenset({FULL_ACCESS_SCOPE, GUEST_ISSUES_READ_SCOPE, "sales:read", "sales:intake"})
 
 
 def _hash_api_key(raw_key: str) -> str:

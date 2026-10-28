@@ -64,6 +64,7 @@ from dashboard.stay_issues.routes import register_guest_issue_routes
 from dashboard.procurement.routes import register_procurement_routes
 from dashboard.procurement.models import init_procurement_database
 from dashboard.visibility.routes import register_visibility_routes
+from dashboard.sales.routes import register_sales_routes
 from dashboard.dashboard.routes import dashboard_bp
 from brain.models import init_guest_experience_tables, init_kpi_tables, init_listing_audit_tables
 from database.models import init_models
@@ -134,6 +135,7 @@ def create_app():
     register_guest_issue_routes(app)
     register_procurement_routes(app)
     register_visibility_routes(app)
+    register_sales_routes(app)
     app.register_blueprint(dashboard_bp)
     
     # Health check endpoint for monitoring
@@ -180,7 +182,8 @@ def create_app():
     @app.after_request
     def add_no_cache_headers(response):
         if response.content_type and 'text/html' in response.content_type:
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            if request.blueprint != 'sales':
+                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
         return response

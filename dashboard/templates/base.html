@@ -32,6 +32,7 @@
     {% elif 'booking_health' in endpoint %}{% set workspace_name = 'Booking health' %}
     {% elif 'listing_audit' in endpoint %}{% set workspace_name = 'Listing health' %}
     {% elif 'kpi' in endpoint %}{% set workspace_name = 'KPI' %}
+    {% elif 'sales' in endpoint %}{% set workspace_name = 'Owner sales' %}
     {% elif 'procurement' in endpoint %}{% set workspace_name = 'Procurement' %}
     {% elif 'tickets' in endpoint %}{% set workspace_name = 'Tickets' %}
     {% elif 'reviews' in endpoint %}{% set workspace_name = 'Reviews' %}
@@ -105,6 +106,12 @@
                     <a href="{{ url_for('guest_issues.guest_issues_page') }}" class="app-nav-link {% if 'guest_issues' in endpoint %}active{% endif %}" title="Guest issues">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4V5Z"/><path d="M8 9h8M8 13h5"/></svg>
                         <span>Guest issues</span>
+                    </a>
+                    {% endif %}
+                    {% if feature_access.sales %}
+                    <a href="{{ url_for('sales.page') }}" class="app-nav-link {% if 'sales' in endpoint %}active{% endif %}" title="Owner sales">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20V8l6-4 6 4v12M15 10l6-3v13M1 20h22M7 20v-6h4v6"/></svg>
+                        <span>Owner sales</span>
                     </a>
                     {% endif %}
                     {% if feature_access.tickets %}

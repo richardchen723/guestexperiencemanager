@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}Owner Sales CRM · Enchanted Havens{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static',filename='css/sales.css') }}">
+<meta name="sales-csrf" content="{{ sales_csrf }}">
+{% endblock %}
+{% block content %}
+<div id="sales-app" class="sales" data-initial-deal="{{ sales_deal_id or '' }}">
+    <header class="sales-heading"><div><div class="sales-eyebrow">ENCHANTED HAVENS / BUSINESS DEVELOPMENT</div><h1>Owner sales</h1><p>Build relationships. Grow the portfolio.</p></div><div class="sales-actions"><button data-action="import">Import CSV</button><button data-action="create" class="primary">＋ New opportunity</button></div></header>
+    <nav class="sales-tabs" aria-label="Sales workspace"><button data-view="leads" aria-current="page">Leads</button><button data-view="pipeline">Pipeline</button><button data-view="tasks">Tasks & appointments</button><button data-view="reports">Reports</button><button data-view="settings" id="sales-settings-tab" hidden>Settings</button></nav>
+    <div id="sales-error" role="alert" hidden></div>
+    <div id="sales-status" role="status" aria-live="polite"></div>
+    <section id="sales-filters" aria-label="Opportunity filters"></section>
+    <main id="sales-content" aria-busy="true"><p class="sales-empty">Loading your sales workspace…</p></main>
+    <dialog id="sales-dialog" aria-labelledby="sales-dialog-title"><form id="sales-form"><header><h2 id="sales-dialog-title"></h2><button type="button" data-action="close-dialog" aria-label="Close dialog">×</button></header><div id="sales-form-body"></div><p id="sales-form-error" role="alert" hidden></p><footer><button type="button" data-action="close-dialog">Cancel</button><button type="submit" class="primary" id="sales-save">Save</button></footer></form></dialog>
+</div>
+{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static',filename='js/sales.js') }}" defer></script>{% endblock %}
