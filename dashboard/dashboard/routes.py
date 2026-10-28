@@ -49,15 +49,9 @@ def api_dashboard_data():
         ticket_limit = 50
     
     try:
-        occupancy_months = min(max(1, int(request.args.get('occupancy_months', 6))), 12)
-    except (ValueError, TypeError):
-        occupancy_months = 6
-    
-    try:
         service = DashboardService(current_user.user_id)
         data = service.get_dashboard_data(
-            ticket_limit=ticket_limit,
-            occupancy_months=occupancy_months
+            ticket_limit=ticket_limit
         )
         return jsonify(data)
     except Exception as e:

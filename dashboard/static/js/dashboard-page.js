@@ -2,7 +2,6 @@
 // Configuration
 const CONFIG = {
     ticketLimit: 50,
-    occupancyMonths: 6,
     refreshInterval: null, // Can be set for auto-refresh
     ticketStatuses: ['Open', 'Assigned', 'In Progress', 'Blocked', 'Resolved', 'Closed'],
     ticketPriorities: ['Low', 'Medium', 'High', 'Critical']
@@ -74,7 +73,7 @@ async function loadDashboard() {
     hideContent();
     
     try {
-        const response = await fetch(`/dashboard/api/data?ticket_limit=${CONFIG.ticketLimit}&occupancy_months=${CONFIG.occupancyMonths}`);
+        const response = await fetch(`/dashboard/api/data?ticket_limit=${CONFIG.ticketLimit}`);
         
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -84,7 +83,7 @@ async function loadDashboard() {
         
         renderStatistics(dashboardData.statistics);
         renderTickets(dashboardData.tickets, dashboardData.statistics);
-        renderOccupancyChart(dashboardData.occupancy);
+        renderOccupancyChart(dashboardData.occupancy, dashboardData.occupancy_metadata);
         
         hideLoading();
         showContent();
@@ -134,74 +133,81 @@ function renderTickets(tickets, statistics = {}) {
     });
 }
 
-function renderOccupancyChart(occupancyData) {
-    // Handle empty data
-    if (!occupancyData || occupancyData.length === 0) {
-        document.getElementById('noOccupancyData').style.display = 'block';
-        return;
-    }
-    
-    document.getElementById('noOccupancyData').style.display = 'none';
-    
-    // Destroy existing chart if present
+function occupancyMonthLabel(value) {
+    const [year, month] = value.split('-').map(Number);
+    return new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
+function renderOccupancyChart(occupancyData, metadata = {}) {
     if (occupancyChart) {
         occupancyChart.destroy();
         occupancyChart = null;
     }
-    
-    // Prepare data
-    const labels = occupancyData.map(d => {
-        // Format month as "MMM YYYY" (e.g., "Jan 2024")
-        const [year, month] = d.month.split('-');
-        const date = new Date(parseInt(year), parseInt(month) - 1);
-        return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    });
-    const data = occupancyData.map(d => d.occupancy_rate);
-    
-    // Create chart
-    const ctx = document.getElementById('occupancyChart');
-    if (!ctx) {
-        console.error('Chart canvas not found');
+    const rows = Array.isArray(occupancyData) ? occupancyData : [];
+    const hasValues = rows.some(row => Number.isFinite(row.occupancy_rate));
+    const empty = document.getElementById('noOccupancyData');
+    empty.style.display = hasValues ? 'none' : 'block';
+    const count = metadata.listing_count;
+    setDashboardText('occupancyScope', rows.length
+        ? `${occupancyMonthLabel(rows[0].month)} – ${occupancyMonthLabel(rows[rows.length - 1].month)} · ${count ?? 'Unknown number of'} current listings`
+        : 'Occupancy data unavailable');
+    setDashboardText('occupancySync', ['reservations', 'listings'].map(source => {
+        const stamp = metadata.syncs?.[source]?.completed_at;
+        const parsed = stamp ? new Date(stamp) : null;
+        if (!parsed || Number.isNaN(parsed.getTime())) return `${source}: sync time unavailable`;
+        const stale = Date.now() - parsed.getTime() > 48 * 60 * 60 * 1000;
+        const label = parsed.toLocaleString('en-US', {
+            timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
+        });
+        return `${source}: ${label} UTC${stale ? ' (over 48 hours old)' : ''}`;
+    }).join(' · '));
+    const labels = rows.map(row => occupancyMonthLabel(row.month));
+    document.getElementById('occupancyValues').innerHTML = rows.map((row, index) => `
+        <tr><th scope="row">${escapeHtml(labels[index])}${row.is_current_month ? ' (current)' : ''}</th>
+        <td>${row.period === 'historical' ? 'Recorded bookings' : 'On the books'}</td>
+        <td>${row.booked_nights ?? '—'}</td><td>${row.capacity_nights ?? '—'}</td>
+        <td>${Number.isFinite(row.occupancy_rate) ? row.occupancy_rate.toFixed(2) + '%' : 'Unavailable'}</td></tr>
+    `).join('');
+    const canvas = document.getElementById('occupancyChart');
+    if (!canvas || !rows.length) return;
+    if (typeof Chart === 'undefined') {
+        document.getElementById('occupancyDetails').open = true;
         return;
     }
-    
-    occupancyChart = new Chart(ctx.getContext('2d'), {
+    occupancyChart = new Chart(canvas.getContext('2d'), {
         type: 'bar',
         data: {
-            labels: labels,
+            labels: labels.map((label, index) => rows[index].is_current_month ? [label, 'Current'] : label),
             datasets: [{
-                label: 'Occupancy Rate (%)',
-                data: data,
-                backgroundColor: 'rgba(37, 99, 235, 0.6)',
-                borderColor: 'rgba(37, 99, 235, 1)',
-                borderWidth: 1
+                label: 'Booked nights / calendar capacity',
+                data: rows.map(row => Number.isFinite(row.occupancy_rate) ? row.occupancy_rate : null),
+                backgroundColor: rows.map(row => row.period === 'historical' ? '#5875c4' : '#9dcfc9'),
+                borderColor: rows.map(row => row.is_current_month ? '#207a70' : 'transparent'),
+                borderWidth: rows.map(row => row.is_current_month ? 2 : 0),
+                borderRadius: 4,
+                maxBarThickness: 48
             }]
         },
         options: {
             responsive: true,
-            maintainAspectRatio: true,
+            maintainAspectRatio: false,
             scales: {
-                y: {
-                    beginAtZero: true,
-                    max: 100,
-                    ticks: {
-                        callback: function(value) {
-                            return value + '%';
-                        }
-                    }
-                }
+                x: { ticks: { autoSkip: false, maxRotation: 0 }, grid: { display: false } },
+                y: { beginAtZero: true, max: 100, ticks: { callback: value => value + '%' } }
             },
             plugins: {
-                legend: {
-                    display: false
-                },
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return 'Occupancy: ' + context.parsed.y.toFixed(1) + '%';
-                        }
+                legend: { display: false },
+                tooltip: { callbacks: {
+                    label: context => {
+                        const row = rows[context.dataIndex];
+                        const period = row.period === 'historical' ? 'Recorded bookings' : 'On the books';
+                        return Number.isFinite(row.occupancy_rate) ? `${period}: ${row.occupancy_rate.toFixed(2)}%` : `${period}: unavailable`;
+                    },
+                    afterLabel: context => {
+                        const row = rows[context.dataIndex];
+                        return `${row.booked_nights} booked / ${row.capacity_nights} calendar nights`;
                     }
-                }
+                } }
             }
         }
     });
@@ -416,7 +422,7 @@ function setDashboardTicketSaveState(enabled, saving = false) {
 }
 
 async function refreshDashboardAfterTicketUpdate() {
-    const response = await fetch(`/dashboard/api/data?ticket_limit=${CONFIG.ticketLimit}&occupancy_months=${CONFIG.occupancyMonths}`);
+    const response = await fetch(`/dashboard/api/data?ticket_limit=${CONFIG.ticketLimit}`);
     if (!response.ok) throw new Error('Ticket saved, but the dashboard could not refresh.');
     dashboardData = await response.json();
     renderStatistics(dashboardData.statistics);

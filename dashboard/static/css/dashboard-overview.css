@@ -322,3 +322,30 @@ body.dashboard-modal-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
     .dashboard-ticket-card { transition: none; }
 }
+
+/* A fixed-height plot keeps all twelve labels readable without page overflow. */
+.occupancy-section { min-width: 0; }
+.occupancy-header { align-items: center; gap: 1rem; }
+.occupancy-header h2 { margin: .3rem 0; }
+.occupancy-header p, .occupancy-note, .occupancy-details { color: #66758b; font-size: .8rem; line-height: 1.6; }
+.occupancy-header p { margin: 0; }
+.occupancy-estimate { padding: .3rem .65rem; border-radius: 20px; background: #f0f4fb; color: #536b9b; font-size: .7rem; white-space: nowrap; }
+.occupancy-legend { display: flex; flex-wrap: wrap; gap: .6rem 1.5rem; color: #536078; font-size: .75rem; }
+.occupancy-legend span { display: inline-flex; align-items: center; gap: .45rem; }
+.occupancy-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.occupancy-past { background: #5875c4; }
+.occupancy-future { background: #9dcfc9; }
+.occupancy-chart-scroll, .occupancy-table-scroll { overflow-x: auto; max-width: 100%; }
+.occupancy-section .occupancy-chart { min-width: 840px; height: 300px; overflow: visible; }
+.occupancy-note { margin: .75rem 0; }
+.occupancy-details { border-top: 1px solid #e7ecf3; padding-top: .8rem; }
+.occupancy-details summary { cursor: pointer; color: #3f5b90; font-weight: 600; }
+.occupancy-table { border-collapse: collapse; width: 100%; min-width: 540px; color: #334155; }
+.occupancy-table caption { text-align: left; margin-bottom: .5rem; }
+.occupancy-table th, .occupancy-table td { text-align: right; padding: .55rem .7rem; border-bottom: 1px solid #e7ecf3; white-space: nowrap; }
+.occupancy-table th:first-child, .occupancy-table td:nth-child(2) { text-align: left; }
+.occupancy-table thead { background: #f5f7fb; }
+.occupancy-sync { font-size: .75rem; }
+@media (max-width: 640px) {
+    .dashboard-section.occupancy-section .occupancy-header { flex-direction: column; align-items: flex-start; }
+}
