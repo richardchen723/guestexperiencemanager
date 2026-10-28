@@ -6,9 +6,8 @@ Dashboard service for fetching and calculating dashboard data.
 import sys
 import os
 import logging
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta, datetime, timezone
 from typing import Dict, List, Optional
-from calendar import monthrange
 from sqlalchemy import func, case
 from sqlalchemy.orm import joinedload
 
@@ -19,7 +18,8 @@ sys.path.insert(0, project_root)
 from dashboard.tickets.models import (
     Ticket, TicketListing, TicketTag, get_session, TICKET_STATUSES, TICKET_PRIORITIES, STANDARD_TICKET_TYPE
 )
-from database.models import Reservation, Listing, get_session as get_main_session
+from database.models import Reservation, Listing, SyncLog, get_session as get_main_session
+from dashboard.dashboard.occupancy import build_occupancy, month_start
 import dashboard.config as config
 
 logger = logging.getLogger(__name__)
@@ -39,13 +39,13 @@ class DashboardService:
     
     def get_dashboard_data(self, 
                           ticket_limit: int = 50,
-                          occupancy_months: int = 6) -> Dict:
+                          occupancy_months: int = 12) -> Dict:
         """
         Get all dashboard data in a single call.
         
         Args:
             ticket_limit: Maximum number of tickets to return (default: 50, max: 50)
-            occupancy_months: Number of months for occupancy calculation (default: 6, max: 12)
+            occupancy_months: Legacy argument; the chart always returns 12 rolling months.
         
         Returns:
             {
@@ -57,16 +57,16 @@ class DashboardService:
         try:
             # Validate limits
             ticket_limit = min(max(1, ticket_limit), 50)
-            occupancy_months = min(max(1, occupancy_months), 12)
             
             tickets = self._get_my_tickets(limit=ticket_limit)
             statistics = self._calculate_statistics()
-            occupancy = self._calculate_occupancy(months=occupancy_months)
+            occupancy = self._calculate_occupancy()
             
             return {
                 'tickets': tickets,
                 'statistics': statistics,
-                'occupancy': occupancy
+                'occupancy': occupancy,
+                'occupancy_metadata': self.occupancy_metadata
             }
         except Exception as e:
             logger.error(f"Error in get_dashboard_data for user {self.user_id}: {e}", exc_info=True)
@@ -247,102 +247,50 @@ class DashboardService:
                 'closed_this_month': 0
             }
     
-    def _calculate_occupancy(self, months: int = 6) -> List[Dict]:
+    def _calculate_occupancy(self, months: int = 12) -> List[Dict]:
+        """Fixed six completed months + current month and next five (UTC anchor).
+
+        ORM reads preserve the application's operational archive scope. Stay
+        dates are already property-local dates and must not be timezone-shifted.
+        The legacy months argument is retained for cached callers.
         """
-        Calculate occupancy rate for the last N months.
-        
-        Occupancy is calculated as: (total occupied nights across all listings) / (total available nights)
-        Uses sets to track occupied dates per listing to prevent double-counting overlapping reservations.
-        """
+        now = datetime.now(timezone.utc)
+        today = now.date()
         try:
-            today = date.today()
-            start_date = today.replace(day=1) - timedelta(days=32 * months)
-            start_date = start_date.replace(day=1)  # First day of the month
-            
-            # Get all reservations in the date range
-            # Exclude cancelled reservations (case-insensitive check)
+            listings = self.main_session.query(Listing).all()
             reservations = self.main_session.query(Reservation).filter(
-                Reservation.arrival_date.isnot(None),
-                Reservation.departure_date.isnot(None),
-                Reservation.arrival_date <= (today + timedelta(days=32 * months)),
-                Reservation.departure_date >= start_date
+                Reservation.arrival_date < month_start(today, 6),
+                Reservation.departure_date > month_start(today, -6),
             ).all()
-            
-            # Filter out cancelled reservations in Python (more reliable for case-insensitive)
-            cancelled_statuses = ['cancelled', 'canceled', 'Cancelled', 'Canceled']
-            reservations = [r for r in reservations if r.status not in cancelled_statuses]
-            
-            # Get all listings
-            listings = self.main_session.query(Listing).filter(
-                func.lower(func.coalesce(Listing.status, '')) != 'deleted'
-            ).all()
-            listing_ids = [l.listing_id for l in listings]
-            
-            final_result = []
-            for i in range(months):
-                month_date = today.replace(day=1) - timedelta(days=32 * (months - 1 - i))
-                month_date = month_date.replace(day=1)
-                
-                # Get last day of month
-                last_day = monthrange(month_date.year, month_date.month)[1]
-                month_end = month_date.replace(day=last_day)
-                
-                # Total available nights in month (using days as the unit)
-                # For occupancy calculation: each day represents one night available
-                total_nights_per_listing = last_day
-                
-                # Track occupied dates per listing using sets
-                # This prevents double-counting when multiple reservations overlap
-                listing_occupied_dates = {}
-                for listing_id in listing_ids:
-                    listing_occupied_dates[listing_id] = set()
-                
-                # Mark each date as occupied for each listing
-                for reservation in reservations:
-                    # Check if reservation overlaps with this month
-                    if reservation.arrival_date <= month_end and reservation.departure_date >= month_date:
-                        listing_id = reservation.listing_id
-                        if listing_id not in listing_occupied_dates:
-                            continue
-                        
-                        # Calculate date range for this month
-                        overlap_start = max(reservation.arrival_date, month_date)
-                        overlap_end = min(reservation.departure_date, month_end)
-                        
-                        # Mark each date as occupied (using dates, not counting days)
-                        # This ensures overlapping reservations don't double-count
-                        current_date = overlap_start
-                        while current_date <= overlap_end:
-                            listing_occupied_dates[listing_id].add(current_date)
-                            current_date += timedelta(days=1)
-                
-                # Calculate total occupied nights across all listings
-                total_occupied_nights = 0
-                for listing_id in listing_ids:
-                    occupied_nights = len(listing_occupied_dates.get(listing_id, set()))
-                    total_occupied_nights += occupied_nights
-                
-                # Calculate total available nights (all listings × nights in month)
-                total_available_nights = len(listing_ids) * total_nights_per_listing if listing_ids else 0
-                
-                # Calculate overall occupancy rate
-                if total_available_nights > 0:
-                    occupancy_rate = (total_occupied_nights / total_available_nights) * 100
-                else:
-                    occupancy_rate = 0.0
-                
-                final_result.append({
-                    'month': month_date.strftime('%Y-%m'),
-                    'occupancy_rate': round(occupancy_rate, 2),
-                    'listing_id': None,
-                    'listing_name': 'All Properties'
-                })
-            
-            return final_result
-        except Exception as e:
-            logger.error(f"Error in _calculate_occupancy for user {self.user_id}: {e}", exc_info=True)
-            return []
-    
+            result = build_occupancy(listings, reservations, today=today)
+        except Exception:
+            logger.exception("Could not read dashboard occupancy for user %s", self.user_id)
+            self.main_session.rollback()
+            result = build_occupancy([], [], today=today, source_available=False)
+        result['metadata']['calculated_at'] = now.isoformat()
+        # Sync completion is provenance, not proof of complete historical coverage.
+        result['metadata']['syncs'] = {}
+        for source in ('listings', 'reservations'):
+            try:
+                latest = self.main_session.query(SyncLog).filter(
+                    SyncLog.sync_type == source,
+                    SyncLog.status == 'success',
+                    SyncLog.completed_at.isnot(None),
+                ).order_by(SyncLog.completed_at.desc()).first()
+                if latest:
+                    stamp = latest.completed_at
+                    if stamp.tzinfo is None:
+                        stamp = stamp.replace(tzinfo=timezone.utc)
+                    result['metadata']['syncs'][source] = {
+                        'completed_at': stamp.astimezone(timezone.utc).isoformat(),
+                        'mode': latest.sync_mode,
+                    }
+            except Exception:
+                logger.warning("Occupancy sync history unavailable: %s", source, exc_info=True)
+                self.main_session.rollback()
+        self.occupancy_metadata = result['metadata']
+        return result['months']
+
     def _close_sessions(self):
         """Close database sessions."""
         try:

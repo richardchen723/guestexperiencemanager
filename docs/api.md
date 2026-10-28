@@ -244,7 +244,9 @@ the collection. An unknown ID returns:
 
 ## Dashboard
 - `GET /dashboard/api/data`
-  - Query params: `ticket_limit`, `occupancy_months`
+  - Query params: `ticket_limit`. Legacy `occupancy_months` is ignored.
+  - `occupancy`: exactly 12 calendar months (six completed months plus the current UTC month and next five), with departure-exclusive, deduplicated confirmed guest nights divided by current listing calendar capacity. Includes raw `booked_nights`, `capacity_nights`, `period`, and `is_current_month`. Unknown rates are `null`, not zero.
+  - `occupancy_metadata`: current operational listing count, date bounds, calculation time and last successful source syncs. This is a current-catalog estimate; unavailable-night history, management dates, combined-unit mapping and full source coverage are not established.
 
 ## STR Signal Brain
 Brain is served by the separate `brain.yourcottoncandy.com` service, but uses the same Google session and API-key authentication patterns.

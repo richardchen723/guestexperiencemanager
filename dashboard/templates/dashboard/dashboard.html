@@ -3,7 +3,7 @@
 {% block title %}Dashboard - Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard-overview.css', v='20260829-2') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard-overview.css', v='20261028-859') }}">
 {% endblock %}
 
 {% block content %}
@@ -78,18 +78,44 @@
         </div>
         
         <!-- Occupancy Chart Section -->
-        <div class="dashboard-section">
-            <div class="section-header">
-                <h2>Occupancy Rate (Last 6 Months)</h2>
+        <section class="dashboard-section occupancy-section" aria-labelledby="occupancyTitle">
+            <div class="section-header occupancy-header">
+                <div>
+                    <span class="dashboard-section-eyebrow">Portfolio outlook</span>
+                    <h2 id="occupancyTitle">Occupancy Rate · 12 Months</h2>
+                    <p id="occupancyScope"></p>
+                </div>
+                <span class="occupancy-estimate">Calendar-capacity estimate</span>
             </div>
-            <div class="chart-container">
-                <canvas id="occupancyChart"></canvas>
+            <div class="occupancy-legend" aria-label="Chart legend">
+                <span><i class="occupancy-past" aria-hidden="true"></i>Recorded bookings · 6 completed months</span>
+                <span><i class="occupancy-future" aria-hidden="true"></i>On the books · current month + next 5</span>
             </div>
-            <div id="noOccupancyData" class="empty-state" style="display: none;">
-                <p>No occupancy data available.</p>
+            <div class="occupancy-chart-scroll" tabindex="0" role="region" aria-label="12-month occupancy chart, scroll horizontally on small screens">
+                <div class="chart-container occupancy-chart">
+                    <canvas id="occupancyChart" role="img" aria-label="Monthly booked nights as a percentage of calendar capacity. Exact values are in Monthly values and calculation below."></canvas>
+                </div>
             </div>
-        </div>
-        
+            <div id="noOccupancyData" class="empty-state" style="display: none;" role="status">
+                <p>Occupancy is unavailable. No usable inventory or source data was returned.</p>
+            </div>
+            <p class="occupancy-note">Future bars show reservations currently on the books, not a forecast. Current month includes the full month.</p>
+            <details id="occupancyDetails" class="occupancy-details">
+                <summary>Monthly values and calculation</summary>
+                <p>Confirmed guest nights ÷ calendar nights across the current operational listings. Check-in is included; checkout is excluded. Overlapping bookings count once per listing-night. Inquiries, cancellations, owner stays and iCal records are excluded from booked nights.</p>
+                <p>Capacity assumes each current listing exists for the full month. Blocks and owner stays remain in capacity; historical management dates and combined-unit mapping are not established. This estimate is not occupancy of sellable inventory. A zero means no qualifying bookings in the synchronized data; unavailable means the rate could not be calculated.</p>
+                <p>The rolling window uses UTC; stay dates retain their property-local calendar dates. Recorded bookings are not verified completed stays. Sync completion does not establish complete booking or inventory coverage.</p>
+                <p class="occupancy-sync">Last successful sync — <span id="occupancySync"></span></p>
+                <div class="occupancy-table-scroll">
+                    <table class="occupancy-table">
+                        <caption>Monthly occupancy estimates for the current listing scope</caption>
+                        <thead><tr><th scope="col">Month</th><th scope="col">Period</th><th scope="col">Booked nights</th><th scope="col">Calendar nights</th><th scope="col">Occupancy</th></tr></thead>
+                        <tbody id="occupancyValues"></tbody>
+                    </table>
+                </div>
+            </details>
+        </section>
+
         <!-- Quick Actions (Desktop) -->
         <div class="dashboard-actions desktop-only">
             <a href="/tickets/create" class="btn btn-primary">Create New Ticket</a>
@@ -157,5 +183,5 @@
     // Set current user ID for dashboard navigation
     window.CURRENT_USER_ID = {{ current_user.user_id if current_user.user_id else 'null' }};
 </script>
-<script src="{{ url_for('static', filename='js/dashboard-page.js', v='20260830-1') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard-page.js', v='20261028-859') }}"></script>
 {% endblock %}
