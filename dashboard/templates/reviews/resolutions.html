@@ -3,7 +3,7 @@
 {% block title %}Review Resolutions - Hostaway Insights{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20260829-1') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/review-operations.css', v='20261028-844') }}">
 {% endblock %}
 
 {% block content %}
@@ -68,22 +68,32 @@
     <section class="review-resolution-board-shell" aria-labelledby="resolutionBoardHeading">
         <div class="review-ops-panel-head">
             <div>
-                <span class="review-ops-eyebrow">Swim lanes</span>
+                <span id="resolutionViewLabel" class="review-ops-eyebrow">Swim lanes</span>
                 <h2 id="resolutionBoardHeading">Resolution workflow</h2>
             </div>
-            <div class="review-ops-toolbar">
-                <label class="review-ops-select-wrap">
-                    <span class="sr-only">Filter review resolutions by portfolio</span>
-                    <select id="resolutionPortfolioFilter" aria-label="Filter review resolutions by portfolio">
-                        <option value="">All portfolios</option>
-                    </select>
-                </label>
-                <label class="review-ops-search">
-                    <span class="sr-only">Search review resolutions</span>
-                    <span aria-hidden="true">⌕</span>
-                    <input id="resolutionSearch" type="search" placeholder="Search guest or property">
-                </label>
+            <div id="resolutionViewToggle" class="review-resolution-view-toggle" role="group" aria-label="Resolution view">
+                <button type="button" data-resolution-view="swimlane" aria-pressed="true" aria-controls="resolutionBoard">Swim lanes</button>
+                <button type="button" data-resolution-view="table" aria-pressed="false" aria-controls="resolutionTable">Table</button>
             </div>
+        </div>
+        <div class="review-ops-toolbar review-resolution-toolbar">
+            <label class="review-ops-select-wrap">
+                <span class="sr-only">Filter review resolutions by portfolio</span>
+                <select id="resolutionPortfolioFilter" aria-label="Filter review resolutions by portfolio">
+                    <option value="">All portfolios</option>
+                </select>
+            </label>
+            <label class="review-ops-select-wrap">
+                <span class="sr-only">Filter review resolutions by status</span>
+                <select id="resolutionStageFilter" aria-label="Filter review resolutions by status">
+                    <option value="">All statuses</option>
+                </select>
+            </label>
+            <label class="review-ops-search">
+                <span class="sr-only">Search review resolutions</span>
+                <span aria-hidden="true">⌕</span>
+                <input id="resolutionSearch" type="search" placeholder="Search guest or property">
+            </label>
         </div>
         <div id="resolutionBoard" class="review-resolution-board" aria-live="polite">
             <div class="review-ops-loading">
@@ -91,6 +101,7 @@
                 <span>Loading resolution tickets…</span>
             </div>
         </div>
+        <div id="resolutionTable" class="review-resolution-table-view" aria-live="polite" hidden></div>
     </section>
 </div>
 
@@ -127,5 +138,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/review-resolutions.js', v='20260829-2') }}"></script>
+<script src="{{ url_for('static', filename='js/review-resolutions.js', v='20261028-844') }}"></script>
 {% endblock %}
