@@ -7,6 +7,13 @@ const resolutionState = {
     lookback: {},
     search: '',
     portfolio: '',
+    stage: '',
+    view: 'swimlane',
+    sort: 'review_date',
+    sortDirection: 'desc',
+    loading: true,
+    error: '',
+    movingTicketId: null,
     startDate: '',
     endDate: '',
     draggedTicketId: null,
@@ -20,6 +27,18 @@ const resolutionState = {
 let resolutionToastTimer = null;
 
 document.addEventListener('DOMContentLoaded', () => {
+    try {
+        if (localStorage.getItem('reviewResolutionView') === 'table') resolutionState.view = 'table';
+    } catch (_) { /* The view still works when browser storage is unavailable. */ }
+    document.getElementById('resolutionViewToggle')?.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-resolution-view]');
+        if (!button) return;
+        resolutionState.view = button.dataset.resolutionView;
+        try {
+            localStorage.setItem('reviewResolutionView', resolutionState.view);
+        } catch (_) { /* Keeping the preference is optional. */ }
+        renderResolutionBoard();
+    });
     document.getElementById('resolutionDateRangeForm')?.addEventListener('submit', handleResolutionDateSubmit);
     document.getElementById('resolutionDateClear')?.addEventListener('click', clearResolutionDateRange);
     document.getElementById('resolutionStartDate')?.addEventListener('input', clearResolutionDateError);
@@ -32,6 +51,25 @@ document.addEventListener('DOMContentLoaded', () => {
         resolutionState.portfolio = event.target.value;
         renderResolutionBoard();
     });
+    document.getElementById('resolutionStageFilter')?.addEventListener('change', (event) => {
+        resolutionState.stage = event.target.value;
+        renderResolutionBoard();
+    });
+    const table = document.getElementById('resolutionTable');
+    table?.addEventListener('click', (event) => {
+        const sortButton = event.target.closest('[data-resolution-sort]');
+        if (sortButton) {
+            const key = sortButton.dataset.resolutionSort;
+            resolutionState.sortDirection = resolutionState.sort === key && resolutionState.sortDirection === 'asc'
+                ? 'desc' : 'asc';
+            resolutionState.sort = key;
+            renderResolutionBoard();
+            table.querySelector(`[data-resolution-sort="${key}"]`)?.focus();
+            return;
+        }
+        handleResolutionCardClick(event);
+    });
+    table?.addEventListener('change', handleStageSelect);
     const board = document.getElementById('resolutionBoard');
     board?.addEventListener('click', handleResolutionCardClick);
     board?.addEventListener('change', handleStageSelect);
@@ -60,7 +98,9 @@ async function resolutionFetch(url, options = {}) {
 async function loadResolutions() {
     const board = document.getElementById('resolutionBoard');
     if (!board) return;
-    board.innerHTML = '<div class="review-ops-loading"><span class="review-ops-spinner" aria-hidden="true"></span><span>Loading resolution tickets…</span></div>';
+    resolutionState.loading = true;
+    resolutionState.error = '';
+    renderResolutionBoard();
     setResolutionDateLoading(true);
     try {
         const params = new URLSearchParams();
@@ -81,12 +121,14 @@ async function loadResolutions() {
         document.getElementById('resolutionResolvedCount').textContent = data.summary?.resolved ?? 0;
         renderResolutionRules();
         renderResolutionPortfolioFilter();
+        renderResolutionStageFilter();
         renderResolutionLookback();
-        renderResolutionBoard();
     } catch (error) {
-        board.innerHTML = `<div class="review-ops-error">${resolutionEscape(error.message)}</div>`;
+        resolutionState.error = error.message;
         setResolutionDateError(error.message);
     } finally {
+        resolutionState.loading = false;
+        renderResolutionBoard();
         setResolutionDateLoading(false);
     }
 }
@@ -243,19 +285,55 @@ async function handleRuleChange(event) {
     }
 }
 
+function renderResolutionStageFilter() {
+    const select = document.getElementById('resolutionStageFilter');
+    if (!select) return;
+    if (!resolutionState.stages.includes(resolutionState.stage)) resolutionState.stage = '';
+    select.innerHTML = '<option value="">All statuses</option>' + resolutionState.stages.map((stage) => (
+        `<option value="${resolutionEscape(stage)}">${resolutionEscape(stage)}</option>`
+    )).join('');
+    select.value = resolutionState.stage;
+}
+
+function resolutionMatchesFilters(review) {
+    if (resolutionState.portfolio && (review.portfolio || 'Unmapped') !== resolutionState.portfolio) return false;
+    if (resolutionState.stage && review.stage !== resolutionState.stage) return false;
+    if (!resolutionState.search) return true;
+    const haystack = `${review.guest_name || ''} ${review.listing_name || ''} ${review.portfolio || ''} ${resolutionChannelLabel(review.channel_name)} ${review.title || ''}`.toLowerCase();
+    return haystack.includes(resolutionState.search);
+}
+
 function renderResolutionBoard() {
     const board = document.getElementById('resolutionBoard');
-    if (!board) return;
+    const table = document.getElementById('resolutionTable');
+    if (!board || !table) return;
+    const isTable = resolutionState.view === 'table';
+    board.hidden = isTable;
+    table.hidden = !isTable;
+    document.getElementById('resolutionViewLabel').textContent = isTable ? 'Table view' : 'Swim lanes';
+    document.querySelectorAll('[data-resolution-view]').forEach((button) => {
+        button.setAttribute('aria-pressed', String(button.dataset.resolutionView === resolutionState.view));
+    });
+    const container = isTable ? table : board;
+    container.setAttribute('aria-busy', String(resolutionState.loading));
+    if (resolutionState.loading) {
+        container.innerHTML = '<div class="review-ops-loading"><span class="review-ops-spinner" aria-hidden="true"></span><span>Loading resolution tickets…</span></div>';
+    } else if (resolutionState.error) {
+        container.innerHTML = `<div class="review-ops-error">${resolutionEscape(resolutionState.error)}</div>`;
+    } else if (isTable) {
+        renderResolutionTable();
+    } else {
+        renderResolutionLanes();
+    }
+}
+
+function renderResolutionLanes() {
+    const board = document.getElementById('resolutionBoard');
     board.style.setProperty('--resolution-stage-count', Math.max(resolutionState.stages.length, 1));
-    board.innerHTML = resolutionState.stages.map((stage) => {
+    board.innerHTML = resolutionState.stages.filter((stage) => !resolutionState.stage || stage === resolutionState.stage).map((stage) => {
         const stageDefinition = resolutionState.stageDefinitions.find((definition) => definition.stage === stage) || {};
         const sourceLane = resolutionState.lanes.find((lane) => lane.stage === stage);
-        const reviews = (sourceLane?.reviews || []).filter((review) => {
-            if (resolutionState.portfolio && review.portfolio !== resolutionState.portfolio) return false;
-            if (!resolutionState.search) return true;
-            const haystack = `${review.guest_name || ''} ${review.listing_name || ''} ${review.portfolio || ''} ${review.channel_name || ''} ${review.title || ''}`.toLowerCase();
-            return haystack.includes(resolutionState.search);
-        });
+        const reviews = (sourceLane?.reviews || []).filter(resolutionMatchesFilters);
         const emptyMessage = resolutionState.portfolio || resolutionState.search
             ? 'No matching reviews in this stage'
             : 'No reviews in this stage';
@@ -277,6 +355,81 @@ function renderResolutionBoard() {
             </section>
         `;
     }).join('');
+}
+
+function resolutionSortedReviews(reviews) {
+    const key = resolutionState.sort;
+    const direction = resolutionState.sortDirection === 'asc' ? 1 : -1;
+    return [...reviews].sort((left, right) => {
+        const a = left[key];
+        const b = right[key];
+        // Keep missing dates, ratings, and owners at the bottom in either direction.
+        if (a == null || a === '') return b == null || b === '' ? 0 : 1;
+        if (b == null || b === '') return -1;
+        const comparison = key === 'rating' ? Number(a) - Number(b)
+            : key === 'stage' ? resolutionState.stages.indexOf(a) - resolutionState.stages.indexOf(b)
+            : String(a).localeCompare(String(b), 'en', { numeric: true, sensitivity: 'base' });
+        return comparison * direction || Number(left.ticket_id) - Number(right.ticket_id);
+    });
+}
+
+function resolutionTableHeading(label, key) {
+    const active = resolutionState.sort === key;
+    const direction = resolutionState.sortDirection === 'asc' ? 'ascending' : 'descending';
+    return `<th scope="col" aria-sort="${active ? direction : 'none'}"><button type="button" data-resolution-sort="${key}">${label} <span aria-hidden="true">${active ? (direction === 'ascending' ? '↑' : '↓') : '↕'}</span></button></th>`;
+}
+
+function renderResolutionTable() {
+    const reviews = resolutionSortedReviews(resolutionState.lanes.flatMap((lane) => lane.reviews || []).filter(resolutionMatchesFilters));
+    const emptyMessage = resolutionState.portfolio || resolutionState.search || resolutionState.stage
+        ? 'No reviews match your filters.' : 'No review resolutions in this reporting period.';
+    document.getElementById('resolutionTable').innerHTML = `
+        <div class="review-resolution-table-scroll" role="region" aria-label="Review resolution table" tabindex="0">
+            <table class="review-resolution-table">
+                <caption class="sr-only">Review resolutions. Open a case to view the full review, edit its owner, or add notes.</caption>
+                <thead><tr>
+                    ${resolutionTableHeading('Review date', 'review_date')}
+                    <th scope="col">Source</th>
+                    ${resolutionTableHeading('Guest / property', 'guest_name')}
+                    ${resolutionTableHeading('Rating', 'rating')}
+                    ${resolutionTableHeading('Status', 'stage')}
+                    ${resolutionTableHeading('Owner', 'assigned_user_name')}
+                    <th scope="col">Notes</th>
+                    <th scope="col">Open</th>
+                </tr></thead>
+                <tbody>${reviews.length ? reviews.map(createResolutionRow).join('') : `<tr><td colspan="8" class="review-resolution-table-empty">${emptyMessage}</td></tr>`}</tbody>
+            </table>
+        </div>
+        <p class="review-resolution-table-count">${reviews.length} ${reviews.length === 1 ? 'review' : 'reviews'} · Open a case to manage its owner, follow-up date, and notes.</p>
+    `;
+}
+
+function createResolutionRow(review) {
+    const guest = resolutionEscape(review.guest_name || 'Guest');
+    const ticketId = resolutionEscape(review.ticket_id);
+    const rating = review.rating == null ? 'N/A' : `${Number(review.rating).toFixed(1)} ★`;
+    const notes = Number(review.note_count || 0);
+    return `
+        <tr data-ticket-id="${ticketId}">
+            <td class="review-resolution-table-date">${review.review_date ? `<time datetime="${resolutionEscape(review.review_date)}">${resolutionFormatDate(review.review_date)}</time>` : '—'}</td>
+            <td>${resolutionEscape(resolutionChannelLabel(review.channel_name))}</td>
+            <td class="review-resolution-table-guest">
+                <button type="button" class="review-resolution-table-link" data-action="open-resolution" data-ticket-id="${ticketId}" aria-label="Open resolution case for ${guest}">${guest}</button>
+                <span>${resolutionEscape(review.listing_name || 'Unknown property')}</span>
+                <small>${resolutionEscape(review.portfolio || 'Unmapped')} · Case #${ticketId}</small>
+            </td>
+            <td class="review-resolution-table-rating">
+                <span class="review-rating-pill" title="Rating out of 5 stars">${resolutionEscape(rating)}</span>
+                <small>${resolutionEscape(review.priority || 'Medium')} priority</small>
+            </td>
+            <td><select class="review-resolution-table-stage" data-stage-index="${resolutionState.stages.indexOf(review.stage)}" data-action="change-stage" data-ticket-id="${ticketId}" aria-label="Resolution stage for ${guest}" ${resolutionState.movingTicketId ? 'disabled' : ''}>
+                ${resolutionState.stages.map((stage) => `<option value="${resolutionEscape(stage)}" ${stage === review.stage ? 'selected' : ''}>${resolutionEscape(stage)}</option>`).join('')}
+            </select></td>
+            <td>${resolutionEscape(review.assigned_user_name || 'Unassigned')}</td>
+            <td><button type="button" class="review-resolution-table-link" data-action="open-resolution" data-ticket-id="${ticketId}" aria-label="View notes for ${guest}">${notes} ${notes === 1 ? 'note' : 'notes'}</button></td>
+            <td><button type="button" class="review-resolution-table-open" data-action="open-resolution" data-ticket-id="${ticketId}" aria-label="Open case ${ticketId} for ${guest}"><span aria-hidden="true">↗</span></button></td>
+        </tr>
+    `;
 }
 
 function createResolutionCard(review) {
@@ -311,7 +464,7 @@ function createResolutionCard(review) {
             <p class="review-resolution-meta">${resolutionEscape(review.listing_name || 'Unknown property')} · ${resolutionEscape(review.portfolio || 'Unmapped')} · ${resolutionEscape(channelLabel)}</p>
             <p class="review-resolution-standard">Below ${Number(review.bad_review_threshold || 5).toFixed(1)}-star standard${review.review_date ? ` · ${resolutionFormatDate(review.review_date)}` : ''}</p>
             <p class="review-resolution-excerpt">${resolutionEscape(review.review_text || 'No written review was supplied.')}</p>
-            <select data-action="change-stage" data-ticket-id="${review.ticket_id}" aria-label="Resolution stage for ${resolutionEscape(review.guest_name || 'guest')}">
+            <select data-action="change-stage" data-ticket-id="${review.ticket_id}" aria-label="Resolution stage for ${resolutionEscape(review.guest_name || 'guest')}" ${resolutionState.movingTicketId ? 'disabled' : ''}>
                 ${stageOptions}
             </select>
             <div class="review-resolution-card-foot">
@@ -390,6 +543,7 @@ async function handleDrop(event) {
 }
 
 async function moveResolution(ticketId, stage) {
+    if (resolutionState.movingTicketId || !resolutionState.stages.includes(stage)) return;
     const previous = resolutionState.lanes.map((lane) => ({ ...lane, reviews: [...lane.reviews] }));
     const card = previous.flatMap((lane) => lane.reviews).find((review) => Number(review.ticket_id) === Number(ticketId));
     if (!card || card.stage === stage) return;
@@ -397,9 +551,9 @@ async function moveResolution(ticketId, stage) {
     resolutionState.lanes.forEach((lane) => {
         lane.reviews = lane.reviews.filter((review) => Number(review.ticket_id) !== Number(ticketId));
     });
-    card.stage = stage;
+    resolutionState.movingTicketId = ticketId;
     const target = resolutionState.lanes.find((lane) => lane.stage === stage);
-    if (target) target.reviews.unshift(card);
+    if (target) target.reviews.unshift({ ...card, stage });
     renderResolutionBoard();
 
     try {
@@ -414,6 +568,9 @@ async function moveResolution(ticketId, stage) {
         resolutionState.lanes = previous;
         renderResolutionBoard();
         showResolutionToast(error.message, true);
+    } finally {
+        resolutionState.movingTicketId = null;
+        renderResolutionBoard();
     }
 }
 
@@ -701,7 +858,9 @@ function closeResolutionDetail(force = false) {
     resolutionState.activeCard = null;
     resolutionState.activeDetail = null;
     resolutionState.detailFormSnapshot = '';
-    const returnFocus = document.querySelector(`[data-action="open-resolution"][data-ticket-id="${ticketId}"]`)
+    const activeView = document.getElementById(resolutionState.view === 'table' ? 'resolutionTable' : 'resolutionBoard');
+    const returnFocus = activeView?.querySelector(`[data-action="open-resolution"][data-ticket-id="${ticketId}"]`)
+        || document.querySelector(`[data-resolution-view="${resolutionState.view}"]`)
         || resolutionState.detailReturnFocus;
     resolutionState.detailReturnFocus = null;
     returnFocus?.focus();
