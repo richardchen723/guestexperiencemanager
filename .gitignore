@@ -120,3 +120,5 @@ build/
 dist/
 *.whl
 *.tar.gz
+# Private benchmark answers, analytics and deployment evidence.
+/output/

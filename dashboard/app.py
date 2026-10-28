@@ -63,6 +63,7 @@ from dashboard.listing_audit.routes import register_listing_audit_routes
 from dashboard.stay_issues.routes import register_guest_issue_routes
 from dashboard.procurement.routes import register_procurement_routes
 from dashboard.procurement.models import init_procurement_database
+from dashboard.visibility.routes import register_visibility_routes
 from dashboard.dashboard.routes import dashboard_bp
 from brain.models import init_guest_experience_tables, init_kpi_tables, init_listing_audit_tables
 from database.models import init_models
@@ -132,6 +133,7 @@ def create_app():
     register_listing_audit_routes(app)
     register_guest_issue_routes(app)
     register_procurement_routes(app)
+    register_visibility_routes(app)
     app.register_blueprint(dashboard_bp)
     
     # Health check endpoint for monitoring
