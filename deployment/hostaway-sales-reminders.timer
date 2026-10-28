@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh Owner Sales CRM reminder queue every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+Unit=hostaway-sales-reminders.service
+
+[Install]
+WantedBy=timers.target

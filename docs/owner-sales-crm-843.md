@@ -36,7 +36,7 @@ Time is stored in UTC and presented in `America/Los_Angeles` by default. Local i
 3. Deploy/restart the app. Grant `sales` to the pilot team through Team access; grant management/export capabilities only to the intended people. Verify the pilot assignees appear in the directory.
 4. Create acquisition sources and configure agreed qualification, assignment, commercial and onboarding guidance. Timing fields are optional and disabled while blank. All proposals require approval regardless of guidance.
 5. Pilot manual capture, a reviewed CSV, a contact permission review, a follow-up, a proposal revision, a partial signature, and operations acceptance. Confirm the report denominators and mobile workflow with the team.
-6. Schedule the reminder generator using the existing deployment scheduler: `python -m dashboard.sales.cli reminders`. This works without a browser and sends nothing. A run is replay-safe; subsequent runs suppress superseded reminders.
+6. Install `deployment/hostaway-sales-reminders.service` and `.timer` in `/etc/systemd/system`, reload systemd, and enable/start `hostaway-sales-reminders.timer`. It runs `python -m dashboard.sales.cli reminders` every five minutes without a browser and sends nothing. A run is replay-safe; subsequent runs suppress superseded reminders. Reminder timing remains disabled while its settings are blank.
 
 Disable access grants and stop the Sales job to roll back exposure. Preserve the additive schema and its history; do not drop business data to roll back the UI.
 
