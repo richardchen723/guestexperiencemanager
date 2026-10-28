@@ -45,6 +45,7 @@ class MobileNavigation {
         ].filter(item => canAccess(item.id));
 
         const moreItems = [
+            { id: 'sales', label: 'Owner sales', icon: 'property', url: '/sales/' },
             { id: 'procurement', label: 'Procurement', icon: 'ticket', url: '/procurement/' },
             { id: 'properties', label: 'Properties', icon: 'property', url: '/properties' },
             { id: 'bookkeeping', label: 'Bookkeeping', icon: 'activity', url: '/bookkeeping/' },
@@ -54,7 +55,7 @@ class MobileNavigation {
         ].filter(item => canAccess(item.id));
 
         moreItems.push({ id: 'api-docs', label: 'API documentation', icon: 'knowledge', url: '/api-docs' });
-        if (primaryItems.length === 0 && moreItems[0]?.id === 'procurement') {
+        if (primaryItems.length === 0 && ['procurement', 'sales'].includes(moreItems[0]?.id)) {
             primaryItems.push(moreItems.shift());
         }
 

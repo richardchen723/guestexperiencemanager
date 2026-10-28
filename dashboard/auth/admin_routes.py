@@ -35,6 +35,9 @@ logger = logging.getLogger(__name__)
 API_KEY_ACCESS_PROFILES = {
     'full': [FULL_ACCESS_SCOPE],
     'guest_issues_read': [GUEST_ISSUES_READ_SCOPE],
+    'sales_read': ['sales:read'],
+    'sales_intake': ['sales:intake'],
+    'sales_worker': ['sales:read', 'sales:intake'],
 }
 
 # Create blueprint

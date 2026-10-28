@@ -51,6 +51,23 @@ FEATURES = OrderedDict((feature['key'], feature) for feature in (
         'endpoint': 'tickets.tickets_list',
     },
     {
+        'key': 'sales', 'label': 'Owner Sales CRM',
+        'description': 'Owner acquisition, prospect properties, opportunities, and follow-ups.',
+        'default_access': False, 'endpoint': 'sales.page',
+    },
+    {
+        'key': 'sales_management', 'label': 'Sales management',
+        'description': 'Approve proposals, merge records, and configure Sales CRM. Requires Sales CRM access.',
+        'requires': 'sales',
+        'default_access': False, 'endpoint': 'sales.page',
+    },
+    {
+        'key': 'sales_export', 'label': 'Sales export',
+        'description': 'Export filtered Sales CRM records. Requires Sales CRM access.',
+        'requires': 'sales',
+        'default_access': False, 'endpoint': 'sales.page',
+    },
+    {
         'key': 'procurement',
         'label': 'Procurement',
         'description': 'Supply requests, purchase approvals, property confirmation, and costs.',
@@ -175,6 +192,6 @@ def accessible_feature_keys(user):
 def first_accessible_endpoint(user) -> str:
     access = effective_feature_access(user)
     for feature_key, feature in FEATURES.items():
-        if access.get(feature_key):
+        if access.get(feature_key) and (not feature.get('requires') or access.get(feature['requires'])):
             return feature['endpoint']
     return 'auth.profile_page'
