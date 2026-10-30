@@ -90,12 +90,18 @@ def staff_browser_app(staff_app, engine):
     with engine.begin() as conn:
         conn.execute(text('CREATE TABLE public.listings (listing_id int, internal_listing_name text, name text, timezone_name text)'))
         conn.execute(text("INSERT INTO public.listings VALUES (303,'Synthetic Willow House','Willow','America/Los_Angeles'), (404,'Synthetic Birch House','Birch',NULL)"))
-    # Real content, styles and scripts; substitute only the staff shell and auth.
+    # Keep the real shell's stylesheet order, including global touch-target rules.
+    import re
+    base = (ROOT / 'dashboard' / 'templates' / 'base.html').read_text()
+    def styles(fragment):
+        return ''.join(f'<link rel="stylesheet" href="/static/{name}">' for name in
+            re.findall(r"filename='(css/[^']+)'", fragment))
+    before, after = base.split('{% block extra_head %}{% endblock %}', 1)
+    shell_styles = styles(before) + '{% block extra_head %}{% endblock %}' + styles(after.split('</head>')[0])
     staff_app.static_folder = str(ROOT / 'dashboard' / 'static')
     staff_app.jinja_loader = ChoiceLoader([DictLoader({'base.html': '''<!doctype html><html><head>
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <link rel="stylesheet" href="/static/css/style.css">{% block extra_head %}{% endblock %}
-        </head><body><main>{% block content %}{% endblock %}</main>{% block extra_scripts %}{% endblock %}</body></html>'''}),
+        ''' + shell_styles + '''</head><body><main>{% block content %}{% endblock %}</main>{% block extra_scripts %}{% endblock %}</body></html>'''}),
         FileSystemLoader(str(ROOT / 'dashboard' / 'templates'))])
     yield staff_app
     with engine.begin() as conn:
