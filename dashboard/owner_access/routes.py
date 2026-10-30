@@ -1,6 +1,7 @@
 """Human admin only. API keys and the internal service user cannot grant access."""
 import os
 import secrets
+from zoneinfo import available_timezones
 
 from flask import Blueprint, g, jsonify, render_template, request, session
 from sqlalchemy import text
@@ -70,8 +71,9 @@ def setup():
     with get_session() as db:
         data = OwnerAdmin(db, g.owner_access_actor).overview()
         data['invitation_ready'] = invitations_ready()
+        data['timezones'] = sorted(available_timezones())
         data['listings'] = [dict(row) for row in db.execute(text('''SELECT listing_id AS id,
-            coalesce(internal_listing_name, name, listing_id::text) AS name FROM public.listings
+            coalesce(internal_listing_name, name, listing_id::text) AS name, timezone_name AS timezone FROM public.listings
             WHERE listing_id NOT IN (SELECT listing_id FROM owners.listing_mappings) ORDER BY listing_id''')).mappings()]
         return jsonify(data)
 
@@ -86,9 +88,9 @@ def command(action):
         try:
             if action == 'accounts':
                 result = service.create_account(payload)
-            elif action == 'properties':
+            elif action in ('properties', 'add-property'):
                 ids = set(db.execute(text('SELECT listing_id FROM public.listings')).scalars())
-                result = service.create_property(payload, ids)
+                result = (service.add_property if action == 'add-property' else service.create_property)(payload, ids)
             elif action == 'grants':
                 result = service.grant(payload)
             elif action == 'invitations':

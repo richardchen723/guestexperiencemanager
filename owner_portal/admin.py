@@ -80,6 +80,13 @@ class OwnerAdmin:
         record(self.db, self.actor, 'property.mapped', prop, listing_ids=ids)
         return {'id': prop.id}
 
+    def add_property(self, data, available_listing_ids):
+        """Register and assign a home in one transaction; never leave partial setup."""
+        self.account(data.get('account_id'))
+        property_id = self.create_property(data, available_listing_ids)['id']
+        grant = self.grant({**data, 'property_id': property_id})
+        return {'id': grant['id'], 'property_id': property_id}
+
     def grant(self, data):
         account = self.account(data.get('account_id'))
         prop = self.db.get(Property, identity(data.get('property_id')))
@@ -154,7 +161,7 @@ class OwnerAdmin:
     def overview(self):
         return {
             'accounts': [{'id': a.id, 'name': a.name} for a in self.db.scalars(select(Account).where(Account.active.is_(True)).order_by(Account.id))],
-            'properties': [{'id': p.id, 'name': p.name, 'timezone': p.timezone, 'portfolio': p.portfolio_label} for p in self.db.scalars(select(Property).order_by(Property.id))],
+            'properties': [{'id': p.id, 'name': p.name, 'timezone': p.timezone, 'portfolio': p.portfolio_label} for p in self.db.scalars(select(Property).where(Property.active.is_(True)).order_by(Property.id))],
             'grants': [{'id': g.id, 'account_id': g.account_id, 'property_id': g.property_id, 'from': str(g.reporting_from), 'until_exclusive': str(g.reporting_until) if g.reporting_until else None, 'revoked': bool(g.revoked_at)} for g in self.db.scalars(select(PropertyGrant).order_by(PropertyGrant.id))],
             'memberships': [{'id': m.id, 'account_id': m.account_id, 'email': u.email, 'performance': m.performance, 'statements': m.statements, 'revoked': bool(m.revoked_at)} for m, u in self.db.execute(select(Membership, User).join(User).order_by(Membership.id))],
             'invitations': [{'id': i.id, 'account_id': i.account_id, 'email': i.email, 'performance': i.performance, 'statements': i.statements, 'expires_at': i.expires_at.isoformat(), 'accepted': bool(i.accepted_at), 'revoked': bool(i.revoked_at)} for i in self.db.scalars(select(Invitation).order_by(Invitation.id.desc()).limit(200))],

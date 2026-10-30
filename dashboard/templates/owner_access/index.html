@@ -1,43 +1,47 @@
 {% extends 'base.html' %}
 {% block title %}Owner access · Cotton Candy{% endblock %}
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/owner_access.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/owner_access.css', v='847-ui-1') }}">
 <meta name="owner-access-csrf" content="{{ owner_access_csrf }}">
 {% endblock %}
 {% block content %}
 <div class="owner-setup">
-  <header><div><p class="oa-eyebrow">OWNER PORTAL / SETUP</p><h1>Owner access</h1><p>Connect each owner to the homes and reporting history they may see.</p></div><span class="oa-pill">USD</span></header>
-  <p id="oa-status" role="status" aria-live="polite"></p><p id="oa-error" role="alert" hidden></p>
-  <section id="oa-invitation" hidden><h2>Invitation ready</h2><p>Copy this link to share with the invited email address. It expires in 7 days. No email has been sent.</p><input id="oa-link" readonly aria-label="Invitation link"><button type="button" id="oa-copy">Copy link</button></section>
-  <div class="oa-grid">
-    <section><h2>1. Owner account</h2><form data-action="accounts"><label>Account name<input name="name" required maxlength="160" placeholder="Bennett household"></label><button>Create account</button></form></section>
-    <section><h2>2. Physical property</h2><form data-action="properties">
-      <label>Owner-facing name<input name="name" required maxlength="160"></label>
-      <label>Timezone<input name="timezone" required placeholder="America/Los_Angeles"></label>
-      <label>Portfolio label (optional)<input name="portfolio_label" maxlength="160"></label>
-      <label>Hostaway listings<select name="listing_ids" multiple required size="4" id="oa-listings"></select></label>
-      <label class="oa-check"><input type="checkbox" name="single_unit_confirmed" required>I verified that these listings represent one physical unit, with no bundle listings.</label>
-      <button>Register property</button></form></section>
-    <section><h2>3. Reporting access</h2><form data-action="grants">
-      <label>Account<select name="account_id" class="oa-accounts" required></select></label>
-      <label>Property<select name="property_id" id="oa-properties" required></select></label>
-      <label>History available from<input name="reporting_from" type="date" required></label>
-      <label>History ends before (optional)<input name="reporting_until_exclusive" type="date"></label>
-      <p>These dates control reporting history, including comparisons. Saving replaces this account’s grant for this property.</p>
-      <button>Save property grant</button></form></section>
-    <section><h2>4. Invite a person</h2><form data-action="invitations">
-      <p id="oa-login-pending" hidden>Owner sign-in is not enabled yet. You can prepare accounts and properties now.</p>
-      <label>Account<select name="account_id" class="oa-accounts" required></select></label>
-      <label>Google account email<input name="email" type="email" required maxlength="320"></label>
-      <label class="oa-check"><input type="checkbox" name="performance" checked>Performance</label>
-      <label class="oa-check"><input type="checkbox" name="statements">Finalized owner statements</label>
-      <p>Each person signs in separately. A new invitation replaces their pending links for this account.</p>
-      <button disabled>Create invitation link</button></form></section>
+  <div class="oa-heading">
+    <div><p class="oa-eyebrow">OWNER PORTAL</p><h1>Owner access</h1><p class="oa-muted">The right homes. The right people. One place to manage access.</p></div>
+    <button type="button" class="oa-primary" data-open="account"><span aria-hidden="true">＋</span> Add owner</button>
   </div>
-  <section><h2>Property grants</h2><div id="oa-grants" class="oa-table"></div></section>
-  <section><h2>People with access</h2><div id="oa-memberships" class="oa-table"></div></section>
-  <section id="oa-preview" hidden><h2>Owner access preview</h2><p>Read-only preview of one account. No owner session is created.</p><div id="oa-preview-content"></div></section>
-  <section><h2>Invitations</h2><div id="oa-invitations" class="oa-table"></div></section>
+  <div id="oa-launch" class="oa-launch" hidden><span class="oa-dot" aria-hidden="true"></span><div><strong>Prepare now. Invite when sign-in is ready.</strong><span>Owner Google sign-in isn’t enabled yet. You can set up owners and homes today.</span></div><span class="oa-badge">Invitations paused</span></div>
+  <p id="oa-status" role="status" aria-live="polite"></p>
+  <div id="oa-error" class="oa-error" role="alert" hidden></div>
+  <div id="oa-loading" class="oa-loading" role="status">Loading owner accounts…</div>
+  <div id="oa-empty" class="oa-welcome" hidden>
+    <div class="oa-home-art" aria-hidden="true"><span>⌂</span><i>✓</i></div>
+    <p class="oa-eyebrow">A CLEAR VIEW FOR EVERY OWNER</p>
+    <h2>Great relationships start with the right access.</h2>
+    <p>Create an owner account, connect their homes, then invite the people who need a view.</p>
+    <button type="button" class="oa-primary" data-open="account">Set up your first owner <span aria-hidden="true">→</span></button>
+    <div class="oa-steps">
+      <div><b>01</b><strong>Create an owner</strong><span>A household, company, or individual.</span></div>
+      <div><b>02</b><strong>Connect their homes</strong><span>Choose properties and reporting history.</span></div>
+      <div><b>03</b><strong>Invite their people</strong><span>Each person gets their own secure sign-in.</span></div>
+    </div>
+    <div class="oa-privacy"><span aria-hidden="true">✓</span> Performance &amp; finalized statements only. Guest details and messages stay private.</div>
+  </div>
+  <div id="oa-workspace" class="oa-workspace" hidden>
+    <aside class="oa-directory" aria-label="Owner accounts">
+      <div class="oa-directory-heading"><h2>Owners</h2><span id="oa-owner-count" class="oa-count"></span></div>
+      <input id="oa-search" type="search" placeholder="Search owners…" aria-label="Search owners">
+      <div id="oa-accounts"></div>
+    </aside>
+    <div id="oa-detail" class="oa-detail"></div>
+  </div>
+  <noscript><p class="oa-error">Enable JavaScript to manage owner access.</p></noscript>
+
+  <dialog id="oa-dialog" aria-labelledby="oa-dialog-title">
+    <div class="oa-dialog-heading"><div><p id="oa-dialog-context" class="oa-eyebrow"></p><h2 id="oa-dialog-title"></h2></div><button type="button" class="oa-close" data-close aria-label="Close dialog">×</button></div>
+    <p id="oa-dialog-error" class="oa-error" role="alert" hidden></p>
+    <div id="oa-dialog-body"></div>
+  </dialog>
 </div>
 {% endblock %}
-{% block extra_scripts %}<script src="{{ url_for('static', filename='js/owner_access.js') }}" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static', filename='js/owner_access.js', v='847-ui-1') }}" defer></script>{% endblock %}
