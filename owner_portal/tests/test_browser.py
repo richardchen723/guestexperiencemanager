@@ -41,8 +41,13 @@ def screenshot(page, name):
     page.screenshot(path=str(output / name), full_page=True)
 
 
-def test_owner_login_and_property_views_at_two_sizes(app, factory, setup):
+@pytest.mark.parametrize('prefix', ['', '/owners'])
+def test_owner_login_and_property_views_at_two_sizes(app, factory, setup, prefix):
     from playwright.sync_api import sync_playwright, expect
+    if prefix:
+        from owner_portal.mount import OwnerMount
+        app.config.update(OWNER_PATH_PREFIX=prefix, APPLICATION_ROOT=prefix)
+        app.wsgi_app = OwnerMount(app.wsgi_app, prefix)
     with factory.begin() as db:
         raw = sign_in(db, {'sub': 'synthetic-owner', 'email': 'owner@example.invalid'}, digest(setup['invite']['token']))
     with server(app) as origin, sync_playwright() as playwright:
@@ -51,11 +56,11 @@ def test_owner_login_and_property_views_at_two_sizes(app, factory, setup):
         page = context.new_page()
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
-        page.goto(origin + '/login')
+        page.goto(origin + prefix + '/login')
         expect(page.get_by_role('button', name='Continue with Google')).to_be_visible()
         screenshot(page, 'owner-login-desktop.png')
         context.add_cookies([cookie(app, {'owner_token': raw, 'csrf': 'synthetic-csrf'}, origin)])
-        page.goto(origin)
+        page.goto(origin + prefix + '/')
         expect(page.get_by_role('heading', name='Cedar House')).to_be_visible()
         expect(page.get_by_text('Private Pine House')).to_have_count(0)
         screenshot(page, 'owner-home-desktop.png')

@@ -1,0 +1,23 @@
+[Unit]
+Description=Cotton Candy owner portal
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=hostaway-owner
+Group=hostaway-owner
+WorkingDirectory=/opt/hostaway-messages/app
+EnvironmentFile=/opt/hostaway-messages/owner-portal.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/hostaway-messages/venv/bin/gunicorn --bind 127.0.0.1:5011 --workers 2 --timeout 30 --error-logfile - wsgi_owner:app
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+InaccessiblePaths=/opt/hostaway-messages/.env /opt/hostaway-messages/app/.env /opt/hostaway-messages/conversations /opt/hostaway-messages/app/data /opt/hostaway-messages/logs /opt/hostaway-messages/oauth-staging /opt/hostaway-messages/releases
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

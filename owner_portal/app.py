@@ -4,13 +4,14 @@ import secrets
 from datetime import timedelta
 from urllib.parse import urlsplit
 
-from flask import Flask, jsonify, redirect, render_template, request, session
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import sessionmaker
 
 from . import auth
 from .access import AccessError, context, current_user, digest
 from .models import Invitation, LoginSession, utcnow
+from .mount import OwnerMount, normalize_prefix, public_base
 
 
 def check_database_boundary(engine):
@@ -34,6 +35,8 @@ def create_app(config=None):
     app.config.from_mapping(
         SECRET_KEY=os.getenv('OWNER_PORTAL_SECRET_KEY'), DATABASE_URL=os.getenv('OWNER_PORTAL_DATABASE_URL'),
         OWNER_ORIGIN=os.getenv('OWNER_PORTAL_ORIGIN', ''),
+        OWNER_PATH_PREFIX=os.getenv('OWNER_PORTAL_PATH_PREFIX', ''),
+        LOGIN_ENABLED=os.getenv('OWNER_PORTAL_LOGIN_ENABLED', '').lower() == 'true',
         GOOGLE_CLIENT_ID=os.getenv('OWNER_GOOGLE_CLIENT_ID'), GOOGLE_CLIENT_SECRET=os.getenv('OWNER_GOOGLE_CLIENT_SECRET'),
         SESSION_COOKIE_NAME='__Host-owner_portal', SESSION_COOKIE_SECURE=True, SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_DOMAIN=None, SESSION_COOKIE_PATH='/',
@@ -41,13 +44,15 @@ def create_app(config=None):
     )
     if config:
         app.config.update(config)
+    app.config['OWNER_PATH_PREFIX'] = normalize_prefix(app.config['OWNER_PATH_PREFIX'])
+    app.config['APPLICATION_ROOT'] = app.config['OWNER_PATH_PREFIX'] or '/'
     origin = urlsplit(app.config['OWNER_ORIGIN'])
     if not app.config['TESTING']:
-        if (origin.scheme != 'https' or not origin.netloc or origin.path or origin.query or origin.fragment or origin.username
-                or not app.secret_key or len(app.secret_key) < 32 or app.secret_key == os.getenv('SECRET_KEY')):
-            raise RuntimeError('Configure a dedicated HTTPS owner origin and independent secret (at least 32 characters).')
-        if not app.config['GOOGLE_CLIENT_ID'] or not app.config['GOOGLE_CLIENT_SECRET']:
-            raise RuntimeError('Dedicated owner Google OAuth credentials are required.')
+        public_base(app.config['OWNER_ORIGIN'], app.config['OWNER_PATH_PREFIX'])
+        if not app.secret_key or len(app.secret_key) < 32 or app.secret_key == os.getenv('SECRET_KEY'):
+            raise RuntimeError('Configure an independent owner secret (at least 32 characters).')
+        if app.config['LOGIN_ENABLED'] and (not app.config['GOOGLE_CLIENT_ID'] or not app.config['GOOGLE_CLIENT_SECRET']):
+            raise RuntimeError('Dedicated owner Google OAuth credentials are required to enable sign-in.')
     if not app.config['DATABASE_URL']:
         raise RuntimeError('OWNER_PORTAL_DATABASE_URL is required; staff credentials are never inherited.')
     engine = create_engine(app.config['DATABASE_URL'], pool_pre_ping=True)
@@ -63,6 +68,8 @@ def create_app(config=None):
         if not app.testing and request.host != origin.netloc:
             return jsonify(error='Invalid owner host.'), 400
         session.setdefault('csrf', secrets.token_urlsafe(32))
+        if request.path.startswith('/auth/') and not app.config['LOGIN_ENABLED']:
+            raise AccessError('Owner sign-in is being prepared. Please check back soon.', 503)
         if request.method not in ('GET', 'HEAD', 'OPTIONS'):
             provided = request.headers.get('X-CSRF-Token') or request.form.get('csrf', '')
             if not provided.isascii() or not secrets.compare_digest(session['csrf'], provided):
@@ -90,7 +97,7 @@ def create_app(config=None):
         return jsonify(status='ok')
 
     @app.get('/login')
-    @app.get('/invite')
+    @app.get('/invite', endpoint='invite_page')
     def login():
         if request.path == '/login':
             session.pop('invitation_hash', None)
@@ -130,7 +137,7 @@ def create_app(config=None):
         session.clear()
         session.update(owner_token=raw, csrf=secrets.token_urlsafe(32))
         session.permanent = True
-        return redirect('/')
+        return redirect(url_for('home'))
 
     @app.post('/logout')
     def logout():
@@ -139,7 +146,7 @@ def create_app(config=None):
             if previous:
                 previous.revoked_at = utcnow()
         session.clear()
-        return redirect('/login')
+        return redirect(url_for('login'))
 
     @app.get('/api/context')
     def owner_context():
@@ -150,9 +157,11 @@ def create_app(config=None):
     @app.get('/')
     def home():
         if not session.get('owner_token'):
-            return redirect('/login')
+            return redirect(url_for('login'))
         with factory() as db:
             user = current_user(db, session.get('owner_token'))
             return render_template('home.html', data=context(db, user.id))
 
+    if app.config['OWNER_PATH_PREFIX']:
+        app.wsgi_app = OwnerMount(app.wsgi_app, app.config['OWNER_PATH_PREFIX'])
     return app

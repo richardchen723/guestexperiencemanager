@@ -33,6 +33,7 @@
     {% elif 'listing_audit' in endpoint %}{% set workspace_name = 'Listing health' %}
     {% elif 'kpi' in endpoint %}{% set workspace_name = 'KPI' %}
     {% elif 'sales' in endpoint %}{% set workspace_name = 'Owner sales' %}
+    {% elif request.blueprint == 'owner_access' %}{% set workspace_name = 'Owner access' %}
     {% elif 'procurement' in endpoint %}{% set workspace_name = 'Procurement' %}
     {% elif 'tickets' in endpoint %}{% set workspace_name = 'Tickets' %}
     {% elif 'reviews' in endpoint %}{% set workspace_name = 'Reviews' %}

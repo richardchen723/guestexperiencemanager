@@ -4,13 +4,15 @@
   <div class="home-icon" aria-hidden="true">⌂</div>
   <p class="eyebrow">WELCOME HOME</p>
   <h1>Your homes.<br>A clearer picture.</h1>
-  <p>Sign in with the Google account on your owner invitation.</p>
+  <p>{% if config.LOGIN_ENABLED %}Sign in with the Google account on your owner invitation.{% else %}Your owner space is coming soon. Your property management team will let you know when it’s ready.{% endif %}</p>
   <p id="login-error" class="error" role="alert" {% if not error %}hidden{% endif %}>{{ error or '' }}</p>
   <p id="invite-status" role="status" hidden></p>
-  <form action="/auth/google" method="post" id="google-form">
+  {% if config.LOGIN_ENABLED %}
+  <form action="{{ url_for('google_start') }}" method="post" id="google-form">
     <input type="hidden" name="csrf" value="{{ session.csrf }}">
     <button id="google-button">Continue with Google <span aria-hidden="true">→</span></button>
   </form>
   <small>Access is by invitation from your property management team.</small>
+  {% else %}<small>Owner sign-in is being prepared.</small>{% endif %}
 </section>
 {% endblock %}
