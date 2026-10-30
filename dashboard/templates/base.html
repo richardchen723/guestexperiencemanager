@@ -177,6 +177,12 @@
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
                         <span>Team access</span>
                     </a>
+                    {% if owner_access_enabled %}
+                    <a href="{{ url_for('owner_access.page') }}" class="app-nav-link {% if request.blueprint == 'owner_access' %}active{% endif %}" title="Owner access">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v11H3Z"/><path d="M9 21v-8h6v8"/></svg>
+                        <span>Owner access</span>
+                    </a>
+                    {% endif %}
                     {% endif %}
                     {% if can_manage_api_keys %}
                     <a href="{{ url_for('admin.api_keys_page') }}" class="app-nav-link {% if endpoint == 'admin.api_keys_page' %}active{% endif %}" title="API key management">

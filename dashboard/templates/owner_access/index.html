@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Owner access · Cotton Candy{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/owner_access.css') }}">
+<meta name="owner-access-csrf" content="{{ owner_access_csrf }}">
+{% endblock %}
+{% block content %}
+<div class="owner-setup">
+  <header><div><p class="oa-eyebrow">OWNER PORTAL / SETUP</p><h1>Owner access</h1><p>Connect each owner to the homes and reporting history they may see.</p></div><span class="oa-pill">USD</span></header>
+  <p id="oa-status" role="status" aria-live="polite"></p><p id="oa-error" role="alert" hidden></p>
+  <section id="oa-invitation" hidden><h2>Invitation ready</h2><p>Copy this link to share with the invited email address. It expires in 7 days. No email has been sent.</p><input id="oa-link" readonly aria-label="Invitation link"><button type="button" id="oa-copy">Copy link</button></section>
+  <div class="oa-grid">
+    <section><h2>1. Owner account</h2><form data-action="accounts"><label>Account name<input name="name" required maxlength="160" placeholder="Bennett household"></label><button>Create account</button></form></section>
+    <section><h2>2. Physical property</h2><form data-action="properties">
+      <label>Owner-facing name<input name="name" required maxlength="160"></label>
+      <label>Timezone<input name="timezone" required placeholder="America/Los_Angeles"></label>
+      <label>Portfolio label (optional)<input name="portfolio_label" maxlength="160"></label>
+      <label>Hostaway listings<select name="listing_ids" multiple required size="4" id="oa-listings"></select></label>
+      <label class="oa-check"><input type="checkbox" name="single_unit_confirmed" required>I verified that these listings represent one physical unit, with no bundle listings.</label>
+      <button>Register property</button></form></section>
+    <section><h2>3. Reporting access</h2><form data-action="grants">
+      <label>Account<select name="account_id" class="oa-accounts" required></select></label>
+      <label>Property<select name="property_id" id="oa-properties" required></select></label>
+      <label>History available from<input name="reporting_from" type="date" required></label>
+      <label>History ends before (optional)<input name="reporting_until_exclusive" type="date"></label>
+      <p>These dates control reporting history, including comparisons. Saving replaces this account’s grant for this property.</p>
+      <button>Save property grant</button></form></section>
+    <section><h2>4. Invite a person</h2><form data-action="invitations">
+      <label>Account<select name="account_id" class="oa-accounts" required></select></label>
+      <label>Google account email<input name="email" type="email" required maxlength="320"></label>
+      <label class="oa-check"><input type="checkbox" name="performance" checked>Performance</label>
+      <label class="oa-check"><input type="checkbox" name="statements">Finalized owner statements</label>
+      <p>Each person signs in separately. A new invitation replaces their pending links for this account.</p>
+      <button>Create invitation link</button></form></section>
+  </div>
+  <section><h2>Property grants</h2><div id="oa-grants" class="oa-table"></div></section>
+  <section><h2>People with access</h2><div id="oa-memberships" class="oa-table"></div></section>
+  <section id="oa-preview" hidden><h2>Owner access preview</h2><p>Read-only preview of one account. No owner session is created.</p><div id="oa-preview-content"></div></section>
+  <section><h2>Invitations</h2><div id="oa-invitations" class="oa-table"></div></section>
+</div>
+{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static', filename='js/owner_access.js') }}" defer></script>{% endblock %}
