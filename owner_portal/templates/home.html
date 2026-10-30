@@ -1,0 +1,25 @@
+{% extends 'layout.html' %}
+{% block content %}
+<div class="heading"><div><p class="eyebrow">YOUR OWNER SPACE</p><h1>Your homes, in one place.</h1></div><span class="pill">USD</span></div>
+{% if not data.accounts %}
+  <section class="notice"><h2>Your access has changed</h2><p>Contact your property management team to confirm your properties.</p></section>
+{% else %}
+  {% for account in data.accounts %}
+  <section aria-labelledby="account-{{ account.id }}">
+    <h2 id="account-{{ account.id }}">{{ account.name }} <span class="count">{{ account.properties|length }} {{ 'home' if account.properties|length == 1 else 'homes' }}</span></h2>
+    <div class="properties">
+    {% for property in account.properties %}
+      <article class="property"><div class="property-icon" aria-hidden="true">⌂</div>
+        <h3>{{ property.name }}</h3><p>{{ property.portfolio or 'Your property' }}</p>
+        <details><summary>Reporting access</summary><p>From {{ property.reporting_from }}{% if property.reporting_until_exclusive %}, before {{ property.reporting_until_exclusive }}{% endif %}</p>
+          <p>{{ 'Performance' if account.permissions.performance else '' }}{{ ' · ' if account.permissions.performance and account.permissions.statements else '' }}{{ 'Finalized statements' if account.permissions.statements else '' }}</p></details>
+      </article>
+    {% else %}
+      <p>Your team is confirming the properties for this account.</p>
+    {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+  <section class="notice"><span aria-hidden="true">◷</span><div><h2>Your snapshot is being prepared</h2><p>Your team is preparing the reports available to your account.</p></div></section>
+{% endif %}
+{% endblock %}

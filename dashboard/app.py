@@ -65,6 +65,7 @@ from dashboard.procurement.routes import register_procurement_routes
 from dashboard.procurement.models import init_procurement_database
 from dashboard.visibility.routes import register_visibility_routes
 from dashboard.sales.routes import register_sales_routes
+from dashboard.owner_access.routes import register_owner_access_routes
 from dashboard.dashboard.routes import dashboard_bp
 from brain.models import init_guest_experience_tables, init_kpi_tables, init_listing_audit_tables
 from database.models import init_models
@@ -136,6 +137,7 @@ def create_app():
     register_procurement_routes(app)
     register_visibility_routes(app)
     register_sales_routes(app)
+    register_owner_access_routes(app)
     app.register_blueprint(dashboard_bp)
     
     # Health check endpoint for monitoring
