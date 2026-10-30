@@ -18,6 +18,7 @@ def staff_app(factory, monkeypatch):
     from dashboard.owner_access import routes
     monkeypatch.setenv('OWNER_ACCESS_ENABLED', 'true')
     monkeypatch.setenv('OWNER_PORTAL_ORIGIN', 'https://owners.example.invalid')
+    monkeypatch.setenv('OWNER_PORTAL_LOGIN_ENABLED', 'true')
     monkeypatch.setattr(routes, 'get_session', factory)
     monkeypatch.setattr(routes, 'get_user_by_id', lambda value: SimpleNamespace(user_id=value, deleted_at=None,
         email='admin@example.invalid', is_approved=True, is_admin=lambda: True))

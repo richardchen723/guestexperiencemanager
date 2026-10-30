@@ -46,7 +46,7 @@ def runtime_url(engine):
 def app(factory, runtime_url):
     return create_app({'TESTING': True, 'SECRET_KEY': 'owner-qa-independent-secret-with-32-characters',
         'DATABASE_URL': runtime_url, 'OWNER_ORIGIN': 'https://owners.example.invalid',
-        'GOOGLE_CLIENT_ID': 'owner-test-client', 'GOOGLE_CLIENT_SECRET': 'owner-test-secret'})
+        'GOOGLE_CLIENT_ID': 'owner-test-client', 'GOOGLE_CLIENT_SECRET': 'owner-test-secret', 'LOGIN_ENABLED': True})
 
 
 @pytest.fixture

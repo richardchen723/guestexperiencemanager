@@ -7,7 +7,7 @@
   if (!button) return;
   button.disabled = true;
   const error = document.querySelector('#login-error');
-  fetch('/auth/invitation', {method: 'POST', credentials: 'same-origin',
+  fetch(document.querySelector('meta[name="invitation-endpoint"]').content, {method: 'POST', credentials: 'same-origin',
     headers: {'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content},
     body: JSON.stringify({token})})
     .then(async response => {

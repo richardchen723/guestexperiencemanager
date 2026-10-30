@@ -3,13 +3,14 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ session.csrf }}">
+  <meta name="invitation-endpoint" content="{{ url_for('stage_invitation') }}">
   <title>{% block title %}Your homes · Cotton Candy{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}">
   <script src="{{ url_for('static', filename='portal.js') }}" defer></script>
 </head>
 <body>
-  <header><a class="brand" href="/">cotton candy<span>OWNER PORTAL</span></a>
-    {% if session.owner_token %}<form action="/logout" method="post"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="quiet">Sign out</button></form>{% endif %}
+  <header><a class="brand" href="{{ url_for('home') }}">cotton candy<span>OWNER PORTAL</span></a>
+    {% if session.owner_token %}<form action="{{ url_for('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="quiet">Sign out</button></form>{% endif %}
   </header>
   <main>{% block content %}{% endblock %}</main>
 </body>

@@ -20,6 +20,8 @@
   }
   async function load() {
     state = await api('setup');
+    q('#oa-login-pending').hidden=state.invitation_ready;
+    q('form[data-action="invitations"] button').disabled=!state.invitation_ready;
     const options = rows => '<option value="">Select…</option>' + rows.map(row => `<option value="${row.id}">${escape(row.name)}</option>`).join('');
     root.querySelectorAll('.oa-accounts').forEach(select => {const value=select.value; select.innerHTML=options(state.accounts); select.value=value;});
     q('#oa-properties').innerHTML=options(state.properties);
@@ -43,7 +45,7 @@
       const result=await api(form.dataset.action,data);
       if(result.url){q('#oa-link').value=result.url;q('#oa-invitation').hidden=false;}
       q('#oa-status').textContent='Saved.';form.reset();await load();
-    } catch(reason){error(reason);} finally{button.disabled=false;}
+    } catch(reason){error(reason);} finally{button.disabled=form.dataset.action==='invitations' && !state?.invitation_ready;}
   });
   root.addEventListener('click', async event => {
     const button=event.target.closest('button');if(!button || button.type==='submit')return;

@@ -26,12 +26,13 @@
       <p>These dates control reporting history, including comparisons. Saving replaces this account’s grant for this property.</p>
       <button>Save property grant</button></form></section>
     <section><h2>4. Invite a person</h2><form data-action="invitations">
+      <p id="oa-login-pending" hidden>Owner sign-in is not enabled yet. You can prepare accounts and properties now.</p>
       <label>Account<select name="account_id" class="oa-accounts" required></select></label>
       <label>Google account email<input name="email" type="email" required maxlength="320"></label>
       <label class="oa-check"><input type="checkbox" name="performance" checked>Performance</label>
       <label class="oa-check"><input type="checkbox" name="statements">Finalized owner statements</label>
       <p>Each person signs in separately. A new invitation replaces their pending links for this account.</p>
-      <button>Create invitation link</button></form></section>
+      <button disabled>Create invitation link</button></form></section>
   </div>
   <section><h2>Property grants</h2><div id="oa-grants" class="oa-table"></div></section>
   <section><h2>People with access</h2><div id="oa-memberships" class="oa-table"></div></section>

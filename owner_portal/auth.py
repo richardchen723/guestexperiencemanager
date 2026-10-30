@@ -15,6 +15,11 @@ from sqlalchemy import select, text
 from .access import AccessError, digest
 from .admin import email_address, record
 from .models import Account, Invitation, LoginFlow, LoginSession, Membership, User, utcnow
+from .mount import public_base
+
+
+def callback_uri():
+    return public_base(current_app.config['OWNER_ORIGIN'], current_app.config['OWNER_PATH_PREFIX']) + '/auth/google/callback'
 
 
 def start(db):
@@ -25,7 +30,7 @@ def start(db):
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
     return redirect('https://accounts.google.com/o/oauth2/v2/auth?' + urlencode({
         'client_id': current_app.config['GOOGLE_CLIENT_ID'],
-        'redirect_uri': current_app.config['OWNER_ORIGIN'] + '/auth/google/callback',
+        'redirect_uri': callback_uri(),
         'response_type': 'code', 'scope': 'openid email', 'state': state, 'nonce': nonce,
         'code_challenge': challenge, 'code_challenge_method': 'S256', 'prompt': 'select_account',
     }))
@@ -51,7 +56,7 @@ def google_identity(flow):
         response = requests.post('https://oauth2.googleapis.com/token', data={
             'code': code, 'client_id': current_app.config['GOOGLE_CLIENT_ID'],
             'client_secret': current_app.config['GOOGLE_CLIENT_SECRET'],
-            'redirect_uri': current_app.config['OWNER_ORIGIN'] + '/auth/google/callback',
+            'redirect_uri': callback_uri(),
             'grant_type': 'authorization_code', 'code_verifier': flow['verifier'],
         }, timeout=15)
         response.raise_for_status()

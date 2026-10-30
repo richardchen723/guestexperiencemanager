@@ -11,12 +11,25 @@ from dashboard.auth.models import get_session, get_user_by_id
 from dashboard.config import API_SERVICE_EMAIL
 from owner_portal.access import AccessError
 from owner_portal.admin import OwnerAdmin
+from owner_portal.mount import public_base
 
 bp = Blueprint('owner_access', __name__, url_prefix='/owner-access')
 
 
 def enabled():
     return os.getenv('OWNER_ACCESS_ENABLED', '').lower() == 'true'
+
+
+def portal_base():
+    return public_base(os.getenv('OWNER_PORTAL_ORIGIN', ''), os.getenv('OWNER_PORTAL_PATH_PREFIX', ''))
+
+
+def invitations_ready():
+    try:
+        portal_base()
+    except ValueError:
+        return False
+    return os.getenv('OWNER_PORTAL_LOGIN_ENABLED', '').lower() == 'true'
 
 
 @bp.before_request
@@ -56,6 +69,7 @@ def page():
 def setup():
     with get_session() as db:
         data = OwnerAdmin(db, g.owner_access_actor).overview()
+        data['invitation_ready'] = invitations_ready()
         data['listings'] = [dict(row) for row in db.execute(text('''SELECT listing_id AS id,
             coalesce(internal_listing_name, name, listing_id::text) AS name FROM public.listings
             WHERE listing_id NOT IN (SELECT listing_id FROM owners.listing_mappings) ORDER BY listing_id''')).mappings()]
@@ -78,13 +92,10 @@ def command(action):
             elif action == 'grants':
                 result = service.grant(payload)
             elif action == 'invitations':
-                origin = os.getenv('OWNER_PORTAL_ORIGIN', '').rstrip('/')
-                from urllib.parse import urlsplit
-                parsed = urlsplit(origin)
-                if parsed.scheme != 'https' or not parsed.netloc or parsed.path or parsed.query or parsed.fragment or parsed.username:
-                    raise AccessError('Configure the dedicated HTTPS owner portal origin before creating invitations.', 409)
+                if not invitations_ready():
+                    raise AccessError('Owner sign-in must be configured and enabled before creating invitations.', 409)
                 result = service.invite(payload)
-                result['url'] = origin + '/invite#token=' + result.pop('token')
+                result['url'] = portal_base() + '/invite#token=' + result.pop('token')
             elif action == 'revoke':
                 result = service.revoke(payload.get('kind'), payload.get('id'))
             elif action == 'preview':
