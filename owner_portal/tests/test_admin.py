@@ -87,3 +87,37 @@ def test_mapping_needs_explicit_verified_physical_unit(factory, setup):
         OwnerAdmin(db, 'staff:1').create_property({**data, 'listing_ids': [101]}, {101})
     with factory() as db:
         assert len(db.scalars(select(ListingMapping)).all()) == 2
+
+
+def test_register_and_grant_is_atomic(staff_app, factory, setup, engine):
+    from sqlalchemy import text
+    from owner_portal.models import Property, PropertyGrant
+    client = staff_client(staff_app)
+    headers = {'X-CSRF-Token': 'synthetic-csrf'}
+    data = {'account_id': setup['account'], 'name': 'Willow House', 'timezone': 'America/Chicago',
+        'listing_ids': [303], 'single_unit_confirmed': True, 'reporting_from': '2026-01-01'}
+    with engine.begin() as conn:
+        conn.execute(text('CREATE TABLE public.listings (listing_id int)'))
+        conn.execute(text('INSERT INTO public.listings VALUES (303)'))
+    try:
+        # The mapping is flushed before date validation; rollback must undo all of it.
+        response = client.post('/owner-access/api/add-property', json={**data, 'reporting_until_exclusive': '2025-01-01'}, headers=headers)
+        assert response.status_code == 400
+        with factory() as db:
+            assert not db.scalar(select(Property).where(Property.name == 'Willow House'))
+            assert not db.scalar(select(ListingMapping).where(ListingMapping.listing_id == 303))
+            assert len(db.scalars(select(AuditEvent).where(AuditEvent.action == 'property.mapped')).all()) == 2
+        assert client.post('/owner-access/api/add-property', json=data).status_code == 403
+        response = client.post('/owner-access/api/add-property', json=data, headers=headers)
+        assert response.status_code == 200
+        with factory() as db:
+            grant = db.get(PropertyGrant, response.json['id'])
+            assert grant.account_id == setup['account'] and grant.property_id == response.json['property_id']
+            assert db.get(Property, grant.property_id).currency == 'USD'
+        duplicate = client.post('/owner-access/api/add-property', json={**data, 'account_id': setup['other_account']}, headers=headers)
+        assert duplicate.status_code == 409
+        with factory() as db:
+            assert len(db.scalars(select(Property).where(Property.name == 'Willow House')).all()) == 1
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text('DROP TABLE public.listings'))

@@ -85,52 +85,135 @@ def test_owner_login_and_property_views_at_two_sizes(app, factory, setup, prefix
         browser.close()
 
 
-def test_staff_setup_invitation_preview_and_revocation(staff_app, factory, setup, engine):
-    from playwright.sync_api import sync_playwright, expect
+@pytest.fixture
+def staff_browser_app(staff_app, engine):
     with engine.begin() as conn:
-        conn.execute(text('CREATE TABLE public.listings (listing_id int, internal_listing_name text, name text)'))
-        conn.execute(text("INSERT INTO public.listings VALUES (303,'Synthetic Willow House','Willow')"))
-    # Real setup page/content; substitute only the surrounding staff shell and auth.
+        conn.execute(text('CREATE TABLE public.listings (listing_id int, internal_listing_name text, name text, timezone_name text)'))
+        conn.execute(text("INSERT INTO public.listings VALUES (303,'Synthetic Willow House','Willow','America/Los_Angeles'), (404,'Synthetic Birch House','Birch',NULL)"))
+    # Real content, styles and scripts; substitute only the staff shell and auth.
     staff_app.static_folder = str(ROOT / 'dashboard' / 'static')
     staff_app.jinja_loader = ChoiceLoader([DictLoader({'base.html': '''<!doctype html><html><head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
         <link rel="stylesheet" href="/static/css/style.css">{% block extra_head %}{% endblock %}
         </head><body><main>{% block content %}{% endblock %}</main>{% block extra_scripts %}{% endblock %}</body></html>'''}),
         FileSystemLoader(str(ROOT / 'dashboard' / 'templates'))])
+    yield staff_app
+    with engine.begin() as conn:
+        conn.execute(text('DROP TABLE public.listings'))
+
+
+def staff_context(browser, app, origin, width=1360):
+    context = browser.new_context(ignore_https_errors=True, viewport={'width': width, 'height': 1000})
+    context.add_cookies([cookie(app, {'user_id': 1, 'logged_in': True, 'owner_access_csrf': 'synthetic-csrf'}, origin)])
+    return context
+
+
+def test_staff_account_workspace_and_atomic_home_flow(staff_browser_app, factory, setup):
+    from playwright.sync_api import sync_playwright, expect
+    from sqlalchemy import select
+    from owner_portal.models import Property, PropertyGrant
     with factory.begin() as db:
         sign_in(db, {'sub': 'synthetic-owner', 'email': 'owner@example.invalid'}, digest(setup['invite']['token']))
-    try:
-        with server(staff_app) as origin, sync_playwright() as playwright:
-            browser = playwright.chromium.launch()
-            context = browser.new_context(ignore_https_errors=True, viewport={'width': 1360, 'height': 1100})
-            context.add_cookies([cookie(staff_app, {'user_id': 1, 'logged_in': True, 'owner_access_csrf': 'synthetic-csrf'}, origin)])
-            page = context.new_page()
-            errors = []
-            page.on('pageerror', lambda error: errors.append(str(error)))
-            page.goto(origin + '/owner-access/')
-            expect(page.locator('#oa-memberships').get_by_text('owner@example.invalid')).to_be_visible()
-            page.get_by_role('button', name='Preview', exact=True).click()
-            expect(page.locator('#oa-preview-content').get_by_text('Cedar House', exact=False)).to_be_visible()
-            expect(page.locator('#oa-preview-content').get_by_text('Private Pine House', exact=False)).to_have_count(0)
-            screenshot(page, 'staff-access-desktop.png')
-            form = page.locator('form[data-action="properties"]')
-            form.get_by_label('Owner-facing name').fill('Willow House')
-            form.get_by_label('Timezone').fill('America/Los_Angeles')
-            form.get_by_label('Hostaway listings').select_option('303')
-            form.get_by_role('checkbox').check()
-            form.get_by_role('button').click()
-            expect(page.locator('#oa-properties option').filter(has_text='Willow House')).to_have_count(1)
-            invite = page.locator('form[data-action="invitations"]')
-            invite.get_by_role('combobox').select_option(str(setup['account']))
-            invite.get_by_label('Google account email').fill('second@example.invalid')
-            invite.get_by_label('Finalized owner statements').check()
-            invite.get_by_role('button').click()
-            expect(page.locator('#oa-invitation')).to_be_visible()
-            assert '#token=' in page.locator('#oa-link').input_value()
-            page.on('dialog', lambda dialog: dialog.accept())
-            page.locator('#oa-memberships').get_by_role('button', name='Revoke', exact=True).click()
-            expect(page.locator('#oa-memberships').get_by_text('Revoked', exact=True)).to_be_visible()
-            assert not errors
-            browser.close()
-    finally:
-        with engine.begin() as conn:
-            conn.execute(text('DROP TABLE public.listings'))
+    with server(staff_browser_app) as origin, sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = staff_context(browser, staff_browser_app, origin)
+        page = context.new_page()
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        page.goto(origin + '/owner-access/')
+        expect(page.locator('#oa-memberships').get_by_text('owner@example.invalid')).to_be_visible()
+        expect(page.locator('#oa-detail').get_by_text('Private Pine House')).to_have_count(0)
+        page.get_by_role('button', name='Review access', exact=True).click()
+        expect(page.get_by_role('dialog').get_by_text('Cedar House')).to_be_visible()
+        expect(page.get_by_role('dialog').get_by_text('Private Pine House')).to_have_count(0)
+        page.get_by_role('button', name='Done', exact=True).click()
+        page.get_by_role('button', name='Add home', exact=False).click()
+        page.get_by_label('Find a home').fill('Willow')
+        page.get_by_role('radio', name='Synthetic Willow House', exact=False).check()
+        page.get_by_role('button', name='Continue', exact=False).click()
+        expect(page.get_by_label('Home name')).to_have_value('Synthetic Willow House')
+        expect(page.get_by_label('Property timezone')).to_have_value('America/Los_Angeles')
+        page.get_by_label('Home name').fill('Willow House')
+        page.get_by_label('Reporting starts on').fill('2026-01-01')
+        page.get_by_label('Reporting ends on').fill('2025-12-31')
+        page.get_by_role('checkbox', name='I’ve checked', exact=False).check()
+        page.get_by_role('button', name='Connect home', exact=True).click()
+        expect(page.locator('#oa-dialog-error')).to_contain_text('on or after')
+        expect(page.get_by_label('Home name')).to_have_value('Willow House')
+        page.get_by_label('Reporting ends on').fill('2026-12-31')
+        page.get_by_role('button', name='Back', exact=False).click()
+        page.get_by_role('button', name='Continue', exact=False).click()
+        expect(page.get_by_label('Home name')).to_have_value('Willow House')
+        expect(page.get_by_label('Reporting ends on')).to_have_value('2026-12-31')
+        screenshot(page, 'staff-connect-home.png')
+        page.get_by_role('button', name='Connect home', exact=True).click()
+        expect(page.locator('#oa-grants').get_by_text('Willow House', exact=True)).to_be_visible()
+        with factory() as db:
+            home = db.scalar(select(Property).where(Property.name == 'Willow House'))
+            grant = db.scalar(select(PropertyGrant).where(PropertyGrant.property_id == home.id))
+            assert grant.account_id == setup['account']
+            assert str(grant.reporting_until) == '2027-01-01'
+        row = page.locator('#oa-grants .oa-row').filter(has_text='Willow House')
+        row.get_by_role('button', name='Edit dates').click()
+        expect(page.get_by_label('Reporting ends on')).to_have_value('2026-12-31')
+        page.get_by_label('Reporting ends on').fill('2026-11-30')
+        page.get_by_role('button', name='Save dates').click()
+        expect(row).to_contain_text('Nov 30, 2026')
+        page.get_by_role('button', name='Invite person', exact=False).click()
+        page.get_by_label('Google account email').fill('second@example.invalid')
+        page.get_by_label('Finalized owner statements', exact=False).check()
+        page.get_by_role('button', name='Create invitation link').click()
+        expect(page.get_by_role('heading', name='Your invitation link is ready')).to_be_visible()
+        assert '#token=' in page.locator('#oa-link').input_value()
+        page.get_by_role('button', name='Done', exact=True).click()
+        expect(page.locator('#oa-link')).to_have_count(0)
+        expect(page.locator('#oa-invitations')).to_contain_text('second@example.invalid')
+        screenshot(page, 'staff-access-desktop.png')
+        page.set_viewport_size({'width': 390, 'height': 844})
+        screenshot(page, 'staff-access-mobile.png')
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), page.evaluate("[...document.querySelectorAll('body *')].filter(e => e.getBoundingClientRect().right > innerWidth).map(e => e.className)")
+        page.locator('#oa-memberships').get_by_role('button', name='Remove', exact=True).click()
+        expect(page.get_by_role('dialog')).to_contain_text('owner@example.invalid')
+        page.get_by_role('button', name='Remove access').click()
+        expect(page.locator('#oa-memberships').get_by_text('owner@example.invalid')).to_have_count(0)
+        page.get_by_role('button', name='Morgan household', exact=False).click()
+        expect(page.locator('#oa-grants').get_by_text('Private Pine House')).to_be_visible()
+        expect(page.locator('#oa-grants').get_by_text('Willow House')).to_have_count(0)
+        assert not errors
+        browser.close()
+
+
+def test_staff_first_owner_with_sign_in_paused(staff_browser_app, monkeypatch):
+    from playwright.sync_api import sync_playwright, expect
+    monkeypatch.setenv('OWNER_PORTAL_LOGIN_ENABLED', 'false')
+    with server(staff_browser_app) as origin, sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = staff_context(browser, staff_browser_app, origin)
+        page = context.new_page()
+        page.goto(origin + '/owner-access/')
+        expect(page.get_by_role('button', name='Set up your first owner', exact=False)).to_be_visible()
+        screenshot(page, 'staff-empty-desktop.png')
+        page.get_by_role('button', name='Set up your first owner', exact=False).click()
+        page.get_by_label('Owner account name').fill('Harlow household')
+        page.get_by_role('button', name='Create owner', exact=True).click()
+        expect(page.locator('#oa-detail').get_by_role('heading', name='Harlow household')).to_be_visible()
+        expect(page.get_by_role('button', name='Invite person', exact=False)).to_be_disabled()
+        expect(page.get_by_text('Invitations paused', exact=True)).to_be_visible()
+        page.get_by_role('button', name='Add home', exact=False).click()
+        page.get_by_label('Find a home').fill('Birch')
+        page.get_by_role('radio', name='Synthetic Birch House', exact=False).check()
+        page.get_by_role('button', name='Continue', exact=False).click()
+        # Missing source timezone requires an explicit choice, never a location-based guess.
+        expect(page.get_by_label('Property timezone')).to_have_value('')
+        page.set_viewport_size({'width': 390, 'height': 844})
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        screenshot(page, 'staff-connect-home-mobile.png')
+        page.get_by_label('Property timezone').select_option('America/Chicago')
+        page.get_by_label('Reporting starts on').fill('2025-01-01')
+        page.get_by_role('checkbox', name='I’ve checked', exact=False).check()
+        page.get_by_role('button', name='Connect home', exact=True).click()
+        expect(page.locator('#oa-grants').get_by_text('Synthetic Birch House')).to_be_visible()
+        page.reload()
+        expect(page.locator('#oa-detail').get_by_role('heading', name='Harlow household')).to_be_visible()
+        expect(page.get_by_text('Homes are connected.', exact=False)).to_be_visible()
+        browser.close()
