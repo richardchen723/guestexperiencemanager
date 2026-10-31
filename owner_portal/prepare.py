@@ -16,7 +16,8 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 
 from .calculations import accommodation_amount, build_month, calendar_state, month_shift, number
-from .models import CalendarObservation, FinanceCache, ListingMapping, PerformanceMonth, Property, utcnow
+from .models import CalendarObservation, FinanceCache, FinanceReconciliation, ListingMapping, PerformanceMonth, Property, utcnow
+from .reconciliation import reviewed_amount
 
 
 def fingerprint(row):
@@ -89,12 +90,20 @@ def _refresh(db, client, now):
         history_start = min((r['arrival_date'] for r in rows if r['arrival_date'] and r['departure_date'] and
                             r['arrival_date'] < r['departure_date']), default=today)
         start = min(month_shift(history_start, 0), month_shift(today, -26))
+        reviews = {r.reservation_id: r for r in db.scalars(select(FinanceReconciliation).where(
+            FinanceReconciliation.reservation_id.in_([r['reservation_id'] for r in rows])))}
         pending = []
         for row in rows:
             if row['status'].lower() not in ('new','modified','confirmed') or row['channel_name'] == 'customIcal':
                 continue
             cached = db.get(FinanceCache, row['reservation_id'])
             valid = cached and cached.fingerprint == fingerprint(row)
+            review = reviews.get(row['reservation_id'])
+            if review and cached and review.reviewed_at > cached.checked_at:
+                valid = False
+            if cached and cached.reason == 'reviewed_evidence' and (
+                    not review or review.revoked_at or review.fingerprint != fingerprint(row)):
+                valid = False
             # Recheck older records weekly too: finance fields can change without
             # a reservation timestamp change. Failed amounts retry daily.
             age = (now-cached.checked_at).total_seconds() if cached else float('inf')
@@ -109,7 +118,14 @@ def _refresh(db, client, now):
                 fields = detail.get('financeField') if isinstance(detail, dict) else None
                 if not isinstance(fields, list) or not fields or not all('isIncludedInTotalPrice' in f for f in fields):
                     fields = client.get_reservation_finance_fields(row['reservation_id'])
-                return row, validate_detail(row, detail, fields)
+                amount, reason = validate_detail(row, detail, fields)
+                # Reviewed evidence fills a source finance gap; it never
+                # overrides a valid source amount or a changed identity/date.
+                if amount is None and reason in ('components_do_not_reconcile', 'components_unavailable'):
+                    amount = reviewed_amount(reviews.get(row['reservation_id']), fingerprint(row), detail, fields)
+                    if amount is not None:
+                        reason = 'reviewed_evidence'
+                return row, (amount, reason)
             except Exception:
                 return row, (None, 'source_temporarily_unavailable')
         with ThreadPoolExecutor(max_workers=2) as pool:
