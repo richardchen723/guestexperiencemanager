@@ -1,14 +1,14 @@
 """Isolated owner WSGI application. No internal routes or source-database models."""
 import os
 import secrets
-from datetime import timedelta
+from datetime import date, timedelta
 from urllib.parse import urlsplit
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, jsonify, make_response, redirect, render_template, request, session, url_for
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import sessionmaker
 
-from . import auth
+from . import auth, reporting
 from .access import AccessError, context, current_user, digest
 from .models import Invitation, LoginSession, utcnow
 from .mount import OwnerMount, normalize_prefix, public_base
@@ -160,7 +160,32 @@ def create_app(config=None):
             return redirect(url_for('login'))
         with factory() as db:
             user = current_user(db, session.get('owner_token'))
-            return render_template('home.html', data=context(db, user.id))
+            return render_template('home.html', data=reporting.dashboard(db, user.id))
+
+    @app.get('/api/dashboard')
+    def dashboard_data():
+        try:
+            account_id = int(request.args['account']) if 'account' in request.args else None
+            property_id = int(request.args['property']) if request.args.get('property') not in (None, 'all') else None
+            month = date.fromisoformat(request.args['month'] + '-01') if 'month' in request.args else None
+            if (account_id is not None and account_id <= 0) or (property_id is not None and property_id <= 0):
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise AccessError('Choose a valid property and month.', 400)
+        with factory() as db:
+            user = current_user(db, session.get('owner_token'))
+            return jsonify(reporting.dashboard(db, user.id, account_id=account_id, property_id=property_id, month=month))
+
+    @app.get('/statements/<int:statement_id>')
+    def statement(statement_id):
+        with factory() as db:
+            user = current_user(db, session.get('owner_token'))
+            data = reporting.get_statement(db, user.id, statement_id)
+        download = request.args.get('download') == '1'
+        response = make_response(render_template('statement_download.html' if download else 'statement.html', statement=data))
+        if request.args.get('download') == '1':
+            response.headers['Content-Disposition'] = f'attachment; filename="owner-statement-{data["period_start"]}-v{data["version"]}.html"'
+        return response
 
     if app.config['OWNER_PATH_PREFIX']:
         app.wsgi_app = OwnerMount(app.wsgi_app, app.config['OWNER_PATH_PREFIX'])

@@ -45,7 +45,9 @@ def context(db, user_id):
             'permissions': {'performance': member.performance, 'statements': member.statements},
             'properties': properties})
     # Explicit allowlist: no user email, Google subject, source IDs, guest data or ORM serialization.
-    return {'accounts': accounts, 'currency': 'USD', 'performance_available': False, 'statements_available': False}
+    return {'accounts': accounts, 'currency': 'USD',
+        'performance_available': any(a['permissions']['performance'] for a in accounts),
+        'statements_available': any(a['permissions']['statements'] for a in accounts)}
 
 
 def authorize_property(db, user_id, account_id, property_id, start, end, *, permission='performance'):

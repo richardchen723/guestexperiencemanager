@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Publish owner statements · Cotton Candy{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/owner_access.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/owner_statements.css') }}"><meta name="owner-access-csrf" content="{{ owner_access_csrf }}">{% endblock %}
+{% block content %}<div class="owner-setup" id="statement-publisher">
+<div class="oa-heading"><div><p class="oa-eyebrow">OWNER PORTAL</p><h1>Publish finalized statements</h1><p class="oa-muted">Choose an approved bookkeeping revision and review the owner’s exact homes before publishing.</p></div><a href="{{ url_for('owner_access.page') }}">← Owner access</a></div>
+<label for="sp-account">Owner account</label><select id="sp-account" aria-label="Owner account"></select>
+<p id="sp-status" role="status"></p><p id="sp-error" class="oa-error" role="alert" hidden></p>
+<h2>Published versions</h2><div id="sp-published"></div>
+<h2>Approved revisions</h2><p class="oa-muted">Only the summarized financial figures and home names are shared. Review the source revision to confirm its property scope; older bookkeeping revisions did not freeze that scope. Publication does not indicate payment.</p><div id="sp-candidates"></div>
+<dialog id="sp-dialog" aria-labelledby="sp-title"><h2 id="sp-title">Review statement</h2><div id="sp-review"></div><form id="sp-form"><label><input type="checkbox" id="sp-confirm" required> I reviewed the approved revision and confirmed it covers exactly these homes and this owner.</label><p id="sp-dialog-error" class="oa-error" hidden></p><div class="oa-form-footer"><button type="button" id="sp-close">Cancel</button><button class="oa-primary" type="submit">Publish finalized statement</button></div></form></dialog>
+</div>{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static', filename='js/owner_statements.js') }}" defer></script>{% endblock %}

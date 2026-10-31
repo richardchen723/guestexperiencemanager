@@ -8,7 +8,7 @@
 <div class="owner-setup">
   <div class="oa-heading">
     <div><p class="oa-eyebrow">OWNER PORTAL</p><h1>Owner access</h1><p class="oa-muted">The right homes. The right people. One place to manage access.</p></div>
-    <button type="button" class="oa-primary" data-open="account"><span aria-hidden="true">＋</span> Add owner</button>
+    <div><a href="{{ url_for('owner_access.statements_page') }}">Publish statements</a> <button type="button" class="oa-primary" data-open="account"><span aria-hidden="true">＋</span> Add owner</button></div>
   </div>
   <div id="oa-launch" class="oa-launch" hidden><span class="oa-dot" aria-hidden="true"></span><div><strong>Prepare now. Invite when sign-in is ready.</strong><span>Owner Google sign-in isn’t enabled yet. You can set up owners and homes today.</span></div><span class="oa-badge">Invitations paused</span></div>
   <p id="oa-status" role="status" aria-live="polite"></p>
