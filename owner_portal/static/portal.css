@@ -24,3 +24,23 @@
 .welcome{box-shadow:0 16px 44px var(--shadow)}
 .owner-preview{border-top:2px solid var(--accent)}
 .owner-preview select:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+
+:root[data-owner-appearance="light"]{color-scheme:light}
+:root[data-owner-appearance="dark"]{color-scheme:dark}
+header{gap:20px;flex-wrap:wrap}
+.owner-header-actions{display:flex;align-items:center;gap:20px}
+.owner-header-actions form{margin:0}
+.owner-appearance{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13px}
+.owner-appearance select{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:110px;min-height:40px}
+.owner-appearance select:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+@media(max-width:600px){
+  header{display:grid;grid-template-columns:1fr auto;gap:12px}
+  .owner-header-actions{display:contents}
+  .owner-header-actions form{grid-column:2;grid-row:1}
+  .owner-appearance{grid-column:1/-1;grid-row:2;justify-content:space-between}
+  .owner-appearance select{font-size:16px;min-height:44px}
+}
+@media print{
+  :root[data-owner-appearance]{color-scheme:light}
+  .owner-header-actions{display:none}
+}

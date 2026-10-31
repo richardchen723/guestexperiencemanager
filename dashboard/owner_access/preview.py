@@ -13,7 +13,7 @@ from owner_portal.models import Account, Membership, Property, PropertyGrant, St
 
 bp = Blueprint('preview', __name__, url_prefix='/preview')
 OWNER_ROOT = Path(__file__).resolve().parents[2] / 'owner_portal'
-ASSETS = {'portal.css', 'preview.js', 'dashboard.css', 'dashboard.js', 'statement.css', 'statement.js'}
+ASSETS = {'portal.css', 'appearance.js', 'preview.js', 'dashboard.css', 'dashboard.js', 'statement.css', 'statement.js'}
 
 
 class PreviewAccess:
