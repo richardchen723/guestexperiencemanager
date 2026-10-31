@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select, text
 
-from owner_portal.models import FinanceCache, PerformanceMonth
+from owner_portal.models import CalendarObservation, FinanceCache, PerformanceMonth
 from owner_portal.prepare import refresh
 
 
@@ -39,6 +39,9 @@ def test_refresh_end_to_end_sanitizes_caches_and_invalidates_changed_bookings(en
         row=db.get(PerformanceMonth,(setup['property'],date(2026,11,1)))
         assert row.metrics['revenue']==200 and 'PRIVATE GUEST' not in str(row.metrics)
         assert db.get(FinanceCache,1).accommodation==Decimal('200')
+        observation=db.get(CalendarObservation,(101,date(2027,1,15),date(2026,11,1)))
+        assert observation.price==Decimal('100') and observation.status=='available'
+        assert 'PRIVATE GUEST' not in str(observation.__dict__)
     refresh(engine,client,now=now)
     assert client.calls==1
     with factory.begin() as db:db.execute(text("UPDATE public.reservations SET status='cancelled' WHERE reservation_id=1"))

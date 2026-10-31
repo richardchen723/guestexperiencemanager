@@ -6,7 +6,7 @@ const money=n=>n==null?'—':new Intl.NumberFormat('en-US',{style:'currency',cur
 const short=n=>n==null?'—':Math.abs(n)>=1000?'$'+(n/1000).toFixed(1)+'k':money(n);
 const range=(lo,hi,compact=false)=>lo==null||hi==null?'—':Math.round(lo)===Math.round(hi)?(compact?short:money)(lo):(compact?short:money)(lo)+'–'+(compact?short:money)(hi);
 const monthLabel=(v,format='long')=>new Date(v.slice(0,7)+'-01T12:00:00Z').toLocaleDateString('en-US',{month:format,year:'numeric',timeZone:'UTC'});
-const reason=r=>r==='outside_reporting_dates'?'Outside your reporting dates':r==='preparing'?'Your report is being prepared':r==='source_stale'?'Waiting for refreshed data':r==='incomplete_source'?'Some source data is still being verified':'Not enough booking history for an estimate';
+const reason=r=>r==='outside_reporting_dates'?'Outside your reporting dates':r==='preparing'?'Your report is being prepared':r==='source_stale'?'Waiting for refreshed data':r==='incomplete_source'?'Some source data is still being verified':r==='rates_unavailable'?'Nightly rates are still being verified':'Not enough booking history for an estimate';
 let data=JSON.parse(root.dataset.initial), view='snapshot', controller;
 const selected=()=>data.months.find(m=>m.month===data.month);
 function statementCard(s){return `<div class="ov-statement-row"><div><h3>${esc(monthLabel(s.period_start))}</h3><p>${s.properties.map(esc).join(' · ')}</p><p>Finalized · Version ${s.version} · Published ${esc(s.published_at.slice(0,10))}</p><a href="${root.dataset.statements}${s.id}">Open statement ↗</a></div><div class="ov-statement-value">${money(s.net_income)}<p>Net income · Payment unconfirmed</p></div></div>`;}

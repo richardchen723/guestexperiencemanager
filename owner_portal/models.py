@@ -140,6 +140,18 @@ class FinanceCache(Base):
     checked_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
+class CalendarObservation(Base):
+    """Worker-only history beyond the staff feed's 60-day forward horizon."""
+    __tablename__ = 'calendar_observations'
+    listing_id = Column(Integer, primary_key=True)
+    calendar_date = Column(Date, primary_key=True)
+    snapshot_date = Column(Date, primary_key=True)
+    status = Column(String(30))
+    is_available = Column(Boolean)
+    price = Column(Numeric(14, 2))
+    minimum_stay = Column(Integer)
+
+
 class PublishedStatement(Base):
     """An immutable, explicitly reviewed recipient and scope snapshot."""
     __tablename__ = 'published_statements'

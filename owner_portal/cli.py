@@ -33,6 +33,7 @@ def prepare_sql(role):
     return f'''GRANT USAGE ON SCHEMA owners, public, brain TO {role};
 GRANT SELECT ON owners.properties, owners.listing_mappings TO {role};
 GRANT SELECT, INSERT, UPDATE ON owners.finance_cache, owners.performance_months TO {role};
+GRANT SELECT, INSERT, UPDATE ON owners.calendar_observations TO {role};
 GRANT SELECT (reservation_id, listing_id, channel_name, arrival_date, departure_date,
     status, total_price, currency, updated_on) ON public.reservations TO {role};
 GRANT SELECT (listing_id, last_synced_at) ON public.listings TO {role};
