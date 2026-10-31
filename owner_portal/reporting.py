@@ -9,7 +9,7 @@ from .models import PerformanceMonth, PublishedStatement, utcnow
 
 METRICS = ('stayed', 'booked', 'revenue', 'nights', 'sellable', 'blocked', 'unknown_nights',
            'low', 'high', 'nights_low', 'nights_high')
-REASONS = {'history_insufficient', 'incomplete_source', 'source_stale', None}
+REASONS = {'history_insufficient', 'incomplete_source', 'source_stale', 'rates_unavailable', None}
 
 
 def metric(db, user_id, account_id, property_id, month):

@@ -205,7 +205,10 @@ def build_month(start, today, reservations, calendars, *, source_fresh=True):
         if run < max(1, row.get('minimum_stay') or 1):
             continue
         interval = pickup_range(history, today, (day-today).days)
-        if interval is None or price is None or price <= 0:
+        if price is None or price <= 0:
+            result['forecast_reason'] = 'rates_unavailable'
+            return result
+        if interval is None:
             return result
         lo, hi = interval
         extra_low += lo * float(price)

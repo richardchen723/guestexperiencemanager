@@ -16,7 +16,7 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 
 from .calculations import accommodation_amount, build_month, calendar_state, month_shift, number
-from .models import FinanceCache, ListingMapping, PerformanceMonth, Property, utcnow
+from .models import CalendarObservation, FinanceCache, ListingMapping, PerformanceMonth, Property, utcnow
 
 
 def fingerprint(row):
@@ -119,6 +119,12 @@ def _refresh(db, client, now):
             status,is_available,price,minimum_stay FROM brain.calendar_snapshots
             WHERE listing_id=ANY(:ids) AND calendar_date>=:start AND calendar_date<:end
             AND snapshot_date<=:today'''), {'ids': listing_ids, 'start': start, 'end': end, 'today': today}).mappings()]
+        observations = db.scalars(select(CalendarObservation).where(CalendarObservation.listing_id.in_(listing_ids),
+            CalendarObservation.calendar_date >= start, CalendarObservation.calendar_date < end,
+            CalendarObservation.snapshot_date <= today)).all()
+        observed = {(r.listing_id, r.calendar_date, r.snapshot_date): {k:getattr(r,k) for k in (
+            'listing_id','calendar_date','snapshot_date','status','is_available','price','minimum_stay')} for r in observations}
+        calendars = [r for r in calendars if (r['listing_id'],r['calendar_date'],r['snapshot_date']) not in observed] + list(observed.values())
         # The staff calendar refresh covers only 60 days. Read the requested
         # owner horizon explicitly so later months do not look empty.
         for listing_id in listing_ids:
@@ -139,8 +145,11 @@ def _refresh(db, client, now):
                 available = item.get('isAvailable')
                 minimum = item.get('minimumStay')
                 sanitized.append({'listing_id':listing_id, 'calendar_date':day, 'snapshot_date':today,
-                    'status':item.get('status'), 'is_available':available in (True,1,'1') if available in (True,False,1,0,'1','0') else None,
+                    'status':item.get('status') if item.get('status') in ('available','reserved','booked','blocked') else 'unknown',
+                    'is_available':available in (True,1,'1') if available in (True,False,1,0,'1','0') else None,
                     'price':number(item.get('price')), 'minimum_stay':int(minimum) if str(minimum).isdigit() else None})
+            for observation in sanitized:
+                db.merge(CalendarObservation(**observation))
             replaced = {r['calendar_date'] for r in sanitized}
             calendars = [r for r in calendars if not (r['listing_id']==listing_id and r['snapshot_date']==today and r['calendar_date'] in replaced)] + sanitized
         syncs = list(db.execute(text('SELECT last_synced_at FROM public.listings WHERE listing_id=ANY(:ids)'), {'ids': listing_ids}).scalars())
