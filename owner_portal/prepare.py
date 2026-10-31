@@ -59,13 +59,13 @@ def refresh(engine, client, *, now=None):
     now = now or utcnow()
     # Hold one physical connection across commits for the session-level lock.
     with engine.connect() as connection, Session(bind=connection) as db:
-        # Serialize worker runs. Web requests never acquire this lock.
-        if not db.scalar(text('SELECT pg_try_advisory_lock(847, 2)')):
+        # Negative key isolates worker serialization from positive account-ID locks.
+        if not db.scalar(text('SELECT pg_try_advisory_lock(847, -2)')):
             raise RuntimeError('An owner refresh is already running.')
         try:
             return _refresh(db, client, now)
         finally:
-            db.execute(text('SELECT pg_advisory_unlock(847, 2)'))
+            db.execute(text('SELECT pg_advisory_unlock(847, -2)'))
             db.commit()
 
 
