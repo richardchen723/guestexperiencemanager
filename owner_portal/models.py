@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey,
-                        Integer, MetaData, Numeric, String, UniqueConstraint, text)
+                        Integer, LargeBinary, MetaData, Numeric, String, UniqueConstraint, text)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
 
@@ -157,7 +157,7 @@ class PublishedStatement(Base):
     __tablename__ = 'published_statements'
     id = Column(Integer, primary_key=True)
     account_id = Column(Integer, ForeignKey('owners.accounts.id'), nullable=False)
-    revision_id = Column(Integer, nullable=False)
+    revision_id = Column(Integer)  # Null for an explicitly uploaded finalized statement.
     version = Column(Integer, nullable=False)
     period_start = Column(Date, nullable=False)
     period_end = Column(Date, nullable=False)  # Exclusive.
@@ -178,6 +178,34 @@ class PublishedStatement(Base):
     )
 
 
+class StatementDocument(Base):
+    __tablename__ = 'statement_documents'
+    statement_id = Column(Integer, ForeignKey('owners.published_statements.id'), primary_key=True)
+    sha256 = Column(String(64), nullable=False)
+    content = Column(LargeBinary, nullable=False)
+    __table_args__ = (CheckConstraint('octet_length(content) <= 5242880', name='statement_pdf_size'),)
+
+
+class OwnerRequest(Base):
+    """Explicit staff publication; no automatic copying of internal ticket text."""
+    __tablename__ = 'requests'
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey('owners.accounts.id'), nullable=False)
+    property_id = Column(Integer, ForeignKey('owners.properties.id'), nullable=False)
+    title = Column(String(120), nullable=False)
+    summary = Column(String(1000), nullable=False)
+    amount = Column(Numeric(14, 2))
+    published_by = Column(String(80), nullable=False)
+    published_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    reporting_date = Column(Date, nullable=False)
+    response = Column(String(20))
+    responded_by = Column(Integer, ForeignKey('owners.users.id'))
+    responded_at = Column(DateTime(timezone=True))
+    withdrawn_at = Column(DateTime(timezone=True))
+    __table_args__ = (CheckConstraint("amount IS NULL OR amount >= 0", name='request_positive_amount'),
+                     CheckConstraint("response IS NULL OR response IN ('approved','discuss')", name='request_response'),)
+
+
 def migrate(connection):
     """Run explicitly as an administrator, never from app startup or a request."""
     if connection.dialect.name != 'postgresql':
@@ -185,3 +213,4 @@ def migrate(connection):
     connection.execute(text('SELECT pg_advisory_xact_lock(847, 1)'))
     connection.execute(text('CREATE SCHEMA IF NOT EXISTS owners'))
     Base.metadata.create_all(connection)
+    connection.execute(text('ALTER TABLE owners.published_statements ALTER COLUMN revision_id DROP NOT NULL'))

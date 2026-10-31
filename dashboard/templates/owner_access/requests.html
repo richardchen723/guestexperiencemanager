@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block title %}Owner requests · Cotton Candy{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{{ url_for('static',filename='css/owner_access.css') }}"><link rel="stylesheet" href="{{ url_for('static',filename='css/owner_requests.css') }}"><meta name="owner-access-csrf" content="{{ owner_access_csrf }}">{% endblock %}
+{% block content %}<div class="owner-setup" id="owner-requests">
+<div class="oa-heading"><div><p class="oa-eyebrow">OWNER PORTAL</p><h1>Owner requests</h1><p class="oa-muted">Publish a clear decision for an owner. Their response appears here.</p></div><a href="{{ url_for('owner_access.page') }}">← Owner access</a></div>
+<label>Owner account<select id="or-account"></select></label><p id="or-status" role="status"></p><p id="or-error" role="alert" class="oa-error" hidden></p>
+<div class="or-grid"><section class="oa-card"><h2>Publish a request</h2><form id="or-form">
+<label>Property<select name="property_id" id="or-property" required></select></label>
+<label>Title<input name="title" maxlength="120" required placeholder="For example: Replace the patio umbrella"></label>
+<label>What does the owner need to decide?<textarea name="summary" maxlength="1000" rows="4" required></textarea></label>
+<label>Estimated cost · USD · optional<input name="amount" type="number" min="0" step="0.01"></label>
+<label class="or-check"><input name="owner_safe_reviewed" type="checkbox" required> I reviewed this text for the owner. It contains no guest details, private messages or internal notes.</label>
+<button type="submit" class="oa-primary">Publish to owner dashboard</button><p class="oa-muted">Publishing does not send an email. Approval records a decision; it does not charge the owner or start work automatically.</p>
+</form></section><section><h2>Published requests &amp; responses</h2><div id="or-list"></div></section></div>
+</div>{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static',filename='js/owner_requests.js') }}" defer></script>{% endblock %}

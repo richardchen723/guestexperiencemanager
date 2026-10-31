@@ -125,7 +125,7 @@
     return '<option value="">Choose the home’s local timezone…</option><optgroup label="Common timezones">' + Object.entries(common).filter(([zone]) => state.timezones.includes(zone)).map(([zone, name]) => option(zone, name)).join('') + '</optgroup><optgroup label="All other timezones">' + state.timezones.filter(zone => !common[zone]).map(zone => option(zone, zone.replaceAll('_', ' '))).join('') + '</optgroup>';
   }
   function dateFields(from = '', end = '') {
-    return `<div class="oa-fields"><label>Reporting starts on<input type="date" name="reporting_from" value="${escape(from)}" max="9999-12-30" required></label><label><span>Reporting ends on <small>· optional</small></span><input type="date" name="reporting_end" value="${escape(end)}" max="9999-12-30"></label></div><p class="oa-note">Only reports within these dates can be shared, including year-over-year comparisons. Leave the end date blank for ongoing access.</p>`;
+    return `<div class="oa-fields"><label>Reporting starts on<input type="date" name="reporting_from" value="${escape(from)}" max="9999-12-30" required></label><label><span>Reporting ends on <small>· optional</small></span><input type="date" name="reporting_end" value="${escape(end)}" max="9999-12-30"></label></div><p class="oa-note">These dates control report history, not the invitation date. Include the prior year to show year-over-year comparisons. Start on the first of a month for full monthly reports; leave the end date blank for ongoing access.</p>`;
   }
   function openHomeDetails() {
     const draft = propertyDraft || {};

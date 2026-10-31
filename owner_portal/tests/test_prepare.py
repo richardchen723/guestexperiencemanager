@@ -14,12 +14,14 @@ def sources(factory,setup):
     with factory.begin() as db:
         db.execute(text('CREATE SCHEMA IF NOT EXISTS brain'))
         db.execute(text('CREATE TABLE public.listings (listing_id int,last_synced_at timestamp)'))
-        db.execute(text('CREATE TABLE public.reservations (reservation_id int,listing_id int,channel_name text,arrival_date date,departure_date date,status text,total_price numeric,currency text,updated_on timestamp,guest_name text)'))
+        db.execute(text('CREATE TABLE public.reservations (reservation_id int,listing_id int,channel_name text,arrival_date date,departure_date date,status text,total_price numeric,currency text,updated_on timestamp,guest_name text,reservation_date timestamp,cancellation_date timestamp)'))
+        db.execute(text('CREATE VIEW owners.care_source AS SELECT 1::int property_id, 1::int work_id, null::text category, null::text status, now() happened_at, null::text kind WHERE false'))
         db.execute(text('CREATE TABLE brain.calendar_snapshots (listing_id int,calendar_date date,snapshot_date date,status text,is_available boolean,price numeric,minimum_stay int,raw_payload jsonb)'))
         db.execute(text("INSERT INTO public.listings VALUES(101,'2026-11-01'),(202,'2026-11-01')"))
-        db.execute(text("INSERT INTO public.reservations VALUES(1,101,'direct','2026-11-01','2026-11-03','new',234,'USD','2026-11-01','PRIVATE GUEST')"))
+        db.execute(text("INSERT INTO public.reservations VALUES(1,101,'direct','2026-11-01','2026-11-03','new',234,'USD','2026-11-01','PRIVATE GUEST','2026-10-01',null)"))
     yield
     with factory.begin() as db:
+        db.execute(text('DROP VIEW owners.care_source'))
         db.execute(text('DROP TABLE public.reservations,public.listings,brain.calendar_snapshots'))
 
 

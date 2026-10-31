@@ -1,14 +1,17 @@
 """Owner read model: authorize every month, comparison and document first."""
 from datetime import date, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
 from .access import AccessError, authorize_property, context
 from .calculations import month_shift
-from .models import PerformanceMonth, PublishedStatement, utcnow
+from .models import PerformanceMonth, PublishedStatement, StatementDocument, utcnow
 
 METRICS = ('stayed', 'booked', 'revenue', 'nights', 'sellable', 'blocked', 'unknown_nights',
-           'low', 'high', 'nights_low', 'nights_high')
+           'low', 'high', 'nights_low', 'nights_high', 'stayed_known', 'booked_known', 'revenue_known',
+           'calendar_nights', 'missing_revenue_nights', 'reservation_count', 'unallocated_adjustments',
+           'reconstructed_nights', 'extra_low', 'extra_high', 'cancellation_low', 'cancellation_high', 'low_known', 'high_known', 'nights_known')
 REASONS = {'history_insufficient', 'incomplete_source', 'source_stale', 'rates_unavailable', None}
 
 
@@ -22,23 +25,46 @@ def metric(db, user_id, account_id, property_id, month):
         return {'available': False, 'reason': 'preparing'}
     # Never serialize arbitrary JSON or ORM fields onto the public API.
     result = {key: row.metrics.get(key) for key in METRICS}
+    from .care import public_care
+    result['care'] = public_care(row.metrics.get('care'))
+    result['forecast_method'] = row.metrics.get('forecast_method') if row.metrics.get('forecast_method') in ('seasonal_pickup','recent_pickup') else None
+    for key in ('stayed','booked','revenue','low','high'):
+        if result[key+'_known'] is None:
+            result[key+'_known'] = result[key]
     stale = utcnow()-row.prepared_at > timedelta(hours=48) or row.metrics.get('source_fresh') is not True
     result.update(available=True, as_of=row.as_of.isoformat(), updated_at=row.prepared_at.isoformat(), stale=stale,
                   forecast_reason=row.metrics.get('forecast_reason') if row.metrics.get('forecast_reason') in REASONS else 'incomplete_source')
     if stale and month_shift(month, 1) > row.as_of:
-        result.update(low=None, high=None, nights_low=None, nights_high=None, forecast_reason='source_stale')
+        result.update(low=None, high=None, low_known=None, high_known=None, nights_low=None, nights_high=None, extra_low=None, extra_high=None,
+                      cancellation_low=None, cancellation_high=None, forecast_reason='source_stale')
     return result
 
 
 def total(rows):
-    if not rows or not all(row['available'] for row in rows):
+    authorized = [r for r in rows if r['available']]
+    if not authorized:
         return {'available': False, 'reason': 'outside_reporting_dates' if any(row.get('reason') == 'outside_reporting_dates' for row in rows) else 'preparing'}
-    result = {'available': True, 'as_of': min(r['as_of'] for r in rows), 'updated_at': min(r['updated_at'] for r in rows),
-              'stale': any(r['stale'] for r in rows)}
+    result = {'available': True, 'as_of': min(r['as_of'] for r in authorized), 'updated_at': min(r['updated_at'] for r in authorized),
+              'stale': any(r['stale'] for r in authorized), 'property_count':len(rows),
+              'revenue_coverage':sum(r.get('revenue') is not None for r in authorized),
+              'forecast_coverage':sum(r.get('low') is not None for r in authorized),
+              'available_properties':len(authorized)}
     for key in METRICS:
-        values = [r.get(key) for r in rows]
-        result[key] = round(sum(values), 2) if all(v is not None for v in values) else None
-    result['forecast_reason'] = next((r['forecast_reason'] for r in rows if r.get('forecast_reason')), None)
+        values = [r.get(key) for r in authorized]
+        if key.endswith('_known') or key in ('missing_revenue_nights','unallocated_adjustments','reconstructed_nights','reservation_count'):
+            result[key] = round(sum(v for v in values if v is not None),2) if any(v is not None for v in values) else None
+        else:
+            result[key] = round(sum(values), 2) if len(authorized)==len(rows) and all(v is not None for v in values) else None
+    result['forecast_reason'] = next((r['forecast_reason'] for r in authorized if r.get('forecast_reason')), None)
+    result['forecast_method'] = 'seasonal_pickup' if any(r.get('forecast_method')=='seasonal_pickup' for r in authorized) else 'recent_pickup'
+    # Preserve confirmed charges for every covered home, plus the forecast
+    # additions for homes with a range. The UI explicitly labels its coverage.
+    if result['forecast_coverage'] and all(r.get('revenue_known') is not None for r in authorized):
+        for key in ('low','high'):
+            result[key+'_known'] = round(sum(r[key] if r.get(key) is not None else r.get(key+'_known') if r.get(key+'_known') is not None else r['revenue_known'] for r in authorized),2)
+    result['care'] = {'available':all(r.get('care',{}).get('available') for r in authorized),
+        'completed':sum(r.get('care',{}).get('completed',0) for r in authorized),
+        'open':sum(r.get('care',{}).get('open',0) for r in authorized)}
     return result
 
 
@@ -55,7 +81,7 @@ def dashboard(db, user_id, *, account_id=None, property_id=None, month=None):
         homes = [p for p in homes if p['id'] == property_id]
         if not homes:
             raise AccessError()
-    today = utcnow().date()
+    today = utcnow().astimezone(ZoneInfo(homes[0]['timezone'])).date() if homes else utcnow().date()
     if month is None:
         # Default to the first month common to all selected grants, without
         # silently clipping a requested month or changing any entitlement.
@@ -68,8 +94,19 @@ def dashboard(db, user_id, *, account_id=None, property_id=None, month=None):
                 'month': month.isoformat()[:7], 'currency': 'USD', 'months': [],
                 'statements': list_statements(db, user_id, account['id'], property_id) if account['permissions']['statements'] else []}
     if account['permissions']['performance']:
-        for offset in range(-2, 4):
-            start = month_shift(month, offset)
+        from .requests import owner_list
+        response['requests'] = owner_list(db,user_id,account['id'],[p['id'] for p in homes])
+        available_months = set()
+        for prop in homes:
+            for value in db.scalars(select(PerformanceMonth.month).where(PerformanceMonth.property_id==prop['id']).order_by(PerformanceMonth.month)):
+                if value.isoformat() >= prop['reporting_from'] and (not prop['reporting_until_exclusive'] or month_shift(value,1).isoformat() <= prop['reporting_until_exclusive']):
+                    available_months.add(value)
+        response['available_months'] = [v.isoformat()[:7] for v in sorted(available_months)]
+        first = month_shift(month,-2)
+        if available_months and min(available_months)<=month<=max(available_months):
+            first = max(min(available_months), min(first,month_shift(max(available_months),-5)))
+        for offset in range(6):
+            start = month_shift(first, offset)
             previous = month_shift(start, -12)
             rows = []
             comparison = []
@@ -78,8 +115,11 @@ def dashboard(db, user_id, *, account_id=None, property_id=None, month=None):
                 prior = metric(db, user_id, account['id'], prop['id'], previous)
                 rows.append({'id': prop['id'], 'name': prop['name'], 'value': value, 'previous': prior})
                 comparison.append(prior)
+            matched = [r for r in rows if r['value'].get('revenue') is not None and r['previous'].get('revenue') is not None]
             response['months'].append({'month': start.isoformat()[:7], 'value': total([r['value'] for r in rows]),
-                                       'previous': total(comparison), 'properties': rows})
+                'previous': total(comparison), 'properties': rows,
+                'comparison': {'homes':len(matched), 'total':len(homes), 'value':total([r['value'] for r in matched]),
+                               'previous':total([r['previous'] for r in matched])}})
     return response
 
 
@@ -107,7 +147,7 @@ def list_statements(db, user_id, account_id, property_id=None):
             statement_authorized(db, user_id, row)
         except AccessError:
             continue
-        result.append(statement_view(row))
+        result.append(statement_view(row)|{'has_pdf':db.scalar(select(StatementDocument.statement_id).where(StatementDocument.statement_id==row.id)) is not None})
     return result
 
 
@@ -116,4 +156,4 @@ def get_statement(db, user_id, statement_id):
     if not row:
         raise AccessError('This statement is unavailable.', 404)
     statement_authorized(db, user_id, row)
-    return statement_view(row)
+    return statement_view(row)|{'has_pdf':db.scalar(select(StatementDocument.statement_id).where(StatementDocument.statement_id==row.id)) is not None}

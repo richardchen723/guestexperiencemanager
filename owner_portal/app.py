@@ -10,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from . import auth, reporting
 from .access import AccessError, context, current_user, digest
-from .models import Invitation, LoginSession, utcnow
+from .models import Invitation, LoginSession, StatementDocument, utcnow
 from .mount import OwnerMount, normalize_prefix, public_base
 
 
@@ -82,6 +82,8 @@ def create_app(config=None):
             'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self' https://accounts.google.com"})
         if not app.testing:
             response.headers['Strict-Transport-Security'] = 'max-age=31536000'
+        if response.mimetype=='application/pdf':
+            response.headers['Content-Security-Policy']="sandbox; default-src 'none'"
         return response
 
     @app.errorhandler(AccessError)
@@ -185,6 +187,29 @@ def create_app(config=None):
         response = make_response(render_template('statement_download.html' if download else 'statement.html', statement=data))
         if request.args.get('download') == '1':
             response.headers['Content-Disposition'] = f'attachment; filename="owner-statement-{data["period_start"]}-v{data["version"]}.html"'
+        return response
+
+    @app.post('/api/requests/<int:request_id>/respond')
+    def respond_request(request_id):
+        from .requests import respond
+        data = request.get_json(silent=True)
+        if not isinstance(data,dict):
+            raise AccessError('Choose a response.',400)
+        with factory.begin() as db:
+            user = current_user(db,session.get('owner_token'))
+            return jsonify(respond(db,user.id,request_id,data.get('response')))
+
+    @app.get('/statements/<int:statement_id>/pdf')
+    def statement_pdf(statement_id):
+        with factory() as db:
+            user=current_user(db,session.get('owner_token'))
+            data=reporting.get_statement(db,user.id,statement_id)
+            document=db.get(StatementDocument,statement_id)
+            if document is None:
+                raise AccessError('PDF unavailable.',404)
+            response=make_response(document.content)
+        response.headers['Content-Type']='application/pdf'
+        response.headers['Content-Disposition']=f'attachment; filename="owner-statement-{data["period_start"]}-v{data["version"]}.pdf"'
         return response
 
     if app.config['OWNER_PATH_PREFIX']:
