@@ -28,6 +28,8 @@ def test_refresh_end_to_end_sanitizes_caches_and_invalidates_changed_bookings(en
         calls=0
         def get_reservation_detail(self,id):
             self.calls+=1
+            with factory.begin() as db:
+                assert db.scalar(text('SELECT pg_try_advisory_xact_lock(847, :account)'), {'account':setup['other_account']})
             return {'id':1,'listingMapId':101,'arrivalDate':'2026-11-01','departureDate':'2026-11-03','status':'new','currency':'USD','totalPrice':234,'guestName':'PRIVATE GUEST','financeField':[{'id':1,'isDeleted':0,'isIncludedInTotalPrice':1,'type':'accommodation','total':200},{'id':2,'isDeleted':0,'isIncludedInTotalPrice':1,'type':'tax','total':34}]}
         def get_calendar(self,id,start,end):
             from owner_portal.calculations import days
