@@ -27,18 +27,28 @@
 
 :root[data-owner-appearance="light"]{color-scheme:light}
 :root[data-owner-appearance="dark"]{color-scheme:dark}
-header{gap:20px;flex-wrap:wrap}
+header{gap:20px;flex-wrap:wrap;padding-inline:max(24px,calc((100vw - 1152px)/2))}
 .owner-header-actions{display:flex;align-items:center;gap:20px}
 .owner-header-actions form{margin:0}
-.owner-appearance{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13px}
-.owner-appearance select{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:110px;min-height:40px}
-.owner-appearance select:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+.owner-appearance{display:flex;gap:3px;min-width:0;margin:0;padding:3px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.owner-appearance label{position:relative;flex:1;cursor:pointer}
+.owner-appearance input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+.owner-appearance label>span{display:flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:0 12px;border-radius:8px;color:var(--muted);font-size:13px;font-weight:500}
+.owner-appearance svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.owner-appearance input:checked+span{background:var(--surface);color:var(--ink);box-shadow:0 1px 4px var(--shadow),0 0 0 1px var(--line)}
+.owner-appearance input:focus-visible+span{outline:2px solid var(--focus);outline-offset:2px}
+.owner-appearance label:hover>span{color:var(--ink)}
+.owner-appearance:disabled{opacity:.5}
+.quiet:hover{background:var(--soft);color:var(--ink)}
 @media(max-width:600px){
-  header{display:grid;grid-template-columns:1fr auto;gap:12px}
+  header{display:grid;grid-template-columns:1fr auto;gap:14px;padding:16px 20px}
   .owner-header-actions{display:contents}
   .owner-header-actions form{grid-column:2;grid-row:1}
-  .owner-appearance{grid-column:1/-1;grid-row:2;justify-content:space-between}
-  .owner-appearance select{font-size:16px;min-height:44px}
+  .owner-appearance{grid-column:1/-1;grid-row:2}
+  .owner-appearance label>span{min-height:44px;padding:0 8px}
+  .brand{font-size:22px}
+  .quiet{padding:10px 12px}
 }
 @media print{
   :root[data-owner-appearance]{color-scheme:light}
