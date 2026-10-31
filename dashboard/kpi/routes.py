@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, abort, jsonify, render_template, request
 
 import dashboard.config as config
 from brain.stay_outcomes import StayOutcomeClassificationService
@@ -18,6 +18,8 @@ from dashboard.kpi.refresh import (
     refresh_job_payload,
 )
 from dashboard.kpi.service import KPIService
+from dashboard.kpi.operations import GOALS
+from dashboard.kpi.operations_data import operational_dashboard
 from dashboard.sync.job_manager import get_job_manager
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,33 @@ def require_kpi_access():
 @kpi_bp.route("/")
 @approved_required
 def kpi_page():
+    return render_template("kpi/operations.html", current_user=get_current_user(), goals=GOALS, metric_key=None)
+
+
+@kpi_bp.route("/operations/<metric_key>/")
+@approved_required
+def operational_detail(metric_key):
+    if metric_key not in GOALS:
+        abort(404)
+    return render_template("kpi/operations.html", current_user=get_current_user(), goals=GOALS, metric_key=metric_key)
+
+
+@kpi_bp.route("/api/operations")
+@approved_required
+def api_operational_data():
+    try:
+        response = jsonify(operational_dashboard())
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
+    except Exception:
+        logger.exception("Unable to build operational KPI data")
+        return jsonify({"error": "Operational KPI sources could not be loaded. Retry to read the current snapshots."}), 503
+
+
+@kpi_bp.route("/north-star/")
+@approved_required
+def north_star_page():
+    """Preserve the prior dashboard and its source definitions/history."""
     return render_template("kpi/index.html", current_user=get_current_user())
 
 
