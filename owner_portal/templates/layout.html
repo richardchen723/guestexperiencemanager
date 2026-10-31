@@ -6,13 +6,21 @@
   {% if not admin_preview %}<meta name="csrf-token" content="{{ session.csrf }}">
   <meta name="invitation-endpoint" content="{{ portal_url('stage_invitation') }}">{% endif %}
   <title>{% block title %}Your homes · Cotton Candy{% endblock %}</title>
+  <script src="{{ portal_url('static', filename='appearance.js') }}"></script>
   <link rel="stylesheet" href="{{ portal_url('static', filename='portal.css') }}">
   <script src="{{ portal_url('static', filename='preview.js' if admin_preview else 'portal.js') }}" defer></script>
   {% block head %}{% endblock %}
 </head>
 <body>
   <header><a class="brand" href="{{ portal_url('home') }}">cotton candy<span>OWNER PORTAL</span></a>
-    {% if session.owner_token and not admin_preview %}<form action="{{ portal_url('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="quiet">Sign out</button></form>{% endif %}
+    <div class="owner-header-actions">
+      <div class="owner-appearance"><label for="owner-appearance">Appearance</label>
+        <select id="owner-appearance" disabled>
+          <option value="light">Light</option><option value="dark">Dark</option><option value="system" selected>System</option>
+        </select>
+      </div>
+      {% if session.owner_token and not admin_preview %}<form action="{{ portal_url('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="quiet">Sign out</button></form>{% endif %}
+    </div>
   </header>
   {% if admin_preview %}
   <aside class="owner-preview" aria-label="Admin preview">
