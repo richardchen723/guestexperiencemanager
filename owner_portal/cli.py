@@ -16,6 +16,9 @@ def runtime_sql(role):
 GRANT USAGE ON SCHEMA owners TO {role};
 GRANT SELECT ON owners.accounts, owners.properties, owners.property_grants TO {role};
 GRANT SELECT ON owners.performance_months, owners.published_statements TO {role};
+GRANT SELECT ON owners.statement_documents TO {role};
+GRANT SELECT ON owners.requests TO {role};
+GRANT UPDATE (response, responded_by, responded_at) ON owners.requests TO {role};
 GRANT SELECT, INSERT, UPDATE ON owners.users, owners.memberships,
     owners.login_flows, owners.login_sessions TO {role};
 GRANT SELECT, UPDATE ON owners.invitations TO {role};
@@ -34,8 +37,9 @@ def prepare_sql(role):
 GRANT SELECT ON owners.properties, owners.listing_mappings TO {role};
 GRANT SELECT, INSERT, UPDATE ON owners.finance_cache, owners.performance_months TO {role};
 GRANT SELECT, INSERT, UPDATE ON owners.calendar_observations TO {role};
+GRANT SELECT ON owners.care_source TO {role};
 GRANT SELECT (reservation_id, listing_id, channel_name, arrival_date, departure_date,
-    status, total_price, currency, updated_on) ON public.reservations TO {role};
+    status, total_price, currency, updated_on, reservation_date, cancellation_date) ON public.reservations TO {role};
 GRANT SELECT (listing_id, last_synced_at) ON public.listings TO {role};
 GRANT SELECT (listing_id, calendar_date, snapshot_date, status, is_available, price,
     minimum_stay) ON brain.calendar_snapshots TO {role};

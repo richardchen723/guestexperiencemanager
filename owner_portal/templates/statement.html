@@ -8,6 +8,6 @@
 <p>Reporting: {{ statement.period_start }} to before {{ statement.period_end_exclusive }}</p>
 <table><tbody><tr><th>Statement revenue</th><td>${{ '{:,.2f}'.format(statement.revenue) }}</td></tr><tr><th>Management fee</th><td>−${{ '{:,.2f}'.format(statement.management_fee) }}</td></tr><tr><th>Operating expenses &amp; other fees</th><td>−${{ '{:,.2f}'.format(statement.expenses) }}</td></tr><tr class="net"><th>Net income</th><td>${{ '{:,.2f}'.format(statement.net_income) }}</td></tr></tbody></table>
 <p>Version {{ statement.version }} · Published {{ statement.published_at[:10] }}</p><p><strong>Payment unconfirmed.</strong> This finalized bookkeeping summary is separate from accommodation revenue estimates.</p>
-<div class="statement-actions"><button type="button" id="statement-print">Print / save PDF</button> <a href="{{ url_for('statement', statement_id=statement.id, download=1) }}">Download HTML</a> · <a href="{{ url_for('home') }}">Back to dashboard</a></div>
+<div class="statement-actions">{% if statement.has_pdf %}<a href="{{ url_for('statement_pdf',statement_id=statement.id) }}">Download finalized PDF</a> · {% endif %}<button type="button" id="statement-print">Print / save PDF</button> <a href="{{ url_for('statement', statement_id=statement.id, download=1) }}">Download HTML</a> · <a href="{{ url_for('home') }}">Back to dashboard</a></div>
 </article>
 {% endblock %}

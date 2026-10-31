@@ -13,8 +13,8 @@ from dashboard.config import API_SERVICE_EMAIL
 from owner_portal.access import AccessError
 from owner_portal.admin import OwnerAdmin
 from owner_portal.mount import public_base
-from owner_portal import publishing
-from owner_portal.models import PublishedStatement
+from owner_portal import publishing, requests as owner_requests
+from owner_portal.models import PublishedStatement, OwnerRequest
 from sqlalchemy import select
 
 bp = Blueprint('owner_access', __name__, url_prefix='/owner-access')
@@ -51,7 +51,8 @@ def protect():
         provided = request.headers.get('X-CSRF-Token', '')
         if not csrf or not provided.isascii() or not secrets.compare_digest(csrf, provided):
             return jsonify(error='Reload this page before saving.'), 403
-        if request.content_length is None or request.content_length > 16384:
+        maximum = 5*1024*1024+16384 if request.path=='/owner-access/api/upload-statement' else 16384
+        if request.content_length is None or request.content_length > maximum:
             return jsonify(error='A bounded JSON request is required.'), 413
 
 
@@ -102,6 +103,25 @@ def statements_data():
         return jsonify(error=str(error)), getattr(error, 'status', 400)
 
 
+@bp.get('/requests')
+def requests_page():
+    session.setdefault('owner_access_csrf', secrets.token_urlsafe(32))
+    return render_template('owner_access/requests.html',owner_access_csrf=session['owner_access_csrf'])
+
+
+@bp.get('/api/requests')
+def requests_data():
+    try:
+        with get_session() as db:
+            account = OwnerAdmin(db,g.owner_access_actor).account(int(request.args.get('account','0')))
+            return jsonify(requests=[{'id':r.id,'title':r.title,'property_id':r.property_id,
+                'response':r.response,'withdrawn':r.withdrawn_at is not None,
+                'published_at':r.published_at.isoformat(),'amount':float(r.amount) if r.amount is not None else None}
+                for r in db.scalars(select(OwnerRequest).where(OwnerRequest.account_id==account.id).order_by(OwnerRequest.published_at.desc()))])
+    except (ValueError,AccessError) as error:
+        return jsonify(error=str(error)),getattr(error,'status',400)
+
+
 @bp.post('/api/<action>')
 def command(action):
     payload = request.get_json(silent=True)
@@ -130,6 +150,10 @@ def command(action):
                 result = publishing.publish(db, g.owner_access_actor, payload)
             elif action == 'withdraw-statement':
                 result = publishing.withdraw(db, g.owner_access_actor, payload)
+            elif action == 'publish-request':
+                result = owner_requests.publish(db,g.owner_access_actor,payload)
+            elif action == 'withdraw-request':
+                result = owner_requests.withdraw(db,g.owner_access_actor,payload)
             else:
                 raise AccessError('Unknown setup action.', 404)
             db.commit()
@@ -140,6 +164,23 @@ def command(action):
         except IntegrityError:
             db.rollback()
             return jsonify(error='This listing is already mapped or a related record changed. Reload and review.'), 409
+
+
+@bp.post('/api/upload-statement')
+def upload_statement():
+    import json
+    try:
+        payload=json.loads(request.form.get('metadata','null'))
+        file=request.files.get('file')
+        if not isinstance(payload,dict) or not file:
+            raise AccessError('Select a finalized PDF and complete its details.',400)
+        content=file.read(5*1024*1024+1)
+        with get_session() as db:
+            result=publishing.upload(db,g.owner_access_actor,payload,content)
+            db.commit()
+            return jsonify(result)
+    except (ValueError,AccessError) as error:
+        return jsonify(error=str(error)),getattr(error,'status',400)
 
 
 def register_owner_access_routes(app):

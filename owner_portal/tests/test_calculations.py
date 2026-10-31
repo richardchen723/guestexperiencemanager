@@ -71,7 +71,7 @@ def test_no_calendar_history_keeps_confirmed_revenue_but_not_occupancy():
     start=date(2026,11,1)
     result=build_month(start,start,[reservation(start,date(2026,11,4),300)],[])
     assert result['booked']==300 and result['revenue']==300
-    assert result['nights'] is None and result['low'] is None
+    assert result['nights'] == 3 and result['sellable'] is None and result['low'] is None
 
 
 def test_leap_year_month_and_stale_forecast():

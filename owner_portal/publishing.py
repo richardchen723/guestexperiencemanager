@@ -7,7 +7,7 @@ from sqlalchemy import func, select, text
 from .access import AccessError
 from .admin import OwnerAdmin, identity, record
 from .calculations import number
-from .models import ListingMapping, Property, PropertyGrant, PublishedStatement, utcnow
+from .models import ListingMapping, Property, PropertyGrant, PublishedStatement, StatementDocument, utcnow
 
 
 def candidates(db, account_id):
@@ -88,3 +88,49 @@ def withdraw(db, actor, data):
     row.withdrawn_at = utcnow()
     record(db, actor, 'statement.withdrawn', row)
     return {'withdrawn': True}
+
+
+def upload(db, actor, data, content):
+    """Explicit finalized PDF publication, independent of bookkeeping portfolios."""
+    import hashlib
+    from .calculations import month_shift
+    account = OwnerAdmin(db,actor).account(data.get('account_id'))
+    if data.get('scope_reviewed') is not True:
+        raise AccessError('Confirm the final PDF, its totals, exact homes and owner-safe contents.',400)
+    if not isinstance(content,bytes) or not content.startswith(b'%PDF-') or b'%%EOF' not in content[-1024:] or len(content)>5*1024*1024:
+        raise AccessError('Upload a complete PDF no larger than 5 MB.',400)
+    try:
+        start = date.fromisoformat(str(data.get('month'))+'-01');end = month_shift(start,1)
+    except (ValueError,TypeError):raise AccessError('Choose a valid statement month.',400)
+    if end>utcnow().date():
+        raise AccessError('Only completed statement months can be finalized.',400)
+    ids=data.get('property_ids')
+    if not isinstance(ids,list) or not ids or len(ids)>100 or any(type(i) is not int or i<=0 for i in ids) or len(set(ids))!=len(ids):
+        raise AccessError('Select the exact homes included in this statement.',400)
+    props=[]
+    for prop_id in sorted(ids):
+        prop=db.get(Property,prop_id)
+        grant=db.scalar(select(PropertyGrant).where(PropertyGrant.account_id==account.id,PropertyGrant.property_id==prop_id,
+            PropertyGrant.revoked_at.is_(None),PropertyGrant.reporting_from<=start,
+            (PropertyGrant.reporting_until.is_(None)|(PropertyGrant.reporting_until>=end))))
+        if not prop or not prop.active or not grant:
+            raise AccessError('This owner needs reporting access to every selected home for the entire month.',409)
+        props.append(prop)
+    if data.get('currency')!='USD':
+        raise AccessError('Statement currency must be USD.',400)
+    values={k:number(data.get(k)) for k in ('revenue','expenses','management_fee','net_income')}
+    if any(v is None or v!=v.quantize(Decimal('.01')) for v in values.values()):
+        raise AccessError('Enter each finalized total in USD, to two decimal places.',400)
+    if abs(values['revenue']-values['expenses']-values['management_fee']-values['net_income'])>Decimal('.02'):
+        raise AccessError('Revenue minus expenses and management fee must equal net income.',400)
+    digest=hashlib.sha256(content).hexdigest()
+    duplicate=db.scalar(select(StatementDocument.statement_id).join(PublishedStatement).where(
+        PublishedStatement.account_id==account.id,PublishedStatement.period_start==start,StatementDocument.sha256==digest))
+    if duplicate:
+        raise AccessError('This PDF has already been published to this owner for this month.',409)
+    version=(db.scalar(select(func.max(PublishedStatement.version)).where(PublishedStatement.account_id==account.id,PublishedStatement.period_start==start)) or 0)+1
+    row=PublishedStatement(account_id=account.id,account_name=account.name,revision_id=None,version=version,
+        period_start=start,period_end=end,property_ids=[p.id for p in props],property_names=[p.name for p in props],published_by=actor,**values)
+    db.add(row);db.flush();db.add(StatementDocument(statement_id=row.id,sha256=digest,content=content))
+    record(db,actor,'statement.uploaded',row,property_ids=row.property_ids,sha256=digest)
+    return {'id':row.id,'version':version}

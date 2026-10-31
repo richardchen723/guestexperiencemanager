@@ -21,7 +21,8 @@ from .models import CalendarObservation, FinanceCache, ListingMapping, Performan
 
 def fingerprint(row):
     keys = ('reservation_id', 'listing_id', 'arrival_date', 'departure_date', 'updated_on', 'total_price', 'currency', 'status')
-    return hashlib.sha256(json.dumps([row[k] for k in keys], default=str).encode()).hexdigest()
+    values = [str(number(row[k]).normalize()) if k=='total_price' and number(row[k]) is not None else row[k] for k in keys]
+    return hashlib.sha256(json.dumps(['finance-v2']+values, default=str).encode()).hexdigest()
 
 
 def validate_detail(row, detail, fields):
@@ -74,20 +75,23 @@ def _refresh(db, client, now):
     counts = {'properties': 0, 'months': 0, 'finance_checked': 0, 'finance_unavailable': 0}
     for prop in properties:
         today = now.astimezone(ZoneInfo(prop.timezone)).date()
-        start, end = month_shift(today, -14), month_shift(today, 4)
+        end = month_shift(today, 4)
         listing_ids = list(db.scalars(select(ListingMapping.listing_id).where(ListingMapping.property_id == prop.id)))
         if not listing_ids:
             continue
         rows = [dict(r) for r in db.execute(text('''SELECT reservation_id, listing_id, channel_name,
-            arrival_date, departure_date, status, total_price, currency, updated_on
+            arrival_date, departure_date, status, total_price, currency, updated_on, reservation_date, cancellation_date
             FROM public.reservations WHERE listing_id = ANY(:ids)
-            AND ((arrival_date < :end AND departure_date > :start)
+            AND ((arrival_date < :end)
                 OR arrival_date IS NULL OR departure_date IS NULL OR arrival_date >= departure_date)
-            AND lower(status) IN ('new','modified','confirmed','ownerstay')'''),
-            {'ids': listing_ids, 'start': start, 'end': end}).mappings()]
+            AND lower(status) IN ('new','modified','confirmed','ownerstay','cancelled','canceled')'''),
+            {'ids': listing_ids, 'end': end}).mappings()]
+        history_start = min((r['arrival_date'] for r in rows if r['arrival_date'] and r['departure_date'] and
+                            r['arrival_date'] < r['departure_date']), default=today)
+        start = min(month_shift(history_start, 0), month_shift(today, -26))
         pending = []
         for row in rows:
-            if row['status'].lower() == 'ownerstay' or row['channel_name'] == 'customIcal':
+            if row['status'].lower() not in ('new','modified','confirmed') or row['channel_name'] == 'customIcal':
                 continue
             cached = db.get(FinanceCache, row['reservation_id'])
             valid = cached and cached.fingerprint == fingerprint(row)
@@ -96,6 +100,7 @@ def _refresh(db, client, now):
             age = (now-cached.checked_at).total_seconds() if cached else float('inf')
             if valid and age < (86400 if cached.accommodation is None else 7*86400):
                 row['accommodation'] = cached.accommodation
+                row['finance_reason'] = cached.reason
             else:
                 pending.append(row)
         def hydrate(row):
@@ -110,6 +115,7 @@ def _refresh(db, client, now):
         with ThreadPoolExecutor(max_workers=2) as pool:
             for row, (amount, reason) in pool.map(hydrate, pending):
                 row['accommodation'] = amount
+                row['finance_reason'] = reason
                 db.merge(FinanceCache(reservation_id=row['reservation_id'], fingerprint=fingerprint(row), accommodation=amount, reason=reason, checked_at=now))
                 counts['finance_checked'] += 1
                 counts['finance_unavailable'] += amount is None
@@ -125,29 +131,42 @@ def _refresh(db, client, now):
         observed = {(r.listing_id, r.calendar_date, r.snapshot_date): {k:getattr(r,k) for k in (
             'listing_id','calendar_date','snapshot_date','status','is_available','price','minimum_stay')} for r in observations}
         calendars = [r for r in calendars if (r['listing_id'],r['calendar_date'],r['snapshot_date']) not in observed] + list(observed.values())
-        # The staff calendar refresh covers only 60 days. Read the requested
-        # owner horizon explicitly so later months do not look empty.
+        # Backfill the historical calendar API independently from snapshot
+        # history. Never relabel a retrospective read as a past observation.
         for listing_id in listing_ids:
-            try:
-                fresh_calendar = client.get_calendar(listing_id, today, end-timedelta(days=1))
-            except Exception:
-                fresh_calendar = None
-            if not isinstance(fresh_calendar, list):
-                continue
             sanitized = []
-            for item in fresh_calendar:
+            windows = [(today, end)]
+            # The source may restrict older calendar dates. Reservation history
+            # remains available independently; failures never mean zero blocks.
+            for offset in range(-23, 1):
+                past = max(month_shift(today, offset), month_shift(history_start, 0))
+                stop = min(month_shift(past, 1), today)
+                if past >= stop:
+                    continue
+                recent = {r['calendar_date'] for r in calendars if r['listing_id']==listing_id
+                          and past <= r['calendar_date'] < stop and r['snapshot_date'] >= today-timedelta(days=7)}
+                if len(recent) < (stop-past).days and (past, stop) not in windows:
+                    windows.append((past, stop))
+            for begin, stop in windows:
                 try:
-                    day = date.fromisoformat(str(item.get('date'))[:10])
-                except (TypeError, ValueError):
+                    fresh_calendar = client.get_calendar(listing_id, begin, stop-timedelta(days=1))
+                except Exception:
                     continue
-                if not today <= day < end:
+                if not isinstance(fresh_calendar, list):
                     continue
-                available = item.get('isAvailable')
-                minimum = item.get('minimumStay')
-                sanitized.append({'listing_id':listing_id, 'calendar_date':day, 'snapshot_date':today,
-                    'status':item.get('status') if item.get('status') in ('available','reserved','booked','blocked') else 'unknown',
-                    'is_available':available in (True,1,'1') if available in (True,False,1,0,'1','0') else None,
-                    'price':number(item.get('price')), 'minimum_stay':int(minimum) if str(minimum).isdigit() else None})
+                for item in fresh_calendar:
+                    try:
+                        day = date.fromisoformat(str(item.get('date'))[:10])
+                    except (TypeError, ValueError):
+                        continue
+                    if not begin <= day < stop:
+                        continue
+                    available = item.get('isAvailable')
+                    minimum = item.get('minimumStay')
+                    sanitized.append({'listing_id':listing_id, 'calendar_date':day, 'snapshot_date':today,
+                        'status':item.get('status') if item.get('status') in ('available','reserved','booked','blocked') else 'unknown',
+                        'is_available':available in (True,1,'1') if available in (True,False,1,0,'1','0') else None,
+                        'price':number(item.get('price')), 'minimum_stay':int(minimum) if str(minimum).isdigit() else None})
             for observation in sanitized:
                 db.merge(CalendarObservation(**observation))
             replaced = {r['calendar_date'] for r in sanitized}
@@ -155,11 +174,15 @@ def _refresh(db, client, now):
         syncs = list(db.execute(text('SELECT last_synced_at FROM public.listings WHERE listing_id=ANY(:ids)'), {'ids': listing_ids}).scalars())
         fresh = len(syncs) == len(listing_ids) and all(s and (now-s.replace(tzinfo=s.tzinfo or timezone.utc)).total_seconds() < 48*3600 for s in syncs)
         calendar = physical_calendar(calendars, listing_ids)
-        for offset in range(-14, 4):
-            month = month_shift(today, offset)
-            metrics = build_month(month, today, rows, calendar, source_fresh=fresh)
+        from .care import prepare_care
+        care_rows = [dict(r) for r in db.execute(text('SELECT work_id, category, status, happened_at, kind FROM owners.care_source WHERE property_id=:id'), {'id':prop.id}).mappings()]
+        month = start
+        while month < end:
+            metrics = build_month(month, today, rows, calendar, source_fresh=fresh, history_start=history_start)
+            metrics['care'] = prepare_care(care_rows, month, today, prop.timezone)
             db.merge(PerformanceMonth(property_id=prop.id, month=month, as_of=today, prepared_at=now, metrics=metrics))
             counts['months'] += 1
+            month = month_shift(month, 1)
         db.commit()
         counts['properties'] += 1
     return counts
