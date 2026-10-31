@@ -17,7 +17,9 @@
     root.dataset.ownerAppearance = choice;
     const control = document.getElementById('owner-appearance');
     if (control) {
-      control.value = choice;
+      control.querySelectorAll('input').forEach(input => {
+        input.checked = input.value === choice;
+      });
       control.disabled = false;
     }
   }
@@ -29,8 +31,8 @@
     const control = document.getElementById('owner-appearance');
     if (!control) return;
     apply(root.dataset.ownerAppearance);
-    control.addEventListener('change', () => {
-      const choice = normalize(control.value);
+    control.addEventListener('change', event => {
+      const choice = normalize(event.target.value);
       apply(choice);
       try {
         localStorage.setItem(key, choice);
