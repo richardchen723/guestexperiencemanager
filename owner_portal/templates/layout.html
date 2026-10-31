@@ -1,18 +1,26 @@
+{% set portal_url = portal_url|default(url_for) %}
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="csrf-token" content="{{ session.csrf }}">
-  <meta name="invitation-endpoint" content="{{ url_for('stage_invitation') }}">
+  {% if not admin_preview %}<meta name="csrf-token" content="{{ session.csrf }}">
+  <meta name="invitation-endpoint" content="{{ portal_url('stage_invitation') }}">{% endif %}
   <title>{% block title %}Your homes · Cotton Candy{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='portal.css') }}">
-  <script src="{{ url_for('static', filename='portal.js') }}" defer></script>
+  <link rel="stylesheet" href="{{ portal_url('static', filename='portal.css') }}">
+  <script src="{{ portal_url('static', filename='preview.js' if admin_preview else 'portal.js') }}" defer></script>
   {% block head %}{% endblock %}
 </head>
 <body>
-  <header><a class="brand" href="{{ url_for('home') }}">cotton candy<span>OWNER PORTAL</span></a>
-    {% if session.owner_token %}<form action="{{ url_for('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="quiet">Sign out</button></form>{% endif %}
+  <header><a class="brand" href="{{ portal_url('home') }}">cotton candy<span>OWNER PORTAL</span></a>
+    {% if session.owner_token and not admin_preview %}<form action="{{ portal_url('logout') }}" method="post"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="quiet">Sign out</button></form>{% endif %}
   </header>
+  {% if admin_preview %}
+  <aside class="owner-preview" aria-label="Admin preview">
+    <div><strong>Admin preview · {{ admin_preview.account }}</strong><p>Read-only · Owner decisions are disabled.</p></div>
+    <label>View as<select id="owner-preview-person" aria-label="View as" disabled>{% for option in admin_preview.options %}<option value="{{ option.url }}"{% if option.selected %} selected{% endif %}>{{ option.name }}</option>{% endfor %}</select></label>
+    <a href="{{ admin_preview.back }}">Back to owner access</a>
+  </aside>
+  {% endif %}
   <main class="{% block main_class %}{% endblock %}">{% block content %}{% endblock %}</main>
 </body>
 </html>

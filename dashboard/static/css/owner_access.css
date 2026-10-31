@@ -171,3 +171,4 @@
   .oa-fields { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { .owner-setup * { transition: none !important; } }
+.owner-setup .oa-dashboard-link{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:9px 14px;border:1px solid var(--oa-line);border-radius:8px;color:var(--oa-green);background:white;font-size:13px;font-weight:600;white-space:nowrap;text-decoration:none}.owner-setup .oa-dashboard-link:hover{background:var(--oa-soft)}.oa-account-header{flex-wrap:wrap}.oa-account-header>.oa-dashboard-link{margin-left:auto}.oa-row-actions{flex-wrap:wrap}

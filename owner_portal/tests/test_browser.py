@@ -102,7 +102,7 @@ def staff_browser_app(staff_app, engine):
     staff_app.jinja_loader = ChoiceLoader([DictLoader({'base.html': '''<!doctype html><html><head>
         <meta name="viewport" content="width=device-width, initial-scale=1">
         ''' + shell_styles + '''</head><body><main>{% block content %}{% endblock %}</main>{% block extra_scripts %}{% endblock %}</body></html>'''}),
-        FileSystemLoader(str(ROOT / 'dashboard' / 'templates'))])
+        FileSystemLoader(str(ROOT / 'dashboard' / 'templates')), staff_app.jinja_loader])
     yield staff_app
     with engine.begin() as conn:
         conn.execute(text('DROP TABLE public.listings'))
@@ -222,4 +222,60 @@ def test_staff_first_owner_with_sign_in_paused(staff_browser_app, monkeypatch):
         page.reload()
         expect(page.locator('#oa-detail').get_by_role('heading', name='Harlow household')).to_be_visible()
         expect(page.get_by_text('Homes are connected.', exact=False)).to_be_visible()
+        browser.close()
+
+
+def test_admin_preview_shared_dashboard_permissions_and_mobile(staff_browser_app, factory, setup, monkeypatch):
+    from datetime import date
+    from sqlalchemy import select
+    from playwright.sync_api import sync_playwright, expect
+    from dashboard.owner_access import preview
+    from owner_portal.models import Membership, OwnerRequest, PropertyGrant
+    from .test_access import accept
+    from .test_reporting import seed
+    monkeypatch.setattr(preview, 'get_session', factory)
+    _, user_id = accept(factory, setup['invite'])
+    sid = seed(factory, setup)
+    with factory.begin() as db:
+        member_id = db.scalar(select(Membership.id).where(Membership.user_id == user_id))
+        db.get(PropertyGrant, setup['grant']).reporting_from = date(2025, 1, 1)
+        db.add(OwnerRequest(account_id=setup['account'], property_id=setup['property'], title='Synthetic decision',
+                           summary='An owner-safe test request.', reporting_date=date(2026, 10, 1), published_by='staff:1'))
+    with server(staff_browser_app) as origin, sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        context = staff_context(browser, staff_browser_app, origin)
+        page = context.new_page()
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        page.goto(origin + '/owner-access/#owner=' + str(setup['account']))
+        page.get_by_role('link', name='View dashboard').click()
+        expect(page.get_by_label('Admin preview')).to_be_visible()
+        expect(page.get_by_role('button', name='Sign out')).to_have_count(0)
+        page.get_by_label('Month', exact=True).select_option('2026-11')
+        expect(page.locator('#ov-stayed')).to_have_text('$600')
+        expect(page.locator('#ov-lastyear')).to_contain_text('$900')
+        page.get_by_role('button', name='Your attention', exact=False).click()
+        expect(page.get_by_role('button', name='Approve', exact=True)).to_be_disabled()
+        expect(page.get_by_role('button', name='Discuss with the team')).to_be_disabled()
+        page.get_by_role('button', name='Close', exact=True).click()
+        page.get_by_role('button', name='Statements', exact=True).click()
+        page.get_by_role('link', name='Open statement').click()
+        expect(page.get_by_role('heading', name='2026-09', exact=True)).to_be_visible()
+        expect(page.get_by_role('link', name='Download HTML')).to_have_attribute('href', f'/owner-access/preview/{setup["account"]}/statements/{sid}?download=1')
+        page.get_by_role('link', name='Back to dashboard').click()
+        page.get_by_label('View as', exact=True).select_option(label='owner@example.invalid')
+        expect(page).to_have_url(origin + f'/owner-access/preview/{setup["account"]}/person/{member_id}/')
+        expect(page.get_by_role('button', name='Statements', exact=True)).to_be_hidden()
+        page.get_by_label('Month', exact=True).select_option('2026-11')
+        page.get_by_role('button', name='Same month last year').click()
+        expect(page.get_by_label('Month', exact=True)).to_have_value('2025-11')
+        for width, height, name in ((1360, 1000, 'admin-preview-desktop.png'), (390, 844, 'admin-preview-mobile.png')):
+            page.set_viewport_size({'width': width, 'height': height})
+            expect(page.locator('#ov-stayed')).to_have_text('$600')
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+            screenshot(page, name)
+        page.get_by_role('link', name='Back to owner access').click()
+        expect(page.get_by_role('link', name='View as owner')).to_be_visible()
+        assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+        assert not errors
         browser.close()

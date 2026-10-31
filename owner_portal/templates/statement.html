@@ -1,6 +1,7 @@
-{% extends 'layout.html' %}
+{% extends (owner_template_prefix|default('')) ~ 'layout.html' %}
+{% set portal_url = portal_url|default(url_for) %}
 {% block title %}Finalized statement · {{ statement.period_start }}{% endblock %}
-{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='statement.css', _external=True) }}"><script src="{{ url_for('static', filename='statement.js', _external=True) }}" defer></script>{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ portal_url('static', filename='statement.css', _external=True) }}"><script src="{{ portal_url('static', filename='statement.js', _external=True) }}" defer></script>{% endblock %}
 {% block content %}
 <article class="statement">
 <p class="eyebrow">FINALIZED OWNER STATEMENT · USD</p><h1>{{ statement.period_start[:7] }}</h1><h2>{{ statement.account }}</h2>
@@ -8,6 +9,6 @@
 <p>Reporting: {{ statement.period_start }} to before {{ statement.period_end_exclusive }}</p>
 <table><tbody><tr><th>Statement revenue</th><td>${{ '{:,.2f}'.format(statement.revenue) }}</td></tr><tr><th>Management fee</th><td>−${{ '{:,.2f}'.format(statement.management_fee) }}</td></tr><tr><th>Operating expenses &amp; other fees</th><td>−${{ '{:,.2f}'.format(statement.expenses) }}</td></tr><tr class="net"><th>Net income</th><td>${{ '{:,.2f}'.format(statement.net_income) }}</td></tr></tbody></table>
 <p>Version {{ statement.version }} · Published {{ statement.published_at[:10] }}</p><p><strong>Payment unconfirmed.</strong> This finalized bookkeeping summary is separate from accommodation revenue estimates.</p>
-<div class="statement-actions">{% if statement.has_pdf %}<a href="{{ url_for('statement_pdf',statement_id=statement.id) }}">Download finalized PDF</a> · {% endif %}<button type="button" id="statement-print">Print / save PDF</button> <a href="{{ url_for('statement', statement_id=statement.id, download=1) }}">Download HTML</a> · <a href="{{ url_for('home') }}">Back to dashboard</a></div>
+<div class="statement-actions">{% if statement.has_pdf %}<a href="{{ portal_url('statement_pdf',statement_id=statement.id) }}">Download finalized PDF</a> · {% endif %}<button type="button" id="statement-print">Print / save PDF</button> <a href="{{ portal_url('statement', statement_id=statement.id, download=1) }}">Download HTML</a> · <a href="{{ portal_url('home') }}">Back to dashboard</a></div>
 </article>
 {% endblock %}

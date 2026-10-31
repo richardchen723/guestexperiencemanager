@@ -184,5 +184,12 @@ def upload_statement():
 
 
 def register_owner_access_routes(app):
+    from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
+    from .preview import OWNER_ROOT
+    app.jinja_loader = ChoiceLoader([app.jinja_loader, PrefixLoader({'owner_preview': FileSystemLoader(OWNER_ROOT / 'templates')})])
     app.register_blueprint(bp)
     app.context_processor(lambda: {'owner_access_enabled': enabled()})
+
+
+from .preview import bp as preview_bp
+bp.register_blueprint(preview_bp)

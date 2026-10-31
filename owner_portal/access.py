@@ -33,21 +33,37 @@ def context(db, user_id):
     rows = db.execute(select(Account, Membership).join(Membership, Membership.account_id == Account.id).where(
         Membership.user_id == user_id, Membership.revoked_at.is_(None), Account.active.is_(True)).order_by(Account.id))
     for account, member in rows:
-        properties = []
-        for prop, grant in db.execute(select(Property, PropertyGrant).join(PropertyGrant,
-                PropertyGrant.property_id == Property.id).where(PropertyGrant.account_id == account.id,
-                PropertyGrant.revoked_at.is_(None), Property.active.is_(True)).order_by(Property.name, Property.id)):
-            properties.append({'id': prop.id, 'name': prop.name, 'timezone': prop.timezone,
-                'currency': prop.currency, 'portfolio': prop.portfolio_label,
-                'reporting_from': grant.reporting_from.isoformat(),
-                'reporting_until_exclusive': grant.reporting_until.isoformat() if grant.reporting_until else None})
-        accounts.append({'id': account.id, 'name': account.name,
-            'permissions': {'performance': member.performance, 'statements': member.statements},
-            'properties': properties})
+        accounts.append(account_projection(db, account, performance=member.performance, statements=member.statements))
     # Explicit allowlist: no user email, Google subject, source IDs, guest data or ORM serialization.
     return {'accounts': accounts, 'currency': 'USD',
         'performance_available': any(a['permissions']['performance'] for a in accounts),
         'statements_available': any(a['permissions']['statements'] for a in accounts)}
+
+
+def account_projection(db, account, *, performance, statements):
+    """Owner-safe display fields, shared by owner reads and staff previews."""
+    properties = []
+    for prop, grant in db.execute(select(Property, PropertyGrant).join(PropertyGrant,
+            PropertyGrant.property_id == Property.id).where(PropertyGrant.account_id == account.id,
+            PropertyGrant.revoked_at.is_(None), Property.active.is_(True)).order_by(Property.name, Property.id)):
+        properties.append({'id': prop.id, 'name': prop.name, 'timezone': prop.timezone,
+            'currency': prop.currency, 'portfolio': prop.portfolio_label,
+            'reporting_from': grant.reporting_from.isoformat(),
+            'reporting_until_exclusive': grant.reporting_until.isoformat() if grant.reporting_until else None})
+    return {'id': account.id, 'name': account.name,
+        'permissions': {'performance': performance, 'statements': statements}, 'properties': properties}
+
+
+class OwnerReportingAccess:
+    """The normal owner authorization used by all reporting reads."""
+    def __init__(self, db, user_id):
+        self.db, self.user_id = db, user_id
+
+    def context(self):
+        return context(self.db, self.user_id)
+
+    def authorize(self, account_id, property_id, start, end, *, permission='performance'):
+        return authorize_property(self.db, self.user_id, account_id, property_id, start, end, permission=permission)
 
 
 def authorize_property(db, user_id, account_id, property_id, start, end, *, permission='performance'):
