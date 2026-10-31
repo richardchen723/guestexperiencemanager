@@ -38,3 +38,7 @@ main.dashboard-main{padding:24px;max-width:1200px}#owner-visual{border:0;border-
 #owner-visual .ov-revenue :focus-visible{outline-color:#f0d7ae}
 #owner-visual .ov-nav button[aria-selected=true]{box-shadow:0 2px 0 var(--gold)}
 #owner-visual .ov-summary.attention{border-color:light-dark(#e4d8c3,#66533c)}
+
+#owner-visual .ov-back{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:4px 0;margin-bottom:5px;border:0;border-radius:4px;background:transparent;color:var(--ov-accent);font-size:13px;text-decoration:underline;text-underline-offset:3px}
+#owner-visual .ov-back:hover{text-decoration-thickness:2px}
+@media(max-width:560px){#owner-visual .ov-back{min-height:44px}}
