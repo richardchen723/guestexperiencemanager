@@ -140,6 +140,25 @@ class FinanceCache(Base):
     checked_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
+class FinanceReconciliation(Base):
+    """Reviewed external evidence, scoped to an exact unchanged source snapshot.
+
+    Staff administrators write these explicitly; the worker can only read them.
+    Neither these records nor their evidence references are exposed to owners.
+    """
+    __tablename__ = 'finance_reconciliations'
+    reservation_id = Column(Integer, primary_key=True)
+    fingerprint = Column(String(64), nullable=False)
+    source_digest = Column(String(64), nullable=False)
+    accommodation = Column(Numeric(14, 2), nullable=False)
+    currency = Column(String(3), nullable=False, default='USD')
+    evidence = Column(JSONB, nullable=False)
+    reviewed_by = Column(String(80), nullable=False)
+    reviewed_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    revoked_at = Column(DateTime(timezone=True))
+    __table_args__ = (CheckConstraint("accommodation >= 0 AND currency = 'USD'", name='reconciled_usd_amount'),)
+
+
 class CalendarObservation(Base):
     """Worker-only history beyond the staff feed's 60-day forward horizon."""
     __tablename__ = 'calendar_observations'

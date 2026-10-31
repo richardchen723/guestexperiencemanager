@@ -35,6 +35,7 @@ def prepare_sql(role):
         raise ValueError('Use a lowercase PostgreSQL role identifier.')
     return f'''GRANT USAGE ON SCHEMA owners, public, brain TO {role};
 GRANT SELECT ON owners.properties, owners.listing_mappings TO {role};
+GRANT SELECT ON owners.finance_reconciliations TO {role};
 GRANT SELECT, INSERT, UPDATE ON owners.finance_cache, owners.performance_months TO {role};
 GRANT SELECT, INSERT, UPDATE ON owners.calendar_observations TO {role};
 GRANT SELECT ON owners.care_source TO {role};

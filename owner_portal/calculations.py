@@ -48,6 +48,7 @@ def accommodation_amount(raw, components):
     ids, included, room, discounts = set(), [], [], []
     adjustments = False
     host_fees = Decimal(0)
+    host_fee_reported = False
     standard_discounts = {'couponDiscount', 'employeeDiscount', 'lastMinuteDiscount',
                           'monthlyDiscount', 'otherSpecialDiscount', 'shareholderDiscount', 'weeklyDiscount'}
     for field in components:
@@ -66,6 +67,7 @@ def accommodation_amount(raw, components):
         # Some channel imports supply a host-net total. Reconcile that basis
         # explicitly, without deducting host commission from room revenue.
         if kind=='commissions' and name=='hostChannelFee' and amount is not None and amount>=0:
+            host_fee_reported = True
             host_fees += amount * (2 if flag else 1)
         if not flag:
             continue
@@ -84,6 +86,12 @@ def accommodation_amount(raw, components):
         if kind == 'accommodation':
             room.append(amount)
     gross = sum(included, Decimal(0))
+    # Some partner channels report commission only on the reservation. Use
+    # that explicit amount to reconcile a host-net total, never infer a fee
+    # from the difference or count it again when financeField supplies it.
+    commission = number(raw.get('channelCommissionAmount'))
+    if not host_fee_reported and commission is not None and commission > 0:
+        host_fees = commission
     if not room or min(abs(gross-total),abs(gross-host_fees-total)) > CENT:
         return None, 'components_do_not_reconcile'
     accommodation = sum(room, Decimal(0)) + sum(discounts, Decimal(0))
