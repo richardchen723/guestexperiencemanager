@@ -13,6 +13,9 @@ from dashboard.config import API_SERVICE_EMAIL
 from owner_portal.access import AccessError
 from owner_portal.admin import OwnerAdmin
 from owner_portal.mount import public_base
+from owner_portal import publishing
+from owner_portal.models import PublishedStatement
+from sqlalchemy import select
 
 bp = Blueprint('owner_access', __name__, url_prefix='/owner-access')
 
@@ -78,6 +81,27 @@ def setup():
         return jsonify(data)
 
 
+@bp.get('/statements')
+def statements_page():
+    session.setdefault('owner_access_csrf', secrets.token_urlsafe(32))
+    return render_template('owner_access/statements.html', owner_access_csrf=session['owner_access_csrf'])
+
+
+@bp.get('/api/statements')
+def statements_data():
+    try:
+        account_id = int(request.args.get('account', '0'))
+        with get_session() as db:
+            account = OwnerAdmin(db, g.owner_access_actor).account(account_id)
+            published = [{'id': r.id, 'period': r.period_start.isoformat()[:7], 'version': r.version,
+                'properties': r.property_names, 'net_income': float(r.net_income), 'withdrawn': r.withdrawn_at is not None}
+                for r in db.scalars(select(PublishedStatement).where(PublishedStatement.account_id == account.id)
+                    .order_by(PublishedStatement.period_start.desc(), PublishedStatement.version.desc()))]
+            return jsonify(candidates=publishing.candidates(db, account.id), published=published)
+    except (ValueError, AccessError) as error:
+        return jsonify(error=str(error)), getattr(error, 'status', 400)
+
+
 @bp.post('/api/<action>')
 def command(action):
     payload = request.get_json(silent=True)
@@ -102,6 +126,10 @@ def command(action):
                 result = service.revoke(payload.get('kind'), payload.get('id'))
             elif action == 'preview':
                 result = service.preview(payload.get('membership_id'))
+            elif action == 'publish-statement':
+                result = publishing.publish(db, g.owner_access_actor, payload)
+            elif action == 'withdraw-statement':
+                result = publishing.withdraw(db, g.owner_access_actor, payload)
             else:
                 raise AccessError('Unknown setup action.', 404)
             db.commit()

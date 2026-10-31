@@ -1,0 +1,20 @@
+[Unit]
+Description=Prepare private owner performance aggregates
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=hostaway-owner-reporting
+Group=hostaway-owner-reporting
+WorkingDirectory=/opt/hostaway-messages/app
+EnvironmentFile=/opt/hostaway-messages/owner-reporting.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/hostaway-messages/venv/bin/python -m owner_portal.prepare
+TimeoutStartSec=3600
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+InaccessiblePaths=/opt/hostaway-messages/.env /opt/hostaway-messages/app/.env /opt/hostaway-messages/owner-portal.env /opt/hostaway-messages/conversations /opt/hostaway-messages/app/data /opt/hostaway-messages/logs /opt/hostaway-messages/oauth-staging /opt/hostaway-messages/releases
+UMask=0077

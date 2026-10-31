@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import (Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey,
-                        Integer, MetaData, String, UniqueConstraint, text)
+                        Integer, MetaData, Numeric, String, UniqueConstraint, text)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import declarative_base
 
@@ -118,6 +118,52 @@ class AuditEvent(Base):
     target_id = Column(Integer)
     details = Column(JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+class PerformanceMonth(Base):
+    """Prepared aggregates only; the web role cannot update these rows."""
+    __tablename__ = 'performance_months'
+    property_id = Column(Integer, ForeignKey('owners.properties.id'), primary_key=True)
+    month = Column(Date, primary_key=True)
+    as_of = Column(Date, nullable=False)
+    prepared_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    metrics = Column(JSONB, nullable=False)
+
+
+class FinanceCache(Base):
+    """Worker-only, validated accommodation amount. No guest/source payloads."""
+    __tablename__ = 'finance_cache'
+    reservation_id = Column(Integer, primary_key=True)
+    fingerprint = Column(String(64), nullable=False)
+    accommodation = Column(Numeric(14, 2))
+    reason = Column(String(80))
+    checked_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+class PublishedStatement(Base):
+    """An immutable, explicitly reviewed recipient and scope snapshot."""
+    __tablename__ = 'published_statements'
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey('owners.accounts.id'), nullable=False)
+    revision_id = Column(Integer, nullable=False)
+    version = Column(Integer, nullable=False)
+    period_start = Column(Date, nullable=False)
+    period_end = Column(Date, nullable=False)  # Exclusive.
+    property_ids = Column(JSONB, nullable=False)
+    property_names = Column(JSONB, nullable=False)
+    account_name = Column(String(160), nullable=False)
+    revenue = Column(Numeric(14, 2), nullable=False)
+    expenses = Column(Numeric(14, 2), nullable=False)
+    management_fee = Column(Numeric(14, 2), nullable=False)
+    net_income = Column(Numeric(14, 2), nullable=False)
+    published_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    published_by = Column(String(80), nullable=False)
+    withdrawn_at = Column(DateTime(timezone=True))
+    __table_args__ = (
+        UniqueConstraint('account_id', 'revision_id', name='statement_recipient_revision'),
+        UniqueConstraint('account_id', 'period_start', 'version', name='statement_version'),
+        CheckConstraint('period_end > period_start', name='statement_interval'),
+    )
 
 
 def migrate(connection):

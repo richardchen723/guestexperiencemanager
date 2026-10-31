@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh owner reports every hour
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=1h
+RandomizedDelaySec=60
+Persistent=true
+Unit=hostaway-owner-reporting.service
+
+[Install]
+WantedBy=timers.target
