@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
-from .access import AccessError, authorize_property, context
+from .access import AccessError, OwnerReportingAccess
 from .calculations import month_shift
 from .models import PerformanceMonth, PublishedStatement, StatementDocument, utcnow
 
@@ -15,9 +15,10 @@ METRICS = ('stayed', 'booked', 'revenue', 'nights', 'sellable', 'blocked', 'unkn
 REASONS = {'history_insufficient', 'incomplete_source', 'source_stale', 'rates_unavailable', None}
 
 
-def metric(db, user_id, account_id, property_id, month):
+def metric(db, user_id, account_id, property_id, month, *, access=None):
+    access = access or OwnerReportingAccess(db, user_id)
     try:
-        authorize_property(db, user_id, account_id, property_id, month, month_shift(month, 1))
+        access.authorize(account_id, property_id, month, month_shift(month, 1))
     except AccessError:
         return {'available': False, 'reason': 'outside_reporting_dates'}
     row = db.get(PerformanceMonth, (property_id, month))
@@ -68,8 +69,9 @@ def total(rows):
     return result
 
 
-def dashboard(db, user_id, *, account_id=None, property_id=None, month=None):
-    ctx = context(db, user_id)
+def dashboard(db, user_id, *, account_id=None, property_id=None, month=None, access=None):
+    access = access or OwnerReportingAccess(db, user_id)
+    ctx = access.context()
     accounts = ctx['accounts']
     account = next((a for a in accounts if a['id'] == account_id), None) if account_id else next(iter(accounts), None)
     if not account:
@@ -92,10 +94,10 @@ def dashboard(db, user_id, *, account_id=None, property_id=None, month=None):
         raise AccessError('Choose a valid reporting month.', 400)
     response = {'accounts': accounts, 'account': account, 'properties': homes, 'property_id': property_id,
                 'month': month.isoformat()[:7], 'currency': 'USD', 'months': [],
-                'statements': list_statements(db, user_id, account['id'], property_id) if account['permissions']['statements'] else []}
+                'statements': list_statements(db, user_id, account['id'], property_id, access=access) if account['permissions']['statements'] else []}
     if account['permissions']['performance']:
         from .requests import owner_list
-        response['requests'] = owner_list(db,user_id,account['id'],[p['id'] for p in homes])
+        response['requests'] = owner_list(db,user_id,account['id'],[p['id'] for p in homes], access=access)
         available_months = set()
         for prop in homes:
             for value in db.scalars(select(PerformanceMonth.month).where(PerformanceMonth.property_id==prop['id']).order_by(PerformanceMonth.month)):
@@ -111,8 +113,8 @@ def dashboard(db, user_id, *, account_id=None, property_id=None, month=None):
             rows = []
             comparison = []
             for prop in homes:
-                value = metric(db, user_id, account['id'], prop['id'], start)
-                prior = metric(db, user_id, account['id'], prop['id'], previous)
+                value = metric(db, user_id, account['id'], prop['id'], start, access=access)
+                prior = metric(db, user_id, account['id'], prop['id'], previous, access=access)
                 rows.append({'id': prop['id'], 'name': prop['name'], 'value': value, 'previous': prior})
                 comparison.append(prior)
             matched = [r for r in rows if r['value'].get('revenue') is not None and r['previous'].get('revenue') is not None]
@@ -123,11 +125,12 @@ def dashboard(db, user_id, *, account_id=None, property_id=None, month=None):
     return response
 
 
-def statement_authorized(db, user_id, row):
+def statement_authorized(db, user_id, row, *, access=None):
+    access = access or OwnerReportingAccess(db, user_id)
     if row.withdrawn_at or not row.property_ids:
         raise AccessError('This statement is unavailable.', 404)
     for property_id in row.property_ids:
-        authorize_property(db, user_id, row.account_id, property_id, row.period_start, row.period_end, permission='statements')
+        access.authorize(row.account_id, property_id, row.period_start, row.period_end, permission='statements')
 
 
 def statement_view(row):
@@ -137,23 +140,23 @@ def statement_view(row):
             **{k: float(getattr(row, k)) for k in ('revenue', 'expenses', 'management_fee', 'net_income')}}
 
 
-def list_statements(db, user_id, account_id, property_id=None):
+def list_statements(db, user_id, account_id, property_id=None, *, access=None):
     result = []
     for row in db.scalars(select(PublishedStatement).where(PublishedStatement.account_id == account_id,
             PublishedStatement.withdrawn_at.is_(None)).order_by(PublishedStatement.period_start.desc(), PublishedStatement.version.desc())):
         if property_id and property_id not in row.property_ids:
             continue
         try:
-            statement_authorized(db, user_id, row)
+            statement_authorized(db, user_id, row, access=access)
         except AccessError:
             continue
         result.append(statement_view(row)|{'has_pdf':db.scalar(select(StatementDocument.statement_id).where(StatementDocument.statement_id==row.id)) is not None})
     return result
 
 
-def get_statement(db, user_id, statement_id):
+def get_statement(db, user_id, statement_id, *, access=None):
     row = db.get(PublishedStatement, statement_id)
     if not row:
         raise AccessError('This statement is unavailable.', 404)
-    statement_authorized(db, user_id, row)
+    statement_authorized(db, user_id, row, access=access)
     return statement_view(row)|{'has_pdf':db.scalar(select(StatementDocument.statement_id).where(StatementDocument.statement_id==row.id)) is not None}

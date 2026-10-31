@@ -1,8 +1,9 @@
-{% extends 'layout.html' %}
-{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}"><script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>{% endblock %}
+{% extends (owner_template_prefix|default('')) ~ 'layout.html' %}
+{% set portal_url = portal_url|default(url_for) %}
+{% block head %}<link rel="stylesheet" href="{{ portal_url('static', filename='dashboard.css') }}"><script src="{{ portal_url('static', filename='dashboard.js') }}" defer></script>{% endblock %}
 {% block main_class %}dashboard-main{% endblock %}
 {% block content %}
-<div id="owner-visual" data-initial="{{ data|tojson|forceescape }}" data-endpoint="{{ url_for('dashboard_data') }}" data-statements="{{ url_for('home') }}statements/" data-csrf="{{ session.csrf }}">
+<div id="owner-visual" data-readonly="{{ 'true' if admin_preview else 'false' }}" data-initial="{{ data|tojson|forceescape }}" data-endpoint="{{ portal_url('dashboard_data') }}" data-statements="{{ portal_url('home') }}statements/" data-csrf="{{ session.csrf }}">
 <div class="ov-main">
 <nav class="ov-nav" aria-label="Owner pages"><button type="button" data-view="snapshot" aria-current="page">Snapshot</button><button type="button" data-view="statements">Statements</button></nav>
 <div class="ov-title"><div><h1 id="ov-title-name">Your properties</h1><p id="ov-updated">Loading your snapshot…</p></div><div class="ov-controls"><label class="ov-account-control" id="ov-account-label" hidden>Owner account<select id="ov-account" aria-label="Owner account"></select></label><label>Property<select id="ov-property" aria-label="Property"></select></label><label id="ov-month-label">Month<select id="ov-month" aria-label="Month"></select></label></div></div>

@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
-from .access import AccessError, authorize_property
+from .access import AccessError, authorize_property, OwnerReportingAccess
 from .admin import OwnerAdmin, identity, record
 from .calculations import number
 from .models import OwnerRequest, Property, PropertyGrant, utcnow
@@ -44,11 +44,12 @@ def withdraw(db, actor, data):
     return {'withdrawn':True}
 
 
-def owner_list(db,user_id,account_id,property_ids):
+def owner_list(db,user_id,account_id,property_ids, *, access=None):
+    access = access or OwnerReportingAccess(db, user_id)
     result=[]
     for row in db.scalars(select(OwnerRequest).where(OwnerRequest.account_id==account_id,OwnerRequest.property_id.in_(property_ids),
                             OwnerRequest.withdrawn_at.is_(None)).order_by(OwnerRequest.published_at.desc())):
-        try:authorize_property(db,user_id,account_id,row.property_id,row.reporting_date,row.reporting_date+timedelta(days=1))
+        try:access.authorize(account_id,row.property_id,row.reporting_date,row.reporting_date+timedelta(days=1))
         except AccessError:continue
         prop=db.get(Property,row.property_id)
         result.append({'id':row.id,'property':prop.name,'title':row.title,'summary':row.summary,

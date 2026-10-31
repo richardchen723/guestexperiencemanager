@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Owner access · Cotton Candy{% endblock %}
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/owner_access.css', v='847-ui-2') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/owner_access.css', v='847-preview-1') }}">
 <meta name="owner-access-csrf" content="{{ owner_access_csrf }}">
 {% endblock %}
 {% block content %}
@@ -44,4 +44,4 @@
   </dialog>
 </div>
 {% endblock %}
-{% block extra_scripts %}<script src="{{ url_for('static', filename='js/owner_access.js', v='847-ui-2') }}" defer></script>{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('static', filename='js/owner_access.js', v='847-preview-1') }}" defer></script>{% endblock %}

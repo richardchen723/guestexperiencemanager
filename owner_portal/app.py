@@ -32,6 +32,7 @@ def check_database_boundary(engine):
 
 def create_app(config=None):
     app = Flask(__name__)
+    app.jinja_env.globals['portal_url'] = url_for
     app.config.from_mapping(
         SECRET_KEY=os.getenv('OWNER_PORTAL_SECRET_KEY'), DATABASE_URL=os.getenv('OWNER_PORTAL_DATABASE_URL'),
         OWNER_ORIGIN=os.getenv('OWNER_PORTAL_ORIGIN', ''),
