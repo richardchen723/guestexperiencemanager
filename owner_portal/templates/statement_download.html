@@ -1,5 +1,11 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Owner statement {{ statement.period_start[:7] }} · Version {{ statement.version }}</title>
-<style>body{font:16px/1.6 system-ui,sans-serif;color:#1b3047;max-width:760px;padding:36px;margin:auto}h1{font-size:36px}p{color:#59697b}table{width:100%;border-collapse:collapse;margin:32px 0}th{text-align:left;font-weight:500}td{text-align:right}th,td{padding:14px 0}.net{border-top:2px solid #94703d;font-weight:700;font-size:20px}</style>
+<style>
+:root{color-scheme:light dark;--surface:light-dark(#ffffff,#242426);--ink:light-dark(#28282c,#f4f2ef);--muted:light-dark(#69666b,#bcb8bf);--accent:light-dark(#a64d40,#e6a396)}
+body{font:16px/1.6 system-ui,sans-serif;background:var(--surface);color:var(--ink);max-width:760px;padding:36px;margin:auto}
+h1{font-size:36px}p{color:var(--muted)}table{width:100%;border-collapse:collapse;margin:32px 0}th{text-align:left;font-weight:500}td{text-align:right;font-variant-numeric:tabular-nums}th,td{padding:14px 0}.net{border-top:2px solid var(--accent);font-weight:700;font-size:20px}
+@media(max-width:600px){body{padding:22px}th,td{font-size:14px}}
+@media print{:root{color-scheme:light}body{padding:0}}
+</style>
 <p>FINALIZED OWNER STATEMENT · USD</p><h1>{{ statement.period_start[:7] }}</h1><h2>{{ statement.account }}</h2><p>{{ statement.properties|join(' · ') }}</p><p>Reporting: {{ statement.period_start }} to before {{ statement.period_end_exclusive }}</p>
 <table><tr><th>Statement revenue</th><td>${{ '{:,.2f}'.format(statement.revenue) }}</td></tr><tr><th>Management fee</th><td>−${{ '{:,.2f}'.format(statement.management_fee) }}</td></tr><tr><th>Operating expenses &amp; other fees</th><td>−${{ '{:,.2f}'.format(statement.expenses) }}</td></tr><tr class="net"><th>Net income</th><td>${{ '{:,.2f}'.format(statement.net_income) }}</td></tr></table>
 <p>Version {{ statement.version }} · Published {{ statement.published_at[:10] }}</p><p><strong>Payment unconfirmed.</strong> This finalized bookkeeping summary is separate from accommodation revenue estimates.</p></html>
