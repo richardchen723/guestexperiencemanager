@@ -62,6 +62,8 @@ def test_owner_login_and_property_views_at_two_sizes(app, factory, setup, prefix
         context.add_cookies([cookie(app, {'owner_token': raw, 'csrf': 'synthetic-csrf'}, origin)])
         page.goto(origin + prefix + '/')
         expect(page.get_by_role('heading', name='Cedar House')).to_be_visible()
+        expect(page.locator('[data-detail="attention"]')).to_be_hidden()
+        expect(page.locator('.ov-summary-row')).to_be_hidden()
         expect(page.get_by_text('Private Pine House')).to_have_count(0)
         screenshot(page, 'owner-home-desktop.png')
         page.set_viewport_size({'width': 390, 'height': 844})
