@@ -13,10 +13,10 @@ main.dashboard-main{max-width:1200px;padding:28px 24px 40px}
 #owner-visual h1{font-size:32px;line-height:1.2;font-weight:600;letter-spacing:-1px}
 #owner-visual h2{font-size:16px;font-weight:600;letter-spacing:-.25px}
 #owner-visual h3{font-size:15px;letter-spacing:-.1px}
-#owner-visual button,#owner-visual select{font:inherit;color:inherit}
+#owner-visual button{font:inherit;color:inherit}
 #owner-visual button{cursor:pointer;font-weight:500}
 #owner-visual button:disabled{opacity:.4;cursor:default}
-#owner-visual button:focus-visible,#owner-visual select:focus-visible,#owner-visual summary:focus-visible,#owner-visual .ov-detail:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
+#owner-visual button:focus-visible,#owner-visual summary:focus-visible,#owner-visual .ov-detail:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
 #owner-visual a{color:var(--accent);text-underline-offset:4px}
 #owner-visual .negative{color:var(--negative)}
 #owner-visual .ov-nav{display:flex;gap:28px;border-bottom:1px solid var(--line);margin-bottom:26px}
@@ -28,13 +28,13 @@ main.dashboard-main{max-width:1200px;padding:28px 24px 40px}
 #owner-visual .ov-title p{font-size:12px;color:var(--muted);margin-top:8px}
 #owner-visual .ov-controls{display:flex;gap:12px;max-width:100%}
 #owner-visual .ov-controls label{display:grid;gap:6px;min-width:0;font-size:12px;color:var(--muted)}
-#owner-visual select{max-width:100%;min-width:0;min-height:44px;border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:9px 12px;font-size:14px;color:var(--ink)}
-#owner-visual .ov-controls select{min-width:190px}
+#owner-visual .ov-controls .owner-select{width:220px;max-width:100%}
 #owner-visual .ov-history-nav{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px}
-#owner-visual .ov-period-picker{display:flex;align-items:center;border:1px solid var(--line);border-radius:10px;background:var(--surface);max-width:100%}
+#owner-visual .ov-period-picker{display:flex;align-items:center;width:270px;height:var(--owner-control-height);border:1px solid var(--line);border-radius:var(--owner-control-radius);background:var(--surface);max-width:100%}
 #owner-visual .ov-period-picker label{min-width:0;flex:1}
-#owner-visual .ov-period-picker select{border:0;background:transparent;border-radius:0;font-weight:600;width:100%;text-align:center}
-#owner-visual .ov-period-picker button{border:0;background:transparent;color:var(--muted);border-radius:9px;min-width:44px;min-height:44px;padding:8px;font-size:18px}
+#owner-visual .ov-period-picker select{height:calc(var(--owner-control-height) - 2px);min-height:0;border:0;background:transparent;border-radius:0;text-align:center;text-align-last:center;padding-left:8px;padding-right:28px}
+#owner-visual .ov-period-picker .owner-select::after{right:10px}
+#owner-visual .ov-period-picker button{flex-shrink:0;width:46px;height:calc(var(--owner-control-height) - 2px);min-height:44px;border:0;background:transparent;color:var(--muted);border-radius:calc(var(--owner-control-radius) - 1px);padding:8px;font-size:18px}
 #owner-visual .ov-period-picker button:hover:not(:disabled){background:var(--soft);color:var(--ink)}
 #owner-visual .ov-period-shortcuts{display:flex;align-items:center;gap:16px}
 #owner-visual .ov-period-shortcuts button{border:0;border-radius:4px;background:transparent;color:var(--muted);padding:8px 0;min-height:44px;font-size:13px}
@@ -161,7 +161,7 @@ main.dashboard-main{max-width:1200px;padding:28px 24px 40px}
   #owner-visual .ov-title{align-items:flex-start;flex-direction:column;gap:20px}
   #owner-visual .ov-controls{width:100%}
   #owner-visual .ov-controls label{flex:1}
-  #owner-visual .ov-controls select{min-width:0;width:100%}
+  #owner-visual .ov-controls .owner-select{width:100%}
   #owner-visual .ov-top{grid-template-columns:1fr}
   #owner-visual .ov-summary-row,#owner-visual .ov-summary-row:has(>[hidden]){grid-template-columns:1fr}
   #owner-visual .ov-summary{gap:8px}
@@ -179,7 +179,6 @@ main.dashboard-main{max-width:1200px;padding:28px 24px 40px}
   #owner-visual .ov-nav{margin-bottom:22px}
   #owner-visual .ov-title{margin-bottom:16px;gap:16px}
   #owner-visual .ov-controls{flex-direction:column}
-  #owner-visual select{font-size:16px}
   #owner-visual .ov-history-nav{flex-direction:column;align-items:stretch;gap:0;margin-bottom:20px}
   #owner-visual .ov-period-picker{width:100%}
   #owner-visual .ov-period-shortcuts{justify-content:space-between;gap:12px;padding:2px 2px 0}
