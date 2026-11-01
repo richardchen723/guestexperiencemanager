@@ -1,6 +1,7 @@
 import os
 from datetime import date
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import select
@@ -21,7 +22,8 @@ def test_populated_visual_dashboard_and_statements(app,factory,setup):
     from owner_portal.mount import OwnerMount
     app.config.update(OWNER_PATH_PREFIX='/owners',APPLICATION_ROOT='/owners')
     app.wsgi_app=OwnerMount(app.wsgi_app,'/owners')
-    token,user=accept(factory,setup['invite']);today=utcnow().date();thismonth=month_shift(today,0)
+    # Match the property's calendar at UTC/local month boundaries.
+    token,user=accept(factory,setup['invite']);today=utcnow().astimezone(ZoneInfo('America/Los_Angeles')).date();thismonth=month_shift(today,0)
     with factory.begin() as db:
         admin=OwnerAdmin(db,'staff:1')
         db.scalar(select(Membership).where(Membership.user_id==user)).statements=True
@@ -47,10 +49,7 @@ def test_populated_visual_dashboard_and_statements(app,factory,setup):
         expect(page.locator('#ov-revenue-value')).to_have_text('$19.5k–$22.5k')
         expect(page.locator('#ov-chart rect')).not_to_have_count(0)
         assert page.get_by_text('Private Pine House',exact=True).count()==0
-        expect(page.locator('#ov-care-count')).to_have_text('3 completed')
-        page.get_by_role('button',name='Property care',exact=False).click()
-        expect(page.locator('#ov-detail-content')).to_contain_text('maintenance item')
-        page.get_by_role('button',name='Close',exact=True).click()
+        expect(page.get_by_text('Property care',exact=False)).to_have_count(0)
         page.get_by_role('button',name='Your attention',exact=False).click()
         expect(page.get_by_role('heading',name='Replace patio umbrella')).to_be_visible()
         page.get_by_role('button',name='Discuss with the team').click()
