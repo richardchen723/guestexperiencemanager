@@ -26,7 +26,7 @@
   {% if admin_preview %}
   <aside class="owner-preview" aria-label="Admin preview">
     <div><strong>Admin preview · {{ admin_preview.account }}</strong><p>Read-only · Owner decisions are disabled.</p></div>
-    <label>View as<select id="owner-preview-person" aria-label="View as" disabled>{% for option in admin_preview.options %}<option value="{{ option.url }}"{% if option.selected %} selected{% endif %}>{{ option.name }}</option>{% endfor %}</select></label>
+    <label>View as<span class="owner-select"><select id="owner-preview-person" aria-label="View as" disabled>{% for option in admin_preview.options %}<option value="{{ option.url }}"{% if option.selected %} selected{% endif %}>{{ option.name }}</option>{% endfor %}</select></span></label>
     <a href="{{ admin_preview.back }}">Back to owner access</a>
   </aside>
   {% endif %}
