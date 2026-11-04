@@ -1,18 +1,28 @@
-.statement{max-width:760px;margin:auto;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:36px;box-shadow:0 3px 12px var(--shadow)}
-.statement h2{margin:24px 0 6px}
-.statement p{margin:10px 0;color:var(--muted);font-size:14px}
-.statement table{width:100%;border-collapse:collapse;margin:30px 0}
-.statement th{text-align:left;font-weight:500}
-.statement td{text-align:right;font-variant-numeric:tabular-nums}
-.statement th,.statement td{padding:14px 0}
-.statement .net{border-top:2px solid var(--accent);font-size:20px;font-weight:650}
-.statement-actions{margin-top:28px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-.statement a{color:var(--accent)}
-@media(max-width:600px){.statement{padding:22px}.statement th,.statement td{font-size:14px}}
+.statement-page{max-width:800px;margin:0 auto}
+.statement-page>.owner-back{margin-bottom:12px}
+.statement{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:32px;box-shadow:0 3px 12px var(--shadow)}
+.statement h1{font-size:32px;line-height:1.2}
+.statement h2{margin:24px 0 8px;overflow-wrap:anywhere}
+.statement p{margin:8px 0;color:var(--muted);font-size:14px;line-height:1.6;overflow-wrap:anywhere}
+.statement p.eyebrow{margin:0 0 12px;font-size:11px;letter-spacing:1.5px}
+.statement table{width:100%;border-collapse:collapse;margin:24px 0;font-size:14px}
+.statement th{text-align:left;font-weight:500;padding-right:20px}
+.statement td{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.statement th,.statement td{padding-block:16px;vertical-align:baseline;border-bottom:1px solid var(--line)}
+.statement .net{border-top:2px solid var(--accent);font-size:20px;font-weight:600}
+.statement .net th,.statement .net td{border-bottom:0;font-weight:600}
+.statement-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:12px;margin-top:24px;padding-top:24px;border-top:1px solid var(--line);align-items:stretch}
+@media(max-width:600px){
+  .statement{padding:24px 20px;border-radius:14px}
+  .statement h1{font-size:28px}
+  .statement th{padding-right:16px}
+  .statement .net{font-size:18px}
+}
 @media print{
   :root{color-scheme:light}
-  body>header,.statement-actions{display:none}
+  body>header,.statement-actions,.statement-page>.owner-back{display:none}
   body{background:#fff;color:var(--ink)}
   main{padding:0}
-  .statement{background:#fff;border:0;padding:0;max-width:none;box-shadow:none}
+  .statement-page{max-width:none}
+  .statement{background:#fff;border:0;padding:0;box-shadow:none}
 }
