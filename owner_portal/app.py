@@ -179,6 +179,21 @@ def create_app(config=None):
             user = current_user(db, session.get('owner_token'))
             return jsonify(reporting.dashboard(db, user.id, account_id=account_id, property_id=property_id, month=month))
 
+    @app.get('/api/calendar')
+    def calendar_data():
+        from .calendar import calendar_view
+        try:
+            account_id = int(request.args['account']) if 'account' in request.args else None
+            property_id = int(request.args['property']) if request.args.get('property') not in (None, 'all') else None
+            month = date.fromisoformat(request.args['month'] + '-01') if 'month' in request.args else None
+            if (account_id is not None and account_id <= 0) or (property_id is not None and property_id <= 0):
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise AccessError('Choose a valid property and month.', 400)
+        with factory() as db:
+            user = current_user(db, session.get('owner_token'))
+            return jsonify(calendar_view(db, user.id, account_id=account_id, property_id=property_id, month=month))
+
     @app.get('/statements/<int:statement_id>')
     def statement(statement_id):
         with factory() as db:

@@ -21,7 +21,7 @@
   };
   const dateLabel = value => new Intl.DateTimeFormat('en-US', {month:'short', day:'numeric', year:'numeric', timeZone:'UTC'}).format(new Date(value + 'T12:00:00Z'));
   const historyLabel = row => `${dateLabel(row.from)} – ${row.until_exclusive ? dateLabel(dateShift(row.until_exclusive, -1)) : 'ongoing'}`;
-  const permissions = row => [row.performance && 'Performance', row.statements && 'Finalized statements'].filter(Boolean).join(' · ');
+  const permissions = row => [row.performance && 'Performance & calendar', row.statements && 'Finalized statements'].filter(Boolean).join(' · ');
   const footer = (label, back = false) => `<div class="oa-form-footer">${back ? '<button type="button" class="oa-back" data-back>← Back</button>' : '<button type="button" data-close>Cancel</button>'}<button class="oa-primary" type="submit">${label}</button></div>`;
   const badge = (text, style = '') => `<span class="oa-badge ${style}">${escape(text)}</span>`;
 
@@ -71,7 +71,7 @@
         <div id="oa-memberships">${people.map(row => personRow(row)).join('')}</div><div id="oa-invitations">${invites.map(row => personRow(row, true)).join('')}</div>
         ${!people.length && !invites.length ? `<div class="oa-panel-empty"><span class="oa-symbol" aria-hidden="true">＋</span><div><strong>${state.invitation_ready ? 'No one has access yet' : 'Invitations will open when sign-in is ready'}</strong><p>${state.invitation_ready ? 'Invite an owner or their representative, and choose what they can see.' : 'Your setup is saved. No one can sign in until they accept an invitation.'}</p></div></div>` : ''}
         ${oldPeople.length + oldInvites.length ? `<details class="oa-history"><summary>Past access &amp; invitations (${oldPeople.length + oldInvites.length})</summary>${oldPeople.map(row => personRow(row, false, true)).join('')}${oldInvites.map(row => personRow(row, true, true)).join('')}</details>` : ''}</section>
-      <p class="oa-privacy"><span aria-hidden="true">✓</span> Guest details and messages are never shared. Portfolio labels organize homes; they don’t grant access.</p>`;
+      <p class="oa-privacy"><span aria-hidden="true">✓</span> Guest contact details and messages are never shared. Portfolio labels organize homes; they don’t grant access.</p>`;
   }
   async function load() {
     state = await api('setup');
@@ -143,7 +143,7 @@
   }
   function openInvite() {
     if (!state.invitation_ready) return;
-    openDialog('Invite a person', `<p class="oa-dialog-copy">They’ll see the homes connected to this owner account. Choose which information they can access.</p><form data-action="invitations"><label>Google account email<input name="email" type="email" required maxlength="320" placeholder="owner@example.com" autocomplete="off"></label><div class="oa-permissions"><label class="oa-check"><input type="checkbox" name="performance" checked><span><strong>Property performance</strong>Occupancy, revenue estimates, and comparisons.</span></label><label class="oa-check"><input type="checkbox" name="statements"><span><strong>Finalized owner statements</strong>Published statements only.</span></label></div><p class="oa-note">You’ll get a link to share. No email is sent automatically. A new link replaces any pending invitation for this email and account.</p>${footer('Create invitation link')}</form>`);
+    openDialog('Invite a person', `<p class="oa-dialog-copy">They’ll see the homes connected to this owner account. Choose which information they can access.</p><form data-action="invitations"><label>Google account email<input name="email" type="email" required maxlength="320" placeholder="owner@example.com" autocomplete="off"></label><div class="oa-permissions"><label class="oa-check"><input type="checkbox" name="performance" checked><span><strong>Performance &amp; calendar</strong>Occupancy, revenue estimates, comparisons, and calendar stays with guest names.</span></label><label class="oa-check"><input type="checkbox" name="statements"><span><strong>Finalized owner statements</strong>Published statements only.</span></label></div><p class="oa-note">You’ll get a link to share. No email is sent automatically. A new link replaces any pending invitation for this email and account.</p>${footer('Create invitation link')}</form>`);
   }
   function openRevoke(kind, id) {
     const rows = kind === 'grant' ? state.grants : kind === 'membership' ? state.memberships : state.invitations;

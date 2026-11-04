@@ -1,7 +1,7 @@
 """Privileged scheduled preparation, entirely separate from the owner web app.
 
 Reads an allowlist of source columns and the Hostaway read API. Writes only
-sanitized aggregates plus a worker-only amount cache. Never imports staff Flask.
+sanitized aggregates, a name-only calendar, and a worker-only amount cache. Never imports staff Flask.
 """
 import argparse
 from collections import defaultdict
@@ -16,7 +16,8 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 
 from .calculations import accommodation_amount, build_month, calendar_state, month_shift, number
-from .models import CalendarObservation, FinanceCache, FinanceReconciliation, ListingMapping, PerformanceMonth, Property, utcnow
+from .calendar import build_calendar
+from .models import CalendarMonth, CalendarObservation, FinanceCache, FinanceReconciliation, ListingMapping, PerformanceMonth, Property, utcnow
 from .reconciliation import reviewed_amount
 
 
@@ -73,10 +74,11 @@ def refresh(engine, client, *, now=None):
 
 def _refresh(db, client, now):
     properties = db.scalars(select(Property).where(Property.active.is_(True))).all()
-    counts = {'properties': 0, 'months': 0, 'finance_checked': 0, 'finance_unavailable': 0}
+    counts = {'properties': 0, 'months': 0, 'finance_checked': 0, 'finance_unavailable': 0, 'calendar_months': 0}
     for prop in properties:
         today = now.astimezone(ZoneInfo(prop.timezone)).date()
         end = month_shift(today, 4)
+        calendar_end = month_shift(today, 13)
         listing_ids = list(db.scalars(select(ListingMapping.listing_id).where(ListingMapping.property_id == prop.id)))
         if not listing_ids:
             continue
@@ -90,6 +92,11 @@ def _refresh(db, client, now):
         history_start = min((r['arrival_date'] for r in rows if r['arrival_date'] and r['departure_date'] and
                             r['arrival_date'] < r['departure_date']), default=today)
         start = min(month_shift(history_start, 0), month_shift(today, -26))
+        calendar_reservations = [dict(r) for r in db.execute(text('''SELECT reservation_id, listing_id,
+            guest_name, arrival_date, departure_date, status, channel_name FROM public.reservations
+            WHERE listing_id=ANY(:ids) AND arrival_date < :end AND departure_date > :start
+            AND lower(status) IN ('new','modified','confirmed','ownerstay')'''),
+            {'ids': listing_ids, 'start': start, 'end': calendar_end}).mappings()]
         reviews = {r.reservation_id: r for r in db.scalars(select(FinanceReconciliation).where(
             FinanceReconciliation.reservation_id.in_([r['reservation_id'] for r in rows])))}
         pending = []
@@ -140,9 +147,9 @@ def _refresh(db, client, now):
         calendars = [dict(r) for r in db.execute(text('''SELECT listing_id,calendar_date,snapshot_date,
             status,is_available,price,minimum_stay FROM brain.calendar_snapshots
             WHERE listing_id=ANY(:ids) AND calendar_date>=:start AND calendar_date<:end
-            AND snapshot_date<=:today'''), {'ids': listing_ids, 'start': start, 'end': end, 'today': today}).mappings()]
+            AND snapshot_date<=:today'''), {'ids': listing_ids, 'start': start, 'end': calendar_end, 'today': today}).mappings()]
         observations = db.scalars(select(CalendarObservation).where(CalendarObservation.listing_id.in_(listing_ids),
-            CalendarObservation.calendar_date >= start, CalendarObservation.calendar_date < end,
+            CalendarObservation.calendar_date >= start, CalendarObservation.calendar_date < calendar_end,
             CalendarObservation.snapshot_date <= today)).all()
         observed = {(r.listing_id, r.calendar_date, r.snapshot_date): {k:getattr(r,k) for k in (
             'listing_id','calendar_date','snapshot_date','status','is_available','price','minimum_stay')} for r in observations}
@@ -151,7 +158,7 @@ def _refresh(db, client, now):
         # history. Never relabel a retrospective read as a past observation.
         for listing_id in listing_ids:
             sanitized = []
-            windows = [(today, end)]
+            windows = [(today, end)] + [(month_shift(today, n), month_shift(today, n+1)) for n in range(4, 13)]
             # The source may restrict older calendar dates. Reservation history
             # remains available independently; failures never mean zero blocks.
             for offset in range(-23, 1):
@@ -198,6 +205,12 @@ def _refresh(db, client, now):
             metrics['care'] = prepare_care(care_rows, month, today, prop.timezone)
             db.merge(PerformanceMonth(property_id=prop.id, month=month, as_of=today, prepared_at=now, metrics=metrics))
             counts['months'] += 1
+            month = month_shift(month, 1)
+        month = start
+        while month < calendar_end:
+            db.merge(CalendarMonth(property_id=prop.id, month=month, prepared_at=now, source_fresh=fresh,
+                calendar=build_calendar(month, today, calendar_reservations, calendar)))
+            counts['calendar_months'] += 1
             month = month_shift(month, 1)
         db.commit()
         counts['properties'] += 1
