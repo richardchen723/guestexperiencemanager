@@ -13,7 +13,7 @@ from owner_portal.models import Account, Membership, Property, PropertyGrant, St
 
 bp = Blueprint('preview', __name__, url_prefix='/preview')
 OWNER_ROOT = Path(__file__).resolve().parents[2] / 'owner_portal'
-ASSETS = {'portal.css', 'appearance.js', 'preview.js', 'dashboard.css', 'dashboard.js', 'statement.css', 'statement.js'}
+ASSETS = {'portal.css', 'appearance.js', 'preview.js', 'dashboard.css', 'dashboard.js', 'statement.css', 'statement.js', 'calendar.css', 'calendar.js'}
 
 
 class PreviewAccess:
@@ -63,7 +63,7 @@ def portal_url(account_id, membership_id):
     def build(endpoint, **values):
         if endpoint == 'static':
             return url_for('owner_access.preview.asset', **values)
-        endpoint = {'dashboard_data': 'dashboard_data_route'}.get(endpoint, endpoint)
+        endpoint = {'dashboard_data': 'dashboard_data_route', 'calendar_data': 'calendar_data_route'}.get(endpoint, endpoint)
         return url_for('owner_access.preview.' + endpoint, account_id=account_id, membership_id=membership_id, **values)
     return build
 
@@ -80,7 +80,7 @@ def template_context(scope):
                               'back': url_for('owner_access.page', _anchor=f'owner={account_id}')}}
 
 
-def dashboard_data(scope):
+def dashboard_data(scope, *, calendar=False):
     try:
         account = int(request.args['account']) if 'account' in request.args else scope.account.id
         prop = int(request.args['property']) if request.args.get('property') not in (None, 'all') else None
@@ -91,7 +91,9 @@ def dashboard_data(scope):
         if isinstance(error, AccessError):
             raise
         raise AccessError('Choose a valid property and month.', 400) from None
-    return reporting.dashboard(scope.db, None, account_id=account, property_id=prop, month=month, access=scope)
+    from owner_portal.calendar import calendar_view
+    reader = calendar_view if calendar else reporting.dashboard
+    return reader(scope.db, None, account_id=account, property_id=prop, month=month, access=scope)
 
 
 @bp.errorhandler(AccessError)
@@ -133,6 +135,16 @@ def dashboard_data_route(account_id, membership_id=None):
         scope = PreviewAccess(db, account_id, membership_id)
         data = dashboard_data(scope)
         scope.audit('dashboard.previewed', month=data.get('month'), property_id=data.get('property_id'))
+        return jsonify(data)
+
+
+@bp.get('/<int:account_id>/api/calendar')
+@bp.get('/<int:account_id>/person/<int:membership_id>/api/calendar')
+def calendar_data_route(account_id, membership_id=None):
+    with get_session() as db:
+        scope = PreviewAccess(db, account_id, membership_id)
+        data = dashboard_data(scope, calendar=True)
+        scope.audit('calendar.previewed', month=data.get('month'), property_id=data.get('property_id'))
         return jsonify(data)
 
 

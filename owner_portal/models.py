@@ -1,4 +1,4 @@
-"""Additive owner-only schema; no staff identities, guests, or source payloads."""
+"""Additive owner-only schema; no staff identities, guest contacts, or source payloads."""
 from datetime import datetime, timezone
 
 from sqlalchemy import (Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey,
@@ -169,6 +169,16 @@ class CalendarObservation(Base):
     is_available = Column(Boolean)
     price = Column(Numeric(14, 2))
     minimum_stay = Column(Integer)
+
+
+class CalendarMonth(Base):
+    """Owner calendar projection: stay dates and display names, never contacts."""
+    __tablename__ = 'calendar_months'
+    property_id = Column(Integer, ForeignKey('owners.properties.id'), primary_key=True)
+    month = Column(Date, primary_key=True)
+    prepared_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    source_fresh = Column(Boolean, nullable=False)
+    calendar = Column(JSONB, nullable=False)
 
 
 class PublishedStatement(Base):

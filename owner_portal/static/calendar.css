@@ -1,0 +1,64 @@
+/* Shares the owner portal's Porcelain & Coral palette and control sizes. */
+#ov-calendar{--oc-guest-bg:light-dark(#f2d5ca,#6d423b);--oc-guest-ink:light-dark(#642d25,#fff1eb);--oc-owner-bg:light-dark(#e7e1ed,#494052);--oc-owner-ink:light-dark(#4d3d5e,#ede1f8);min-width:0}
+#owner-visual .oc-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#owner-visual .oc-note{font-size:12px;color:var(--muted);line-height:1.6}
+#owner-visual .oc-legend{display:flex;flex-wrap:wrap;gap:12px 20px;margin:18px 0;font-size:12px;color:var(--muted)}
+#owner-visual .oc-legend>span{display:flex;align-items:center;gap:7px}
+#owner-visual .oc-key{display:inline-block;width:12px;height:12px;border:1px solid var(--line);border-radius:3px}
+#owner-visual .oc-key-reservation{background:var(--oc-guest-bg);border-color:var(--accent-border)}
+#owner-visual .oc-key-owner{background:var(--oc-owner-bg)}
+#owner-visual .oc-state-booked{background:var(--accent-soft)}
+#owner-visual .oc-state-blocked,#owner-visual .oc-key-blocked{background:var(--soft)}
+#owner-visual .oc-state-unknown,#owner-visual .oc-key-unknown{background:repeating-linear-gradient(135deg,transparent,transparent 5px,var(--line) 5px,var(--line) 6px)}
+#owner-visual .oc-key-open{background:var(--surface)}
+#owner-visual .oc-month{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+#owner-visual .oc-weekdays,#owner-visual .oc-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+#owner-visual .oc-weekdays{background:var(--soft);font-size:12px;color:var(--muted);text-align:right}
+#owner-visual .oc-weekdays span{padding:12px}
+#owner-visual .oc-week{position:relative;border-top:1px solid var(--line)}
+#owner-visual .oc-day{min-width:0;border-right:1px solid var(--line);text-align:right;padding:6px 8px;font-size:12px}
+#owner-visual .oc-day:last-child{border-right:0}
+#owner-visual .oc-day-number{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;font-variant-numeric:tabular-nums}
+#owner-visual .oc-today .oc-day-number{background:var(--accent);color:var(--button-ink);font-weight:600}
+#owner-visual .oc-outside{background:var(--bg)}
+#owner-visual .oc-stay{position:absolute;height:25px;line-height:23px;border:1px solid var(--accent-border);border-radius:5px;padding:0 8px;background:var(--oc-guest-bg);color:var(--oc-guest-ink);font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;z-index:1}
+#owner-visual .oc-owner{background:var(--oc-owner-bg);color:var(--oc-owner-ink);border-color:var(--line)}
+#owner-visual .oc-scroll{overflow:auto;max-height:560px;border:1px solid var(--line);border-radius:12px;background:var(--surface);overscroll-behavior-x:contain;isolation:isolate;scrollbar-color:var(--muted) var(--soft)}
+#owner-visual .oc-scroll:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
+#owner-visual .oc-timeline{min-width:calc(164px + var(--oc-days)*38px)}
+#owner-visual .oc-timeline-header,#owner-visual .oc-timeline-row{display:grid;grid-template-columns:164px minmax(0,1fr)}
+#owner-visual .oc-timeline-header{position:sticky;top:0;z-index:4;background:var(--surface);box-shadow:0 1px var(--line)}
+#owner-visual .oc-property-heading{position:sticky;left:0;z-index:5;background:var(--soft);padding:18px 14px;border-right:1px solid var(--line);font-size:12px;color:var(--muted)}
+#owner-visual .oc-dates,#owner-visual .oc-track{display:grid;grid-template-columns:repeat(var(--oc-days),minmax(0,1fr))}
+#owner-visual .oc-dates .oc-day{text-align:center;padding:8px 0;background:var(--soft)}
+#owner-visual .oc-dates small{display:block;font-size:10px;color:var(--muted)}
+#owner-visual .oc-timeline-row+.oc-timeline-row{border-top:1px solid var(--line)}
+#owner-visual .oc-property{position:sticky;left:0;z-index:3;border:0;border-right:1px solid var(--line);border-radius:0;padding:16px 14px;background:var(--surface);text-align:left;font-size:13px;display:flex;align-items:center;justify-content:space-between;gap:8px;overflow-wrap:anywhere;min-height:84px}
+#owner-visual .oc-property:hover{background:var(--accent-soft)}
+#owner-visual .oc-property-arrow{color:var(--accent)}
+#owner-visual .oc-track{position:relative;min-width:0;min-height:84px}
+#owner-visual .oc-track-day{border-right:1px solid var(--line)}
+#owner-visual .oc-track-day:last-of-type{border-right:0}
+#owner-visual .oc-track-day.oc-today{box-shadow:inset 2px 0 var(--accent)}
+#owner-visual .oc-unavailable{grid-column:1/-1;padding:28px 16px;color:var(--muted);font-size:12px}
+#owner-visual .oc-scroll-hint{font-size:12px;color:var(--muted);margin:0 0 10px}
+#owner-visual .oc-reservations{margin-top:16px;border-bottom:1px solid var(--line)}
+#owner-visual .oc-reservations summary{min-height:48px;display:list-item;padding:12px 0;font-size:13px;width:fit-content;color:var(--accent)}
+#owner-visual .oc-stay-list{padding-bottom:16px}
+#owner-visual .oc-stay-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 20px;padding:14px 0;border-top:1px solid var(--line);font-size:13px;overflow-wrap:anywhere}
+#owner-visual .oc-stay-row strong{font-weight:500}
+#owner-visual .oc-stay-row span{color:var(--muted)}
+#owner-visual .oc-stay-row span:last-child{text-align:right;grid-column:-2/-1}
+#owner-visual .oc-footnote{margin-top:16px}
+#owner-visual .oc-empty{padding:48px 20px;text-align:center;border:1px solid var(--line);border-radius:12px;color:var(--muted);background:var(--surface)}
+#owner-visual .oc-warning{margin-bottom:16px;padding:12px 16px;border-radius:10px;border:1px solid var(--accent-border);background:var(--accent-soft);font-size:13px}
+@media(max-width:600px){
+ #owner-visual .oc-heading{display:block}#owner-visual .oc-heading .oc-note{margin-top:6px}
+ #owner-visual .oc-weekdays span{padding:10px 3px;text-align:center;font-size:11px}
+ #owner-visual .oc-day{padding:5px 2px}#owner-visual .oc-stay{font-size:11px;padding:0 4px}
+ #owner-visual .oc-timeline{min-width:calc(124px + var(--oc-days)*42px)}
+ #owner-visual .oc-timeline-header,#owner-visual .oc-timeline-row{grid-template-columns:124px minmax(0,1fr)}
+ #owner-visual .oc-property,#owner-visual .oc-property-heading{padding-left:12px;padding-right:10px}
+ #owner-visual .oc-stay-row{grid-template-columns:1fr auto;gap:4px 12px}
+ #owner-visual .oc-stay-row span:last-child{grid-column:1/-1;text-align:left}
+}
