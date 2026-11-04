@@ -1,5 +1,5 @@
 /* Owner dashboard: clear controls, quiet surfaces, and legible performance data. */
-main.dashboard-main{max-width:1200px;padding:28px 24px 40px}
+main.dashboard-main{max-width:1200px;padding:28px var(--owner-page-gutter) 40px}
 #owner-visual{
   --ov-bg:var(--bg);--ov-surface:var(--surface);--ov-ink:var(--ink);
   --ov-muted:var(--muted);--ov-line:var(--line);--ov-accent:var(--accent);
@@ -39,7 +39,7 @@ main.dashboard-main{max-width:1200px;padding:28px 24px 40px}
 #owner-visual .ov-period-shortcuts{display:flex;align-items:center;gap:16px}
 #owner-visual .ov-period-shortcuts button{border:0;border-radius:4px;background:transparent;color:var(--muted);padding:8px 0;min-height:44px;font-size:13px}
 #owner-visual .ov-period-shortcuts button:hover:not(:disabled){color:var(--accent);text-decoration:underline;text-underline-offset:4px}
-#owner-visual .ov-back{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0;margin-bottom:6px;border:0;border-radius:4px;background:transparent;color:var(--accent);font-size:13px}
+#owner-visual .ov-back{display:inline-flex;align-items:center;gap:8px;min-height:48px;padding:0;margin-bottom:6px;border:0;border-radius:4px;background:transparent;color:var(--accent);font-size:13px}
 #owner-visual .ov-back:hover{text-decoration:underline;text-underline-offset:4px}
 #owner-visual .ov-top{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}
 #owner-visual .ov-panel,#owner-visual .ov-units{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px;min-width:0}
@@ -64,7 +64,7 @@ main.dashboard-main{max-width:1200px;padding:28px 24px 40px}
 #owner-visual .ov-breakdown b{font-size:15px;font-weight:600;display:block;margin-top:4px;font-variant-numeric:tabular-nums}
 #owner-visual .ov-status-note{font-size:12px;color:var(--muted);margin-top:18px;line-height:1.6}
 #owner-visual .ov-data-notes{font-size:12px;color:var(--muted);margin-top:4px}
-#owner-visual .ov-data-notes summary{padding:8px 0;cursor:pointer;width:fit-content}
+#owner-visual .ov-data-notes summary{padding:12px 0;min-height:44px;cursor:pointer;width:fit-content}
 #owner-visual .ov-data-notes p{margin-top:8px;max-width:580px}
 #owner-visual .ov-occupancy-main{display:flex;align-items:center;gap:24px;margin:26px 0}
 #owner-visual .ov-ring{width:116px;height:116px;flex-shrink:0;position:relative}
@@ -116,22 +116,29 @@ main.dashboard-main{max-width:1200px;padding:28px 24px 40px}
 #owner-visual .ov-mini-track{height:5px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:8px}
 #owner-visual .ov-mini-track span{background:var(--ov-booked);display:block;height:100%}
 #owner-visual .ov-detail{margin-top:20px;padding:24px;border-radius:14px;background:var(--surface);border:1px solid var(--line);scroll-margin-top:24px}
-#owner-visual .ov-detail h2{margin-bottom:16px}
+#owner-visual .ov-detail-header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:4px}
+#owner-visual .ov-detail-header h2{min-width:0;margin:0}
 #owner-visual .ov-detail p{color:var(--muted);font-size:14px;margin-top:10px;max-width:780px}
-#owner-visual .ov-close{float:right;border:0;background:var(--soft);border-radius:8px;padding:10px 14px;min-height:44px;font-size:13px}
+#owner-visual .ov-close{flex-shrink:0;background:var(--soft);border:1px solid var(--line);border-radius:var(--owner-control-radius);padding:12px 16px;min-height:var(--owner-control-height);font-size:14px}
 #owner-visual .ov-request-status{font-size:12px;color:var(--ink)}
-#owner-visual .ov-request{padding:18px 0;border-bottom:1px solid var(--line)}
+#owner-visual .ov-request{padding:20px 0;border-bottom:1px solid var(--line)}
 #owner-visual .ov-request small{font-size:12px;color:var(--muted)}
 #owner-visual .ov-request-actions{display:flex;gap:12px;margin:16px 0;flex-wrap:wrap}
-#owner-visual .ov-request-actions button{background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:10px 14px;min-height:44px;color:var(--accent)}
+#owner-visual .ov-request-actions button{border:1px solid var(--line);border-radius:var(--owner-control-radius);padding:12px 16px;min-height:var(--owner-control-height);font-size:14px;background:var(--surface);color:var(--ink)}
+#owner-visual .ov-request-actions button[data-response=approved]{background:var(--button-bg);color:var(--button-ink);border-color:transparent}
+#owner-visual .ov-request-actions button:hover:not(:disabled){filter:brightness(.96)}
 #owner-visual .ov-outlook-title{margin-top:26px}
-#owner-visual .ov-outlook-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--line);font-size:13px}
+#owner-visual .ov-outlook-row{display:grid;grid-template-columns:100px minmax(0,1fr) auto;align-items:center;gap:12px;padding:16px 0;border-bottom:1px solid var(--line);font-size:13px}
+#owner-visual .ov-outlook-row:last-child{border-bottom:0;padding-bottom:0}
 #owner-visual .ov-outlook-row button{background:transparent;color:var(--accent);padding:10px;min-height:44px;font-size:13px}
-#owner-visual .ov-statement-row{border-bottom:1px solid var(--line);padding:24px 0;display:flex;justify-content:space-between;align-items:center;gap:24px}
+#owner-visual .ov-statement-row{border-bottom:1px solid var(--line);padding:24px 0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:12px 24px}
 #owner-visual .ov-statement-row:last-child{border:0;padding-bottom:0}
 #owner-visual .ov-statement-row h3{font-size:18px}
 #owner-visual .ov-statement-row p{font-size:13px;color:var(--muted);margin:6px 0}
-#owner-visual .ov-statement-row a{display:inline-block;padding:12px 0;min-height:44px}
+#owner-visual .ov-statement-row .owner-button{grid-column:1/-1;justify-self:start;color:var(--ink);font-size:14px}
+#owner-visual .ov-statement-row>div{min-width:0}
+#owner-visual .ov-statement-row h3,#owner-visual .ov-statement-row p{overflow-wrap:anywhere}
+#owner-visual .ov-statement-value{flex-shrink:0}
 #owner-visual .ov-statement-value{text-align:right;font-size:26px;font-variant-numeric:tabular-nums}
 #owner-visual .ov-empty{padding:32px 0 0;font-size:20px;letter-spacing:-.4px}
 #owner-visual .ov-method{margin-top:28px;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none}
@@ -169,12 +176,12 @@ main.dashboard-main{max-width:1200px;padding:28px 24px 40px}
   #owner-visual .ov-unit-head{display:none}
   #owner-visual .ov-unit-row{grid-template-columns:1fr 1fr;gap:10px 20px;padding:20px 0}
   #owner-visual .ov-unit-row h3{grid-column:1/-1}
-  #owner-visual .ov-unit-row button{padding-top:0;min-height:36px}
+  #owner-visual .ov-unit-row button{padding-top:0;min-height:44px}
   #owner-visual .ov-unit-row>small{display:none}
   #owner-visual .ov-unit-occupancy{align-self:center}
 }
 @media(max-width:560px){
-  main.dashboard-main{padding:16px 16px 28px}
+  main.dashboard-main{padding:16px var(--owner-page-gutter) 28px}
   #owner-visual h1{font-size:28px}
   #owner-visual .ov-nav{margin-bottom:22px}
   #owner-visual .ov-title{margin-bottom:16px;gap:16px}
@@ -200,9 +207,15 @@ main.dashboard-main{max-width:1200px;padding:28px 24px 40px}
   #owner-visual .ov-section-title{align-items:flex-start}
   #owner-visual .ov-section-title .ov-chip{max-width:36%}
   #owner-visual .ov-detail{padding:20px}
-  #owner-visual .ov-outlook-row{flex-wrap:wrap}
-  #owner-visual .ov-statement-row{display:block}
-  #owner-visual .ov-statement-value{text-align:left;margin-top:10px}
+  #owner-visual .ov-request-actions{flex-direction:column;gap:10px}
+  #owner-visual .ov-request-actions button{width:100%;justify-content:center}
+  #owner-visual .ov-outlook-row{grid-template-columns:minmax(0,1fr) auto;gap:4px 12px}
+  #owner-visual .ov-outlook-row>span{grid-column:1;grid-row:1}
+  #owner-visual .ov-outlook-row>strong{grid-column:1;grid-row:2}
+  #owner-visual .ov-outlook-row>button{grid-column:2;grid-row:1/3}
+  #owner-visual .ov-statement-row{grid-template-columns:1fr;gap:16px}
+  #owner-visual .ov-statement-row .owner-button{width:100%}
+  #owner-visual .ov-statement-value{text-align:left;margin-top:0}
   #owner-visual .ov-method{padding:0;border-radius:0}
   #owner-visual .ov-back{min-height:44px}
 }
