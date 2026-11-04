@@ -19,6 +19,7 @@ from sync.progress_tracker import get_progress_tracker
 from database.models import Listing, ListingPhoto, ListingTag, SyncLog, Tag, get_session, init_models
 from database.schema import get_database_path
 from config import STORE_PHOTO_METADATA, VERBOSE
+from sync.listing_timezone import resolve_listing_timezone
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -328,6 +329,7 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
         records_updated = 0
         records_deactivated = 0
         errors: List[str] = []
+        listing_stats = {}
         
         # Commit in batches to avoid database locking
         batch_count = 0
@@ -344,6 +346,18 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
                 
                 # Check if listing exists using lookup map
                 existing_listing = existing_listing_map.get(listing_id)
+                timezone_evidence = resolve_listing_timezone(
+                    listing_data,
+                    existing=getattr(existing_listing, 'timezone_name', None),
+                )
+                listing_stats[str(listing_id)] = {'timezone': timezone_evidence}
+                if timezone_evidence['issues']:
+                    logger.warning(
+                        "Listing %s timezone validation: %s (%s)",
+                        listing_id,
+                        timezone_evidence['status'],
+                        ', '.join(timezone_evidence['issues']),
+                    )
                 
                 # Prepare data
                 listing_dict = {
@@ -363,7 +377,7 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
                     'zipcode': listing_data.get('zipcode'),
                     'latitude': listing_data.get('latitude'),
                     'longitude': listing_data.get('longitude'),
-                    'timezone_name': listing_data.get('timezoneName'),
+                    'timezone_name': timezone_evidence['value'],
                     'base_price': listing_field_value(listing_data, 'price', 'basePrice'),
                     'currency': listing_data.get('currency'),
                     'check_in_time_start': listing_data.get('checkInTimeStart'),
@@ -475,9 +489,8 @@ def sync_listings(full_sync: bool = True, progress_tracker: Optional[Any] = None
         end_time = datetime.utcnow()
         duration = (end_time - start_time).total_seconds()
         
-        # For listings, we don't have per-listing stats (listings are the listings themselves)
-        # listing_stats will be populated by other sync types
-        listing_stats = {}  # Empty for listings sync
+        # Preserve per-listing timezone source/validation evidence. Numeric ID
+        # keys remain compatible with the existing sync-summary reader.
         
         sync_log = SyncLog(
             sync_run_id=sync_run_id,

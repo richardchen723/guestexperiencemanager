@@ -1,0 +1,13 @@
+[Unit]
+Description=Check whether the persisted operational KPI calculation is due
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1h
+AccuracySec=1min
+Unit=hostaway-operational-kpi.service
+# The command checks durable next_due_at; it aggregates only once per 48-hour
+# slot. Hourly checks are cheap and allow recovery after an interrupted worker.
+
+[Install]
+WantedBy=timers.target
